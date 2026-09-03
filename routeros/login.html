@@ -1,0 +1,43 @@
+<!doctype html>
+<!--
+  Lives on the router at /hotspot/login.html.
+
+  Its only job is to bounce the client to the WiFi Fiti portal, carrying
+  the four values only RouterOS knows: the device MAC, its leased IP, the
+  URL that performs the login, and where the user was heading.
+
+  EDIT THE PORTAL ADDRESS in both places below. While testing that is
+  your Mac's LAN address and port, e.g. http://192.168.0.75:3000
+
+  Keep this file small - the hAP lite has 16MB of flash and every
+  unauthenticated device loads it.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WiFi Fiti</title>
+<meta http-equiv="refresh" content="0; url=http://192.168.0.75:3000/?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)&error=$(error)">
+<style>
+  body{font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:#F2F4F8;color:#14171C;display:flex;height:100vh;margin:0;
+       align-items:center;justify-content:center;text-align:center;padding:20px}
+  a{color:#1B4DE4}
+</style>
+</head>
+<body>
+  <div>
+    <p>Inakupeleka kwa payment page…</p>
+    <p><a href="http://192.168.0.75:3000/?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)">Bonyeza hapa kama hakuna kitu</a></p>
+  </div>
+
+  <noscript>
+    <form action="$(link-login-only)" method="post">
+      <input type="hidden" name="dst" value="$(link-orig)">
+      <input type="text" name="username" placeholder="Username">
+      <input type="password" name="password" placeholder="Password">
+      <input type="submit" value="Sign in">
+    </form>
+  </noscript>
+</body>
+</html>

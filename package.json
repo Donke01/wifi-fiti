@@ -1,0 +1,19 @@
+{
+  "name": "wifi-fiti",
+  "version": "1.0.0",
+  "description": "M-Pesa hotspot billing for MikroTik RouterOS",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node test/run.js && node test/e2e.js && node test/dryrun.js && node test/poll.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1"
+  }
+}

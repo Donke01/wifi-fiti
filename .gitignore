@@ -1,0 +1,28 @@
+# Secrets. Never commit these.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Payment records and local database
+data/
+*.db
+*.db-wal
+*.db-shm
+*.backup
+*.rsc.bak
+
+# Dependencies
+node_modules/
+
+# Tooling binaries
+cloudflared
+cloudflared.tgz
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
