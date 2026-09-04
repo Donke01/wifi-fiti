@@ -165,6 +165,10 @@ app.post('/api/pay', async (req, res) => {
 const lastQueryAt = new Map();
 const QUERY_AFTER_MS = 6_000;
 const QUERY_EVERY_MS = 4_000;
+// Daraja can briefly return timeout/cancellation-looking results while the
+// handset prompt is still resolving. Success is safe to accept immediately;
+// a failure is only final after this grace window or via the callback.
+const QUERY_FAILURE_AFTER_MS = 3 * 60_000;
 
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60_000;
@@ -189,9 +193,11 @@ async function queryNow(tx) {
         resultCode: 0, resultDesc: q.resultDesc, receipt: null });
       console.log(`[status] confirmed ${id} on demand`);
       await fulfil(db.get.get(id));
-    } else {
+    } else if (age >= QUERY_FAILURE_AFTER_MS) {
       db.markResult.run({ checkoutRequestId: id, status: 'failed',
         resultCode: q.resultCode, resultDesc: q.resultDesc, receipt: null });
+    } else {
+      console.log(`[status] ${id} returned ${q.resultCode}; keeping pending during grace window`);
     }
   } catch (err) {
     console.warn(`[status] on-demand query failed for ${id}: ${err.message}`);
@@ -375,6 +381,8 @@ async function reconcile() {
         console.log(`[reconcile] recovered lost callback for ${tx.checkout_request_id}`);
         await fulfil(db.get.get(tx.checkout_request_id));
       } else {
+        const age = Date.now() - new Date(tx.created_at + 'Z').getTime();
+        if (!Number.isFinite(age) || age < QUERY_FAILURE_AFTER_MS) continue;
         db.markResult.run({
           checkoutRequestId: tx.checkout_request_id,
           status: 'failed',
