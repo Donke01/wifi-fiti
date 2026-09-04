@@ -107,6 +107,7 @@ db.exec(`
    ALTER, so we probe and ignore the duplicate-column error. */
 for (const stmt of [
   `ALTER TABLE accounts ADD COLUMN used_seconds INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE accounts ADD COLUMN last_mac TEXT`,
   `ALTER TABLE accounts ADD COLUMN last_seen_at TEXT`,
 ]) {
@@ -232,8 +233,16 @@ const rememberMac = db.prepare(`
 /** Usage comes from the router, which is the only thing that truly knows. */
 const recordUsage = db.prepare(`
   UPDATE accounts
-     SET used_seconds = @usedSeconds, last_seen_at = datetime('now')
+     SET used_seconds = @usedSeconds,
+         is_active    = @isActive,
+         last_seen_at = datetime('now')
    WHERE phone = @phone
+`);
+
+/** Seconds since the router last told us about this account. */
+const secondsSinceReport = db.prepare(`
+  SELECT CAST((julianday('now') - julianday(last_seen_at)) * 86400 AS INTEGER) AS age
+    FROM accounts WHERE phone = ?
 `);
 
 const addVoucher = db.prepare(`
@@ -316,6 +325,7 @@ module.exports = {
   accountByMac,
   rememberMac,
   recordUsage,
+  secondsSinceReport,
   addVoucher,
   getVoucher,
   claimVoucher,

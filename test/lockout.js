@@ -24,7 +24,7 @@ setTimeout(async () => {
   // Exactly Don's situation: router has logged 2h57m45s of use, but our
   // ledger is empty because it predates the accounts table.
   db.upsertAccount.run({ phone:'254748181876', totalSeconds:0, password:'ABC234' });
-  db.recordUsage.run({ phone:'254748181876', usedSeconds:10665 });
+  db.recordUsage.run({ phone:'254748181876', usedSeconds:10665, isActive:0 });
 
   await grantTime({ phone:'254748181876', seconds:3600, profile:'standard',
                     mac:null, ip:null, reason:'hr1 test' });
@@ -44,7 +44,7 @@ setTimeout(async () => {
 
   // And the ordinary case must be unaffected.
   db.upsertAccount.run({ phone:'254722000002', totalSeconds:10800, password:'BCD345' });
-  db.recordUsage.run({ phone:'254722000002', usedSeconds:600 });
+  db.recordUsage.run({ phone:'254722000002', usedSeconds:600, isActive:0 });
   await grantTime({ phone:'254722000002', seconds:3600, profile:'standard',
                     mac:null, ip:null, reason:'topup' });
   t('a normal top-up still just adds to the ledger', () => {

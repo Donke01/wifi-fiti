@@ -1,9 +1,15 @@
 # =====================================================================
 #  WiFi Fiti - router-side polling, usage reporting and acknowledgement
 #
-#  Every 10 seconds the router does ONE round trip that carries three
-#  things: which jobs it ran last cycle, how much time each customer has
-#  used, and a request for new work. Nothing inbound is ever opened.
+#  Every 10 seconds the router does ONE round trip that carries: which
+#  jobs it ran last cycle, how much time each customer has used, whether
+#  they are online right now, and a request for new work. Nothing inbound
+#  is ever opened.
+#
+#  The online flag matters for the balance page. Between reports a browsing
+#  customer is spending time the server cannot see, so without it someone
+#  checking their balance from mobile data - while a TV keeps streaming on
+#  their account - would be shown a figure that is quietly wrong.
 #
 #  WHY ACK RIDES THIS REQUEST
 #  An earlier version acknowledged jobs with a second fetch fired from
@@ -48,7 +54,9 @@
 \n    :local n [/ip hotspot user get \$u name]\r\
 \n    :local up [/ip hotspot user get \$u uptime]\r\
 \n    :local lim [/ip hotspot user get \$u limit-uptime]\r\
-\n    :set report (\$report . \$n . \":\" . [:tonum \$up] . \":\" . [:tonum \$lim] . \"\\n\")\r\
+\n    :local act 0\r\
+\n    :if ([:len [/ip hotspot active find where user=\$n]] > 0) do={ :set act 1 }\r\
+\n    :set report (\$report . \$n . \":\" . [:tonum \$up] . \":\" . [:tonum \$lim] . \":\" . \$act . \"\\n\")\r\
 \n  }\r\
 \n  :local sending \$fitiAck\r\
 \n  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite . \"&token=\" . \$fitiToken . \"&ack=\" . \$sending)\r\

@@ -37,7 +37,7 @@ setTimeout(async()=>{
 
   // Ledger behind the router, exactly as in production.
   db.upsertAccount.run({phone:'254748181876',totalSeconds:0,password:'ABC234'});
-  db.recordUsage.run({phone:'254748181876',usedSeconds:10665});
+  db.recordUsage.run({phone:'254748181876',usedSeconds:10665,isActive:0});
 
   const pay = await post('/api/pay',{packageId:'hr1',phone:'0748181876'});
   assert.strictEqual(pay.s,200);

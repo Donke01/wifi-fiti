@@ -87,17 +87,49 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason }) {
   return { username: phone, password, totalSeconds, queued: false };
 }
 
-/** What the portal shows a returning customer. */
+/**
+ * What the portal shows, from any network.
+ *
+ * The router only reports usage every 10 seconds, and a customer who is
+ * online is spending time in between. Reporting the last known figure
+ * would show a balance that is quietly wrong - most visibly when someone
+ * checks from mobile data while a TV keeps streaming on their account.
+ *
+ * So for accounts the router says are ONLINE we subtract the time since
+ * that report. Offline accounts are left alone: their balance genuinely
+ * is not moving, and guessing would only introduce error.
+ *
+ * The estimate is capped at two minutes of drift. If the router has gone
+ * quiet for longer than that we have no idea what happened, and steadily
+ * draining someone's balance on a hunch is worse than showing it frozen.
+ */
 function remainingFor(phone) {
   const a = db.getAccount.get(phone);
   if (!a) return null;
-  const remaining = Math.max(0, a.total_seconds - (a.used_seconds || 0));
+
+  const banked = Math.max(0, a.total_seconds - (a.used_seconds || 0));
+
+  let live = banked;
+  let estimated = false;
+
+  if (a.is_active && banked > 0) {
+    const row = db.secondsSinceReport.get(phone);
+    const age = row && Number.isFinite(row.age) ? Math.max(0, row.age) : 0;
+    const drift = Math.min(age, 120);
+    if (drift > 0) {
+      live = Math.max(0, banked - drift);
+      estimated = true;
+    }
+  }
+
   return {
     phone: a.phone,
     password: a.password,
     totalSeconds: a.total_seconds,
     usedSeconds: a.used_seconds || 0,
-    remainingSeconds: remaining,
+    remainingSeconds: live,
+    online: Boolean(a.is_active),
+    estimated,
   };
 }
 

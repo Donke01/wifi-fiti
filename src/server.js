@@ -342,6 +342,7 @@ app.get('/api/session', (req, res) => {
     password: info.password,
     remainingSeconds: info.remainingSeconds,
     totalSeconds: info.totalSeconds,
+    online: info.online,
   });
 });
 
@@ -363,6 +364,7 @@ app.post('/api/session/lookup', (req, res) => {
     username: info.phone,
     password: info.password,
     remainingSeconds: info.remainingSeconds,
+    online: info.online,
   });
 });
 
@@ -697,7 +699,12 @@ app.post('/api/router/sync', (req, res) => {
     if (!/^254[17]\d{8}$/.test(phone)) continue;
     if (!Number.isFinite(used) || used < 0) continue;
 
-    db.recordUsage.run({ phone, usedSeconds: Math.round(used) });
+    // Fourth field is "1" when the customer has a live session. Older
+    // routers send three fields; treat those as offline rather than
+    // guessing, so an out-of-date router cannot drain balances.
+    const isActive = parts.length > 3 && parts[3].trim() === '1' ? 1 : 0;
+
+    db.recordUsage.run({ phone, usedSeconds: Math.round(used), isActive });
     updated++;
   }
 
