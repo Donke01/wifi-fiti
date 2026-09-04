@@ -10,11 +10,11 @@
      WiFi Fiti — "crystal": a deep indigo field with slow prismatic
      light drifting behind frosted cards.
 
-     Two constraints shape every choice here. Customers are on cheap
-     Android phones, so the animation is three transform-driven layers
-     and nothing else — no blur filters, no backdrop-filter, both of
-     which crawl on low-end GPUs. And the walled garden blocks external
-     fonts before payment, so this is a system font stack throughout.
+     Customers are often on budget Android phones, so the background and
+     logo motion use inexpensive transforms. Glass blur is progressive:
+     browsers that cannot render it keep the translucent backgrounds.
+     The walled garden blocks external fonts before payment, so this uses
+     the device's system font stack throughout.
      ================================================================== */
   :root{
     --void:#080B18;
@@ -85,27 +85,39 @@
     to  {transform:translate3d(-4%,-3%,0) scale(1)}
   }
 
-  .wrap{max-width:440px;margin:0 auto;padding:0 16px 44px;position:relative}
+  .wrap{max-width:520px;margin:0 auto;padding:0 18px 54px;position:relative}
 
   /* ---- header ---- */
-  .bar{display:flex;align-items:center;gap:10px;padding:18px 2px 16px;margin-bottom:18px}
-  .bar svg{width:25px;height:25px;flex:none}
+  .bar{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:3px;padding:22px 2px 18px;margin-bottom:10px;text-align:center;
+  }
+  .brand-logo{
+    width:94px;height:94px;object-fit:contain;display:block;margin-bottom:2px;
+    filter:drop-shadow(0 14px 22px rgba(16,28,102,.45));
+    animation:logoFloat 4.8s ease-in-out infinite;
+  }
   .bar b{
-    font-size:16px;font-weight:680;letter-spacing:-.01em;
+    display:block;font-size:29px;line-height:1;font-weight:850;letter-spacing:-.045em;
     background:linear-gradient(92deg,var(--ice),var(--cyan) 55%,var(--magenta));
     -webkit-background-clip:text;background-clip:text;color:transparent;
   }
+  .brand-kicker{font-size:11px;font-weight:750;letter-spacing:.17em;text-transform:uppercase;color:var(--muted)}
+  @keyframes logoFloat{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-7px) rotate(1deg)}}
 
-  h1{font-size:23px;line-height:1.22;letter-spacing:-.025em;font-weight:680;margin:0 0 7px}
-  .sub{color:var(--muted);font-size:14px;margin:0 0 20px}
+  h1{font-size:clamp(28px,8vw,38px);line-height:1.08;letter-spacing:-.045em;font-weight:820;margin:0 0 10px;text-align:center}
+  .sub{color:#B5BFE0;font-size:16px;line-height:1.55;margin:0 0 24px;text-align:center}
   .eyebrow{
-    font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+    font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
     color:var(--dim);margin:0 0 10px;
   }
 
   /* ---- glass panels ---- */
   .glass{
-    background:var(--glass);border:1px solid var(--edge);border-radius:var(--r);
+    background:linear-gradient(145deg,rgba(255,255,255,.13),rgba(255,255,255,.045));
+    border:1px solid rgba(255,255,255,.2);border-radius:22px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 20px 50px rgba(0,0,0,.16);
+    -webkit-backdrop-filter:blur(18px) saturate(145%);backdrop-filter:blur(18px) saturate(145%);
   }
 
   /* ---- packages ---- */
@@ -115,7 +127,7 @@
   .plan input{position:absolute;opacity:0;width:1px;height:1px}
 
   .plan-face{
-    display:flex;align-items:center;gap:13px;padding:14px 15px;cursor:pointer;
+    display:flex;align-items:center;gap:15px;padding:18px 17px;cursor:pointer;
     transition:background .15s;
   }
   .plan input:checked + .plan-face{background:var(--glass-2)}
@@ -132,11 +144,11 @@
   }
 
   .plan-text{flex:1;min-width:0}
-  .plan-name{display:block;font-size:15px;font-weight:620}
-  .plan-note{display:block;font-size:12.5px;color:var(--dim);margin-top:1px}
+  .plan-name{display:block;font-size:17px;font-weight:750}
+  .plan-note{display:block;font-size:14px;color:var(--muted);margin-top:2px}
 
   .plan-price{
-    font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;
+    font-size:23px;font-weight:820;font-variant-numeric:tabular-nums;
     letter-spacing:-.025em;white-space:nowrap;
   }
   .plan-price small{font-size:10.5px;font-weight:600;color:var(--dim);margin-left:3px;letter-spacing:.04em}
@@ -147,14 +159,15 @@
 
   /* ---- inputs ---- */
   .field-row{margin-bottom:16px}
-  label{display:block;font-size:13px;font-weight:600;margin-bottom:7px}
+  label{display:block;font-size:15px;font-weight:700;margin-bottom:8px}
   .lab-note{font-weight:400;color:var(--dim)}
 
   input[type=tel],input[type=text]{
-    width:100%;font-family:var(--sans);font-size:16.5px;font-weight:500;
+    width:100%;font-family:var(--sans);font-size:18px;font-weight:600;
     letter-spacing:.02em;font-variant-numeric:tabular-nums;
-    padding:13px 14px;border:1px solid var(--edge);border-radius:var(--r);
-    background:rgba(255,255,255,.05);color:var(--ice);
+    padding:16px;border:1px solid rgba(255,255,255,.2);border-radius:17px;
+    background:rgba(6,10,30,.42);color:var(--ice);
+    -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
   }
   input:focus{
     outline:none;border-color:rgba(124,92,255,.75);
@@ -165,14 +178,21 @@
   /* ---- buttons ---- */
   .btn{
     display:block;width:100%;border:0;border-radius:var(--r);
-    font-family:var(--sans);font-size:16px;font-weight:660;letter-spacing:-.005em;
-    padding:15px;cursor:pointer;color:#fff;position:relative;overflow:hidden;
+    font-family:var(--sans);font-size:18px;font-weight:800;letter-spacing:-.01em;
+    padding:17px;cursor:pointer;color:#fff;position:relative;overflow:hidden;
+    box-shadow:0 14px 28px rgba(79,70,229,.3),inset 0 1px 0 rgba(255,255,255,.28);
   }
   .btn-main{
     background:linear-gradient(96deg,var(--indigo),var(--violet) 42%,var(--magenta));
     background-size:200% 100%;
     animation:sheen 7s ease-in-out infinite alternate;
   }
+  .btn-main::after{
+    content:"";position:absolute;inset:-100% auto -100% -35%;width:24%;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.52),transparent);
+    transform:rotate(18deg);animation:glint 4.5s ease-in-out infinite;
+  }
+  @keyframes glint{0%,68%{left:-40%}100%{left:135%}}
   @keyframes sheen{from{background-position:0% 50%}to{background-position:100% 50%}}
   .btn-main:hover:not(:disabled){filter:brightness(1.08)}
   .btn-main:active:not(:disabled){transform:translateY(1px)}
@@ -183,8 +203,9 @@
   .alt button{
     flex:1;min-width:calc(50% - 5px);
     background:var(--glass);border:1px solid var(--edge);border-radius:var(--r);
-    font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ice);
-    padding:11px 8px;cursor:pointer;transition:background .15s,border-color .15s;
+    font-family:var(--sans);font-size:14px;font-weight:700;color:var(--ice);
+    padding:13px 9px;cursor:pointer;transition:background .15s,border-color .15s,transform .15s;
+    -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
   }
   .alt button:hover{background:var(--glass-2);border-color:var(--edge-2)}
 
@@ -213,7 +234,7 @@
   }
   .session .eyebrow{color:var(--cyan);margin-bottom:6px}
   .clock{
-    font-size:32px;font-weight:700;letter-spacing:-.035em;
+    font-size:42px;font-weight:850;letter-spacing:-.045em;
     font-variant-numeric:tabular-nums;
     background:linear-gradient(100deg,var(--ice),var(--cyan) 70%);
     -webkit-background-clip:text;background-clip:text;color:transparent;
@@ -296,8 +317,14 @@
   .callout b{font-weight:660;color:var(--ice)}
 
   .screen{display:none}
-  .screen.on{display:block;animation:rise .3s ease}
-  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .screen.on{
+    display:block;animation:rise .45s cubic-bezier(.2,.8,.2,1);
+    padding:clamp(20px,5vw,30px);border:1px solid rgba(255,255,255,.15);border-radius:28px;
+    background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(255,255,255,.025));
+    box-shadow:0 28px 70px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.13);
+    -webkit-backdrop-filter:blur(22px) saturate(140%);backdrop-filter:blur(22px) saturate(140%);
+  }
+  @keyframes rise{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
 
   footer{
     text-align:center;font-size:12px;color:var(--dim);margin-top:28px;
@@ -306,6 +333,14 @@
 
   @media (prefers-reduced-motion: reduce){
     *{transition:none!important;animation:none!important}
+  }
+
+  @media (max-width:380px){
+    .wrap{padding-left:12px;padding-right:12px}
+    .screen.on{padding:19px 15px;border-radius:23px}
+    .brand-logo{width:80px;height:80px}
+    .bar b{font-size:26px}
+    .plan-face{padding:16px 13px}
   }
 </style>
 </head>
@@ -329,13 +364,9 @@
 <div class="wrap">
 
   <div class="bar">
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M2.6 8.9a14.5 14.5 0 0 1 18.8 0" stroke="url(#markGrad)" stroke-width="2.1" stroke-linecap="round"/>
-      <path d="M6.1 12.9a9.5 9.5 0 0 1 11.8 0" stroke="url(#markGrad)" stroke-width="2.1" stroke-linecap="round"/>
-      <path d="M9.6 16.9a4.7 4.7 0 0 1 4.8 0" stroke="url(#markGrad)" stroke-width="2.1" stroke-linecap="round"/>
-      <circle cx="12" cy="20.2" r="1.6" fill="#F062B4"/>
-    </svg>
+    <img class="brand-logo" src="/assets/wifi-fiti-logo.png" alt="WiFi Fiti logo" width="94" height="94">
     <b id="brand">WiFi Fiti</b>
+    <span class="brand-kicker">Connect. Pay. Enjoy.</span>
   </div>
 
   <!-- ============ ACTIVE ============ -->
