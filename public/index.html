@@ -668,6 +668,11 @@
           if (s.status === 'paid') { stopAll(); succeed(s); }
           else if (s.status === 'failed') {
             stopAll(); warn($('err'), s.reason || 'Payment was not completed.'); show('s-buy');
+          } else if (s.awaitingRouter) {
+            // Money is in. We are waiting on the router, so say so - this
+            // is the moment a customer would otherwise assume it failed.
+            $('wait-title').textContent = 'Payment received';
+            $('wait-line').textContent = 'Setting up your connection…';
           }
         }).catch(function () {});
     }, 3000);
@@ -679,7 +684,9 @@
     if (s.receipt) { $('c-receipt').textContent = s.receipt; $('r-receipt').hidden = false; }
     if (s.remainingSeconds) startCountdown(s.remainingSeconds, $('clock2'), true);
     show('s-done');
-    setTimeout(function () { signIn(s.username, s.password); }, 2400);
+    // No delay needed now: 'paid' means the router has already confirmed
+    // the account exists, so this login will be accepted.
+    setTimeout(function () { signIn(s.username, s.password); }, 600);
   }
 
   /* ---- voucher ---- */

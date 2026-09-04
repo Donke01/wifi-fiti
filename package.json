@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test/run.js && node test/e2e.js && node test/dryrun.js && node test/poll.js && node test/features.js && node test/devices.js && node test/lockout.js && node test/ack.js && node test/paypath.js && node test/balance.js && node test/ledger.js"
+    "test": "node test/run.js && node test/e2e.js && node test/dryrun.js && node test/poll.js && node test/features.js && node test/devices.js && node test/lockout.js && node test/ack.js && node test/paypath.js && node test/balance.js && node test/ledger.js && node test/autologin.js"
   },
   "engines": {
     "node": ">=22.5"

@@ -154,16 +154,28 @@ app.get('/api/status/:checkoutRequestId', (req, res) => {
 
   const payload = { status: tx.status };
 
-  if (tx.status === 'paid' && tx.provisioned) {
+  // In poll mode "provisioned" only means the job was queued. The router
+  // may not have created the user yet, so announcing success here makes
+  // the portal try to sign in with credentials that do not exist, fail,
+  // and bounce the customer back - which is why they had to press
+  // "Continue browsing" themselves a few seconds later. Wait for the ack.
+  const awaitingRouter =
+    config.provisionMode === 'poll' &&
+    tx.hotspot_username &&
+    db.unackedJobsFor.get(tx.hotspot_username).n > 0;
+
+  if (tx.status === 'paid' && tx.provisioned && !awaitingRouter) {
     payload.username = tx.hotspot_username;
     payload.password = tx.hotspot_password;
     payload.receipt = tx.mpesa_receipt;
     const info = remainingFor(tx.hotspot_username);
     if (info) payload.remainingSeconds = info.remainingSeconds;
   } else if (tx.status === 'paid') {
-    // Paid but the router did not take it yet. Keep the client waiting
-    // rather than showing a success screen that has no internet behind it.
+    // Paid, but the router has not applied it yet. Keep the customer on
+    // the waiting screen rather than showing success with no internet
+    // behind it.
     payload.status = 'pending';
+    payload.awaitingRouter = true;
   } else if (tx.status === 'failed') {
     payload.reason = friendlyFailure(tx.result_code, tx.result_desc);
   }

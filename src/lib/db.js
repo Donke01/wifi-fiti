@@ -338,6 +338,13 @@ function stats() {
   };
 }
 
+
+/** Work still owed to the router for this customer. While this is above
+ *  zero their credentials may not exist on the router yet. */
+const unackedJobsFor = db.prepare(`
+  SELECT COUNT(*) AS n FROM jobs WHERE username = ? AND acked_at IS NULL
+`);
+
 module.exports = {
   db,
   stats,
@@ -355,6 +362,7 @@ module.exports = {
   markDelivered,
   markAcked,
   purgeOldJobs,
+  unackedJobsFor,
   accountByMac,
   rememberMac,
   recordUsage,
