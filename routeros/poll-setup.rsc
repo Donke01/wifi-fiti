@@ -27,7 +27,7 @@
 # ---------------------------- SETTINGS -------------------------------
 :global fitiUrl   "https://wififiti.co.ke"
 :global fitiSite  "kitale-1"
-:global fitiToken "PASTE-THE-SITE-TOKEN-HERE"
+:global fitiToken "9b78677b065af1b0429c03ad2bf125b7aee6a27a3073d56f7d444c8a3f7149bf"
 # ---------------------------------------------------------------------
 
 /system script remove [find name="fiti-poll"]
