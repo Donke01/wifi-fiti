@@ -883,7 +883,7 @@
             return '<button class="drow" data-account-mac="' + esc(d.mac) + '">' +
               '<span><span class="dname">Device ' + (i + 1) + '</span><br>' +
               '<span class="dmac">' + esc(d.mac) + '</span></span>' +
-              '<span class="dmac">' + fmt(d.remainingSeconds) + '</span></button>';
+              '<span class="dmac">' + humanTime(d.remainingSeconds) + '</span></button>';
           }).join('');
           $('k-device-wrap').hidden = false;
           Array.prototype.forEach.call($('k-devices').querySelectorAll('[data-account-mac]'), function (btn) {
