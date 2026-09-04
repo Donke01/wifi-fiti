@@ -39,5 +39,12 @@ const { buildExpiryScript } = require('../src/lib/rsc');
   assert.ok(script.includes('disabled=yes') && script.includes('active remove'),
     'router must disconnect expired accounts');
 
-  console.log('\nWall-clock subscriptions\n  ok   expiry, offline countdown, top-up and router disconnect');
+  db.insert.run({ checkoutRequestId: 'recover-ios-1', merchantRequestId: 'm',
+    phone, packageId: 'hr1', amount: 10, seconds: 3600,
+    mac: 'AA:BB:CC:DD:EE:99', ip: '192.168.88.99' });
+  const recovered = db.latestPaymentForMac.get('AA:BB:CC:DD:EE:99');
+  assert.strictEqual(recovered.checkout_request_id, 'recover-ios-1',
+    'a captive portal reload must recover its pending checkout by MAC');
+
+  console.log('\nWall-clock subscriptions\n  ok   expiry, offline countdown, top-up, router disconnect and payment recovery');
 })();

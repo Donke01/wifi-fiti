@@ -568,6 +568,7 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var st = { checkoutId: null, poll: null, clock: null, countdown: null, resync: null };
+  var PENDING_KEY = 'wifiFitiPendingPayment';
   var ARC = 2 * Math.PI * 55;
   $('arc').style.strokeDasharray = ARC;
   $('year').textContent = new Date().getFullYear();
@@ -581,6 +582,33 @@
   function clear(el) { el.hidden = true; }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) {
     return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
+
+  function savePending(payment) {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(payment)); } catch (e) {}
+  }
+  function loadPending() {
+    try {
+      var payment = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
+      if (!payment || !payment.checkoutId ||
+          Date.now() - Number(payment.startedAt || 0) > 2 * 60 * 60 * 1000) {
+        localStorage.removeItem(PENDING_KEY);
+        return null;
+      }
+      return payment;
+    } catch (e) { return null; }
+  }
+  function clearPending() {
+    try { localStorage.removeItem(PENDING_KEY); } catch (e) {}
+  }
+
+  function resumePayment(payment) {
+    st.checkoutId = payment.checkoutId;
+    $('wait-title').textContent = 'Confirming payment';
+    $('wait-line').textContent = 'Your transaction is still processing. Keep this page open — we will connect you automatically.';
+    if (payment.phone) $('pb-account').textContent = payment.phone;
+    if (payment.amount) $('pb-amount').textContent = 'KES ' + payment.amount;
+    show('s-wait'); runClock(); startPolling();
+  }
 
   function humanTime(sec) {
     sec = Math.max(0, Math.floor(sec));
@@ -660,6 +688,7 @@
     return '254' + d.replace(/^0/, '');
   }
 
+  var restoringPayment = false;
   fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
     $('brand').textContent = cfg.brandName;
     if (cfg.supportPhone) $('foot').textContent = 'Support: ' + cfg.supportPhone;
@@ -671,8 +700,23 @@
         '<span class="plan-name">' + esc(p.name) + '</span></span>' +
         '<span class="plan-price">' + esc(p.price) + '<small>KES</small></span></span></label>';
     }).join('');
-    return MAC ? fetch('/api/session?mac=' + encodeURIComponent(MAC)) : null;
+    var saved = loadPending();
+    var recovery = saved ? Promise.resolve(saved) :
+      (MAC ? fetch('/api/payment/recover?mac=' + encodeURIComponent(MAC))
+        .then(function (r) { return r.json(); })
+        .then(function (x) { return x && x.found ? x : null; }) : Promise.resolve(null));
+
+    return recovery.then(function (payment) {
+      if (payment && payment.checkoutId) {
+        restoringPayment = true;
+        savePending(payment);
+        resumePayment(payment);
+        return null;
+      }
+      return MAC ? fetch('/api/session?mac=' + encodeURIComponent(MAC)) : null;
+    });
   }).then(function (r) { return r ? r.json() : null; }).then(function (s) {
+    if (restoringPayment) return;
     if (s && s.found && s.remainingSeconds > 0) {
       $('active-line').textContent = 'Number ' + s.phoneDisplay + '. Tap to continue.';
       startCountdown(s.remainingSeconds, $('clock'), s.online, s.username, s.expiresAt);
@@ -710,6 +754,8 @@
         $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
         if (!res.ok) return warn($('err'), res.body.error || 'Payment could not start.');
         st.checkoutId = res.body.checkoutRequestId;
+        savePending({ checkoutId: st.checkoutId, phone: phone.replace(/\D/g, ''),
+          amount: res.body.amount, startedAt: Date.now() });
         $('wait-line').textContent = 'Enter your M-Pesa PIN to pay KES ' + res.body.amount +
           ' from ' + res.body.phoneDisplay + '.';
         $('pb-account').textContent = phone.replace(/\D/g, '');
@@ -739,14 +785,19 @@
   }
   function startPolling() {
     var tries = 0; clearInterval(st.poll);
-    st.poll = setInterval(function () {
+    function checkStatus() {
       tries += 1;
-      if (tries > 60) { stopAll(); show('s-paybill'); return; }
-      fetch('/api/status/' + encodeURIComponent(st.checkoutId)).then(function (r) { return r.json(); })
-        .then(function (s) {
-          if (s.status === 'paid') { stopAll(); succeed(s); }
+      if (tries > 60) {
+        $('wait-title').textContent = 'Still confirming';
+        $('wait-line').textContent = 'Your transaction is still processing. You can safely reopen this page without losing it.';
+      }
+      fetch('/api/status/' + encodeURIComponent(st.checkoutId)).then(function (r) {
+        if (!r.ok) throw new Error('status ' + r.status);
+        return r.json();
+      }).then(function (s) {
+          if (s.status === 'paid') { clearPending(); stopAll(); succeed(s); }
           else if (s.status === 'failed') {
-            stopAll(); warn($('err'), s.reason || 'Payment was not completed.'); show('s-buy');
+            clearPending(); stopAll(); warn($('err'), s.reason || 'Payment was not completed.'); show('s-buy');
           } else if (s.awaitingRouter) {
             // Money is in. We are waiting on the router, so say so - this
             // is the moment a customer would otherwise assume it failed.
@@ -754,10 +805,13 @@
             $('wait-line').textContent = 'Setting up your connection…';
           }
         }).catch(function () {});
-    }, 2000);
+    }
+    checkStatus();
+    st.poll = setInterval(checkStatus, 2000);
   }
   function stopAll() { clearInterval(st.poll); clearInterval(st.clock); }
   function succeed(s) {
+    clearPending();
     $('c-user').textContent = s.username || '—';
     $('c-pass').textContent = s.password || '—';
     if (s.receipt) { $('c-receipt').textContent = s.receipt; $('r-receipt').hidden = false; }

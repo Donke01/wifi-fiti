@@ -213,7 +213,10 @@ app.get('/api/status/:checkoutRequestId', async (req, res) => {
   const awaitingRouter =
     config.provisionMode === 'poll' &&
     tx.hotspot_username &&
-    db.unackedJobsFor.get(tx.hotspot_username).n > 0;
+    db.unackedJobsForTotal.get({
+      username: tx.hotspot_username,
+      totalSeconds: db.getAccount.get(tx.hotspot_username)?.total_seconds || tx.seconds,
+    }).n > 0;
 
   if (tx.status === 'paid' && tx.provisioned && !awaitingRouter) {
     payload.username = tx.hotspot_username;
@@ -233,6 +236,24 @@ app.get('/api/status/:checkoutRequestId', async (req, res) => {
   }
 
   res.json(payload);
+});
+
+/** Captive portal assistants are disposable browser windows. iOS commonly
+ * closes one while the customer approves an STK prompt, and Android may
+ * recreate it after connectivity changes. Recover the server-side checkout
+ * by the MAC RouterOS placed in the portal URL. */
+app.get('/api/payment/recover', (req, res) => {
+  const mac = cleanMac(req.query.mac);
+  if (!mac) return res.json({ found: false });
+  const tx = db.latestPaymentForMac.get(mac);
+  if (!tx) return res.json({ found: false });
+  res.json({
+    found: true,
+    checkoutId: tx.checkout_request_id,
+    phone: tx.phone,
+    amount: tx.amount,
+    startedAt: new Date(tx.created_at.replace(' ', 'T') + 'Z').getTime(),
+  });
 });
 
 function friendlyFailure(code, desc) {

@@ -144,6 +144,18 @@ const get = db.prepare(
   `SELECT * FROM transactions WHERE checkout_request_id = ?`
 );
 
+/** Recover the checkout a captive-portal browser lost when iOS or Android
+ * closed its temporary window during the M-Pesa hand-off. */
+const latestPaymentForMac = db.prepare(`
+  SELECT checkout_request_id, phone, amount, status, created_at
+    FROM transactions
+   WHERE mac = ?
+     AND status IN ('pending', 'paid')
+     AND created_at > datetime('now', '-2 hours')
+   ORDER BY created_at DESC
+   LIMIT 1
+`);
+
 const markResult = db.prepare(`
   UPDATE transactions
      SET status = @status,
@@ -383,6 +395,14 @@ const unackedJobsFor = db.prepare(`
   SELECT COUNT(*) AS n FROM jobs WHERE username = ? AND acked_at IS NULL
 `);
 
+const unackedJobsForTotal = db.prepare(`
+  SELECT COUNT(*) AS n
+    FROM jobs
+   WHERE username = @username
+     AND total_seconds = @totalSeconds
+     AND acked_at IS NULL
+`);
+
 
 /** Seconds since we last asked Daraja about this payment, or null. */
 const querySpacing = db.prepare(`
@@ -416,6 +436,7 @@ module.exports = {
   stats,
   insert,
   get,
+  latestPaymentForMac,
   markResult,
   markProvisioned,
   stalePending,
@@ -430,6 +451,7 @@ module.exports = {
   markAcked,
   purgeOldJobs,
   unackedJobsFor,
+  unackedJobsForTotal,
   querySpacing,
   touchQuery,
   transactionAge,
