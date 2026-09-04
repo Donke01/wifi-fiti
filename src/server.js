@@ -148,9 +148,60 @@ app.post('/api/pay', async (req, res) => {
   }
 });
 
-app.get('/api/status/:checkoutRequestId', (req, res) => {
-  const tx = db.get.get(req.params.checkoutRequestId);
+/**
+ * Daraja's sandbox often never sends the callback, so the background sweep
+ * ends up doing the confirming - and its interval becomes the customer's
+ * wait. Since the portal is already polling this endpoint every 3 seconds,
+ * ask Daraja directly right here instead of waiting for the next sweep.
+ *
+ * Throttled per transaction so a customer refreshing does not hammer
+ * Safaricom, and only after 6s, which is longer than a prompt takes to
+ * answer but far shorter than the sweep.
+ */
+const lastQueryAt = new Map();
+const QUERY_AFTER_MS = 6_000;
+const QUERY_EVERY_MS = 4_000;
+
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60_000;
+  for (const [k, v] of lastQueryAt) if (v < cutoff) lastQueryAt.delete(k);
+}, 60_000).unref();
+
+async function queryNow(tx) {
+  const id = tx.checkout_request_id;
+  const age = Date.now() - new Date(tx.created_at + 'Z').getTime();
+  if (!Number.isFinite(age) || age < QUERY_AFTER_MS) return;
+
+  const last = lastQueryAt.get(id) || 0;
+  if (Date.now() - last < QUERY_EVERY_MS) return;
+  lastQueryAt.set(id, Date.now());
+
+  try {
+    const q = await mpesa.stkQuery(id);
+    if (!q.settled) return;
+
+    if (q.resultCode === 0) {
+      db.markResult.run({ checkoutRequestId: id, status: 'paid',
+        resultCode: 0, resultDesc: q.resultDesc, receipt: null });
+      console.log(`[status] confirmed ${id} on demand`);
+      await fulfil(db.get.get(id));
+    } else {
+      db.markResult.run({ checkoutRequestId: id, status: 'failed',
+        resultCode: q.resultCode, resultDesc: q.resultDesc, receipt: null });
+    }
+  } catch (err) {
+    console.warn(`[status] on-demand query failed for ${id}: ${err.message}`);
+  }
+}
+
+app.get('/api/status/:checkoutRequestId', async (req, res) => {
+  let tx = db.get.get(req.params.checkoutRequestId);
   if (!tx) return res.status(404).json({ error: 'Unknown request.' });
+
+  if (tx.status === 'pending') {
+    await queryNow(tx);
+    tx = db.get.get(req.params.checkoutRequestId);
+  }
 
   const payload = { status: tx.status };
 
@@ -806,8 +857,23 @@ app.post('/api/router/sync', (req, res) => {
     // routers send three fields; treat those as offline rather than
     // guessing, so an out-of-date router cannot drain balances.
     const isActive = parts.length > 3 && parts[3].trim() === '1' ? 1 : 0;
+    const usedNow = Math.round(used);
 
-    db.recordUsage.run({ phone, usedSeconds: Math.round(used), isActive });
+    // Usage going backwards means the router's counters were reset, or the
+    // user was recreated. The total still includes time the router has now
+    // forgotten, so without an adjustment the customer's remaining balance
+    // would jump up by however much they had already consumed.
+    const before = db.getAccount.get(phone);
+    if (before && usedNow < (before.used_seconds || 0)) {
+      const delta = (before.used_seconds || 0) - usedNow;
+      db.reduceTotal.run({ phone, delta });
+      console.log(
+        `[router] ${phone} counters reset (${before.used_seconds}s -> ${usedNow}s); ` +
+          `total reduced by ${delta}s to keep remaining time honest`
+      );
+    }
+
+    db.recordUsage.run({ phone, usedSeconds: usedNow, isActive });
     updated++;
   }
 

@@ -108,6 +108,8 @@ db.exec(`
 for (const stmt of [
   `ALTER TABLE accounts ADD COLUMN used_seconds INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE transactions ADD COLUMN last_query_at TEXT`,
+  `ALTER TABLE accounts ADD COLUMN purchased_seconds INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE accounts ADD COLUMN last_mac TEXT`,
   `ALTER TABLE accounts ADD COLUMN last_seen_at TEXT`,
 ]) {
@@ -186,6 +188,14 @@ const upsertAccount = db.prepare(`
     total_seconds = @totalSeconds,
     password      = @password,
     updated_at    = datetime('now')
+`);
+
+/** Lifetime seconds actually paid for. Used as a ceiling so a ledger
+ *  correction can never hand out more time than was bought. */
+const addPurchased = db.prepare(`
+  UPDATE accounts
+     SET purchased_seconds = purchased_seconds + @seconds
+   WHERE phone = @phone
 `);
 
 const addJob = db.prepare(`
@@ -345,6 +355,34 @@ const unackedJobsFor = db.prepare(`
   SELECT COUNT(*) AS n FROM jobs WHERE username = ? AND acked_at IS NULL
 `);
 
+
+/** Seconds since we last asked Daraja about this payment, or null. */
+const querySpacing = db.prepare(`
+  SELECT CAST((julianday('now') - julianday(last_query_at)) * 86400 AS INTEGER) AS age
+    FROM transactions WHERE checkout_request_id = ?
+`);
+
+const touchQuery = db.prepare(`
+  UPDATE transactions SET last_query_at = datetime('now')
+   WHERE checkout_request_id = ?
+`);
+
+/** Age of the payment itself, so we do not query one still in flight. */
+const transactionAge = db.prepare(`
+  SELECT CAST((julianday('now') - julianday(created_at)) * 86400 AS INTEGER) AS age
+    FROM transactions WHERE checkout_request_id = ?
+`);
+
+/** Counter resets on the router make usage go backwards. Pull the total
+ *  down by the same amount so the customer's remaining time is unchanged
+ *  rather than inflated by the reset. */
+const reduceTotal = db.prepare(`
+  UPDATE accounts
+     SET total_seconds = MAX(0, total_seconds - @delta),
+         updated_at = datetime('now')
+   WHERE phone = @phone
+`);
+
 module.exports = {
   db,
   stats,
@@ -357,12 +395,17 @@ module.exports = {
   isDuplicateReceipt,
   getAccount,
   upsertAccount,
+  addPurchased,
   addJob,
   pendingJobs,
   markDelivered,
   markAcked,
   purgeOldJobs,
   unackedJobsFor,
+  querySpacing,
+  touchQuery,
+  transactionAge,
+  reduceTotal,
   accountByMac,
   rememberMac,
   recordUsage,

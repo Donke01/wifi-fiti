@@ -527,7 +527,7 @@
   var LOGIN_URL = qs.get('link-login-only') || '', ORIG = qs.get('link-orig') || 'http://neverssl.com';
 
   var $ = function (id) { return document.getElementById(id); };
-  var st = { checkoutId: null, poll: null, clock: null, countdown: null };
+  var st = { checkoutId: null, poll: null, clock: null, countdown: null, resync: null };
   var ARC = 2 * Math.PI * 55;
   $('arc').style.strokeDasharray = ARC;
 
@@ -554,25 +554,78 @@
    * down while nobody is using it is a lie, and the first thing someone
    * notices is time vanishing overnight.
    */
-  function startCountdown(seconds, el, online) {
+  /**
+   * Ticks locally each second so the figure feels alive, and re-syncs with
+   * the server every 10s so it stays true.
+   *
+   * Two things this must get right. The re-sync has to run even when the
+   * balance is paused, because the customer may connect a device while
+   * watching this page - otherwise the number sits frozen and looks broken.
+   * And it has to work without a MAC, because someone checking their
+   * balance from mobile data has no hotspot parameters at all.
+   *
+   * Corrections only ever move the number DOWN. A small upward correction
+   * reads as credit being handed back, and on a reload it looked like the
+   * countdown had restarted.
+   */
+  function startCountdown(seconds, el, online, phone) {
     clearInterval(st.countdown);
-    var left = seconds;
-    el.innerHTML = humanTime(left);
+    clearInterval(st.resync);
 
-    var pulse = $('pulse');
-    if (pulse) {
-      pulse.hidden = false;
-      pulse.classList.toggle('live', !!online);
-      $('pulse-t').textContent = online ? 'Counting down' : 'Paused';
+    var left = seconds;
+    var live = !!online;
+
+    function paint() {
+      el.innerHTML = humanTime(left);
+      var pulse = $('pulse');
+      if (pulse && el.id === 'clock') {
+        pulse.hidden = false;
+        pulse.classList.toggle('live', live);
+        $('pulse-t').textContent = live ? 'Counting down' : 'Paused';
+      }
     }
 
-    if (!online) return;
+    function tick() {
+      clearInterval(st.countdown);
+      if (!live) return;
+      st.countdown = setInterval(function () {
+        left -= 1;
+        if (left <= 0) { clearInterval(st.countdown); left = 0; }
+        paint();
+      }, 1000);
+    }
 
-    st.countdown = setInterval(function () {
-      left -= 1;
-      if (left <= 0) { clearInterval(st.countdown); el.innerHTML = humanTime(0); return; }
-      el.innerHTML = humanTime(left);
-    }, 1000);
+    paint();
+    tick();
+
+    // Ask by MAC when we have one, otherwise by phone number.
+    var ask = function () {
+      if (MAC) {
+        return fetch('/api/session?mac=' + encodeURIComponent(MAC))
+          .then(function (r) { return r.json(); });
+      }
+      if (phone) {
+        return fetch('/api/session/lookup', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: phone })
+        }).then(function (r) { return r.json(); });
+      }
+      return Promise.resolve(null);
+    };
+
+    st.resync = setInterval(function () {
+      ask().then(function (s) {
+        if (!s) return;
+        if (!s.found) {
+          clearInterval(st.countdown); clearInterval(st.resync);
+          left = 0; live = false; paint();
+          return;
+        }
+        if (s.remainingSeconds < left) left = s.remainingSeconds;
+        if (Boolean(s.online) !== live) { live = Boolean(s.online); tick(); }
+        paint();
+      }).catch(function () { /* transient; keep ticking locally */ });
+    }, 10000);
   }
   function toMsisdn(local) {
     var d = String(local).replace(/\D/g, '');
@@ -596,7 +649,7 @@
   }).then(function (r) { return r ? r.json() : null; }).then(function (s) {
     if (s && s.found && s.remainingSeconds > 0) {
       $('active-line').textContent = 'Number ' + s.phoneDisplay + '. Tap to continue.';
-      startCountdown(s.remainingSeconds, $('clock'));
+      startCountdown(s.remainingSeconds, $('clock'), s.online, s.username);
       $('reconnect').onclick = function () {
         fetch('/api/session?mac=' + encodeURIComponent(MAC)).then(function (r) { return r.json(); })
           .then(function (x) { if (x.found) signIn(x.username, x.password); });
@@ -675,14 +728,14 @@
             $('wait-line').textContent = 'Setting up your connection…';
           }
         }).catch(function () {});
-    }, 3000);
+    }, 2000);
   }
   function stopAll() { clearInterval(st.poll); clearInterval(st.clock); }
   function succeed(s) {
     $('c-user').textContent = s.username || '—';
     $('c-pass').textContent = s.password || '—';
     if (s.receipt) { $('c-receipt').textContent = s.receipt; $('r-receipt').hidden = false; }
-    if (s.remainingSeconds) startCountdown(s.remainingSeconds, $('clock2'), true);
+    if (s.remainingSeconds) startCountdown(s.remainingSeconds, $('clock2'), true, s.username);
     show('s-done');
     // No delay needed now: 'paid' means the router has already confirmed
     // the account exists, so this login will be accepted.
@@ -726,7 +779,7 @@
       .then(function (s) {
         if (!s.found) return warn($('k-err'), 'No time on this number. Buy a package.');
         $('active-line').textContent = 'Number ' + s.phoneDisplay + '. Tap to continue.';
-        startCountdown(s.remainingSeconds, $('clock'), s.online);
+        startCountdown(s.remainingSeconds, $('clock'), s.online, s.username);
         $('reconnect').onclick = function () { signIn(s.username, s.password); };
         show('s-active');
       }).catch(function () { warn($('k-err'), 'Network problem.'); });

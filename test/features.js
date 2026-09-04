@@ -32,6 +32,7 @@ global.fetch = async (url, opts = {}) => {
 };
 
 require('../src/server');
+const db = require('../src/lib/db');
 
 const get = (p, h) => realFetch(`http://127.0.0.1:${PORT}${p}`, { headers: h })
   .then(async (r) => ({ s: r.status, b: await r.json().catch(() => null) }));
@@ -165,14 +166,20 @@ async function t(name, fn) {
     // urlencoded() used to claim the body first and hand back a
     // null-prototype object, making String(req.body) throw and every
     // sync return 500.
+    // Use a fresh account: an earlier test already drove this one's usage
+    // up, and reporting a LOWER figure here would look like a counter
+    // reset and trigger the balance adjustment, which is not what this
+    // test is about.
+    db.upsertAccount.run({ phone: '254733000077', totalSeconds: 10800, password: 'ABC234' });
+
     const r = await realFetch(
       `http://127.0.0.1:${PORT}/api/router/sync?site=kitale-1&token=tok-features-123`,
       { method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: '254722000001:1800:10800\n' }
+        body: '254733000077:1800:10800\n' }
     );
     assert.strictEqual(r.status, 200, 'urlencoded sync must not 500');
-    const s = await post('/api/session/lookup', { phone: '0722000001' });
+    const s = await post('/api/session/lookup', { phone: '0733000077' });
     assert.strictEqual(s.b.remainingSeconds, 9000, 'usage should have been recorded');
   });
 

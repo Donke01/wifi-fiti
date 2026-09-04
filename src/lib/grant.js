@@ -50,6 +50,7 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason }) {
   const password = account ? account.password : generateCode(6);
 
   db.upsertAccount.run({ phone, totalSeconds, password });
+  if (seconds > 0) db.addPurchased.run({ phone, seconds });
   if (mac) db.rememberMac.run({ phone, mac });
 
   if (config.provisionMode === 'poll') {
@@ -107,7 +108,14 @@ function remainingFor(phone) {
   const a = db.getAccount.get(phone);
   if (!a) return null;
 
-  const banked = Math.max(0, a.total_seconds - (a.used_seconds || 0));
+  // Hard ceiling: never show more than was actually paid for. When the
+  // ledger is behind the router we inflate total_seconds to clear existing
+  // usage, and without this cap that inflation would surface as free time.
+  const ceiling = a.purchased_seconds || a.total_seconds;
+  const banked = Math.min(
+    Math.max(0, a.total_seconds - (a.used_seconds || 0)),
+    ceiling
+  );
 
   let live = banked;
   let estimated = false;
