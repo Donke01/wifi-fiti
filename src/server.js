@@ -255,8 +255,21 @@ async function handleCallback(body) {
  * the callback never arrives, or it arrives while the router is unreachable.
  * This sweep covers both. It is not optional.
  */
+/**
+ * How long to wait before asking Daraja directly about a payment we have
+ * not had a callback for.
+ *
+ * The Daraja SANDBOX frequently never sends the callback at all, so in
+ * testing this sweep does all the work and its interval IS the customer's
+ * wait. 15s is comfortably longer than a prompt takes to answer, so we
+ * are not querying transactions that are still legitimately in flight,
+ * but short enough that nobody is left staring at a spinner.
+ */
+const STALE_AFTER_SECONDS = 15;
+const RECONCILE_EVERY_MS = 8_000;
+
 async function reconcile() {
-  for (const tx of db.stalePending.all(40)) {
+  for (const tx of db.stalePending.all(STALE_AFTER_SECONDS)) {
     try {
       const q = await mpesa.stkQuery(tx.checkout_request_id);
       if (!q.settled) continue;
@@ -297,7 +310,7 @@ async function reconcile() {
   }
 }
 
-setInterval(() => reconcile().catch((e) => console.error('[reconcile]', e)), 30_000).unref();
+setInterval(() => reconcile().catch((e) => console.error('[reconcile]', e)), RECONCILE_EVERY_MS).unref();
 
 /* ------------------------------------------------------------------ */
 /* Session: what does this customer already have?                      */

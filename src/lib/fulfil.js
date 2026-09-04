@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const db = require('./db');
 const mikrotik = require('./mikrotik');
+const { grantTime } = require('./grant');
 const { findPackage } = require('../packages');
 
 /** No 0/O/1/I/l - people read these off a screen and retype them. */
@@ -38,37 +39,29 @@ async function fulfil(tx) {
   // Poll mode: the server owns the ledger and queues work for whichever
   // router serves this site. We never reach into the router, so there is
   // nothing to expose and nothing to time out.
+  // Delegate to the one implementation of the top-up maths. This used to
+  // be a second copy living here, which drifted: the guard that stops a
+  // grant falling below the router's recorded usage was added to grant.js
+  // only, so vouchers and devices got it and actual payments did not.
   if (config.provisionMode === 'poll') {
-    const account = db.getAccount.get(username);
-    const previous = account ? account.total_seconds : 0;
-    const totalSeconds = previous + tx.seconds;
-    const pass = account ? account.password : password;
-
-    db.upsertAccount.run({ phone: username, totalSeconds, password: pass });
-
-    db.addJob.run({
-      site: config.site.id,
-      username,
-      password: pass,
+    const result = await grantTime({
+      phone: username,
+      seconds: tx.seconds,
       profile: pkg.profile,
-      totalSeconds,
       mac: tx.mac || null,
       ip: tx.ip || null,
+      reason: `${pkg.id} ${tx.mpesa_receipt || tx.checkout_request_id}`,
     });
 
     db.markProvisioned.run({
       checkoutRequestId: tx.checkout_request_id,
       username,
-      password: pass,
+      password: result.password,
     });
 
-    console.log(
-      `[fulfil] queued ${username} +${tx.seconds}s (${pkg.id}) ` +
-        `total=${totalSeconds}s site=${config.site.id}`
-    );
-
-    return { alreadyDone: false, username, password: pass, queued: true };
+    return { alreadyDone: false, username, password: result.password, queued: true };
   }
+
 
   // No router yet: complete the payment flow anyway so the M-Pesa side can
   // be tested on its own. The transaction is real and recorded; only the
