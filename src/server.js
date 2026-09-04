@@ -627,15 +627,9 @@ app.get('/api/router/jobs', (req, res) => {
   const jobs = db.pendingJobs.all(site);
   if (!jobs.length) return res.type('text/plain').send('');
 
-  const ackUrl =
-    `${config.publicUrl}/api/router/ack` +
-    `?site=${encodeURIComponent(site)}` +
-    `&token=${encodeURIComponent(config.site.token)}&ids=`;
-
   const { script, emitted, rejected } = buildScript({
     jobs,
     hotspotServer: config.site.hotspotServer,
-    ackUrl,
   });
 
   for (const id of emitted) db.markDelivered.run(id);
@@ -664,6 +658,17 @@ app.post('/api/router/sync', (req, res) => {
   const site = authSite(req, res);
   if (!site) return;
 
+  // Jobs the router ran last cycle. This replaces the old separate ack
+  // fetch, which failed silently and caused endless redelivery.
+  const acked = String(req.query.ack || '')
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .slice(0, 50);
+
+  for (const id of acked) db.markAcked.run(id, site);
+  if (acked.length) console.log(`[router] ${site} acked ${acked.join(', ')}`);
+
   // Defensive: if anything upstream ever hands us a non-string again,
   // degrade to "no usage reported" rather than throwing.
   const raw = typeof req.body === 'string' ? req.body : '';
@@ -688,13 +693,8 @@ app.post('/api/router/sync', (req, res) => {
   const jobs = db.pendingJobs.all(site);
   if (!jobs.length) return res.type('text/plain').send('');
 
-  const ackUrl =
-    `${config.publicUrl}/api/router/ack` +
-    `?site=${encodeURIComponent(site)}` +
-    `&token=${encodeURIComponent(config.site.token)}&ids=`;
-
   const { script, emitted, rejected } = buildScript({
-    jobs, hotspotServer: config.site.hotspotServer, ackUrl,
+    jobs, hotspotServer: config.site.hotspotServer,
   });
 
   for (const id of emitted) db.markDelivered.run(id);

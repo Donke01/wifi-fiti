@@ -98,7 +98,8 @@ async function buy(phone, pkg, mac, ip) {
     assert.ok(script.includes('limit-uptime=10800'), 'wrong duration');
     assert.ok(script.includes('mac-address=AA:BB:CC:DD:EE:01'), 'mac missing');
     assert.ok(script.includes('/ip hotspot user add'), 'no add branch');
-    assert.ok(script.includes('/api/router/ack'), 'no acknowledgement');
+    assert.ok(script.includes(':global fitiAck'), 'no acknowledgement marker');
+    assert.ok(!script.includes('/tool fetch'), 'script must not fetch on its own');
   });
 
   await t('a collected job is not handed out again straight away', async () => {

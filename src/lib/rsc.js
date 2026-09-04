@@ -78,7 +78,7 @@ function jobToScript(job, hotspotServer) {
  * Assemble the full response. Ends with an acknowledgement fetch so the
  * server learns the work landed; unacknowledged jobs are redelivered.
  */
-function buildScript({ jobs, hotspotServer, ackUrl }) {
+function buildScript({ jobs, hotspotServer }) {
   const blocks = [];
   const emitted = [];
   const rejected = [];
@@ -95,8 +95,20 @@ function buildScript({ jobs, hotspotServer, ackUrl }) {
 
   if (!blocks.length) return { script: '', emitted, rejected };
 
-  // Only reachable if every block above ran without throwing.
-  const ack = `:do { /tool fetch url="${ackUrl}${emitted.join(',')}" output=none keep-result=no } on-error={}`;
+  // Acknowledge by leaving the ids in a global that the next sync call
+  // carries back, rather than firing a second fetch from inside the
+  // parsed script.
+  //
+  // That second fetch was wrapped in on-error={} to stop a network blip
+  // aborting the provisioning above - which meant that when it failed it
+  // failed silently, the job was never acked, and the server redelivered
+  // it every 60 seconds. Each redelivery rewrote limit-uptime, so a
+  // customer who topped up watched their balance snap back to the old
+  // figure once a minute.
+  //
+  // Riding on the sync request removes the failure mode entirely: that
+  // connection is already proven, and the ack arrives within 10 seconds.
+  const ack = `:global fitiAck "${emitted.join(',')}"`;
 
   return { script: blocks.join('\n') + '\n' + ack + '\n', emitted, rejected };
 }
