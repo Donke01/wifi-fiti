@@ -821,10 +821,13 @@
     show('s-done');
     if (s.manualLogin) {
       $('done-title').textContent = 'Payment confirmed';
-      $('done-line').textContent = 'Your package is active. Tap below to connect.';
+      $('done-line').textContent = 'Your package is active. Connecting you automatically…';
       if (LOGIN_URL) {
         $('done-connect').hidden = false;
         $('done-connect').onclick = function () { signIn(s.username, s.password); };
+        // Give the customer time to see confirmation and the live countdown,
+        // then complete the RouterOS login without requiring another tap.
+        setTimeout(function () { signIn(s.username, s.password); }, 3000);
       }
     } else {
       $('done-title').textContent = "You're connected";
