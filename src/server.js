@@ -469,7 +469,7 @@ app.post('/api/session/lookup', (req, res) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Connect a TV or other device to an existing account                 */
+/* Connect one TV to an existing account                              */
 /* ------------------------------------------------------------------ */
 
 // A TV can't open a captive portal, so its owner registers its MAC here
@@ -521,7 +521,7 @@ app.post('/api/device/add', async (req, res) => {
       .map((d) => d.label || 'a device').join(', ');
     return res.status(409).json({
       error:
-        'Each subscription covers 2 devices — your phone and one more. ' +
+        'Each subscription covers your paying phone and one TV. ' +
         `You have already added ${owned}. Remove it below to connect something else.`,
       atLimit: true,
     });
@@ -529,18 +529,20 @@ app.post('/api/device/add', async (req, res) => {
 
   db.addDevice.run({ mac, phone, label });
 
-  // Queue a login for the TV's MAC under the owner's credentials. In poll
+  // Queue a login for the TV's MAC under a separate, MAC-bound identity. In poll
   // mode the router picks this up within its interval; the TV needs no
   // portal and no typing.
-  const pkg = pkgById('standard') || { profile: 'standard' };
-  await grantTime({
-    phone,
-    seconds: 0, // no time added - the device shares the owner's balance
-    profile: 'standard',
-    mac,
-    ip: null,
-    reason: `device ${label}`,
-  });
+  if (config.provisionMode === 'poll') {
+    db.addJob.run({
+      site: config.site.id,
+      username: `${phone}-tv`,
+      password: info.password,
+      profile: 'standard',
+      totalSeconds: info.totalSeconds,
+      mac,
+      ip: null,
+    });
+  }
 
   console.log(`[device] ${mac} (${label}) attached to ${phone}`);
 
@@ -569,7 +571,10 @@ app.post('/api/device/remove', (req, res) => {
   if (!phone || !/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) {
     return res.status(400).json({ error: 'Bad request.' });
   }
-  db.removeDevice.run({ mac, phone });
+  const removed = db.removeDevice.run({ mac, phone });
+  if (removed.changes && config.provisionMode === 'poll') {
+    db.revokeUser.run({ site: config.site.id, username: `${phone}-tv` });
+  }
   res.json({ ok: true });
 });
 
@@ -1016,6 +1021,28 @@ app.listen(config.port, () => {
     if (!config.site.token) {
       console.log('WARNING: SITE_TOKEN is empty - no router can collect jobs.');
     }
+    // Apply the new device locks to subscriptions that existed before this
+    // release. Jobs are absolute and idempotent, so doing this once per
+    // deployment is safe even if Railway restarts during delivery.
+    let migrated = 0;
+    for (const account of db.activeAccounts.all()) {
+      if (account.last_mac) {
+        db.addJob.run({
+          site: config.site.id, username: account.phone,
+          password: account.password, profile: 'standard',
+          totalSeconds: account.total_seconds, mac: account.last_mac, ip: null,
+        });
+        migrated++;
+      }
+      for (const device of db.devicesFor.all(account.phone)) {
+        db.addJob.run({
+          site: config.site.id, username: `${account.phone}-tv`,
+          password: account.password, profile: 'standard',
+          totalSeconds: account.total_seconds, mac: device.mac, ip: null,
+        });
+      }
+    }
+    if (migrated) console.log(`[devices] queued ${migrated} existing phone lock(s)`);
   } else if (!config.mikrotik.configured) {
     console.log(
       'No router configured - payments are processed and recorded, but ' +

@@ -52,8 +52,7 @@ const PACKAGES = [
 /**
  * Two devices per purchase, the paying phone included. So the devices
  * table holds at most one extra: phone + TV, or phone + laptop.
- * Keep this in step with `shared-users` on the RouterOS user profile,
- * or the router and the portal will disagree about what is allowed.
+ * Each device gets a separate MAC-bound router identity with shared-users=1.
  */
 const DEVICES_PER_ACCOUNT = 2;
 const EXTRA_DEVICES_ALLOWED = DEVICES_PER_ACCOUNT - 1;

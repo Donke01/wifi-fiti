@@ -70,6 +70,7 @@ db.exec(`
     total_seconds INTEGER NOT NULL,
     mac           TEXT,
     ip            TEXT,
+    action        TEXT NOT NULL DEFAULT 'upsert',
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     delivered_at  TEXT,
     acked_at      TEXT
@@ -115,6 +116,7 @@ for (const stmt of [
   `ALTER TABLE accounts ADD COLUMN last_seen_at TEXT`,
   `ALTER TABLE accounts ADD COLUMN expires_at TEXT`,
   `ALTER TABLE transactions ADD COLUMN auto_login INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE jobs ADD COLUMN action TEXT NOT NULL DEFAULT 'upsert'`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
@@ -230,8 +232,13 @@ const addPurchased = db.prepare(`
 `);
 
 const addJob = db.prepare(`
-  INSERT INTO jobs (site, username, password, profile, total_seconds, mac, ip)
-  VALUES (@site, @username, @password, @profile, @totalSeconds, @mac, @ip)
+  INSERT INTO jobs (site, username, password, profile, total_seconds, mac, ip, action)
+  VALUES (@site, @username, @password, @profile, @totalSeconds, @mac, @ip, 'upsert')
+`);
+
+const revokeUser = db.prepare(`
+  INSERT INTO jobs (site, username, password, profile, total_seconds, mac, ip, action)
+  VALUES (@site, @username, '2222', 'standard', 1, NULL, NULL, 'revoke')
 `);
 
 /** Undelivered, or delivered but unacknowledged for over a minute. */
@@ -283,6 +290,13 @@ const expiredAccounts = db.prepare(`
     FROM accounts
    WHERE expires_at IS NOT NULL
      AND expires_at <= datetime('now')
+`);
+
+const activeAccounts = db.prepare(`
+  SELECT phone, password, total_seconds, last_mac
+    FROM accounts
+   WHERE expires_at IS NOT NULL
+     AND expires_at > datetime('now')
 `);
 
 /** Usage comes from the router, which is the only thing that truly knows. */
@@ -453,6 +467,7 @@ module.exports = {
   upsertAccount,
   addPurchased,
   addJob,
+  revokeUser,
   pendingJobs,
   markDelivered,
   markAcked,
@@ -467,6 +482,7 @@ module.exports = {
   rememberMac,
   setExpiry,
   expiredAccounts,
+  activeAccounts,
   recordUsage,
   secondsSinceReport,
   paidTransactionsFor,

@@ -82,7 +82,7 @@ async function t(name, fn) {
   await t('allows only one extra device (phone counts as the second)', async () => {
     const r = await post('/api/device/add', { phone: '0712000001', mac: 'AABBCCDDEE03' });
     assert.strictEqual(r.s, 409, 'second extra device should be rejected');
-    assert.ok(/2 devices/.test(r.b.error), 'error should explain the limit: ' + r.b.error);
+    assert.ok(/phone and one TV/.test(r.b.error), 'error should explain the limit: ' + r.b.error);
     assert.ok(r.b.atLimit, 'should flag atLimit so the portal can react');
   });
 
@@ -98,6 +98,7 @@ async function t(name, fn) {
     const jobs = db.pendingJobs.all('kitale-1');
     const tvJob = jobs.find((j) => j.mac === 'AA:BB:CC:DD:EE:01');
     assert.ok(tvJob, 'a login job for the TV should be queued');
+    assert.strictEqual(tvJob.username, '254712000001-tv', 'TV needs its own locked identity');
     assert.strictEqual(db.getAccount.get('254712000001').total_seconds, before, 'balance must not change');
   });
 
@@ -109,6 +110,9 @@ async function t(name, fn) {
 
   await t('removing a device frees the slot again', async () => {
     await post('/api/device/remove', { phone: '0712000001', mac: 'AA:BB:CC:DD:EE:01' });
+    const revoke = db.pendingJobs.all('kitale-1')
+      .find((j) => j.username === '254712000001-tv' && j.action === 'revoke');
+    assert.ok(revoke, 'old TV access must be revoked on the router');
     const list = await post('/api/device/list', { phone: '0712000001' });
     assert.strictEqual(list.b.devices.length, 0);
     const r = await post('/api/device/add', { phone: '0712000001', mac: 'AABBCCDDEE09', label: 'Laptop' });

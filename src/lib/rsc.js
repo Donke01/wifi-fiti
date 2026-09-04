@@ -11,7 +11,7 @@
  */
 
 const PATTERNS = {
-  username: /^254[17]\d{8}$/,
+  username: /^254[17]\d{8}(?:-tv)?$/,
   password: /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4,12}$/,
   profile: /^[a-z0-9-]{1,20}$/,
   server: /^[A-Za-z0-9_-]{1,32}$/,
@@ -40,6 +40,13 @@ function safeSeconds(value) {
  */
 function jobToScript(job, hotspotServer) {
   const username = safe('username', job.username);
+  if (job.action === 'revoke') {
+    if (!username) return null;
+    return `:local u "${username}"\n` +
+      `:do { /ip hotspot active remove [find user=$u] } on-error={}\n` +
+      `:do { /ip hotspot cookie remove [find user=$u] } on-error={}\n` +
+      `:do { /ip hotspot user remove [find name=$u] } on-error={}`;
+  }
   const password = safe('password', job.password);
   const profile = safe('profile', job.profile);
   const server = safe('server', hotspotServer);
@@ -62,9 +69,19 @@ function jobToScript(job, hotspotServer) {
     `}`,
   ];
 
+  // A username is one physical-device slot. Binding it here means copied
+  // credentials cannot be used by a third phone or laptop.
+  if (mac) {
+    lines.splice(4, 0, `  /ip hotspot user set [find name=$u] mac-address=${mac}`);
+    lines[6] = `  /ip hotspot user add name=$u password=$p profile=${profile} limit-uptime=${seconds} server=${server} mac-address=${mac}`;
+  }
+
   // Auto-login is best effort. A failure here must not abort the script
   // and lose the provisioning above, hence the swallowed on-error.
-  if (mac || ip) {
+  // TVs have no useful captive-portal browser, so log their dedicated
+  // identity in as soon as it is provisioned. Phones with an IP are the
+  // legacy direct-login path; the current portal submits login itself.
+  if (ip || username.endsWith('-tv')) {
     const args = ['user=$u', 'password=$p'];
     if (mac) args.push(`mac-address=${mac}`);
     if (ip) args.push(`ip=${ip}`);
@@ -124,7 +141,10 @@ function buildExpiryScript(accounts) {
     blocks.push(
       `:local u "${username}"\n` +
       `:do { /ip hotspot active remove [find user=$u] } on-error={}\n` +
-      `:do { /ip hotspot user set [find name=$u] disabled=yes } on-error={}`
+      `:do { /ip hotspot user set [find name=$u] disabled=yes } on-error={}\n` +
+      `:local tv ($u . "-tv")\n` +
+      `:do { /ip hotspot active remove [find user=$tv] } on-error={}\n` +
+      `:do { /ip hotspot user set [find name=$tv] disabled=yes } on-error={}`
     );
   }
   return blocks.join('\n');

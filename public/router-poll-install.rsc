@@ -37,6 +37,14 @@
   :error "Set fitiUrl, fitiSite and fitiToken before importing"
 }
 
+# Enforce one physical device per MAC-bound identity and prevent ordinary
+# phone hotspot/tether forwarding by delivering client packets with TTL 1.
+/ip hotspot user profile set [find name="standard"] shared-users=1
+/ip firewall mangle remove [find comment="WiFi Fiti anti-tethering"]
+/ip firewall mangle add chain=postrouting out-interface=bridge-hs \
+  action=change-ttl new-ttl=set:1 passthrough=yes \
+  comment="WiFi Fiti anti-tethering"
+
 :global fitiAck ""
 
 /system script remove [find name="fiti-poll"]

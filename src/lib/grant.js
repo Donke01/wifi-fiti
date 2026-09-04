@@ -73,9 +73,25 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason, autoLogin =
       password,
       profile,
       totalSeconds,
-      mac: autoLogin ? (mac || null) : null,
+      // Always bind the paid phone to the MAC RouterOS supplied. `ip` is
+      // withheld during the confirmation screen to avoid closing captive
+      // portal mini-browsers before they can show success.
+      mac: mac || null,
       ip: autoLogin ? (ip || null) : null,
     });
+    // The optional TV has its own MAC-bound RouterOS identity. It shares
+    // the owner's wall-clock expiry, not a second pot of purchased time.
+    for (const device of db.devicesFor.all(phone)) {
+      db.addJob.run({
+        site: config.site.id,
+        username: `${phone}-tv`,
+        password,
+        profile,
+        totalSeconds,
+        mac: device.mac,
+        ip: null,
+      });
+    }
     console.log(
       `[grant] queued ${phone} +${seconds}s total=${totalSeconds}s (${reason})`
     );

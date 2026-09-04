@@ -500,16 +500,13 @@
   <!-- ============ ADD DEVICE ============ -->
   <section class="screen" id="s-tv">
     <h1>Connect your TV</h1>
-    <p class="sub">Each purchase covers 2 devices — your phone and one more.</p>
+    <p class="sub">Each purchase covers your paying phone and one TV.</p>
 
     <div class="callout">
-      <b>Laptop or second phone?</b> You don't need this page. Just connect to
-      WiFi Fiti on it, and when the sign-in page appears enter your number as the
-      username and the password from your receipt.
-      <br><br>
-      <b>Smart TV or decoder?</b> Those can't show a sign-in page, so add them here
+      <b>Smart TV or decoder?</b> Add it here
       using their MAC address. Find it under Settings &rarr; Network &rarr; About,
       or Network Status. It looks like AA:BB:CC:DD:EE:FF.
+      The extra slot is reserved for a TV and cannot be used as another phone slot.
     </div>
 
     <div class="err" id="t-err" hidden></div>
@@ -520,7 +517,7 @@
     </div>
 
     <div class="field-row">
-      <label for="t-mac">Device MAC address</label>
+      <label for="t-mac">TV MAC address</label>
       <input type="text" id="t-mac" autocapitalize="characters" autocomplete="off"
              spellcheck="false" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17">
     </div>
@@ -530,7 +527,7 @@
       <input type="text" id="t-label" autocomplete="off" placeholder="Living room TV" maxlength="24">
     </div>
 
-    <button class="btn btn-main" id="t-go">Connect this device</button>
+    <button class="btn btn-main" id="t-go">Connect this TV</button>
 
     <div id="t-list-wrap" hidden>
       <p class="eyebrow" style="margin-top:22px">Devices on your subscription</p>
@@ -925,7 +922,7 @@
       body: JSON.stringify({ phone: phone, mac: mac, label: label }) })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
       .then(function (res) {
-        $('t-go').disabled = false; $('t-go').textContent = 'Connect this device';
+        $('t-go').disabled = false; $('t-go').textContent = 'Connect this TV';
         loadDevices(toMsisdn(phone));
         if (!res.ok) {
           // At the limit, the list below is the actionable part - point at it.
@@ -937,7 +934,7 @@
         $('done-line').textContent = res.body.label + ' connected. It will be online within a minute.';
       })
       .catch(function () {
-        $('t-go').disabled = false; $('t-go').textContent = 'Connect this device';
+        $('t-go').disabled = false; $('t-go').textContent = 'Connect this TV';
         warn($('t-err'), 'Network problem. Try again.');
       });
   });

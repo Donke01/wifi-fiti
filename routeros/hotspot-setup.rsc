@@ -111,14 +111,22 @@ add name=hotspot1 interface=bridge-hs address-pool=hs-pool \
 
 # --- User profile -----------------------------------------------------
 #  rate-limit is upload/download per user.
-#  shared-users=1 stops one purchase covering a whole hostel; 2 lets a
-#  customer use a phone and a laptop.
+#  Each paid device gets its own MAC-bound user. shared-users=1 prevents
+#  copied credentials from opening another device slot.
 #  mac-cookie means a returning customer with time left skips the portal
 #  entirely - the single biggest UX win available here.
 /ip hotspot user profile
-add name=standard rate-limit=3M/3M shared-users=2 \
+add name=standard rate-limit=3M/3M shared-users=1 \
     add-mac-cookie=yes mac-cookie-timeout=1d \
     status-autorefresh=1m transparent-proxy=no
+
+# Give packets delivered to a customer a TTL of 1. The customer's own
+# device can use them, but a phone forwarding them to a tethered client
+# decrements the TTL to zero and drops them. This blocks ordinary hotspot
+# sharing; MAC/TTL spoofing can never be made impossible on consumer gear.
+/ip firewall mangle
+add chain=postrouting out-interface=bridge-hs action=change-ttl \
+    new-ttl=set:1 passthrough=yes comment="WiFi Fiti anti-tethering"
 
 # --- Walled garden ----------------------------------------------------
 #  An unauthenticated phone must reach the portal, or the payment flow

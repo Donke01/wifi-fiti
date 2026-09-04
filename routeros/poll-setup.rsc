@@ -34,6 +34,15 @@
 :global fitiToken "PASTE-THE-SITE-TOKEN-HERE"
 # ---------------------------------------------------------------------
 
+# One MAC-bound username may have only one active device. Also prevent a
+# connected phone from forwarding received internet packets to tethered
+# clients by delivering them with TTL 1.
+/ip hotspot user profile set [find name="standard"] shared-users=1
+/ip firewall mangle remove [find comment="WiFi Fiti anti-tethering"]
+/ip firewall mangle add chain=postrouting out-interface=bridge-hs \
+  action=change-ttl new-ttl=set:1 passthrough=yes \
+  comment="WiFi Fiti anti-tethering"
+
 :global fitiAck ""
 
 /system script remove [find name="fiti-poll"]
