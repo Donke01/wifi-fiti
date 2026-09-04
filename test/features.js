@@ -137,6 +137,28 @@ async function t(name, fn) {
     assert.strictEqual(r.b.found, false);
   });
 
+  await t('lists device balances when one number paid for several devices', async () => {
+    const expiry = new Date(Date.now() + 3600_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+    for (const [id, mac] of [
+      ['254744000001', 'AA:BB:CC:00:00:01'],
+      ['254744000001-A1B2C3D4', 'AA:BB:CC:00:00:02'],
+    ]) {
+      db.upsertAccount.run({ phone: id, totalSeconds: 3600, password: 'ABC234' });
+      db.setPayer.run({ phone: id, payerPhone: '254744000001' });
+      db.rememberMac.run({ phone: id, mac });
+      db.setExpiry.run({ phone: id, expiresAt: expiry });
+    }
+    const choices = await post('/api/session/lookup', { phone: '0744000001' });
+    assert.strictEqual(choices.b.multiple, true);
+    assert.deepStrictEqual(choices.b.devices.map((d) => d.mac).sort(),
+      ['AA:BB:CC:00:00:01', 'AA:BB:CC:00:00:02']);
+    const selected = await post('/api/session/lookup', {
+      phone: '0744000001', accountMac: 'AA:BB:CC:00:00:02',
+    });
+    assert.strictEqual(selected.b.found, true);
+    assert.strictEqual(selected.b.username, '254744000001-A1B2C3D4');
+  });
+
   console.log('\nRouter reporting with wall-clock subscriptions');
 
   await t('records usage without pausing or changing wall-clock expiry', async () => {

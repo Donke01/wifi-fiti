@@ -316,6 +316,8 @@
   .dname{font-weight:620}
   .drm{margin-left:auto;background:none;border:0;color:var(--danger);
     font-size:12px;font-weight:600;cursor:pointer;padding:4px}
+  #k-devices .drow{width:100%;justify-content:space-between;text-align:left;
+    color:inherit;background:transparent;border-left:0;border-right:0;border-bottom:0;cursor:pointer}
 
   .callout{
     border:1px solid rgba(56,189,248,.28);border-radius:var(--r);
@@ -494,6 +496,10 @@
       <input type="tel" id="k-phone" inputmode="numeric" placeholder="07XX XXX XXX" maxlength="15">
     </div>
     <button class="btn btn-main" id="k-go">Check</button>
+    <div id="k-device-wrap" hidden>
+      <p class="eyebrow" style="margin-top:22px">Choose the device balance</p>
+      <div class="devlist glass" id="k-devices"></div>
+    </div>
     <button class="link" id="k-back">Back</button>
   </section>
 
@@ -863,17 +869,36 @@
   $('a-more').addEventListener('click', function () { show('s-buy'); });
   $('k-go').addEventListener('click', function () {
     var phone = $('k-phone').value.trim(); clear($('k-err'));
+    $('k-device-wrap').hidden = true;
     if (phone.replace(/\D/g, '').length < 9) return warn($('k-err'), 'Enter a valid number.');
+    checkDeviceBalance(phone, null);
+  });
+
+  function checkDeviceBalance(phone, accountMac) {
     fetch('/api/session/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: phone, mac: MAC }) }).then(function (r) { return r.json(); })
+      body: JSON.stringify({ phone: phone, mac: MAC, accountMac: accountMac }) }).then(function (r) { return r.json(); })
       .then(function (s) {
+        if (s.multiple && s.devices && s.devices.length) {
+          $('k-devices').innerHTML = s.devices.map(function (d, i) {
+            return '<button class="drow" data-account-mac="' + esc(d.mac) + '">' +
+              '<span><span class="dname">Device ' + (i + 1) + '</span><br>' +
+              '<span class="dmac">' + esc(d.mac) + '</span></span>' +
+              '<span class="dmac">' + fmt(d.remainingSeconds) + '</span></button>';
+          }).join('');
+          $('k-device-wrap').hidden = false;
+          Array.prototype.forEach.call($('k-devices').querySelectorAll('[data-account-mac]'), function (btn) {
+            btn.onclick = function () { checkDeviceBalance(phone, btn.getAttribute('data-account-mac')); };
+          });
+          return;
+        }
         if (!s.found) return warn($('k-err'), s.error || 'No time on this device. Buy a package.');
+        $('k-device-wrap').hidden = true;
         $('active-line').textContent = 'Number ' + s.phoneDisplay + '. Tap to continue.';
         startCountdown(s.remainingSeconds, $('clock'), s.online, s.username, s.expiresAt);
         $('reconnect').onclick = function () { signIn(s.username, s.password); };
         show('s-active');
       }).catch(function () { warn($('k-err'), 'Network problem.'); });
-  });
+  }
 
   /* ---- devices ---- */
   function openTv() {

@@ -452,7 +452,9 @@ app.post('/api/session/lookup', (req, res) => {
     return res.status(400).json({ error: 'Weka namba sahihi, kama 0712 345 678.' });
   }
 
-  const requestedMac = cleanMac(req.body && req.body.mac);
+  // `accountMac` is an explicit choice from the multi-device picker.
+  // `mac` is the device currently viewing the captive portal.
+  const requestedMac = cleanMac(req.body && (req.body.accountMac || req.body.mac));
   let accountId = phone;
   if (requestedMac) {
     const bound = db.accountByMac.get(requestedMac);
@@ -465,7 +467,12 @@ app.post('/api/session/lookup', (req, res) => {
       return res.json({
         found: false,
         multiple: true,
-        error: 'This number paid for several devices. Check the balance from the device itself.',
+        devices: active
+          .filter((account) => account.last_mac)
+          .map((account) => ({
+            mac: account.last_mac,
+            remainingSeconds: remainingFor(account.phone).remainingSeconds,
+          })),
       });
     }
   }
