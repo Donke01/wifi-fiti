@@ -4,6 +4,10 @@ M-Pesa pay-as-you-go WiFi for a MikroTik hAP lite TC. A customer connects,
 picks a package, gets an STK prompt, enters their PIN, and is online. No
 vouchers, no manual verification, no screenshots on WhatsApp.
 
+Package durations are wall-clock subscriptions: time starts as soon as the
+payment is confirmed and continues whether the customer is online or offline.
+Refreshing the portal reads the same persisted expiry from the server.
+
 ```
                     ┌─────────────────────┐
    Safaricom  ──────▶  this app (public)  │  STK push + callback
@@ -94,7 +98,8 @@ Payment systems are mostly failure handling. What's covered:
 | Callback arrives, router is down | Payment is banked; a sweep retries provisioning |
 | Safaricom replays a callback | Transaction state and receipt both checked; no double credit |
 | Customer cancels / wrong PIN / no funds | Specific message, no charge, no provisioning |
-| Customer buys again with time left | Time is added to their balance, never overwritten |
+| Customer buys again with time left | The new package extends their existing expiry time |
+| Customer disconnects or refreshes | The wall-clock subscription continues and shows the same expiry |
 | Auto-login fails on a stubborn phone | Credentials still work and are shown on screen |
 
 The reconciliation sweep in `src/server.js` is not optional. Without it,

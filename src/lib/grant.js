@@ -49,7 +49,20 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason }) {
 
   const password = account ? account.password : generateCode(6);
 
+  // Packages are wall-clock subscriptions. A new purchase starts now; a
+  // top-up made before expiry extends the existing subscription. Keeping
+  // the absolute timestamp in SQLite makes the result independent of page
+  // refreshes, router usage reports, disconnects, and server restarts.
+  const now = Date.now();
+  const oldExpiry = account && account.expires_at
+    ? new Date(account.expires_at.replace(' ', 'T') + 'Z').getTime()
+    : 0;
+  const expiresAtMs = Math.max(now, Number.isFinite(oldExpiry) ? oldExpiry : 0)
+    + seconds * 1000;
+  const expiresAt = new Date(expiresAtMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+
   db.upsertAccount.run({ phone, totalSeconds, password });
+  db.setExpiry.run({ phone, expiresAt });
   if (seconds > 0) db.addPurchased.run({ phone, seconds });
   if (mac) db.rememberMac.run({ phone, mac });
 
@@ -66,7 +79,7 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason }) {
     console.log(
       `[grant] queued ${phone} +${seconds}s total=${totalSeconds}s (${reason})`
     );
-    return { username: phone, password, totalSeconds, queued: true };
+    return { username: phone, password, totalSeconds, expiresAt, queued: true };
   }
 
   await mikrotik.provisionUser({
@@ -85,7 +98,7 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason }) {
   }
 
   console.log(`[grant] ${phone} +${seconds}s total=${totalSeconds}s (${reason})`);
-  return { username: phone, password, totalSeconds, queued: false };
+  return { username: phone, password, totalSeconds, expiresAt, queued: false };
 }
 
 /**
@@ -108,6 +121,25 @@ function remainingFor(phone) {
   const a = db.getAccount.get(phone);
   if (!a) return null;
 
+  if (a.expires_at) {
+    const expiryMs = new Date(a.expires_at.replace(' ', 'T') + 'Z').getTime();
+    const remaining = Number.isFinite(expiryMs)
+      ? Math.max(0, Math.ceil((expiryMs - Date.now()) / 1000))
+      : 0;
+    return {
+      phone: a.phone,
+      password: a.password,
+      totalSeconds: a.total_seconds,
+      usedSeconds: a.used_seconds || 0,
+      remainingSeconds: remaining,
+      expiresAt: Number.isFinite(expiryMs) ? new Date(expiryMs).toISOString() : null,
+      online: Boolean(a.is_active),
+      estimated: false,
+    };
+  }
+
+  // Legacy accounts without an expiry retain the old usage-based balance
+  // until their next purchase migrates them to wall-clock subscriptions.
   // Hard ceiling: never show more than was actually paid for. When the
   // ledger is behind the router we inflate total_seconds to clear existing
   // usage, and without this cap that inflation would surface as free time.

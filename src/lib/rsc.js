@@ -113,4 +113,21 @@ function buildScript({ jobs, hotspotServer }) {
   return { script: blocks.join('\n') + '\n' + ack + '\n', emitted, rejected };
 }
 
-module.exports = { buildScript, jobToScript, safe, safeSeconds };
+/** Disable subscriptions whose wall-clock expiry has passed. The router
+ * polls every five seconds, so an expired customer is disconnected even if
+ * their browser is closed and their RouterOS uptime allowance is unused. */
+function buildExpiryScript(accounts) {
+  const blocks = [];
+  for (const account of accounts || []) {
+    const username = safe('username', account.phone);
+    if (!username) continue;
+    blocks.push(
+      `:local u "${username}"\n` +
+      `:do { /ip hotspot active remove [find user=$u] } on-error={}\n` +
+      `:do { /ip hotspot user set [find name=$u] disabled=yes } on-error={}`
+    );
+  }
+  return blocks.join('\n');
+}
+
+module.exports = { buildScript, buildExpiryScript, jobToScript, safe, safeSeconds };

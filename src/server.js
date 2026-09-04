@@ -221,6 +221,7 @@ app.get('/api/status/:checkoutRequestId', async (req, res) => {
     payload.receipt = tx.mpesa_receipt;
     const info = remainingFor(tx.hotspot_username);
     if (info) payload.remainingSeconds = info.remainingSeconds;
+    if (info && info.expiresAt) payload.expiresAt = info.expiresAt;
   } else if (tx.status === 'paid') {
     // Paid, but the router has not applied it yet. Keep the customer on
     // the waiting screen rather than showing success with no internet
@@ -404,6 +405,7 @@ app.get('/api/session', (req, res) => {
     username: info.phone,
     password: info.password,
     remainingSeconds: info.remainingSeconds,
+    expiresAt: info.expiresAt,
     totalSeconds: info.totalSeconds,
     online: info.online,
   });
@@ -427,6 +429,7 @@ app.post('/api/session/lookup', (req, res) => {
     username: info.phone,
     password: info.password,
     remainingSeconds: info.remainingSeconds,
+    expiresAt: info.expiresAt,
     online: info.online,
   });
 });
@@ -763,7 +766,7 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* ------------------------------------------------------------------ */
 
 const crypto = require('crypto');
-const { buildScript } = require('./lib/rsc');
+const { buildScript, buildExpiryScript } = require('./lib/rsc');
 
 /** Constant-time compare so the token cannot be guessed by timing. */
 function tokenOk(supplied) {
@@ -816,10 +819,9 @@ app.get('/api/router/jobs', (req, res) => {
 });
 
 /**
- * The router reports what it has actually used, then collects new work in
- * the same round trip. Usage lives on the router - it is the only thing
- * that counts real seconds - so without this the portal can only show
- * what was bought, never what is left.
+ * The router reports diagnostics and collects new work in the same round
+ * trip. Subscription time itself comes from the server's absolute expiry;
+ * the response also disconnects accounts whose expiry has passed.
  *
  * Body is plain text, one line per user: username:used:limit
  */
@@ -880,7 +882,8 @@ app.post('/api/router/sync', (req, res) => {
   if (updated) console.log(`[router] ${site} reported usage for ${updated} user(s)`);
 
   const jobs = db.pendingJobs.all(site);
-  if (!jobs.length) return res.type('text/plain').send('');
+  const expiryScript = buildExpiryScript(db.expiredAccounts.all());
+  if (!jobs.length) return res.type('text/plain').send(expiryScript);
 
   const { script, emitted, rejected } = buildScript({
     jobs, hotspotServer: config.site.hotspotServer,
@@ -892,7 +895,7 @@ app.post('/api/router/sync', (req, res) => {
   }
   if (emitted.length) console.log(`[router] ${site} collected job(s) ${emitted.join(', ')}`);
 
-  res.type('text/plain').send(script);
+  res.type('text/plain').send([expiryScript, script].filter(Boolean).join('\n'));
 });
 
 /** The router confirms it ran the work. Unacked jobs get redelivered. */

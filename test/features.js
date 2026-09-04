@@ -137,9 +137,9 @@ async function t(name, fn) {
     assert.strictEqual(r.b.found, false);
   });
 
-  console.log('\nUsage reporting');
+  console.log('\nRouter reporting with wall-clock subscriptions');
 
-  await t('records usage from the router and reduces remaining time', async () => {
+  await t('records usage without pausing or changing wall-clock expiry', async () => {
     const body = '254722000001:3600:10800\n';
     const r = await realFetch(
       `http://127.0.0.1:${PORT}/api/router/sync?site=kitale-1&token=tok-features-123`,
@@ -147,7 +147,7 @@ async function t(name, fn) {
     );
     assert.strictEqual(r.status, 200);
     const s = await post('/api/session/lookup', { phone: '0722000001' });
-    assert.strictEqual(s.b.remainingSeconds, 7200, 'should be 10800 - 3600');
+    assert.strictEqual(s.b.remainingSeconds, 10800, 'router usage must not replace wall-clock time');
   });
 
   await t('sync ignores junk lines without failing', async () => {
@@ -158,7 +158,7 @@ async function t(name, fn) {
     );
     assert.strictEqual(r.status, 200);
     const s = await post('/api/session/lookup', { phone: '0722000001' });
-    assert.strictEqual(s.b.remainingSeconds, 7200, 'junk should not have altered usage');
+    assert.strictEqual(s.b.remainingSeconds, 10800, 'junk should not have altered expiry');
   });
 
   await t('accepts the urlencoded content-type RouterOS actually sends', async () => {
@@ -199,14 +199,14 @@ async function t(name, fn) {
     assert.strictEqual(r.status, 403);
   });
 
-  await t('a fully used account reports no time left', async () => {
+  await t('router uptime cannot end a wall-clock subscription early', async () => {
     await realFetch(
       `http://127.0.0.1:${PORT}/api/router/sync?site=kitale-1&token=tok-features-123`,
       { method: 'POST', headers: { 'Content-Type': 'text/plain' },
         body: '254722000001:10800:10800\n' }
     );
     const s = await post('/api/session/lookup', { phone: '0722000001' });
-    assert.strictEqual(s.b.found, false, 'exhausted account should not look active');
+    assert.strictEqual(s.b.found, true, 'the subscription remains valid until its expiry');
   });
 
   console.log('\nPaybill fallback');

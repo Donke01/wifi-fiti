@@ -62,10 +62,10 @@ async function t(name, fn) {
     assert.strictEqual(s.remainingSeconds, 14400);
   });
 
-  await t('usage still reduces the balance normally', async () => {
+  await t('router usage does not change a wall-clock subscription', async () => {
     db.recordUsage.run({ phone: '254712000032', usedSeconds: 400, isActive: 0 });
     const s = await lookup('0712000032');
-    assert.strictEqual(s.remainingSeconds, 14000);
+    assert.strictEqual(s.remainingSeconds, 14400);
   });
 
   console.log(`\n${pass} passed, ${fails.length} failed`);

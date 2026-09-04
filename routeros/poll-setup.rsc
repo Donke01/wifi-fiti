@@ -2,14 +2,12 @@
 #  WiFi Fiti - router-side polling, usage reporting and acknowledgement
 #
 #  Every 5 seconds the router does ONE round trip that carries: which
-#  jobs it ran last cycle, how much time each customer has used, whether
-#  they are online right now, and a request for new work. Nothing inbound
-#  is ever opened.
+#  jobs it ran last cycle and a request for new work. The server also sends
+#  disconnect commands for wall-clock subscriptions that have expired.
+#  Nothing inbound is ever opened.
 #
-#  The online flag matters for the balance page. Between reports a browsing
-#  customer is spending time the server cannot see, so without it someone
-#  checking their balance from mobile data - while a TV keeps streaming on
-#  their account - would be shown a figure that is quietly wrong.
+#  Usage and online state are retained as diagnostics. Package expiry is
+#  controlled by the server's wall clock and does not pause when offline.
 #
 #  WHY ACK RIDES THIS REQUEST
 #  An earlier version acknowledged jobs with a second fetch fired from

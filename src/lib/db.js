@@ -112,9 +112,22 @@ for (const stmt of [
   `ALTER TABLE accounts ADD COLUMN purchased_seconds INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE accounts ADD COLUMN last_mac TEXT`,
   `ALTER TABLE accounts ADD COLUMN last_seen_at TEXT`,
+  `ALTER TABLE accounts ADD COLUMN expires_at TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
+
+// One-time migration for balances created by the earlier usage-based model.
+// Whatever time was still banked becomes a wall-clock subscription starting
+// at deployment, so an upgrade does not erase a customer's paid balance.
+db.exec(`
+  UPDATE accounts
+     SET expires_at = datetime(
+       'now', '+' || MAX(0, total_seconds - COALESCE(used_seconds, 0)) || ' seconds'
+     )
+   WHERE expires_at IS NULL
+     AND total_seconds > COALESCE(used_seconds, 0)
+`);
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_accounts_mac ON accounts(last_mac);`);
 
@@ -240,6 +253,20 @@ const rememberMac = db.prepare(`
    WHERE phone = @phone
 `);
 
+const setExpiry = db.prepare(`
+  UPDATE accounts
+     SET expires_at = @expiresAt,
+         updated_at = datetime('now')
+   WHERE phone = @phone
+`);
+
+const expiredAccounts = db.prepare(`
+  SELECT phone
+    FROM accounts
+   WHERE expires_at IS NOT NULL
+     AND expires_at <= datetime('now')
+`);
+
 /** Usage comes from the router, which is the only thing that truly knows. */
 const recordUsage = db.prepare(`
   UPDATE accounts
@@ -314,6 +341,7 @@ const devicesToKeepOnline = db.prepare(`
     FROM devices d
     JOIN accounts a ON a.phone = d.phone
    WHERE a.total_seconds > COALESCE(a.used_seconds, 0)
+     AND (a.expires_at IS NULL OR a.expires_at > datetime('now'))
 `);
 
 
@@ -408,6 +436,8 @@ module.exports = {
   reduceTotal,
   accountByMac,
   rememberMac,
+  setExpiry,
+  expiredAccounts,
   recordUsage,
   secondsSinceReport,
   paidTransactionsFor,
