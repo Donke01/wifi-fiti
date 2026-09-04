@@ -144,8 +144,7 @@
   }
 
   .plan-text{flex:1;min-width:0}
-  .plan-name{display:block;font-size:17px;font-weight:750}
-  .plan-note{display:block;font-size:14px;color:var(--muted);margin-top:2px}
+  .plan-name{display:block;font-size:20px;font-weight:800;letter-spacing:-.02em}
 
   .plan-price{
     font-size:23px;font-weight:820;font-variant-numeric:tabular-nums;
@@ -208,6 +207,16 @@
     -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
   }
   .alt button:hover{background:var(--glass-2);border-color:var(--edge-2)}
+  .action-btn{display:flex;align-items:center;justify-content:flex-start;gap:10px;text-align:left}
+  .action-icon{
+    width:31px;height:31px;border-radius:10px;display:grid;place-items:center;flex:none;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 6px 14px rgba(0,0,0,.18);
+  }
+  .action-icon svg{width:18px;height:18px;display:block}
+  .icon-voucher{color:#231700;background:linear-gradient(145deg,#FFE56A,#FFB92E)}
+  .icon-time{color:#051D2A;background:linear-gradient(145deg,#69E6FF,#38BDF8)}
+  .icon-tv{color:#fff;background:linear-gradient(145deg,#9B7BFF,#6D4DF4)}
+  .icon-paybill{color:#fff;background:linear-gradient(145deg,#71D15C,#25A94B)}
 
   .link{
     background:none;border:0;font-family:var(--sans);font-size:13.5px;font-weight:600;
@@ -327,9 +336,10 @@
   @keyframes rise{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
 
   footer{
-    text-align:center;font-size:12px;color:var(--dim);margin-top:28px;
+    text-align:center;font-size:13px;color:var(--muted);margin-top:28px;
     padding-top:16px;border-top:1px solid rgba(255,255,255,.08);
   }
+  .copyright{display:block;margin-top:4px;color:var(--dim);font-size:11.5px}
 
   @media (prefers-reduced-motion: reduce){
     *{transition:none!important;animation:none!important}
@@ -379,19 +389,18 @@
     </div>
     <button class="btn btn-main" id="reconnect">Continue browsing</button>
     <div class="alt">
-      <button id="a-tv">Add a device</button>
+      <button id="a-tv">Connect your TV</button>
       <button id="a-more">Buy more time</button>
     </div>
   </section>
 
   <!-- ============ BUY ============ -->
   <section class="screen on" id="s-buy">
-    <h1>Buy internet time</h1>
-    <p class="sub">Pay with M-Pesa. You're online as soon as payment clears.</p>
+    <h1>LIPA NA M-PESA</h1>
+    <p class="sub" style="font-weight:800;letter-spacing:.13em">CHOOSE PACKAGE</p>
 
     <div class="err" id="err" hidden></div>
 
-    <p class="eyebrow">Choose a package</p>
     <div class="plans glass" id="plans"></div>
 
     <div class="field-row">
@@ -399,13 +408,13 @@
       <input type="tel" id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX" maxlength="15">
     </div>
 
-    <button class="btn btn-main" id="pay">Pay with M-Pesa</button>
+    <button class="btn btn-main" id="pay">LIPA NA M-PESA</button>
 
     <div class="alt">
-      <button id="go-voucher">I have a voucher</button>
-      <button id="go-check">Check my time</button>
-      <button id="go-tv">Add a device</button>
-      <button id="go-paybill">Pay by Paybill</button>
+      <button class="action-btn" id="go-voucher"><span class="action-icon icon-voucher"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 0 6.5 10 2.5 2.5 0 0 0 4 12.5V16h16v-3.5a2.5 2.5 0 0 1 0-5V4H4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M13 6v8" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></svg></span><span>I have a voucher</span></button>
+      <button class="action-btn" id="go-check"><span class="action-icon icon-time"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="13" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l3 2M9 3h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Check my time</span></button>
+      <button class="action-btn" id="go-tv"><span class="action-icon icon-tv"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="m9 3 3 3 3-3M9 21h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Connect your TV</span></button>
+      <button class="action-btn" id="go-paybill"><span class="action-icon icon-paybill"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7h14v10H5z" stroke="currentColor" stroke-width="2"/><path d="M8 12h8M12 9v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><span>Lipa na Paybill</span></button>
     </div>
 
     <div class="trust">
@@ -489,7 +498,7 @@
 
   <!-- ============ ADD DEVICE ============ -->
   <section class="screen" id="s-tv">
-    <h1>Add a device</h1>
+    <h1>Connect your TV</h1>
     <p class="sub">Each purchase covers 2 devices — your phone and one more.</p>
 
     <div class="callout">
@@ -532,7 +541,7 @@
 
   <!-- ============ PAYBILL ============ -->
   <section class="screen" id="s-paybill">
-    <h1>Pay by Paybill</h1>
+    <h1>Lipa na Paybill</h1>
     <p class="sub">If the prompt didn't arrive, pay from the M-Pesa menu instead.</p>
     <div class="paybill glass">
       <div class="row"><span class="row-k">Paybill</span><span class="row-v" id="pb-shortcode">—</span></div>
@@ -547,7 +556,7 @@
     <button class="link" id="pb-back">Back</button>
   </section>
 
-  <footer id="foot"></footer>
+  <footer><span id="foot"></span><span class="copyright">&copy; <span id="year"></span> WiFi Fiti. All rights reserved.</span></footer>
 </div>
 
 <script>
@@ -561,6 +570,7 @@
   var st = { checkoutId: null, poll: null, clock: null, countdown: null, resync: null };
   var ARC = 2 * Math.PI * 55;
   $('arc').style.strokeDasharray = ARC;
+  $('year').textContent = new Date().getFullYear();
 
   function show(id) {
     ['s-active','s-buy','s-wait','s-done','s-voucher','s-check','s-tv','s-paybill']
@@ -658,8 +668,7 @@
       return '<label class="plan"><input type="radio" name="pkg" value="' + esc(p.id) +
         '" data-price="' + esc(p.price) + '"' + (i === 2 ? ' checked' : '') + '>' +
         '<span class="plan-face"><span class="pip"></span><span class="plan-text">' +
-        '<span class="plan-name">' + esc(p.name) + '</span>' +
-        '<span class="plan-note">' + esc(p.detail) + '</span></span>' +
+        '<span class="plan-name">' + esc(p.name) + '</span></span>' +
         '<span class="plan-price">' + esc(p.price) + '<small>KES</small></span></span></label>';
     }).join('');
     return MAC ? fetch('/api/session?mac=' + encodeURIComponent(MAC)) : null;
@@ -693,12 +702,12 @@
     clear($('err'));
     if (!chosen) return warn($('err'), 'Choose a package first.');
     if (phone.replace(/\D/g, '').length < 9) return warn($('err'), 'Enter your M-Pesa number, e.g. 0712 345 678.');
-    $('pay').disabled = true; $('pay').textContent = 'Sending…';
+    $('pay').disabled = true; $('pay').textContent = 'SENDING…';
     fetch('/api/pay', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ packageId: chosen.value, phone: phone, mac: MAC, ip: IP }) })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
       .then(function (res) {
-        $('pay').disabled = false; $('pay').textContent = 'Pay with M-Pesa';
+        $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
         if (!res.ok) return warn($('err'), res.body.error || 'Payment could not start.');
         st.checkoutId = res.body.checkoutRequestId;
         $('wait-line').textContent = 'Enter your M-Pesa PIN to pay KES ' + res.body.amount +
@@ -708,7 +717,7 @@
         show('s-wait'); runClock(); startPolling();
       })
       .catch(function () {
-        $('pay').disabled = false; $('pay').textContent = 'Pay with M-Pesa';
+        $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
         warn($('err'), 'Network problem. Try again.');
       });
   });
