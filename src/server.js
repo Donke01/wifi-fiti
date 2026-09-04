@@ -128,6 +128,10 @@ app.post('/api/pay', async (req, res) => {
       mac: cleanMac(mac),
       ip: cleanIp(ip),
     });
+    // Captive portal windows close when RouterOS force-logs a device in.
+    // Provision first, then let the customer tap Connect now so they see
+    // confirmation and their countdown instead of an apparent crash.
+    db.requireManualLogin.run(checkoutRequestId);
 
     console.log(
       `[pay] ${phone} ${pkg.id} KES${pkg.price} -> ${checkoutRequestId}`
@@ -204,6 +208,7 @@ app.get('/api/status/:checkoutRequestId', async (req, res) => {
   }
 
   const payload = { status: tx.status };
+  payload.manualLogin = tx.auto_login === 0;
 
   // In poll mode "provisioned" only means the job was queued. The router
   // may not have created the user yet, so announcing success here makes

@@ -50,6 +50,7 @@ async function fulfil(tx) {
       profile: pkg.profile,
       mac: tx.mac || null,
       ip: tx.ip || null,
+      autoLogin: tx.auto_login !== 0,
       reason: `${pkg.id} ${tx.mpesa_receipt || tx.checkout_request_id}`,
     });
 

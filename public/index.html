@@ -442,14 +442,14 @@
     <ol class="steps glass">
       <li>An M-Pesa prompt appears on your phone</li>
       <li>Enter your PIN and confirm</li>
-      <li>We connect you automatically</li>
+      <li>Tap Connect now to start browsing</li>
     </ol>
     <button class="link" id="cancel">Cancel</button>
   </section>
 
   <!-- ============ DONE ============ -->
   <section class="screen mid" id="s-done">
-    <h1>You're connected</h1>
+    <h1 id="done-title">You're connected</h1>
     <p class="sub" id="done-line">Payment received.</p>
     <div class="session" style="text-align:left">
       <p class="eyebrow">Time remaining</p>
@@ -462,6 +462,7 @@
       <div class="row" id="r-receipt" hidden><span class="row-k">M-Pesa</span><span class="row-v" id="c-receipt">—</span></div>
     </div>
     <p class="note">Use these to sign in on a laptop, or if you disconnect. You won't pay twice.</p>
+    <button class="btn btn-main" id="done-connect" hidden>Connect now</button>
     <button class="link" id="done-tv">Add a TV or decoder</button>
   </section>
 
@@ -816,10 +817,19 @@
     $('c-pass').textContent = s.password || '—';
     if (s.receipt) { $('c-receipt').textContent = s.receipt; $('r-receipt').hidden = false; }
     if (s.remainingSeconds) startCountdown(s.remainingSeconds, $('clock2'), true, s.username, s.expiresAt);
+    $('done-connect').hidden = true;
     show('s-done');
-    // No delay needed now: 'paid' means the router has already confirmed
-    // the account exists, so this login will be accepted.
-    setTimeout(function () { signIn(s.username, s.password); }, 600);
+    if (s.manualLogin) {
+      $('done-title').textContent = 'Payment confirmed';
+      $('done-line').textContent = 'Your package is active. Tap below to connect.';
+      if (LOGIN_URL) {
+        $('done-connect').hidden = false;
+        $('done-connect').onclick = function () { signIn(s.username, s.password); };
+      }
+    } else {
+      $('done-title').textContent = "You're connected";
+      setTimeout(function () { signIn(s.username, s.password); }, 600);
+    }
   }
 
   /* ---- voucher ---- */

@@ -21,7 +21,7 @@ function generateCode(length) {
  * Returns the account's new absolute total. Callers must have already
  * established that the money is real.
  */
-async function grantTime({ phone, seconds, profile, mac, ip, reason }) {
+async function grantTime({ phone, seconds, profile, mac, ip, reason, autoLogin = true }) {
   const account = db.getAccount.get(phone);
   const previous = account ? account.total_seconds : 0;
   const alreadyUsed = account ? (account.used_seconds || 0) : 0;
@@ -73,8 +73,8 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason }) {
       password,
       profile,
       totalSeconds,
-      mac: mac || null,
-      ip: ip || null,
+      mac: autoLogin ? (mac || null) : null,
+      ip: autoLogin ? (ip || null) : null,
     });
     console.log(
       `[grant] queued ${phone} +${seconds}s total=${totalSeconds}s (${reason})`
@@ -92,7 +92,7 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason }) {
   });
 
   try {
-    await mikrotik.forceLogin({ username: phone, password, mac, ip });
+    if (autoLogin) await mikrotik.forceLogin({ username: phone, password, mac, ip });
   } catch (err) {
     console.warn(`[grant] auto-login failed for ${phone}: ${err.message}`);
   }

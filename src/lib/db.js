@@ -33,6 +33,7 @@ db.exec(`
     seconds             INTEGER NOT NULL,
     mac                 TEXT,
     ip                  TEXT,
+    auto_login          INTEGER NOT NULL DEFAULT 1,
     status              TEXT NOT NULL DEFAULT 'pending',
     result_code         INTEGER,
     result_desc         TEXT,
@@ -113,6 +114,7 @@ for (const stmt of [
   `ALTER TABLE accounts ADD COLUMN last_mac TEXT`,
   `ALTER TABLE accounts ADD COLUMN last_seen_at TEXT`,
   `ALTER TABLE accounts ADD COLUMN expires_at TEXT`,
+  `ALTER TABLE transactions ADD COLUMN auto_login INTEGER NOT NULL DEFAULT 1`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
@@ -140,6 +142,10 @@ const insert = db.prepare(`
      @amount, @seconds, @mac, @ip, 'pending')
 `);
 
+const requireManualLogin = db.prepare(`
+  UPDATE transactions SET auto_login = 0 WHERE checkout_request_id = ?
+`);
+
 const get = db.prepare(
   `SELECT * FROM transactions WHERE checkout_request_id = ?`
 );
@@ -150,7 +156,7 @@ const latestPaymentForMac = db.prepare(`
   SELECT checkout_request_id, phone, amount, status, created_at
     FROM transactions
    WHERE mac = ?
-     AND status IN ('pending', 'paid')
+     AND status = 'pending'
      AND created_at > datetime('now', '-2 hours')
    ORDER BY created_at DESC
    LIMIT 1
@@ -437,6 +443,7 @@ module.exports = {
   insert,
   get,
   latestPaymentForMac,
+  requireManualLogin,
   markResult,
   markProvisioned,
   stalePending,
