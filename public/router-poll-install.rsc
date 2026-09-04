@@ -28,11 +28,14 @@
 #  Edit the three SETTINGS values, then paste the whole file.
 # =====================================================================
 
-# ---------------------------- SETTINGS -------------------------------
-:global fitiUrl   "https://wififiti.co.ke"
-:global fitiSite  "kitale-1"
-:global fitiToken "PASTE-THE-SITE-TOKEN-HERE"
-# ---------------------------------------------------------------------
+# Settings must already exist as globals before import. The installer does
+# not contain or overwrite the private site token.
+:global fitiUrl
+:global fitiSite
+:global fitiToken
+:if ([:len $fitiUrl] = 0 || [:len $fitiSite] = 0 || [:len $fitiToken] < 9) do={
+  :error "Set fitiUrl, fitiSite and fitiToken before importing"
+}
 
 :global fitiAck ""
 
@@ -99,7 +102,7 @@
   policy=read,write,test,policy on-event="/system script run fiti-boot" \
   comment="WiFi Fiti: restore settings after reboot"
 
-/system scheduler add name=fiti-poll interval=5s \
+/system scheduler add name=fiti-poll interval=5s disabled=yes \
   policy=read,write,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 
