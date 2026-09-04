@@ -839,7 +839,7 @@ app.get('/api/router/ack', (req, res) => {
 /* ------------------------------------------------------------------ */
 
 app.get('/api/health', async (req, res) => {
-  const out = { ok: true, mpesaEnv: config.mpesa.env };
+  const out = { ok: true, mpesaEnv: config.mpesa.env, database: db.stats() };
 
   out.provisionMode = config.provisionMode;
 
@@ -875,6 +875,26 @@ app.listen(config.port, () => {
   if (config.mpesa.env === 'sandbox') {
     console.log('Sandbox mode - no real money will move.');
   }
+  const s = db.stats();
+  console.log(
+    `Database: ${s.path} ` +
+      `(${s.transactions} payments, ${s.accounts} accounts, ${s.devices} devices)`
+  );
+
+  // On Railway, Render and similar the container filesystem is rebuilt on
+  // every deploy. A database outside a mounted volume therefore loses every
+  // payment record each time you push - silently, because a fresh empty
+  // database works perfectly well. Customers simply find their balance gone.
+  const onVolume = /^\/(data|mnt|var\/data|storage)\b/.test(s.path);
+  if (!onVolume) {
+    console.warn(
+      '\n*** WARNING: the database is NOT on a mounted volume. ***\n' +
+      `    ${s.path}\n` +
+      '    Every deploy will erase all payments, balances and devices.\n' +
+      '    Mount a volume and set DATABASE_PATH to a path inside it.\n'
+    );
+  }
+
   console.log(`Provisioning mode: ${config.provisionMode}`);
   if (config.provisionMode === 'poll') {
     console.log(`Site: ${config.site.id}`);

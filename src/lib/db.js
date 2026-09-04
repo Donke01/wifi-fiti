@@ -321,8 +321,26 @@ const setTotal = db.prepare(`
    WHERE phone = @phone
 `);
 
+
+/** Row counts, so data loss is visible instead of silent. */
+const countRows = {
+  transactions: db.prepare(`SELECT COUNT(*) AS n FROM transactions`),
+  accounts: db.prepare(`SELECT COUNT(*) AS n FROM accounts`),
+  devices: db.prepare(`SELECT COUNT(*) AS n FROM devices`),
+};
+
+function stats() {
+  return {
+    path: path.resolve(config.databasePath),
+    transactions: countRows.transactions.get().n,
+    accounts: countRows.accounts.get().n,
+    devices: countRows.devices.get().n,
+  };
+}
+
 module.exports = {
   db,
+  stats,
   insert,
   get,
   markResult,
