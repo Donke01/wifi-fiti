@@ -33,7 +33,25 @@ async function fulfil(tx) {
   const pkg = findPackage(tx.package_id);
   if (!pkg) throw new Error(`Unknown package on transaction: ${tx.package_id}`);
 
-  const username = tx.phone; // 2547XXXXXXXX - stable identity across top-ups
+  // The payer is not the subscription identity: one M-Pesa number may buy
+  // separate packages for several phones. Reuse the account already bound
+  // to this MAC; otherwise preserve the payer's original account for their
+  // first device and give each additional device a stable derived username.
+  let username = tx.phone;
+  if (tx.mac) {
+    const bound = db.accountByMac.get(tx.mac);
+    if (bound && (bound.payer_phone || bound.phone) === tx.phone) {
+      username = bound.phone;
+    } else {
+      const payerAccounts = db.accountsForPayer.all(tx.phone);
+      const unbound = payerAccounts.find((a) => !a.last_mac);
+      if (unbound) username = unbound.phone;
+      else if (payerAccounts.length) {
+        const tag = crypto.createHash('sha256').update(tx.mac).digest('hex').slice(0, 8).toUpperCase();
+        username = `${tx.phone}-${tag}`;
+      }
+    }
+  }
   const password = tx.hotspot_password || generatePassword();
 
   // Poll mode: the server owns the ledger and queues work for whichever
@@ -46,6 +64,7 @@ async function fulfil(tx) {
   if (config.provisionMode === 'poll') {
     const result = await grantTime({
       phone: username,
+      payerPhone: tx.phone,
       seconds: tx.seconds,
       profile: pkg.profile,
       mac: tx.mac || null,

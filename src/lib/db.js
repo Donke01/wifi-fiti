@@ -117,9 +117,11 @@ for (const stmt of [
   `ALTER TABLE accounts ADD COLUMN expires_at TEXT`,
   `ALTER TABLE transactions ADD COLUMN auto_login INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE jobs ADD COLUMN action TEXT NOT NULL DEFAULT 'upsert'`,
+  `ALTER TABLE accounts ADD COLUMN payer_phone TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
+db.exec(`UPDATE accounts SET payer_phone = phone WHERE payer_phone IS NULL`);
 
 // One-time migration for balances created by the earlier usage-based model.
 // Whatever time was still banked becomes a wall-clock subscription starting
@@ -134,6 +136,7 @@ db.exec(`
 `);
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_accounts_mac ON accounts(last_mac);`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_accounts_payer ON accounts(payer_phone);`);
 
 const insert = db.prepare(`
   INSERT INTO transactions
@@ -272,6 +275,21 @@ const purgeOldJobs = db.prepare(`
 const accountByMac = db.prepare(
   `SELECT * FROM accounts WHERE last_mac = ? ORDER BY updated_at DESC LIMIT 1`
 );
+
+const accountsForPayer = db.prepare(`
+  SELECT * FROM accounts
+   WHERE COALESCE(payer_phone, phone) = ?
+   ORDER BY updated_at DESC
+`);
+
+const activeAccountsForPayer = db.prepare(`
+  SELECT * FROM accounts
+   WHERE COALESCE(payer_phone, phone) = ?
+     AND expires_at IS NOT NULL AND expires_at > datetime('now')
+   ORDER BY updated_at DESC
+`);
+
+const setPayer = db.prepare(`UPDATE accounts SET payer_phone = @payerPhone WHERE phone = @phone`);
 
 const rememberMac = db.prepare(`
   UPDATE accounts SET last_mac = @mac, last_seen_at = datetime('now')
@@ -479,6 +497,9 @@ module.exports = {
   transactionAge,
   reduceTotal,
   accountByMac,
+  accountsForPayer,
+  activeAccountsForPayer,
+  setPayer,
   rememberMac,
   setExpiry,
   expiredAccounts,

@@ -21,7 +21,7 @@ function generateCode(length) {
  * Returns the account's new absolute total. Callers must have already
  * established that the money is real.
  */
-async function grantTime({ phone, seconds, profile, mac, ip, reason, autoLogin = true }) {
+async function grantTime({ phone, payerPhone, seconds, profile, mac, ip, reason, autoLogin = true }) {
   const account = db.getAccount.get(phone);
   const previous = account ? account.total_seconds : 0;
   const alreadyUsed = account ? (account.used_seconds || 0) : 0;
@@ -62,6 +62,7 @@ async function grantTime({ phone, seconds, profile, mac, ip, reason, autoLogin =
   const expiresAt = new Date(expiresAtMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
 
   db.upsertAccount.run({ phone, totalSeconds, password });
+  db.setPayer.run({ phone, payerPhone: payerPhone || phone.replace(/-[0-9A-F]{8}$/, '') });
   db.setExpiry.run({ phone, expiresAt });
   if (seconds > 0) db.addPurchased.run({ phone, seconds });
   if (mac) db.rememberMac.run({ phone, mac });

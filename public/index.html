@@ -659,7 +659,7 @@
       if (phone) {
         return fetch('/api/session/lookup', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: phone })
+          body: JSON.stringify({ phone: phone, mac: MAC })
         }).then(function (r) { return r.json(); });
       }
       return Promise.resolve(null);
@@ -865,9 +865,9 @@
     var phone = $('k-phone').value.trim(); clear($('k-err'));
     if (phone.replace(/\D/g, '').length < 9) return warn($('k-err'), 'Enter a valid number.');
     fetch('/api/session/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: phone }) }).then(function (r) { return r.json(); })
+      body: JSON.stringify({ phone: phone, mac: MAC }) }).then(function (r) { return r.json(); })
       .then(function (s) {
-        if (!s.found) return warn($('k-err'), 'No time on this number. Buy a package.');
+        if (!s.found) return warn($('k-err'), s.error || 'No time on this device. Buy a package.');
         $('active-line').textContent = 'Number ' + s.phoneDisplay + '. Tap to continue.';
         startCountdown(s.remainingSeconds, $('clock'), s.online, s.username, s.expiresAt);
         $('reconnect').onclick = function () { signIn(s.username, s.password); };
@@ -887,7 +887,7 @@
   }
   function loadDevices(msisdn) {
     fetch('/api/device/list', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: msisdn }) }).then(function (r) { return r.json(); })
+      body: JSON.stringify({ phone: msisdn, ownerMac: MAC }) }).then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d.devices || !d.devices.length) { $('t-list-wrap').hidden = true; return; }
         $('t-list').innerHTML = d.devices.map(function (x) {
@@ -899,7 +899,7 @@
         Array.prototype.forEach.call($('t-list').querySelectorAll('.drm'), function (btn) {
           btn.onclick = function () {
             fetch('/api/device/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ phone: msisdn, mac: btn.getAttribute('data-mac') }) })
+              body: JSON.stringify({ phone: msisdn, mac: btn.getAttribute('data-mac'), ownerMac: MAC }) })
               .then(function () { loadDevices(msisdn); clear($('t-err')); });
           };
         });
@@ -919,7 +919,7 @@
     }
     $('t-go').disabled = true; $('t-go').textContent = 'Connecting…';
     fetch('/api/device/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: phone, mac: mac, label: label }) })
+      body: JSON.stringify({ phone: phone, mac: mac, label: label, ownerMac: MAC }) })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
       .then(function (res) {
         $('t-go').disabled = false; $('t-go').textContent = 'Connect this TV';
@@ -949,7 +949,7 @@
     var phone = $('pb-account').textContent;
     $('pb-check').disabled = true; $('pb-check').textContent = 'Checking…';
     fetch('/api/session/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: phone }) }).then(function (r) { return r.json(); })
+      body: JSON.stringify({ phone: phone, mac: MAC }) }).then(function (r) { return r.json(); })
       .then(function (s) {
         $('pb-check').disabled = false; $('pb-check').textContent = "I've paid, check now";
         if (s.found && s.remainingSeconds > 0) {

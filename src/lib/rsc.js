@@ -11,7 +11,7 @@
  */
 
 const PATTERNS = {
-  username: /^254[17]\d{8}(?:-tv)?$/,
+  username: /^254[17]\d{8}(?:-[0-9A-F]{8})?(?:-tv)?$/,
   password: /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4,12}$/,
   profile: /^[a-z0-9-]{1,20}$/,
   server: /^[A-Za-z0-9_-]{1,32}$/,

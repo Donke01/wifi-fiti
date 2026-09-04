@@ -434,8 +434,8 @@ app.get('/api/session', (req, res) => {
 
   res.json({
     found: true,
-    phone: info.phone,
-    phoneDisplay: mpesa.displayPhone(info.phone),
+    phone: account.payer_phone || account.phone,
+    phoneDisplay: mpesa.displayPhone(account.payer_phone || account.phone),
     username: info.phone,
     password: info.password,
     remainingSeconds: info.remainingSeconds,
@@ -452,14 +452,32 @@ app.post('/api/session/lookup', (req, res) => {
     return res.status(400).json({ error: 'Weka namba sahihi, kama 0712 345 678.' });
   }
 
-  const info = remainingFor(phone);
+  const requestedMac = cleanMac(req.body && req.body.mac);
+  let accountId = phone;
+  if (requestedMac) {
+    const bound = db.accountByMac.get(requestedMac);
+    if (bound && (bound.payer_phone || bound.phone) === phone) accountId = bound.phone;
+  }
+  if (accountId === phone) {
+    const active = db.activeAccountsForPayer.all(phone);
+    if (active.length === 1) accountId = active[0].phone;
+    else if (active.length > 1) {
+      return res.json({
+        found: false,
+        multiple: true,
+        error: 'This number paid for several devices. Check the balance from the device itself.',
+      });
+    }
+  }
+
+  const info = remainingFor(accountId);
   if (!info || info.remainingSeconds <= 0) {
     return res.json({ found: false });
   }
 
   res.json({
     found: true,
-    phoneDisplay: mpesa.displayPhone(info.phone),
+    phoneDisplay: mpesa.displayPhone(phone),
     username: info.phone,
     password: info.password,
     remainingSeconds: info.remainingSeconds,
@@ -476,6 +494,20 @@ app.post('/api/session/lookup', (req, res) => {
 // from a phone. The device then rides on the owner's balance. Capped so
 // one purchase can't quietly put a whole building online.
 const MAX_DEVICES_PER_ACCOUNT = 1; // paying phone + 1 added device = 2 total
+
+function deviceOwner(phone, ownerMac) {
+  const mac = cleanMac(ownerMac);
+  if (mac) {
+    const account = db.accountByMac.get(mac);
+    if (account && (account.payer_phone || account.phone) === phone) return account.phone;
+  }
+  const active = db.activeAccountsForPayer.all(phone);
+  if (active.length === 1) return active[0].phone;
+  if (active.length > 1) return null;
+  const all = db.accountsForPayer.all(phone);
+  if (all.length === 1) return all[0].phone;
+  return all.length === 0 ? phone : null;
+}
 
 app.post('/api/device/add', async (req, res) => {
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
@@ -498,7 +530,13 @@ app.post('/api/device/add', async (req, res) => {
     .replace(/[^\w \-]/g, '')
     .slice(0, 24) || 'TV';
 
-  const info = remainingFor(phone);
+  const owner = deviceOwner(phone, req.body && req.body.ownerMac);
+  if (!owner) {
+    return res.status(409).json({
+      error: 'This number has several devices. Open this page from the purchasing device.',
+    });
+  }
+  const info = remainingFor(owner);
   if (!info || info.remainingSeconds <= 0) {
     return res.status(402).json({
       error: 'This number has no active time. Buy a package first, then add your TV.',
@@ -508,16 +546,16 @@ app.post('/api/device/add', async (req, res) => {
   // If the device already belongs to someone else, refuse rather than
   // silently move it - that would let a balance be hijacked.
   const existing = db.getDevice.get(mac);
-  if (existing && existing.phone !== phone) {
+  if (existing && existing.phone !== owner) {
     return res.status(409).json({
       error: 'That device is already connected to another number.',
     });
   }
 
-  if (!existing && db.countDevices.get(phone).n >= MAX_DEVICES_PER_ACCOUNT) {
+  if (!existing && db.countDevices.get(owner).n >= MAX_DEVICES_PER_ACCOUNT) {
     // Name what's occupying the slot. "You've hit the limit" leaves the
     // customer guessing which device to remove.
-    const owned = db.devicesFor.all(phone)
+    const owned = db.devicesFor.all(owner)
       .map((d) => d.label || 'a device').join(', ');
     return res.status(409).json({
       error:
@@ -527,7 +565,7 @@ app.post('/api/device/add', async (req, res) => {
     });
   }
 
-  db.addDevice.run({ mac, phone, label });
+  db.addDevice.run({ mac, phone: owner, label });
 
   // Queue a login for the TV's MAC under a separate, MAC-bound identity. In poll
   // mode the router picks this up within its interval; the TV needs no
@@ -535,7 +573,7 @@ app.post('/api/device/add', async (req, res) => {
   if (config.provisionMode === 'poll') {
     db.addJob.run({
       site: config.site.id,
-      username: `${phone}-tv`,
+      username: `${owner}-tv`,
       password: info.password,
       profile: 'standard',
       totalSeconds: info.totalSeconds,
@@ -544,13 +582,13 @@ app.post('/api/device/add', async (req, res) => {
     });
   }
 
-  console.log(`[device] ${mac} (${label}) attached to ${phone}`);
+  console.log(`[device] ${mac} (${label}) attached to ${owner}`);
 
   res.json({
     ok: true,
     mac,
     label,
-    deviceCount: db.countDevices.get(phone).n,
+    deviceCount: db.countDevices.get(owner).n,
     remainingSeconds: info.remainingSeconds,
   });
 });
@@ -559,7 +597,10 @@ app.post('/api/device/list', (req, res) => {
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
   if (!phone) return res.status(400).json({ error: 'Enter a valid number.' });
 
-  const devices = db.devicesFor.all(phone).map((d) => ({
+  const owner = deviceOwner(phone, req.body && req.body.ownerMac);
+  if (!owner) return res.json({ devices: [], max: MAX_DEVICES_PER_ACCOUNT });
+
+  const devices = db.devicesFor.all(owner).map((d) => ({
     mac: d.mac, label: d.label,
   }));
   res.json({ devices, max: MAX_DEVICES_PER_ACCOUNT });
@@ -571,9 +612,11 @@ app.post('/api/device/remove', (req, res) => {
   if (!phone || !/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) {
     return res.status(400).json({ error: 'Bad request.' });
   }
-  const removed = db.removeDevice.run({ mac, phone });
+  const owner = deviceOwner(phone, req.body && req.body.ownerMac);
+  if (!owner) return res.status(409).json({ error: 'Open this page from the purchasing device.' });
+  const removed = db.removeDevice.run({ mac, phone: owner });
   if (removed.changes && config.provisionMode === 'poll') {
-    db.revokeUser.run({ site: config.site.id, username: `${phone}-tv` });
+    db.revokeUser.run({ site: config.site.id, username: `${owner}-tv` });
   }
   res.json({ ok: true });
 });
@@ -889,9 +932,10 @@ app.post('/api/router/sync', (req, res) => {
     const parts = line.trim().split(':');
     if (parts.length < 2) continue;
 
-    const phone = parts[0].trim();
+    const phone = parts[0].trim(); // Router username / subscription id
     const used = Number(parts[1]);
-    if (!/^254[17]\d{8}$/.test(phone)) continue;
+    if (!/^254[17]\d{8}(?:-[0-9A-F]{8})?(?:-tv)?$/.test(phone)) continue;
+    if (phone.endsWith('-tv')) continue; // TV shares its owner's wall-clock balance
     if (!Number.isFinite(used) || used < 0) continue;
 
     // Fourth field is "1" when the customer has a live session. Older
