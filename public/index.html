@@ -3,263 +3,506 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light">
-<title>WiFi Fiti — get online</title>
+<meta name="color-scheme" content="dark">
+<title>WiFi Fiti</title>
 <style>
   /* ==================================================================
-     WiFi Fiti
-     Reference: matatu livery. Hard black keylines, offset sticker
-     shadows, route blue and hot pink. Built to stay legible on a cheap
-     Android screen in direct sun, so contrast is high and type is large.
-     Rebrand by swapping the colours below - nothing else is themed.
+     WiFi Fiti — "crystal": a deep indigo field with slow prismatic
+     light drifting behind frosted cards.
+
+     Two constraints shape every choice here. Customers are on cheap
+     Android phones, so the animation is three transform-driven layers
+     and nothing else — no blur filters, no backdrop-filter, both of
+     which crawl on low-end GPUs. And the walled garden blocks external
+     fonts before payment, so this is a system font stack throughout.
      ================================================================== */
   :root{
-    --ink:#14171C;
-    --route:#1B4DE4;
-    --route-deep:#123AB4;
-    --hot:#FF3D7F;
-    --beam:#FFC93C;
-    --paper:#F2F4F8;
-    --card:#FFFFFF;
-    --muted:#5E6672;
-    --line:#D7DCE4;
-    --danger:#C4231A;
+    --void:#080B18;
+    --void-2:#0E1330;
+    --ice:#F4F7FF;
+    --muted:#94A0C8;
+    --dim:#6B77A0;
 
-    --keyline:2px solid var(--ink);
-    --drop:4px 4px 0 var(--ink);
-    --drop-sm:3px 3px 0 var(--ink);
-    --radius:12px;
+    --violet:#7C5CFF;
+    --indigo:#4F46E5;
+    --cyan:#38BDF8;
+    --magenta:#F062B4;
+    --gold:#FFC24B;
+
+    --glass:rgba(255,255,255,.055);
+    --glass-2:rgba(255,255,255,.085);
+    --edge:rgba(255,255,255,.13);
+    --edge-2:rgba(255,255,255,.22);
+
+    --danger:#FF7A85;
+    --danger-bg:rgba(255,90,105,.11);
+    --danger-edge:rgba(255,122,133,.32);
+
+    --r:14px;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   }
 
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;padding:0}
+  html,body{margin:0;padding:0;min-height:100%}
   body{
     font-family:var(--sans);
-    background:var(--paper);
-    color:var(--ink);
-    line-height:1.45;
+    background:var(--void);
+    color:var(--ice);
+    line-height:1.5;
     -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
     padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
   }
-  .wrap{max-width:460px;margin:0 auto;padding:20px 18px 40px}
 
-  /* ---------------- masthead ---------------- */
-  .masthead{display:flex;align-items:center;gap:11px;margin-bottom:24px}
-
-  .badge{
-    display:inline-flex;align-items:center;gap:7px;
-    background:var(--beam);border:var(--keyline);border-radius:9px;
-    padding:6px 11px 6px 9px;box-shadow:var(--drop-sm);
+  /* ---- the crystal field -------------------------------------------
+     Three oversized radial gradients on one fixed layer, each drifting
+     on its own cycle. Transform-only animation stays on the compositor,
+     so it costs almost nothing even on a low-end phone. */
+  .field{
+    position:fixed;inset:-30%;z-index:-1;pointer-events:none;
+    background:
+      radial-gradient(38% 32% at 22% 18%, rgba(124,92,255,.55), transparent 62%),
+      radial-gradient(34% 30% at 80% 26%, rgba(56,189,248,.36), transparent 64%),
+      radial-gradient(40% 34% at 52% 84%, rgba(240,98,180,.34), transparent 66%),
+      linear-gradient(160deg, var(--void) 0%, var(--void-2) 52%, var(--void) 100%);
+    animation:drift 26s ease-in-out infinite alternate;
+    will-change:transform;
   }
-  .badge svg{width:19px;height:19px;display:block;flex:none}
-  .badge span{font-size:14.5px;font-weight:800;letter-spacing:.055em;text-transform:uppercase}
-
-  .testmode{
-    margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.1em;
-    text-transform:uppercase;background:var(--ink);color:var(--beam);
-    border-radius:99px;padding:4px 9px;
+  .field::after{
+    content:"";position:absolute;inset:0;
+    background:
+      radial-gradient(26% 22% at 68% 62%, rgba(255,194,75,.20), transparent 70%),
+      radial-gradient(30% 26% at 12% 66%, rgba(79,70,229,.34), transparent 68%);
+    animation:drift2 34s ease-in-out infinite alternate;
+    will-change:transform;
+  }
+  @keyframes drift{
+    from{transform:translate3d(-3%,-2%,0) scale(1)}
+    to  {transform:translate3d(4%,3%,0) scale(1.12)}
+  }
+  @keyframes drift2{
+    from{transform:translate3d(3%,2%,0) scale(1.08)}
+    to  {transform:translate3d(-4%,-3%,0) scale(1)}
   }
 
-  h1{font-size:27px;line-height:1.14;letter-spacing:-.028em;font-weight:800;margin:0 0 6px}
-  .lede{color:var(--muted);font-size:14.5px;margin:0 0 22px}
+  .wrap{max-width:440px;margin:0 auto;padding:0 16px 44px;position:relative}
 
-  /* ---------------- tariff ---------------- */
-  .tariff{display:flex;flex-direction:column;gap:11px;margin-bottom:26px}
-
-  .opt{display:block;position:relative}
-  .opt input{position:absolute;opacity:0;width:1px;height:1px}
-
-  .opt-face{
-    display:flex;align-items:center;gap:14px;
-    background:var(--card);border:var(--keyline);border-radius:var(--radius);
-    padding:14px 16px;cursor:pointer;box-shadow:0 0 0 var(--ink);
-    transition:box-shadow .12s ease,transform .12s ease,background .12s ease;
+  /* ---- header ---- */
+  .bar{display:flex;align-items:center;gap:10px;padding:18px 2px 16px;margin-bottom:18px}
+  .bar svg{width:25px;height:25px;flex:none}
+  .bar b{
+    font-size:16px;font-weight:680;letter-spacing:-.01em;
+    background:linear-gradient(92deg,var(--ice),var(--cyan) 55%,var(--magenta));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
   }
-  .opt input:checked + .opt-face{
-    background:#FFF3F7;box-shadow:var(--drop);transform:translate(-2px,-2px);
+
+  h1{font-size:23px;line-height:1.22;letter-spacing:-.025em;font-weight:680;margin:0 0 7px}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 20px}
+  .eyebrow{
+    font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--dim);margin:0 0 10px;
   }
-  .opt input:focus-visible + .opt-face{outline:3px solid var(--hot);outline-offset:3px}
 
-  .opt-text{flex:1;min-width:0}
-  .opt-name{display:block;font-size:16.5px;font-weight:750;letter-spacing:-.012em}
-  .opt-detail{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
-
-  /* The price is the entire decision. It gets to shout. */
-  .price{
-    font-size:28px;font-weight:850;letter-spacing:-.04em;
-    font-variant-numeric:tabular-nums;color:var(--route);white-space:nowrap;
+  /* ---- glass panels ---- */
+  .glass{
+    background:var(--glass);border:1px solid var(--edge);border-radius:var(--r);
   }
-  .opt input:checked + .opt-face .price{color:var(--hot)}
-  .price .bob{font-size:12.5px;font-weight:700;letter-spacing:0;opacity:.6;margin-left:1px}
 
-  /* ---------------- phone ---------------- */
-  .field{margin-bottom:20px}
-  label{display:block;font-size:13px;font-weight:750;margin-bottom:7px}
-  .hint{font-weight:400;color:var(--muted)}
+  /* ---- packages ---- */
+  .plans{margin-bottom:20px;overflow:hidden}
+  .plan{display:block;position:relative}
+  .plan + .plan{border-top:1px solid rgba(255,255,255,.07)}
+  .plan input{position:absolute;opacity:0;width:1px;height:1px}
 
-  input[type=tel]{
-    width:100%;font-family:var(--sans);font-size:17.5px;font-weight:600;
-    letter-spacing:.03em;font-variant-numeric:tabular-nums;
-    padding:14px 15px;border:var(--keyline);border-radius:var(--radius);
-    background:var(--card);color:var(--ink);
+  .plan-face{
+    display:flex;align-items:center;gap:13px;padding:14px 15px;cursor:pointer;
+    transition:background .15s;
   }
-  input[type=tel]:focus{outline:none;box-shadow:var(--drop-sm)}
+  .plan input:checked + .plan-face{background:var(--glass-2)}
+  .plan input:focus-visible + .plan-face{outline:2px solid var(--cyan);outline-offset:-2px}
 
-  /* ---------------- button ---------------- */
-  .go{
-    display:block;width:100%;
-    border:var(--keyline);border-radius:var(--radius);
-    background:var(--route);color:#fff;
-    font-family:var(--sans);font-size:17px;font-weight:800;letter-spacing:-.008em;
-    padding:16px;cursor:pointer;box-shadow:var(--drop);
-    transition:transform .1s ease,box-shadow .1s ease,background .12s ease;
+  .pip{
+    width:18px;height:18px;border-radius:50%;flex:none;
+    border:1.5px solid rgba(255,255,255,.3);transition:all .15s;
   }
-  .go:hover:not(:disabled){background:var(--route-deep)}
-  .go:active:not(:disabled){transform:translate(4px,4px);box-shadow:0 0 0 var(--ink)}
-  .go:focus-visible{outline:3px solid var(--hot);outline-offset:3px}
-  .go:disabled{opacity:.45;cursor:default;box-shadow:var(--drop-sm)}
+  .plan input:checked + .plan-face .pip{
+    border:none;
+    background:linear-gradient(135deg,var(--cyan),var(--violet) 60%,var(--magenta));
+    box-shadow:0 0 0 3px rgba(124,92,255,.28);
+  }
 
+  .plan-text{flex:1;min-width:0}
+  .plan-name{display:block;font-size:15px;font-weight:620}
+  .plan-note{display:block;font-size:12.5px;color:var(--dim);margin-top:1px}
+
+  .plan-price{
+    font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;
+    letter-spacing:-.025em;white-space:nowrap;
+  }
+  .plan-price small{font-size:10.5px;font-weight:600;color:var(--dim);margin-left:3px;letter-spacing:.04em}
+  .plan input:checked + .plan-face .plan-price{
+    background:linear-gradient(100deg,var(--cyan),var(--magenta));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+
+  /* ---- inputs ---- */
+  .field-row{margin-bottom:16px}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:7px}
+  .lab-note{font-weight:400;color:var(--dim)}
+
+  input[type=tel],input[type=text]{
+    width:100%;font-family:var(--sans);font-size:16.5px;font-weight:500;
+    letter-spacing:.02em;font-variant-numeric:tabular-nums;
+    padding:13px 14px;border:1px solid var(--edge);border-radius:var(--r);
+    background:rgba(255,255,255,.05);color:var(--ice);
+  }
+  input:focus{
+    outline:none;border-color:rgba(124,92,255,.75);
+    box-shadow:0 0 0 3px rgba(124,92,255,.2);
+  }
+  input::placeholder{color:#5B678E;font-weight:400}
+
+  /* ---- buttons ---- */
+  .btn{
+    display:block;width:100%;border:0;border-radius:var(--r);
+    font-family:var(--sans);font-size:16px;font-weight:660;letter-spacing:-.005em;
+    padding:15px;cursor:pointer;color:#fff;position:relative;overflow:hidden;
+  }
+  .btn-main{
+    background:linear-gradient(96deg,var(--indigo),var(--violet) 42%,var(--magenta));
+    background-size:200% 100%;
+    animation:sheen 7s ease-in-out infinite alternate;
+  }
+  @keyframes sheen{from{background-position:0% 50%}to{background-position:100% 50%}}
+  .btn-main:hover:not(:disabled){filter:brightness(1.08)}
+  .btn-main:active:not(:disabled){transform:translateY(1px)}
+  .btn:disabled{opacity:.5;cursor:default;animation:none}
+  .btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+  .alt{display:flex;gap:9px;margin-top:12px;flex-wrap:wrap}
+  .alt button{
+    flex:1;min-width:calc(50% - 5px);
+    background:var(--glass);border:1px solid var(--edge);border-radius:var(--r);
+    font-family:var(--sans);font-size:13px;font-weight:600;color:var(--ice);
+    padding:11px 8px;cursor:pointer;transition:background .15s,border-color .15s;
+  }
+  .alt button:hover{background:var(--glass-2);border-color:var(--edge-2)}
+
+  .link{
+    background:none;border:0;font-family:var(--sans);font-size:13.5px;font-weight:600;
+    color:var(--cyan);text-decoration:underline;text-underline-offset:3px;
+    cursor:pointer;padding:10px;margin-top:8px;
+  }
+
+  /* ---- notices ---- */
   .err{
-    background:#FFECEA;border:2px solid var(--danger);color:var(--danger);
-    border-radius:var(--radius);padding:11px 13px;
-    font-size:13.5px;font-weight:600;margin-bottom:16px;
+    background:var(--danger-bg);border:1px solid var(--danger-edge);color:var(--danger);
+    border-radius:var(--r);padding:11px 13px;font-size:13.5px;margin-bottom:16px;
   }
+  .trust{
+    display:flex;align-items:flex-start;gap:8px;
+    font-size:12px;color:var(--dim);margin-top:18px;line-height:1.45;
+  }
+  .trust svg{width:14px;height:14px;flex:none;margin-top:2px;color:var(--cyan)}
 
-  /* ---------------- screens ---------------- */
-  .screen{display:none}
-  .screen.on{display:block}
-  .centre{text-align:center;padding-top:12px}
+  /* ---- time remaining ---- */
+  .session{
+    border:1px solid rgba(124,92,255,.34);border-radius:var(--r);
+    background:linear-gradient(135deg,rgba(124,92,255,.16),rgba(56,189,248,.09));
+    padding:17px;margin-bottom:20px;
+  }
+  .session .eyebrow{color:var(--cyan);margin-bottom:6px}
+  .clock{
+    font-size:32px;font-weight:700;letter-spacing:-.035em;
+    font-variant-numeric:tabular-nums;
+    background:linear-gradient(100deg,var(--ice),var(--cyan) 70%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .clock span{font-size:14px;font-weight:600;color:var(--dim);margin-left:2px;-webkit-text-fill-color:var(--dim)}
+  .session p{font-size:13px;color:var(--muted);margin:7px 0 0}
 
-  /* ---------------- countdown ---------------- */
-  .dial{width:138px;height:138px;margin:0 auto 22px;position:relative}
+  /* ---- waiting ---- */
+  .mid{text-align:center;padding-top:6px}
+  .dial{width:126px;height:126px;margin:0 auto 20px;position:relative}
   .dial svg{transform:rotate(-90deg);display:block}
-  .dial-track{stroke:var(--line)}
-  .dial-arc{stroke:var(--hot);transition:stroke-dashoffset 1s linear}
-  .dial-num{
+  .dial-bg{stroke:rgba(255,255,255,.12)}
+  .dial-fg{stroke:url(#crystalArc);stroke-linecap:round;transition:stroke-dashoffset 1s linear}
+  .dial-n{
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    font-size:40px;font-weight:850;letter-spacing:-.05em;
-    font-variant-numeric:tabular-nums;color:var(--ink);
+    font-size:34px;font-weight:700;letter-spacing:-.035em;font-variant-numeric:tabular-nums;
   }
 
   .steps{
-    text-align:left;background:var(--card);border:var(--keyline);
-    border-radius:var(--radius);padding:16px 18px;margin:24px 0 0;
-    list-style:none;counter-reset:s;
+    list-style:none;padding:0;margin:20px 0 0;text-align:left;
+    counter-reset:s;overflow:hidden;
   }
-  .steps li{position:relative;padding-left:30px;font-size:14px;color:var(--muted);counter-increment:s}
-  .steps li + li{margin-top:10px}
+  .steps li{
+    position:relative;padding:12px 14px 12px 44px;font-size:13.5px;color:var(--muted);
+    counter-increment:s;
+  }
+  .steps li + li{border-top:1px solid rgba(255,255,255,.07)}
   .steps li::before{
-    content:counter(s);position:absolute;left:0;top:0;
-    width:21px;height:21px;border-radius:5px;border:1.5px solid var(--ink);
-    background:var(--beam);color:var(--ink);font-size:11px;font-weight:850;
+    content:counter(s);position:absolute;left:14px;top:12px;
+    width:19px;height:19px;border-radius:50%;
+    background:linear-gradient(135deg,var(--violet),var(--cyan));
+    color:#0B1020;font-size:10.5px;font-weight:800;
     display:flex;align-items:center;justify-content:center;
   }
 
-  /* ---------------- done ---------------- */
-  .tick{width:62px;height:62px;margin:0 auto 14px;display:block}
-  .creds{
-    background:var(--beam);border:var(--keyline);border-radius:var(--radius);
-    box-shadow:var(--drop);padding:16px;margin:22px 2px 4px;text-align:left;
+  /* ---- receipt ---- */
+  .receipt{margin:20px 0 0;overflow:hidden;text-align:left}
+  .receipt-head{
+    background:rgba(255,255,255,.06);padding:10px 15px;
+    font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--cyan);
   }
-  .creds-row{display:flex;justify-content:space-between;align-items:baseline;font-size:14px}
-  .creds-row + .creds-row{margin-top:8px}
-  .creds-key{font-weight:600;opacity:.7}
-  .creds-val{font-weight:850;font-variant-numeric:tabular-nums;letter-spacing:.05em;font-size:16px}
-  .creds-note{font-size:12px;margin:13px 0 0;line-height:1.45;opacity:.75}
+  .row{display:flex;justify-content:space-between;align-items:baseline;padding:11px 15px;font-size:14px}
+  .row + .row{border-top:1px solid rgba(255,255,255,.07)}
+  .row-k{color:var(--dim)}
+  .row-v{font-weight:660;font-variant-numeric:tabular-nums;letter-spacing:.03em}
+  .note{font-size:12.5px;color:var(--dim);margin:14px 2px 0;line-height:1.5;text-align:left}
 
-  .link{
-    display:inline-block;margin-top:14px;background:none;border:0;
-    font-family:var(--sans);font-size:14px;font-weight:700;color:var(--ink);
-    text-decoration:underline;text-underline-offset:4px;
-    text-decoration-thickness:2px;cursor:pointer;padding:8px;
+  /* ---- paybill ---- */
+  .paybill{padding:15px;margin-bottom:16px;text-align:left}
+  .paybill .row{padding:8px 0;font-size:14.5px}
+  .paybill .row:first-of-type{padding-top:0}
+  .paybill .row-v{font-size:16.5px;letter-spacing:.05em}
+
+  /* ---- devices ---- */
+  .devlist{overflow:hidden;margin:8px 0 16px}
+  .drow{display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:13.5px}
+  .drow + .drow{border-top:1px solid rgba(255,255,255,.07)}
+  .dmac{color:var(--dim);font-variant-numeric:tabular-nums;font-size:11.5px;letter-spacing:.03em}
+  .dname{font-weight:620}
+  .drm{margin-left:auto;background:none;border:0;color:var(--danger);
+    font-size:12px;font-weight:600;cursor:pointer;padding:4px}
+
+  .callout{
+    border:1px solid rgba(56,189,248,.28);border-radius:var(--r);
+    background:rgba(56,189,248,.07);
+    padding:13px 14px;font-size:12.5px;color:var(--muted);line-height:1.55;
+    margin-bottom:16px;text-align:left;
   }
+  .callout b{font-weight:660;color:var(--ice)}
 
-  footer{text-align:center;font-size:12.5px;color:var(--muted);margin-top:30px}
+  .screen{display:none}
+  .screen.on{display:block;animation:rise .3s ease}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  footer{
+    text-align:center;font-size:12px;color:var(--dim);margin-top:28px;
+    padding-top:16px;border-top:1px solid rgba(255,255,255,.08);
+  }
 
   @media (prefers-reduced-motion: reduce){
-    *{transition:none !important;animation:none !important}
+    *{transition:none!important;animation:none!important}
   }
 </style>
 </head>
 <body>
+<div class="field" aria-hidden="true"></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="crystalArc" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="55%" stop-color="#7C5CFF"/>
+      <stop offset="100%" stop-color="#F062B4"/>
+    </linearGradient>
+    <linearGradient id="markGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#F062B4"/>
+    </linearGradient>
+  </defs>
+</svg>
+
 <div class="wrap">
 
-  <div class="masthead">
-    <span class="badge">
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M2.4 8.6a15 15 0 0 1 19.2 0" stroke="#14171C" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M5.9 12.7a10 10 0 0 1 12.2 0" stroke="#14171C" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M9.4 16.8a5 5 0 0 1 5.2 0" stroke="#14171C" stroke-width="2.4" stroke-linecap="round"/>
-        <circle cx="12" cy="20.4" r="1.9" fill="#FF3D7F" stroke="#14171C" stroke-width="1.3"/>
-      </svg>
-      <span id="brand">WiFi Fiti</span>
-    </span>
-    <span class="testmode" id="testmode" hidden>Test mode</span>
+  <div class="bar">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M2.6 8.9a14.5 14.5 0 0 1 18.8 0" stroke="url(#markGrad)" stroke-width="2.1" stroke-linecap="round"/>
+      <path d="M6.1 12.9a9.5 9.5 0 0 1 11.8 0" stroke="url(#markGrad)" stroke-width="2.1" stroke-linecap="round"/>
+      <path d="M9.6 16.9a4.7 4.7 0 0 1 4.8 0" stroke="url(#markGrad)" stroke-width="2.1" stroke-linecap="round"/>
+      <circle cx="12" cy="20.2" r="1.6" fill="#F062B4"/>
+    </svg>
+    <b id="brand">WiFi Fiti</b>
   </div>
 
-  <!-- ================= PICK ================= -->
-  <section class="screen on" id="screen-pick">
-    <h1>Internet fiti,<br>bei fiti.</h1>
-    <p class="lede">Chagua muda, lipa na M-Pesa, uko online. Hakuna card, hakuna foleni.</p>
+  <!-- ============ ACTIVE ============ -->
+  <section class="screen" id="s-active">
+    <div class="session">
+      <p class="eyebrow">Time remaining</p>
+      <div class="clock" id="clock">—</div>
+      <p id="active-line">You have active time. Tap to continue.</p>
+    </div>
+    <button class="btn btn-main" id="reconnect">Continue browsing</button>
+    <div class="alt">
+      <button id="a-tv">Add a device</button>
+      <button id="a-more">Buy more time</button>
+    </div>
+  </section>
+
+  <!-- ============ BUY ============ -->
+  <section class="screen on" id="s-buy">
+    <h1>Buy internet time</h1>
+    <p class="sub">Pay with M-Pesa. You're online as soon as payment clears.</p>
 
     <div class="err" id="err" hidden></div>
 
-    <div class="tariff" id="tariff"></div>
+    <p class="eyebrow">Choose a package</p>
+    <div class="plans glass" id="plans"></div>
 
-    <div class="field">
-      <label for="phone">Namba ya M-Pesa <span class="hint">— prompt inakuja kwa hii simu</span></label>
-      <input type="tel" id="phone" inputmode="numeric" autocomplete="tel"
-             placeholder="07XX XXX XXX" maxlength="15">
+    <div class="field-row">
+      <label for="phone">M-Pesa number <span class="lab-note">— the prompt comes here</span></label>
+      <input type="tel" id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX" maxlength="15">
     </div>
 
-    <button class="go" id="go">Lipa na M-Pesa</button>
-  </section>
+    <button class="btn btn-main" id="pay">Pay with M-Pesa</button>
 
-  <!-- ================= WAIT ================= -->
-  <section class="screen centre" id="screen-wait">
-    <div class="dial">
-      <svg width="138" height="138" viewBox="0 0 138 138">
-        <circle class="dial-track" cx="69" cy="69" r="61" fill="none" stroke-width="9"/>
-        <circle class="dial-arc" id="arc" cx="69" cy="69" r="61" fill="none" stroke-width="9"/>
+    <div class="alt">
+      <button id="go-voucher">I have a voucher</button>
+      <button id="go-check">Check my time</button>
+      <button id="go-tv">Add a device</button>
+      <button id="go-paybill">Pay by Paybill</button>
+    </div>
+
+    <div class="trust">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.8 4.6 6v5.6c0 4.4 3.1 8.5 7.4 9.6 4.3-1.1 7.4-5.2 7.4-9.6V6z"
+              stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="m9.2 12.1 2 2 3.6-3.9" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <div class="dial-num" id="tick">60</div>
+      <span>Payment is handled by Safaricom M-Pesa. We never see or store your PIN.</span>
     </div>
+  </section>
 
-    <h1>Angalia simu yako</h1>
-    <p class="lede" id="wait-line">Weka M-Pesa PIN ulipe.</p>
-
-    <ol class="steps">
-      <li>M-Pesa prompt inatokea kwa screen yako</li>
-      <li>Weka PIN, confirm</li>
-      <li>Hii page inakuconnect yenyewe</li>
+  <!-- ============ WAITING ============ -->
+  <section class="screen mid" id="s-wait">
+    <div class="dial">
+      <svg width="126" height="126" viewBox="0 0 126 126">
+        <circle class="dial-bg" cx="63" cy="63" r="55" fill="none" stroke-width="7"/>
+        <circle class="dial-fg" id="arc" cx="63" cy="63" r="55" fill="none" stroke-width="7"/>
+      </svg>
+      <div class="dial-n" id="tick">60</div>
+    </div>
+    <h1 id="wait-title">Check your phone</h1>
+    <p class="sub" id="wait-line">Enter your M-Pesa PIN to complete payment.</p>
+    <ol class="steps glass">
+      <li>An M-Pesa prompt appears on your phone</li>
+      <li>Enter your PIN and confirm</li>
+      <li>We connect you automatically</li>
     </ol>
-
-    <button class="link" id="cancel">Anza upya</button>
+    <button class="link" id="cancel">Cancel</button>
   </section>
 
-  <!-- ================= DONE ================= -->
-  <section class="screen centre" id="screen-done">
-    <svg class="tick" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="10.4" fill="#FFC93C" stroke="#14171C" stroke-width="1.8"/>
-      <path d="m7.4 12.4 3.1 3.1 6-6.4" stroke="#14171C" stroke-width="2.4"
-            stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <h1>Uko fiti. Enjoy.</h1>
-    <p class="lede" id="done-line">Malipo imepokelewa.</p>
-
-    <div class="creds">
-      <div class="creds-row"><span class="creds-key">Username</span><span class="creds-val" id="c-user">—</span></div>
-      <div class="creds-row"><span class="creds-key">Password</span><span class="creds-val" id="c-pass">—</span></div>
-      <p class="creds-note">Andika hizi mahali. Ukikatika, connect tena na uweke hizi — hutalipa mara mbili.</p>
+  <!-- ============ DONE ============ -->
+  <section class="screen mid" id="s-done">
+    <h1>You're connected</h1>
+    <p class="sub" id="done-line">Payment received.</p>
+    <div class="session" style="text-align:left">
+      <p class="eyebrow">Time remaining</p>
+      <div class="clock" id="clock2">—</div>
     </div>
+    <div class="receipt glass">
+      <div class="receipt-head">Save these details</div>
+      <div class="row"><span class="row-k">Username</span><span class="row-v" id="c-user">—</span></div>
+      <div class="row"><span class="row-k">Password</span><span class="row-v" id="c-pass">—</span></div>
+      <div class="row" id="r-receipt" hidden><span class="row-k">M-Pesa</span><span class="row-v" id="c-receipt">—</span></div>
+    </div>
+    <p class="note">Use these to sign in on a laptop, or if you disconnect. You won't pay twice.</p>
+    <button class="link" id="done-tv">Add a TV or decoder</button>
   </section>
 
-  <!-- ================= FAIL ================= -->
-  <section class="screen centre" id="screen-fail">
-    <h1>Malipo haijakamilika</h1>
-    <p class="lede" id="fail-line">Kuna kitu haikuenda sawa.</p>
-    <button class="go" id="retry">Jaribu tena</button>
+  <!-- ============ VOUCHER ============ -->
+  <section class="screen" id="s-voucher">
+    <h1>Use a voucher</h1>
+    <p class="sub">Enter the code you bought or were given.</p>
+    <div class="err" id="v-err" hidden></div>
+    <div class="field-row">
+      <label for="v-code">Voucher code</label>
+      <input type="text" id="v-code" autocapitalize="characters" autocomplete="off"
+             spellcheck="false" placeholder="FITI XXXX XXXX" maxlength="24">
+    </div>
+    <div class="field-row">
+      <label for="v-phone">Your phone number <span class="lab-note">— becomes your username</span></label>
+      <input type="tel" id="v-phone" inputmode="numeric" placeholder="07XX XXX XXX" maxlength="15">
+    </div>
+    <button class="btn btn-main" id="v-go">Redeem voucher</button>
+    <button class="link" id="v-back">Back</button>
+  </section>
+
+  <!-- ============ CHECK ============ -->
+  <section class="screen" id="s-check">
+    <h1>Check your time</h1>
+    <p class="sub">Enter the number you paid with.</p>
+    <div class="err" id="k-err" hidden></div>
+    <div class="field-row">
+      <label for="k-phone">Phone number</label>
+      <input type="tel" id="k-phone" inputmode="numeric" placeholder="07XX XXX XXX" maxlength="15">
+    </div>
+    <button class="btn btn-main" id="k-go">Check</button>
+    <button class="link" id="k-back">Back</button>
+  </section>
+
+  <!-- ============ ADD DEVICE ============ -->
+  <section class="screen" id="s-tv">
+    <h1>Add a device</h1>
+    <p class="sub">Each purchase covers 2 devices — your phone and one more.</p>
+
+    <div class="callout">
+      <b>Laptop or second phone?</b> You don't need this page. Just connect to
+      WiFi Fiti on it, and when the sign-in page appears enter your number as the
+      username and the password from your receipt.
+      <br><br>
+      <b>Smart TV or decoder?</b> Those can't show a sign-in page, so add them here
+      using their MAC address. Find it under Settings &rarr; Network &rarr; About,
+      or Network Status. It looks like AA:BB:CC:DD:EE:FF.
+    </div>
+
+    <div class="err" id="t-err" hidden></div>
+
+    <div class="field-row">
+      <label for="t-phone">Your M-Pesa number <span class="lab-note">— the one with time</span></label>
+      <input type="tel" id="t-phone" inputmode="numeric" placeholder="07XX XXX XXX" maxlength="15">
+    </div>
+
+    <div class="field-row">
+      <label for="t-mac">Device MAC address</label>
+      <input type="text" id="t-mac" autocapitalize="characters" autocomplete="off"
+             spellcheck="false" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17">
+    </div>
+
+    <div class="field-row">
+      <label for="t-label">Name it <span class="lab-note">— optional</span></label>
+      <input type="text" id="t-label" autocomplete="off" placeholder="Living room TV" maxlength="24">
+    </div>
+
+    <button class="btn btn-main" id="t-go">Connect this device</button>
+
+    <div id="t-list-wrap" hidden>
+      <p class="eyebrow" style="margin-top:22px">Devices on your subscription</p>
+      <div class="devlist glass" id="t-list"></div>
+    </div>
+
+    <button class="link" id="t-back">Back</button>
+  </section>
+
+  <!-- ============ PAYBILL ============ -->
+  <section class="screen" id="s-paybill">
+    <h1>Pay by Paybill</h1>
+    <p class="sub">If the prompt didn't arrive, pay from the M-Pesa menu instead.</p>
+    <div class="paybill glass">
+      <div class="row"><span class="row-k">Paybill</span><span class="row-v" id="pb-shortcode">—</span></div>
+      <div class="row"><span class="row-k">Account no.</span><span class="row-v" id="pb-account">your phone number</span></div>
+      <div class="row"><span class="row-k">Amount</span><span class="row-v" id="pb-amount">—</span></div>
+    </div>
+    <p class="note" style="margin-top:0">
+      Open M-Pesa &rarr; Lipa na M-Pesa &rarr; Pay Bill. Use your phone number as the
+      account number. Time is added within a few seconds.
+    </p>
+    <button class="btn btn-main" id="pb-check" style="margin-top:16px">I've paid, check now</button>
+    <button class="link" id="pb-back">Back</button>
   </section>
 
   <footer id="foot"></footer>
@@ -268,191 +511,282 @@
 <script>
 (function () {
   'use strict';
-
   var qs = new URLSearchParams(location.search);
-  var MAC       = qs.get('mac') || '';
-  var IP        = qs.get('ip') || '';
-  var LOGIN_URL = qs.get('link-login-only') || '';
-  var ORIG      = qs.get('link-orig') || 'http://neverssl.com';
+  var MAC = qs.get('mac') || '', IP = qs.get('ip') || '';
+  var LOGIN_URL = qs.get('link-login-only') || '', ORIG = qs.get('link-orig') || 'http://neverssl.com';
 
   var $ = function (id) { return document.getElementById(id); };
-  var state = { checkoutId: null, poll: null, clock: null };
+  var st = { checkoutId: null, poll: null, clock: null, countdown: null };
+  var ARC = 2 * Math.PI * 55;
+  $('arc').style.strokeDasharray = ARC;
 
-  var ARC_LEN = 2 * Math.PI * 61;
-  $('arc').style.strokeDasharray = ARC_LEN;
-
-  function show(name) {
-    ['pick', 'wait', 'done', 'fail'].forEach(function (s) {
-      $('screen-' + s).classList.toggle('on', s === name);
-    });
+  function show(id) {
+    ['s-active','s-buy','s-wait','s-done','s-voucher','s-check','s-tv','s-paybill']
+      .forEach(function (s) { $(s).classList.toggle('on', s === id); });
     window.scrollTo(0, 0);
   }
+  function warn(el, m) { el.textContent = m; el.hidden = false; }
+  function clear(el) { el.hidden = true; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) {
+    return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }); }
 
-  function fail(msg) {
-    var e = $('err');
-    e.textContent = msg;
-    e.hidden = false;
+  function humanTime(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    var d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600),
+        m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (d > 0) return d + '<span>d</span> ' + h + '<span>h</span>';
+    if (h > 0) return h + '<span>h</span> ' + (m < 10 ? '0' : '') + m + '<span>m</span>';
+    return m + '<span>m</span> ' + (s < 10 ? '0' : '') + s + '<span>s</span>';
+  }
+  function startCountdown(seconds, el) {
+    clearInterval(st.countdown);
+    var left = seconds; el.innerHTML = humanTime(left);
+    st.countdown = setInterval(function () {
+      left -= 1;
+      if (left <= 0) { clearInterval(st.countdown); el.innerHTML = humanTime(0); return; }
+      el.innerHTML = humanTime(left);
+    }, 1000);
+  }
+  function toMsisdn(local) {
+    var d = String(local).replace(/\D/g, '');
+    if (d.indexOf('254') === 0) return d;
+    return '254' + d.replace(/^0/, '');
   }
 
-  function esc(s) {
-    return String(s).replace(/[&<>"]/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
+    $('brand').textContent = cfg.brandName;
+    if (cfg.supportPhone) $('foot').textContent = 'Support: ' + cfg.supportPhone;
+    $('pb-shortcode').textContent = cfg.shortcode || '—';
+    $('plans').innerHTML = cfg.packages.map(function (p, i) {
+      return '<label class="plan"><input type="radio" name="pkg" value="' + esc(p.id) +
+        '" data-price="' + esc(p.price) + '"' + (i === 2 ? ' checked' : '') + '>' +
+        '<span class="plan-face"><span class="pip"></span><span class="plan-text">' +
+        '<span class="plan-name">' + esc(p.name) + '</span>' +
+        '<span class="plan-note">' + esc(p.detail) + '</span></span>' +
+        '<span class="plan-price">' + esc(p.price) + '<small>KES</small></span></span></label>';
+    }).join('');
+    return MAC ? fetch('/api/session?mac=' + encodeURIComponent(MAC)) : null;
+  }).then(function (r) { return r ? r.json() : null; }).then(function (s) {
+    if (s && s.found && s.remainingSeconds > 0) {
+      $('active-line').textContent = 'Number ' + s.phoneDisplay + '. Tap to continue.';
+      startCountdown(s.remainingSeconds, $('clock'));
+      $('reconnect').onclick = function () {
+        fetch('/api/session?mac=' + encodeURIComponent(MAC)).then(function (r) { return r.json(); })
+          .then(function (x) { if (x.found) signIn(x.username, x.password); });
+      };
+      show('s-active');
+    }
+  }).catch(function () { warn($('err'), 'Could not load. Try reopening this page.'); });
+
+  function signIn(u, p) {
+    if (!LOGIN_URL) return false;
+    var f = document.createElement('form');
+    f.method = 'POST'; f.action = LOGIN_URL; f.style.display = 'none';
+    [['username', u], ['password', p], ['dst', ORIG]].forEach(function (kv) {
+      var i = document.createElement('input');
+      i.type = 'hidden'; i.name = kv[0]; i.value = kv[1]; f.appendChild(i);
     });
+    document.body.appendChild(f); f.submit(); return true;
   }
 
-  /* ---------- tariff ---------- */
-  fetch('/api/config')
-    .then(function (r) { return r.json(); })
-    .then(function (cfg) {
-      $('brand').textContent = cfg.brandName;
-      if (cfg.testMode) { $('testmode').hidden = false; }
-      if (cfg.supportPhone) { $('foot').textContent = 'Shida? Piga ' + cfg.supportPhone; }
-
-      $('tariff').innerHTML = cfg.packages.map(function (p, i) {
-        return '<label class="opt">' +
-          '<input type="radio" name="pkg" value="' + esc(p.id) + '"' +
-            (i === 1 ? ' checked' : '') + '>' +
-          '<span class="opt-face">' +
-            '<span class="opt-text">' +
-              '<span class="opt-name">' + esc(p.name) + '</span>' +
-              '<span class="opt-detail">' + esc(p.detail) + '</span>' +
-            '</span>' +
-            '<span class="price">' + esc(p.price) + '<span class="bob">/=</span></span>' +
-          '</span>' +
-        '</label>';
-      }).join('');
-    })
-    .catch(function () {
-      fail('Packages hazijapakia. Refresh hii page.');
-    });
-
-  /* ---------- pay ---------- */
-  $('go').addEventListener('click', function () {
+  /* ---- pay ---- */
+  $('pay').addEventListener('click', function () {
     var chosen = document.querySelector('input[name=pkg]:checked');
     var phone = $('phone').value.trim();
-
-    $('err').hidden = true;
-
-    if (!chosen) { return fail('Chagua package kwanza.'); }
-    if (phone.replace(/\D/g, '').length < 9) {
-      return fail('Weka namba yako ya M-Pesa, kama 0712 345 678.');
-    }
-
-    $('go').disabled = true;
-    $('go').textContent = 'Inatuma…';
-
-    fetch('/api/pay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ packageId: chosen.value, phone: phone, mac: MAC, ip: IP })
-    })
+    clear($('err'));
+    if (!chosen) return warn($('err'), 'Choose a package first.');
+    if (phone.replace(/\D/g, '').length < 9) return warn($('err'), 'Enter your M-Pesa number, e.g. 0712 345 678.');
+    $('pay').disabled = true; $('pay').textContent = 'Sending…';
+    fetch('/api/pay', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ packageId: chosen.value, phone: phone, mac: MAC, ip: IP }) })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
       .then(function (res) {
-        $('go').disabled = false;
-        $('go').textContent = 'Lipa na M-Pesa';
-
-        if (!res.ok) { return fail(res.body.error || 'Malipo haijaanza. Jaribu tena.'); }
-
-        state.checkoutId = res.body.checkoutRequestId;
-        $('wait-line').textContent =
-          'Weka M-Pesa PIN ulipe ' + res.body.amount + '/= kutoka ' + res.body.phoneDisplay + '.';
-        show('wait');
-        startClock();
-        startPolling();
+        $('pay').disabled = false; $('pay').textContent = 'Pay with M-Pesa';
+        if (!res.ok) return warn($('err'), res.body.error || 'Payment could not start.');
+        st.checkoutId = res.body.checkoutRequestId;
+        $('wait-line').textContent = 'Enter your M-Pesa PIN to pay KES ' + res.body.amount +
+          ' from ' + res.body.phoneDisplay + '.';
+        $('pb-account').textContent = phone.replace(/\D/g, '');
+        $('pb-amount').textContent = 'KES ' + res.body.amount;
+        show('s-wait'); runClock(); startPolling();
       })
       .catch(function () {
-        $('go').disabled = false;
-        $('go').textContent = 'Lipa na M-Pesa';
-        fail('Network imekataa. Jaribu tena.');
+        $('pay').disabled = false; $('pay').textContent = 'Pay with M-Pesa';
+        warn($('err'), 'Network problem. Try again.');
       });
   });
 
-  /* ---------- the 60 seconds Safaricom gives you ---------- */
-  function startClock() {
-    var left = 60;
-    $('tick').textContent = left;
-    $('arc').style.strokeDashoffset = 0;
-
-    clearInterval(state.clock);
-    state.clock = setInterval(function () {
-      left -= 1;
-      $('tick').textContent = Math.max(left, 0);
-      $('arc').style.strokeDashoffset = ARC_LEN * (1 - Math.max(left, 0) / 60);
-
+  function runClock() {
+    var left = 60; $('tick').textContent = left; $('arc').style.strokeDashoffset = 0;
+    $('wait-title').textContent = 'Check your phone';
+    clearInterval(st.clock);
+    st.clock = setInterval(function () {
+      left -= 1; $('tick').textContent = Math.max(left, 0);
+      $('arc').style.strokeDashoffset = ARC * (1 - Math.max(left, 0) / 60);
       if (left <= 0) {
-        clearInterval(state.clock);
-        $('wait-line').textContent =
-          'Bado tunacheki na M-Pesa. Kama umelipa, subiri kidogo.';
+        clearInterval(st.clock);
+        // Someone who has already paid must never see a dead countdown.
+        $('wait-title').textContent = 'Confirming payment';
+        $('wait-line').textContent = 'If you have paid, hold on — we are connecting you.';
       }
     }, 1000);
   }
-
-  /* ---------- poll ---------- */
   function startPolling() {
-    var tries = 0;
-    clearInterval(state.poll);
-
-    state.poll = setInterval(function () {
+    var tries = 0; clearInterval(st.poll);
+    st.poll = setInterval(function () {
       tries += 1;
-
-      if (tries > 60) { // ~3 minutes
-        stop();
-        $('fail-line').textContent =
-          'Hatujapata confirmation kutoka M-Pesa. Kama pesa imetoka kwa account yako, ' +
-          'connect tena baada ya dakika moja — muda yako itakuwa inakungoja.';
-        show('fail');
-        return;
-      }
-
-      fetch('/api/status/' + encodeURIComponent(state.checkoutId))
-        .then(function (r) { return r.json(); })
+      if (tries > 60) { stopAll(); show('s-paybill'); return; }
+      fetch('/api/status/' + encodeURIComponent(st.checkoutId)).then(function (r) { return r.json(); })
         .then(function (s) {
-          if (s.status === 'paid') { stop(); succeed(s); }
+          if (s.status === 'paid') { stopAll(); succeed(s); }
           else if (s.status === 'failed') {
-            stop();
-            $('fail-line').textContent = s.reason || 'Malipo haijapita.';
-            show('fail');
+            stopAll(); warn($('err'), s.reason || 'Payment was not completed.'); show('s-buy');
           }
-        })
-        .catch(function () { /* transient - the next tick retries */ });
+        }).catch(function () {});
     }, 3000);
   }
-
-  function stop() {
-    clearInterval(state.poll);
-    clearInterval(state.clock);
-  }
-
-  /* ---------- success ---------- */
+  function stopAll() { clearInterval(st.poll); clearInterval(st.clock); }
   function succeed(s) {
     $('c-user').textContent = s.username || '—';
     $('c-pass').textContent = s.password || '—';
-    if (s.receipt) { $('done-line').textContent = 'Malipo ' + s.receipt + ' imepokelewa.'; }
-    show('done');
-
-    // The server already logged this MAC in over the RouterOS API. Posting
-    // the router's own login form too is belt and braces: whichever lands
-    // first wins, and the second is a harmless no-op.
-    if (LOGIN_URL && s.username) {
-      setTimeout(function () {
-        var f = document.createElement('form');
-        f.method = 'POST';
-        f.action = LOGIN_URL;
-        f.style.display = 'none';
-        [['username', s.username], ['password', s.password], ['dst', ORIG]]
-          .forEach(function (kv) {
-            var i = document.createElement('input');
-            i.type = 'hidden'; i.name = kv[0]; i.value = kv[1];
-            f.appendChild(i);
-          });
-        document.body.appendChild(f);
-        f.submit();
-      }, 2500);
-    }
+    if (s.receipt) { $('c-receipt').textContent = s.receipt; $('r-receipt').hidden = false; }
+    if (s.remainingSeconds) startCountdown(s.remainingSeconds, $('clock2'));
+    show('s-done');
+    setTimeout(function () { signIn(s.username, s.password); }, 2400);
   }
 
-  $('cancel').addEventListener('click', function () { stop(); show('pick'); });
-  $('retry').addEventListener('click', function () { show('pick'); });
+  /* ---- voucher ---- */
+  $('go-voucher').addEventListener('click', function () { show('s-voucher'); });
+  $('v-back').addEventListener('click', function () { show('s-buy'); });
+  $('v-go').addEventListener('click', function () {
+    var code = $('v-code').value.trim(), phone = $('v-phone').value.trim();
+    clear($('v-err'));
+    if (code.replace(/[^A-Za-z0-9]/g, '').length < 6) return warn($('v-err'), 'Enter the full voucher code.');
+    if (phone.replace(/\D/g, '').length < 9) return warn($('v-err'), 'Enter your phone number.');
+    $('v-go').disabled = true; $('v-go').textContent = 'Checking…';
+    fetch('/api/voucher/redeem', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code, phone: phone, mac: MAC, ip: IP }) })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        $('v-go').disabled = false; $('v-go').textContent = 'Redeem voucher';
+        if (!res.ok) return warn($('v-err'), res.body.error || 'Voucher not accepted.');
+        $('done-line').textContent = 'Voucher accepted.';
+        succeed({ username: res.body.username, password: res.body.password,
+                  remainingSeconds: res.body.grantedSeconds });
+      })
+      .catch(function () {
+        $('v-go').disabled = false; $('v-go').textContent = 'Redeem voucher';
+        warn($('v-err'), 'Network problem. Try again.');
+      });
+  });
+
+  /* ---- check ---- */
+  $('go-check').addEventListener('click', function () { show('s-check'); });
+  $('k-back').addEventListener('click', function () { show('s-buy'); });
+  $('a-more').addEventListener('click', function () { show('s-buy'); });
+  $('k-go').addEventListener('click', function () {
+    var phone = $('k-phone').value.trim(); clear($('k-err'));
+    if (phone.replace(/\D/g, '').length < 9) return warn($('k-err'), 'Enter a valid number.');
+    fetch('/api/session/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone }) }).then(function (r) { return r.json(); })
+      .then(function (s) {
+        if (!s.found) return warn($('k-err'), 'No time on this number. Buy a package.');
+        $('active-line').textContent = 'Number ' + s.phoneDisplay + '. Tap to continue.';
+        startCountdown(s.remainingSeconds, $('clock'));
+        $('reconnect').onclick = function () { signIn(s.username, s.password); };
+        show('s-active');
+      }).catch(function () { warn($('k-err'), 'Network problem.'); });
+  });
+
+  /* ---- devices ---- */
+  function openTv() {
+    show('s-tv');
+    if (MAC) {
+      fetch('/api/session?mac=' + encodeURIComponent(MAC)).then(function (r) { return r.json(); })
+        .then(function (s) {
+          if (s.found) { $('t-phone').value = '0' + s.username.slice(3); loadDevices(s.username); }
+        });
+    }
+  }
+  function loadDevices(msisdn) {
+    fetch('/api/device/list', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: msisdn }) }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.devices || !d.devices.length) { $('t-list-wrap').hidden = true; return; }
+        $('t-list').innerHTML = d.devices.map(function (x) {
+          return '<div class="drow"><span><span class="dname">' + esc(x.label || 'Device') +
+            '</span><br><span class="dmac">' + esc(x.mac) + '</span></span>' +
+            '<button class="drm" data-mac="' + esc(x.mac) + '">Remove</button></div>';
+        }).join('');
+        $('t-list-wrap').hidden = false;
+        Array.prototype.forEach.call($('t-list').querySelectorAll('.drm'), function (btn) {
+          btn.onclick = function () {
+            fetch('/api/device/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone: msisdn, mac: btn.getAttribute('data-mac') }) })
+              .then(function () { loadDevices(msisdn); clear($('t-err')); });
+          };
+        });
+      });
+  }
+  $('go-tv').addEventListener('click', openTv);
+  $('a-tv').addEventListener('click', openTv);
+  $('done-tv').addEventListener('click', openTv);
+  $('t-back').addEventListener('click', function () { show('s-buy'); });
+
+  $('t-go').addEventListener('click', function () {
+    var phone = $('t-phone').value.trim(), mac = $('t-mac').value.trim(), label = $('t-label').value.trim();
+    clear($('t-err'));
+    if (phone.replace(/\D/g, '').length < 9) return warn($('t-err'), 'Enter the number that has time.');
+    if (mac.replace(/[^0-9A-Fa-f]/g, '').length !== 12) {
+      return warn($('t-err'), 'Enter the full 12-character MAC address.');
+    }
+    $('t-go').disabled = true; $('t-go').textContent = 'Connecting…';
+    fetch('/api/device/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone, mac: mac, label: label }) })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        $('t-go').disabled = false; $('t-go').textContent = 'Connect this device';
+        loadDevices(toMsisdn(phone));
+        if (!res.ok) {
+          // At the limit, the list below is the actionable part - point at it.
+          return warn($('t-err'), res.body.error || 'Could not connect the device.');
+        }
+        $('t-mac').value = ''; $('t-label').value = '';
+        warn($('t-err'), '');
+        clear($('t-err'));
+        $('done-line').textContent = res.body.label + ' connected. It will be online within a minute.';
+      })
+      .catch(function () {
+        $('t-go').disabled = false; $('t-go').textContent = 'Connect this device';
+        warn($('t-err'), 'Network problem. Try again.');
+      });
+  });
+
+  /* ---- paybill ---- */
+  $('go-paybill').addEventListener('click', function () {
+    if ($('pb-amount').textContent === '—') $('pb-amount').textContent = 'the package price';
+    show('s-paybill');
+  });
+  $('pb-back').addEventListener('click', function () { show('s-buy'); });
+  $('pb-check').addEventListener('click', function () {
+    var phone = $('pb-account').textContent;
+    $('pb-check').disabled = true; $('pb-check').textContent = 'Checking…';
+    fetch('/api/session/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone }) }).then(function (r) { return r.json(); })
+      .then(function (s) {
+        $('pb-check').disabled = false; $('pb-check').textContent = "I've paid, check now";
+        if (s.found && s.remainingSeconds > 0) {
+          succeed({ username: s.username, password: s.password, remainingSeconds: s.remainingSeconds });
+        } else {
+          warn($('err'), 'No payment received yet. Wait a few seconds and try again.');
+        }
+      })
+      .catch(function () {
+        $('pb-check').disabled = false; $('pb-check').textContent = "I've paid, check now";
+      });
+  });
+
+  $('cancel').addEventListener('click', function () { stopAll(); show('s-buy'); });
 })();
 </script>
 </body>

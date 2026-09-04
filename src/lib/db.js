@@ -75,7 +75,45 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_jobs_pending ON jobs(site, acked_at);
+
+  -- Vouchers: prepaid codes sold in cash, or handed out as promos.
+  CREATE TABLE IF NOT EXISTS vouchers (
+    code        TEXT PRIMARY KEY,
+    package_id  TEXT NOT NULL,
+    seconds     INTEGER NOT NULL,
+    batch       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    redeemed_at TEXT,
+    redeemed_by TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vouchers_open ON vouchers(redeemed_at);
+
+  -- Devices with no browser: TVs, consoles, streaming sticks. They can
+  -- never see a captive portal, so the owner registers them by MAC and
+  -- the router logs them in under the owner's account.
+  CREATE TABLE IF NOT EXISTS devices (
+    mac         TEXT PRIMARY KEY,
+    phone       TEXT NOT NULL,
+    label       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login  TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_devices_phone ON devices(phone);
 `);
+
+/* Columns added after first release. SQLite has no IF NOT EXISTS for
+   ALTER, so we probe and ignore the duplicate-column error. */
+for (const stmt of [
+  `ALTER TABLE accounts ADD COLUMN used_seconds INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE accounts ADD COLUMN last_mac TEXT`,
+  `ALTER TABLE accounts ADD COLUMN last_seen_at TEXT`,
+]) {
+  try { db.exec(stmt); } catch { /* already present */ }
+}
+
+db.exec(`CREATE INDEX IF NOT EXISTS idx_accounts_mac ON accounts(last_mac);`);
 
 const insert = db.prepare(`
   INSERT INTO transactions
@@ -177,6 +215,88 @@ const purgeOldJobs = db.prepare(`
    WHERE acked_at IS NOT NULL AND acked_at < datetime('now', '-7 days')
 `);
 
+
+/* ------------------------------------------------------------------ */
+/* Sessions, usage and vouchers                                        */
+/* ------------------------------------------------------------------ */
+
+const accountByMac = db.prepare(
+  `SELECT * FROM accounts WHERE last_mac = ? ORDER BY updated_at DESC LIMIT 1`
+);
+
+const rememberMac = db.prepare(`
+  UPDATE accounts SET last_mac = @mac, last_seen_at = datetime('now')
+   WHERE phone = @phone
+`);
+
+/** Usage comes from the router, which is the only thing that truly knows. */
+const recordUsage = db.prepare(`
+  UPDATE accounts
+     SET used_seconds = @usedSeconds, last_seen_at = datetime('now')
+   WHERE phone = @phone
+`);
+
+const addVoucher = db.prepare(`
+  INSERT INTO vouchers (code, package_id, seconds, batch)
+  VALUES (@code, @packageId, @seconds, @batch)
+`);
+
+const getVoucher = db.prepare(`SELECT * FROM vouchers WHERE code = ?`);
+
+/** Conditional UPDATE: the WHERE clause is the lock. Two simultaneous
+ *  redemptions of one code cannot both report changes = 1. */
+const claimVoucher = db.prepare(`
+  UPDATE vouchers
+     SET redeemed_at = datetime('now'), redeemed_by = @phone
+   WHERE code = @code AND redeemed_at IS NULL
+`);
+
+const voucherStats = db.prepare(`
+  SELECT COUNT(*) AS total,
+         SUM(CASE WHEN redeemed_at IS NULL THEN 1 ELSE 0 END) AS unused
+    FROM vouchers
+`);
+
+
+/* ------------------------------------------------------------------ */
+/* Browserless devices                                                 */
+/* ------------------------------------------------------------------ */
+
+const addDevice = db.prepare(`
+  INSERT INTO devices (mac, phone, label) VALUES (@mac, @phone, @label)
+  ON CONFLICT(mac) DO UPDATE SET phone = @phone, label = @label
+`);
+
+const getDevice = db.prepare(`SELECT * FROM devices WHERE mac = ?`);
+
+const devicesFor = db.prepare(
+  `SELECT * FROM devices WHERE phone = ? ORDER BY created_at`
+);
+
+const countDevices = db.prepare(
+  `SELECT COUNT(*) AS n FROM devices WHERE phone = ?`
+);
+
+const removeDevice = db.prepare(
+  `DELETE FROM devices WHERE mac = @mac AND phone = @phone`
+);
+
+const touchDevice = db.prepare(
+  `UPDATE devices SET last_login = datetime('now') WHERE mac = ?`
+);
+
+/**
+ * Every registered device whose owner still has time left. The router
+ * re-logs these in whenever they drop off, which is the only way a TV
+ * survives a reboot without someone walking over to it.
+ */
+const devicesToKeepOnline = db.prepare(`
+  SELECT d.mac, d.phone, a.password, a.total_seconds, a.used_seconds
+    FROM devices d
+    JOIN accounts a ON a.phone = d.phone
+   WHERE a.total_seconds > COALESCE(a.used_seconds, 0)
+`);
+
 module.exports = {
   db,
   insert,
@@ -193,4 +313,18 @@ module.exports = {
   markDelivered,
   markAcked,
   purgeOldJobs,
+  accountByMac,
+  rememberMac,
+  recordUsage,
+  addVoucher,
+  getVoucher,
+  claimVoucher,
+  voucherStats,
+  addDevice,
+  getDevice,
+  devicesFor,
+  countDevices,
+  removeDevice,
+  touchDevice,
+  devicesToKeepOnline,
 };

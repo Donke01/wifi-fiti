@@ -7,6 +7,10 @@ process.env.MPESA_SHORTCODE = '174379';
 process.env.PROVISION_MODE = 'api';
 process.env.MPESA_PASSKEY = 'passkey';
 process.env.DATABASE_PATH = '/tmp/dryrun.db';
+// Set empty rather than delete: config.js loads dotenv, and dotenv will
+// happily repopulate a deleted variable from a real .env file, silently
+// turning this into a different test. dotenv never overwrites a variable
+// that already exists, so "" survives.
 process.env.MIKROTIK_HOST = '';
 process.env.MIKROTIK_USER = '';
 process.env.MIKROTIK_PASSWORD = '';

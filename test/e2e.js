@@ -10,6 +10,7 @@ process.env.MPESA_CONSUMER_KEY = 'k';
 process.env.MPESA_CONSUMER_SECRET = 's';
 process.env.MPESA_SHORTCODE = '174379';
 process.env.PROVISION_MODE = 'api';
+process.env.SITE_TOKEN = '';
 process.env.MPESA_PASSKEY = 'passkey';
 process.env.MIKROTIK_HOST = '127.0.0.1';
 process.env.MIKROTIK_PORT = '18729';
@@ -93,8 +94,11 @@ const api = (path, init) =>
     const r = await api('/api/config');
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.body.brandName, 'WiFi Fiti');
-    assert.strictEqual(r.body.testMode, true);
-    assert.ok(r.body.packages.length >= 3);
+    assert.strictEqual(r.body.testMode, undefined, 'test-mode badge was removed');
+    assert.strictEqual(r.body.packages.length, 5);
+    assert.strictEqual(r.body.shortcode, '174379', 'portal needs this for the paybill screen');
+    const prices = Object.fromEntries(r.body.packages.map((p) => [p.id, p.price]));
+    assert.deepStrictEqual(prices, { hr1: 10, hr3: 20, day1: 50, day3: 120, wk1: 400 });
     assert.ok(r.body.packages.every((p) => p.price > 0));
   });
 

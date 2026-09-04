@@ -13,6 +13,9 @@ process.env.PROVISION_MODE = 'poll';
 process.env.SITE_ID = 'kitale-1';
 process.env.SITE_TOKEN = 'test-token-abc123';
 process.env.MIKROTIK_HOTSPOT_SERVER = 'hotspot1';
+process.env.MIKROTIK_HOST = '';
+process.env.MIKROTIK_USER = '';
+process.env.MIKROTIK_PASSWORD = '';
 process.env.DATABASE_PATH = '/tmp/poll-test.db';
 
 for (const f of ['', '-wal', '-shm']) {

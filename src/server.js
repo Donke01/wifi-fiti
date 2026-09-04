@@ -67,7 +67,7 @@ app.get('/api/config', (req, res) => {
   res.json({
     brandName: config.brandName,
     supportPhone: config.supportPhone,
-    testMode: config.mpesa.env === 'sandbox',
+    shortcode: config.mpesa.shortcode,
     packages: PACKAGES.map(({ id, name, detail, price }) => ({
       id,
       name,
@@ -150,6 +150,8 @@ app.get('/api/status/:checkoutRequestId', (req, res) => {
     payload.username = tx.hotspot_username;
     payload.password = tx.hotspot_password;
     payload.receipt = tx.mpesa_receipt;
+    const info = remainingFor(tx.hotspot_username);
+    if (info) payload.remainingSeconds = info.remainingSeconds;
   } else if (tx.status === 'paid') {
     // Paid but the router did not take it yet. Keep the client waiting
     // rather than showing a success screen that has no internet behind it.
@@ -290,6 +292,296 @@ async function reconcile() {
 setInterval(() => reconcile().catch((e) => console.error('[reconcile]', e)), 30_000).unref();
 
 /* ------------------------------------------------------------------ */
+/* Session: what does this customer already have?                      */
+/* ------------------------------------------------------------------ */
+
+const { grantTime, remainingFor, generateCode } = require('./lib/grant');
+const { findPackage: pkgById, PACKAGES: ALL_PACKAGES } = require('./packages');
+
+/**
+ * Looked up by device MAC on page load. A customer who already has time
+ * must never be shown a payment screen - that is how people end up paying
+ * twice for internet they already own.
+ */
+app.get('/api/session', (req, res) => {
+  const mac = cleanMac(req.query.mac);
+  if (!mac) return res.json({ found: false });
+
+  const account = db.accountByMac.get(mac);
+  if (!account) return res.json({ found: false });
+
+  const info = remainingFor(account.phone);
+  if (!info || info.remainingSeconds <= 0) return res.json({ found: false });
+
+  res.json({
+    found: true,
+    phone: info.phone,
+    phoneDisplay: mpesa.displayPhone(info.phone),
+    username: info.phone,
+    password: info.password,
+    remainingSeconds: info.remainingSeconds,
+    totalSeconds: info.totalSeconds,
+  });
+});
+
+/** Same question, asked by typing a number instead of being recognised. */
+app.post('/api/session/lookup', (req, res) => {
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  if (!phone) {
+    return res.status(400).json({ error: 'Weka namba sahihi, kama 0712 345 678.' });
+  }
+
+  const info = remainingFor(phone);
+  if (!info || info.remainingSeconds <= 0) {
+    return res.json({ found: false });
+  }
+
+  res.json({
+    found: true,
+    phoneDisplay: mpesa.displayPhone(info.phone),
+    username: info.phone,
+    password: info.password,
+    remainingSeconds: info.remainingSeconds,
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Connect a TV or other device to an existing account                 */
+/* ------------------------------------------------------------------ */
+
+// A TV can't open a captive portal, so its owner registers its MAC here
+// from a phone. The device then rides on the owner's balance. Capped so
+// one purchase can't quietly put a whole building online.
+const MAX_DEVICES_PER_ACCOUNT = 1; // paying phone + 1 added device = 2 total
+
+app.post('/api/device/add', async (req, res) => {
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  if (!phone) {
+    return res.status(400).json({ error: 'Enter the phone number you paid with.' });
+  }
+
+  // The MAC people read off a TV uses hyphens or nothing; accept both.
+  const rawMac = String((req.body && req.body.mac) || '')
+    .toUpperCase()
+    .replace(/[^0-9A-F]/g, '');
+  if (rawMac.length !== 12) {
+    return res.status(400).json({
+      error: 'That MAC address is not complete. It should be 12 characters.',
+    });
+  }
+  const mac = rawMac.match(/.{2}/g).join(':');
+
+  const label = String((req.body && req.body.label) || 'TV')
+    .replace(/[^\w \-]/g, '')
+    .slice(0, 24) || 'TV';
+
+  const info = remainingFor(phone);
+  if (!info || info.remainingSeconds <= 0) {
+    return res.status(402).json({
+      error: 'This number has no active time. Buy a package first, then add your TV.',
+    });
+  }
+
+  // If the device already belongs to someone else, refuse rather than
+  // silently move it - that would let a balance be hijacked.
+  const existing = db.getDevice.get(mac);
+  if (existing && existing.phone !== phone) {
+    return res.status(409).json({
+      error: 'That device is already connected to another number.',
+    });
+  }
+
+  if (!existing && db.countDevices.get(phone).n >= MAX_DEVICES_PER_ACCOUNT) {
+    // Name what's occupying the slot. "You've hit the limit" leaves the
+    // customer guessing which device to remove.
+    const owned = db.devicesFor.all(phone)
+      .map((d) => d.label || 'a device').join(', ');
+    return res.status(409).json({
+      error:
+        'Each subscription covers 2 devices — your phone and one more. ' +
+        `You have already added ${owned}. Remove it below to connect something else.`,
+      atLimit: true,
+    });
+  }
+
+  db.addDevice.run({ mac, phone, label });
+
+  // Queue a login for the TV's MAC under the owner's credentials. In poll
+  // mode the router picks this up within its interval; the TV needs no
+  // portal and no typing.
+  const pkg = pkgById('standard') || { profile: 'standard' };
+  await grantTime({
+    phone,
+    seconds: 0, // no time added - the device shares the owner's balance
+    profile: 'standard',
+    mac,
+    ip: null,
+    reason: `device ${label}`,
+  });
+
+  console.log(`[device] ${mac} (${label}) attached to ${phone}`);
+
+  res.json({
+    ok: true,
+    mac,
+    label,
+    deviceCount: db.countDevices.get(phone).n,
+    remainingSeconds: info.remainingSeconds,
+  });
+});
+
+app.post('/api/device/list', (req, res) => {
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  if (!phone) return res.status(400).json({ error: 'Enter a valid number.' });
+
+  const devices = db.devicesFor.all(phone).map((d) => ({
+    mac: d.mac, label: d.label,
+  }));
+  res.json({ devices, max: MAX_DEVICES_PER_ACCOUNT });
+});
+
+app.post('/api/device/remove', (req, res) => {
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  const mac = String((req.body && req.body.mac) || '').toUpperCase();
+  if (!phone || !/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) {
+    return res.status(400).json({ error: 'Bad request.' });
+  }
+  db.removeDevice.run({ mac, phone });
+  res.json({ ok: true });
+});
+
+/* ------------------------------------------------------------------ */
+/* Vouchers                                                            */
+/* ------------------------------------------------------------------ */
+
+app.post('/api/voucher/redeem', async (req, res) => {
+  const raw = String((req.body && req.body.code) || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+
+  if (raw.length < 6 || raw.length > 24) {
+    return res.status(400).json({ error: 'Hiyo code si sahihi.' });
+  }
+
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  if (!phone) {
+    return res.status(400).json({ error: 'Weka namba yako ya simu pia.' });
+  }
+
+  const voucher = db.getVoucher.get(raw);
+  if (!voucher) return res.status(404).json({ error: 'Code haipo. Angalia tena.' });
+  if (voucher.redeemed_at) {
+    return res.status(409).json({ error: 'Code hii imeshatumika.' });
+  }
+
+  // The WHERE clause is the lock: two simultaneous redemptions cannot
+  // both report a change, so a code can only ever be spent once.
+  const claimed = db.claimVoucher.run({ code: raw, phone });
+  if (claimed.changes !== 1) {
+    return res.status(409).json({ error: 'Code hii imeshatumika.' });
+  }
+
+  const pkg = pkgById(voucher.package_id);
+  const result = await grantTime({
+    phone,
+    seconds: voucher.seconds,
+    profile: pkg ? pkg.profile : 'standard',
+    mac: cleanMac(req.body && req.body.mac),
+    ip: cleanIp(req.body && req.body.ip),
+    reason: `voucher ${raw}`,
+  });
+
+  res.json({
+    ok: true,
+    username: result.username,
+    password: result.password,
+    grantedSeconds: voucher.seconds,
+  });
+});
+
+/** Batch generation. Protected by ADMIN_TOKEN; no token, no endpoint. */
+app.post('/api/admin/vouchers', (req, res) => {
+  const admin = process.env.ADMIN_TOKEN;
+  if (!admin || String(req.headers['x-admin-token'] || '') !== admin) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  const pkg = pkgById((req.body && req.body.packageId) || '');
+  if (!pkg) return res.status(400).json({ error: 'Unknown package.' });
+
+  const count = Math.min(Math.max(Number(req.body.count) || 1, 1), 200);
+  const batch = new Date().toISOString().slice(0, 10);
+  const codes = [];
+
+  for (let i = 0; i < count; i++) {
+    const code = 'FITI' + generateCode(8);
+    db.addVoucher.run({ code, packageId: pkg.id, seconds: pkg.seconds, batch });
+    codes.push(code);
+  }
+
+  console.log(`[admin] issued ${count} ${pkg.id} voucher(s)`);
+  res.json({ package: pkg.id, count, codes });
+});
+
+/* ------------------------------------------------------------------ */
+/* Paybill fallback                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Some customers cancel the STK prompt, or their SIM toolkit misbehaves.
+ * They can pay the shortcode manually instead, using their phone number
+ * as the account reference. Safaricom posts the result here.
+ */
+app.post('/api/mpesa/c2b/confirmation', (req, res) => {
+  res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
+
+  setImmediate(async () => {
+    try {
+      const b = req.body || {};
+      const phone = mpesa.normalizePhone(b.BillRefNumber || b.MSISDN);
+      const amount = Math.round(Number(b.TransAmount));
+      const receipt = String(b.TransID || '');
+
+      if (!phone || !Number.isFinite(amount) || amount <= 0) {
+        console.warn('[c2b] unusable payload:', JSON.stringify(b));
+        return;
+      }
+      if (db.isDuplicateReceipt(receipt, '')) {
+        console.log(`[c2b] receipt ${receipt} already banked, ignoring`);
+        return;
+      }
+
+      // Buy the largest package the amount covers. Anything less than the
+      // cheapest package is recorded but grants nothing - the customer is
+      // told to top up rather than silently losing the money.
+      const affordable = ALL_PACKAGES
+        .filter((p) => p.price <= amount)
+        .sort((a, b2) => b2.price - a.price)[0];
+
+      if (!affordable) {
+        console.warn(`[c2b] ${phone} sent ${amount} - below the cheapest package`);
+        return;
+      }
+
+      await grantTime({
+        phone,
+        seconds: affordable.seconds,
+        profile: affordable.profile,
+        mac: null,
+        ip: null,
+        reason: `paybill ${receipt}`,
+      });
+    } catch (err) {
+      console.error('[c2b] handler threw:', err);
+    }
+  });
+});
+
+app.post('/api/mpesa/c2b/validation', (req, res) => {
+  res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
+});
+
+/* ------------------------------------------------------------------ */
 /* Router polling API                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -348,6 +640,57 @@ app.get('/api/router/jobs', (req, res) => {
   if (emitted.length) {
     console.log(`[router] ${site} collected job(s) ${emitted.join(', ')}`);
   }
+
+  res.type('text/plain').send(script);
+});
+
+/**
+ * The router reports what it has actually used, then collects new work in
+ * the same round trip. Usage lives on the router - it is the only thing
+ * that counts real seconds - so without this the portal can only show
+ * what was bought, never what is left.
+ *
+ * Body is plain text, one line per user: username:used:limit
+ */
+app.post('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }), (req, res) => {
+  const site = authSite(req, res);
+  if (!site) return;
+
+  const lines = String(req.body || '').split('\n');
+  let updated = 0;
+
+  for (const line of lines) {
+    const parts = line.trim().split(':');
+    if (parts.length < 2) continue;
+
+    const phone = parts[0].trim();
+    const used = Number(parts[1]);
+    if (!/^254[17]\d{8}$/.test(phone)) continue;
+    if (!Number.isFinite(used) || used < 0) continue;
+
+    db.recordUsage.run({ phone, usedSeconds: Math.round(used) });
+    updated++;
+  }
+
+  if (updated) console.log(`[router] ${site} reported usage for ${updated} user(s)`);
+
+  const jobs = db.pendingJobs.all(site);
+  if (!jobs.length) return res.type('text/plain').send('');
+
+  const ackUrl =
+    `${config.publicUrl}/api/router/ack` +
+    `?site=${encodeURIComponent(site)}` +
+    `&token=${encodeURIComponent(config.site.token)}&ids=`;
+
+  const { script, emitted, rejected } = buildScript({
+    jobs, hotspotServer: config.site.hotspotServer, ackUrl,
+  });
+
+  for (const id of emitted) db.markDelivered.run(id);
+  if (rejected.length) {
+    console.error(`[router] refused malformed jobs: ${rejected.join(', ')}`);
+  }
+  if (emitted.length) console.log(`[router] ${site} collected job(s) ${emitted.join(', ')}`);
 
   res.type('text/plain').send(script);
 });
