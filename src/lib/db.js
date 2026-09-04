@@ -306,6 +306,21 @@ const devicesToKeepOnline = db.prepare(`
    WHERE a.total_seconds > COALESCE(a.used_seconds, 0)
 `);
 
+
+/** Every successful purchase for one number - the money record, which is
+ *  the only thing we can rebuild a balance from with confidence. */
+const paidTransactionsFor = db.prepare(`
+  SELECT checkout_request_id, package_id, seconds, amount, mpesa_receipt, created_at
+    FROM transactions
+   WHERE phone = ? AND status = 'paid'
+   ORDER BY created_at
+`);
+
+const setTotal = db.prepare(`
+  UPDATE accounts SET total_seconds = @totalSeconds, updated_at = datetime('now')
+   WHERE phone = @phone
+`);
+
 module.exports = {
   db,
   insert,
@@ -326,6 +341,8 @@ module.exports = {
   rememberMac,
   recordUsage,
   secondsSinceReport,
+  paidTransactionsFor,
+  setTotal,
   addVoucher,
   getVoucher,
   claimVoucher,

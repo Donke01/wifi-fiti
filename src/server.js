@@ -605,6 +605,97 @@ app.post('/api/mpesa/c2b/validation', (req, res) => {
 });
 
 /* ------------------------------------------------------------------ */
+/* Ledger repair                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Rebuild an account's balance from its payment history.
+ *
+ * The transactions table is the record of money actually received, so it
+ * is the only thing worth trusting when the ledger and the router have
+ * drifted apart - a restored backup, a bug that overwrote totals, a
+ * database that started life after the customer did.
+ *
+ * GET reports what it would do and changes nothing. POST applies it.
+ */
+function rebuildLedger(phone, apply) {
+  const paid = db.paidTransactionsFor.all(phone);
+  const purchased = paid.reduce((sum, tx) => sum + tx.seconds, 0);
+
+  const account = db.getAccount.get(phone);
+  const used = account ? (account.used_seconds || 0) : 0;
+  const currentTotal = account ? account.total_seconds : 0;
+
+  // A customer cannot have less time than they have already consumed, or
+  // they are locked out of internet they paid for.
+  const rebuiltTotal = Math.max(purchased, used);
+
+  if (apply && account) {
+    db.setTotal.run({ phone, totalSeconds: rebuiltTotal });
+  }
+
+  return {
+    phone,
+    payments: paid.length,
+    purchasedSeconds: purchased,
+    usedSeconds: used,
+    previousTotal: currentTotal,
+    rebuiltTotal,
+    remainingAfter: Math.max(0, rebuiltTotal - used),
+    applied: Boolean(apply && account),
+    transactions: paid.map((tx) => ({
+      package: tx.package_id,
+      amount: tx.amount,
+      seconds: tx.seconds,
+      receipt: tx.mpesa_receipt,
+      at: tx.created_at,
+    })),
+  };
+}
+
+function adminOk(req) {
+  const admin = process.env.ADMIN_TOKEN;
+  return Boolean(admin) && String(req.headers['x-admin-token'] || '') === admin;
+}
+
+app.get('/api/admin/ledger/:phone', (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: 'forbidden' });
+  const phone = mpesa.normalizePhone(req.params.phone);
+  if (!phone) return res.status(400).json({ error: 'Bad phone number.' });
+  res.json(rebuildLedger(phone, false));
+});
+
+app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: 'forbidden' });
+  const phone = mpesa.normalizePhone(req.params.phone);
+  if (!phone) return res.status(400).json({ error: 'Bad phone number.' });
+
+  const result = rebuildLedger(phone, true);
+
+  // Push the corrected figure to the router so it takes effect now
+  // rather than at the customer's next purchase.
+  if (result.applied && config.provisionMode === 'poll') {
+    const account = db.getAccount.get(phone);
+    db.addJob.run({
+      site: config.site.id,
+      username: phone,
+      password: account.password,
+      profile: 'standard',
+      totalSeconds: result.rebuiltTotal,
+      mac: account.last_mac || null,
+      ip: null,
+    });
+    result.queuedForRouter = true;
+  }
+
+  console.log(
+    `[admin] rebuilt ${phone}: ${result.payments} payment(s), ` +
+      `${result.previousTotal}s -> ${result.rebuiltTotal}s`
+  );
+  res.json(result);
+});
+
+/* ------------------------------------------------------------------ */
 /* Router polling API                                                  */
 /* ------------------------------------------------------------------ */
 
