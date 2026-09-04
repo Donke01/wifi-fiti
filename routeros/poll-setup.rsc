@@ -2,16 +2,20 @@
 #  WiFi Fiti - router-side polling and usage reporting
 #
 #  Every 10 seconds the router does one round trip: it reports how much
-#  time each customer has actually consumed, and collects any new work.
-#  Nothing inbound is opened - no port forward, no VPN, no exposed API.
+#  time each customer has used, and collects any new work. Nothing
+#  inbound is opened - no port forward, no VPN, no exposed API.
 #
-#  Usage has to come from here because the router is the only thing that
-#  counts real seconds. Without it the portal could show what someone
+#  Usage must come from here because the router is the only thing that
+#  counts real seconds. Without it the portal can show what someone
 #  bought but never what they have left.
 #
 #  The reply is RouterOS script, evaluated from memory with :parse.
 #  Nothing is written to disk: on 16MB of flash, a file written every
 #  10 seconds would wear it out.
+#
+#  NOTE ON STYLE: this script uses nested :if rather than early :return.
+#  A bare ":return" inside a scheduled script raises "missing value(s)
+#  of argument(s) value" on RouterOS 7, which fails the whole run.
 #
 #  REQUIREMENTS
 #    - device-mode must allow "fetch"   (/system device-mode print)
@@ -31,40 +35,44 @@
 /system scheduler remove [find name="fiti-poll"]
 /system scheduler remove [find name="fiti-globals"]
 
-# --- The poll itself --------------------------------------------------
+# --- The poll --------------------------------------------------------
 /system script add name=fiti-poll owner=admin policy=read,write,test,policy source="\
 :global fitiUrl\r\
 \n:global fitiSite\r\
 \n:global fitiToken\r\
-\n:if ([:len \$fitiToken] < 8) do={ :log warning \"fiti: token missing\"; :return }\r\
-\n:local report \"\"\r\
-\n:foreach u in=[/ip hotspot user find where name~\"^254\"] do={\r\
-\n  :local n [/ip hotspot user get \$u name]\r\
-\n  :local up [/ip hotspot user get \$u uptime]\r\
-\n  :local lim [/ip hotspot user get \$u limit-uptime]\r\
-\n  :set report (\$report . \$n . \":\" . [:tonum \$up] . \":\" . [:tonum \$lim] . \"\\n\")\r\
-\n}\r\
-\n:local url (\$fitiUrl . \"/api/router/sync?site=\" . \$fitiSite . \"&token=\" . \$fitiToken)\r\
-\n:local reply\r\
-\n:do {\r\
-\n  :set reply [/tool fetch url=\$url http-method=post http-data=\$report output=user as-value]\r\
-\n} on-error={\r\
-\n  :log warning \"fiti: server unreachable\"\r\
-\n  :return\r\
-\n}\r\
-\n:if ([:typeof \$reply] != \"array\") do={ :return }\r\
-\n:local body (\$reply->\"data\")\r\
-\n:if ([:len \$body] < 5) do={ :return }\r\
-\n:do {\r\
-\n  [:parse \$body]\r\
-\n} on-error={\r\
-\n  :log warning \"fiti: job script failed to run\"\r\
+\n:if ([:len \$fitiToken] > 8) do={\r\
+\n  :local report \"\"\r\
+\n  :foreach u in=[/ip hotspot user find where name~\"^254\"] do={\r\
+\n    :local n [/ip hotspot user get \$u name]\r\
+\n    :local up [/ip hotspot user get \$u uptime]\r\
+\n    :local lim [/ip hotspot user get \$u limit-uptime]\r\
+\n    :set report (\$report . \$n . \":\" . [:tonum \$up] . \":\" . [:tonum \$lim] . \"\\n\")\r\
+\n  }\r\
+\n  :local url (\$fitiUrl . \"/api/router/sync?site=\" . \$fitiSite . \"&token=\" . \$fitiToken)\r\
+\n  :local reply \"\"\r\
+\n  :do {\r\
+\n    :set reply [/tool fetch url=\$url http-method=post http-data=\$report output=user as-value]\r\
+\n  } on-error={\r\
+\n    :log warning \"fiti: server unreachable\"\r\
+\n  }\r\
+\n  :if ([:typeof \$reply] = \"array\") do={\r\
+\n    :local body (\$reply->\"data\")\r\
+\n    :if ([:len \$body] > 4) do={\r\
+\n      :do {\r\
+\n        [:parse \$body]\r\
+\n      } on-error={\r\
+\n        :log warning \"fiti: job script failed to run\"\r\
+\n      }\r\
+\n    }\r\
+\n  }\r\
+\n} else={\r\
+\n  :log warning \"fiti: token missing, not polling\"\r\
 \n}\r\
 \n"
 
-# --- Restore globals at boot -----------------------------------------
+# --- Restore settings at boot ----------------------------------------
 #  RouterOS clears global variables on restart. Without this the poll
-#  silently stops after every power cut, and payments queue up unseen.
+#  silently stops after every power cut and payments queue up unseen.
 /system script add name=fiti-boot owner=admin policy=read,write,test,policy source="\
 :global fitiUrl \"$fitiUrl\"\r\
 \n:global fitiSite \"$fitiSite\"\r\

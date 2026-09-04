@@ -160,6 +160,30 @@ async function t(name, fn) {
     assert.strictEqual(s.b.remainingSeconds, 7200, 'junk should not have altered usage');
   });
 
+  await t('accepts the urlencoded content-type RouterOS actually sends', async () => {
+    // Regression: RouterOS /tool fetch posts as x-www-form-urlencoded.
+    // urlencoded() used to claim the body first and hand back a
+    // null-prototype object, making String(req.body) throw and every
+    // sync return 500.
+    const r = await realFetch(
+      `http://127.0.0.1:${PORT}/api/router/sync?site=kitale-1&token=tok-features-123`,
+      { method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: '254722000001:1800:10800\n' }
+    );
+    assert.strictEqual(r.status, 200, 'urlencoded sync must not 500');
+    const s = await post('/api/session/lookup', { phone: '0722000001' });
+    assert.strictEqual(s.b.remainingSeconds, 9000, 'usage should have been recorded');
+  });
+
+  await t('survives a completely empty body', async () => {
+    const r = await realFetch(
+      `http://127.0.0.1:${PORT}/api/router/sync?site=kitale-1&token=tok-features-123`,
+      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: '' }
+    );
+    assert.strictEqual(r.status, 200);
+  });
+
   await t('sync rejects a bad token', async () => {
     const r = await realFetch(
       `http://127.0.0.1:${PORT}/api/router/sync?site=kitale-1&token=wrong`,

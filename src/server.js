@@ -10,6 +10,14 @@ const { PACKAGES, findPackage } = require('./packages');
 
 const app = express();
 app.set('trust proxy', 1);
+// The router's usage report must be parsed as raw text, and this has to
+// be registered BEFORE the JSON/urlencoded parsers below. RouterOS sends
+// it as application/x-www-form-urlencoded, so urlencoded() would claim it
+// first, hand back a null-prototype object, and mark the body as handled -
+// after which String(req.body) throws "Cannot convert object to primitive
+// value" and every sync 500s.
+app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
+
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -652,11 +660,14 @@ app.get('/api/router/jobs', (req, res) => {
  *
  * Body is plain text, one line per user: username:used:limit
  */
-app.post('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }), (req, res) => {
+app.post('/api/router/sync', (req, res) => {
   const site = authSite(req, res);
   if (!site) return;
 
-  const lines = String(req.body || '').split('\n');
+  // Defensive: if anything upstream ever hands us a non-string again,
+  // degrade to "no usage reported" rather than throwing.
+  const raw = typeof req.body === 'string' ? req.body : '';
+  const lines = raw.split('\n');
   let updated = 0;
 
   for (const line of lines) {
