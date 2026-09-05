@@ -27,8 +27,8 @@
 
 # ---------------------------- SETTINGS -------------------------------
 # Public WiFi Fiti app that captive customers must be able to reach before
-# they sign in. Keep this on app.wififiti.co.ke for the hosted service.
-:global portalHost  "app.wififiti.co.ke"
+# they sign in. Keep this on cloud.wififiti.co.ke for the hosted service.
+:global portalHost  "cloud.wififiti.co.ke"
 
 # Optional legacy local-app address. Keep it only when this router also uses
 # a billing computer on the trusted LAN; it is not the customer portal host.
@@ -137,7 +137,7 @@ add chain=postrouting out-interface=bridge-hs action=change-ttl \
 #  An unauthenticated phone must reach the portal, or the payment flow
 #  dead-ends before it starts.
 /ip hotspot walled-garden
-add dst-host="$portalHost" action=allow comment="WiFi Fiti live app"
+add dst-host="$portalHost" action=allow comment="WiFi Fiti live cloud"
 add dst-host="$portalIp" action=allow comment="legacy local portal compatibility"
 
 /ip hotspot walled-garden ip

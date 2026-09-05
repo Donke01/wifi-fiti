@@ -15,7 +15,7 @@ Refreshing the portal reads the same persisted expiry from the server.
 
 ```
                     ┌─────────────────────┐
-   Safaricom  ──────▶ app.wififiti.co.ke  │  STK push + callback
+   Safaricom  ──────▶ cloud.wififiti.co.ke │  STK push + callback
                     │  Node + Express     │
                     └──────────┬──────────┘
                                │ RouterOS API :8728
@@ -67,7 +67,7 @@ version if the API connection is good.
 Router config is in `routeros/hotspot-setup.rsc` (edit the SETTINGS block
 first). The redirect page `routeros/login.html` goes in `/hotspot` on the
 router via Winbox → Files. For the hosted service, leave that script's
-`portalHost` set to `app.wififiti.co.ke`; business locations should then use
+`portalHost` set to `cloud.wififiti.co.ke`; business locations should then use
 their dashboard pairing kit for outbound router polling.
 
 ---
@@ -79,7 +79,7 @@ subscribes for the capacity it needs, pairs its own routers, and runs its own
 customer portal. It does not reuse Pawa branding, code, accounts or customer
 data.
 
-Open `https://app.wififiti.co.ke/business.html` to create an operator account
+Open `https://cloud.wififiti.co.ke/business.html` to create an operator account
 or sign in. A newly registered business starts with a 14-day trial. The
 control centre is designed around this operating sequence:
 
@@ -185,43 +185,43 @@ is copied, a router is replaced, or it was sent to the wrong person.
 
 ---
 
-## Public domains: root landing page and live app
+## Public domains: root landing page and live cloud
 
 WiFi Fiti uses two hostnames with deliberately different jobs:
 
 | Address | Purpose |
 |---|---|
 | `https://wififiti.co.ke` | Public **WiFi Fiti for Business** landing page — product, pricing and trial invitation. During migration it also keeps only the legacy portal/API paths old routers need. |
-| `https://app.wififiti.co.ke` | Live platform — business workspace, customer portals, router polling, installers and M-Pesa callbacks. |
+| `https://cloud.wififiti.co.ke` | Live platform — business workspace, customer portals, router polling, installers and M-Pesa callbacks. |
 
 The public landing is served at the root domain; the existing `business.html`
-dashboard belongs on `app`. Do **not** point a captive portal at the root once
-its router has been migrated: use `app` instead.
+dashboard belongs on `cloud`. Do **not** point a captive portal at the root once
+its router has been migrated: use `cloud` instead.
 
 For Railway, keep the existing `wififiti.co.ke` custom domain attached and add
-only `app.wififiti.co.ke` as the second custom domain on the same service. Add
+only `cloud.wififiti.co.ke` as the second custom domain on the same service. Add
 the CNAME and verification TXT records Railway gives you; do not replace the
 root domain's DNS record or guess a Railway IP address. If the current Railway
 plan permits only one custom domain, upgrade to a plan that permits two before
-adding `app`; replacing the root domain would disconnect existing routers.
+adding `cloud`; replacing the root domain would disconnect existing routers.
 
 Set these Railway variables together:
 
 ```bash
-PUBLIC_URL=https://app.wififiti.co.ke
-APP_URL=https://app.wififiti.co.ke
+PUBLIC_URL=https://cloud.wififiti.co.ke
+APP_URL=https://cloud.wififiti.co.ke
 MARKETING_URL=https://wififiti.co.ke
 LEGACY_HOST=wififiti.co.ke
 ```
 
 `APP_URL` is the source for new customer portal addresses and router pairing
 kits. `PUBLIC_URL` is the source for new M-Pesa callbacks; in production it
-must be the same `app` URL. If `APP_URL` is omitted for an older or staging
+must be the same `cloud` URL. If `APP_URL` is omitted for an older or staging
 deployment, it safely falls back to `PUBLIC_URL` rather than pointing routers
 at the production app. Existing pending M-Pesa requests and old routers can
 continue to use the bare domain because it remains on this service.
 Business sign-in storage is per website origin, so operators should sign in
-again at `app` after the switch. One-time pairing tokens should be copied again
+again at `cloud` after the switch. One-time pairing tokens should be copied again
 or rotated there rather than moved through chat or screenshots.
 
 After the variables are deployed, normal visitors to the root domain see the
@@ -231,26 +231,26 @@ for the migration period so no existing customer or pending payment is cut off.
 
 ### Move an existing router safely
 
-Do this one router at a time, after `app` has valid HTTPS:
+Do this one router at a time, after `cloud` has valid HTTPS:
 
-1. **Allow the app host first.** Add `app.wififiti.co.ke` to the Hotspot
+1. **Allow the cloud host first.** Add `cloud.wififiti.co.ke` to the Hotspot
    walled garden before changing the login page. An unauthenticated customer
    otherwise cannot reach the new captive payment page. On a legacy router:
 
    ```routeros
-   :if ([:len [/ip hotspot walled-garden find where dst-host="app.wififiti.co.ke"]] = 0) do={ /ip hotspot walled-garden add dst-host="app.wififiti.co.ke" comment="WiFi Fiti live app" }
+   :if ([:len [/ip hotspot walled-garden find where dst-host="cloud.wififiti.co.ke"]] = 0) do={ /ip hotspot walled-garden add dst-host="cloud.wififiti.co.ke" comment="WiFi Fiti live cloud" }
    ```
 2. **Update the login redirect.** Upload the current `routeros/login.html` as
    the router's `hotspot/login.html`. It points to
-   `https://app.wififiti.co.ke/legacy`.
+   `https://cloud.wififiti.co.ke/legacy`.
 3. **Move router polling.** For a legacy router, re-run the current
    `routeros/poll-setup.rsc` with its existing site ID and token. For a
-   business location, sign in at `app`, rotate its router token to generate a
+   business location, sign in at `cloud`, rotate its router token to generate a
    fresh pairing kit, and paste it into the router. Changing only a live
    `fitiUrl` global is not enough: the router's boot script restores its saved
    settings after reboot.
 4. **Verify.** Join the Wi-Fi as an unauthenticated customer, make sure the
-   payment page loads from `app`, then run `/system script run fiti-poll` and
+   payment page loads from `cloud`, then run `/system script run fiti-poll` and
    inspect `/log print where message~"fiti"` on the router.
 
 Keep the legacy root API paths live until every router has been tested and old
@@ -266,8 +266,8 @@ For a Railway deployment, mount a persistent volume at `/data` and set:
 ```bash
 DATABASE_PATH=/data/hotspot.db
 TENANT_SECRETS_KEY=<a long, stable random value>
-PUBLIC_URL=https://app.wififiti.co.ke
-APP_URL=https://app.wififiti.co.ke
+PUBLIC_URL=https://cloud.wififiti.co.ke
+APP_URL=https://cloud.wififiti.co.ke
 MARKETING_URL=https://wififiti.co.ke
 LEGACY_HOST=wififiti.co.ke
 ```
