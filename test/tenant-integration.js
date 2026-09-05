@@ -8,6 +8,7 @@
  * through the same HTTP protocol the router uses.
  */
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -17,6 +18,7 @@ const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'wifi-fiti-tena
 Object.assign(process.env, {
   PORT: '0',
   PUBLIC_URL: 'https://wifi-fiti.example.test',
+  APP_URL: 'https://app.wififiti.co.ke',
   MPESA_ENV: 'production',
   MPESA_CONSUMER_KEY: 'platform-test-key',
   MPESA_CONSUMER_SECRET: 'platform-test-secret',
@@ -90,18 +92,23 @@ async function test(name, run) {
   }
 }
 
-async function api(endpoint, { method = 'GET', body, token, portalToken, sessionToken, adminToken } = {}) {
+async function api(endpoint, { method = 'GET', body, token, portalToken, sessionToken, adminToken, routerToken, host, forwardedHost, redirect } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (portalToken) headers['X-WiFi-Fiti-Portal'] = portalToken;
   if (sessionToken) headers['X-WiFi-Fiti-Session'] = sessionToken;
   if (adminToken) headers['X-Admin-Token'] = adminToken;
+  if (routerToken) headers['X-WiFi-Fiti-Router'] = routerToken;
+  if (host) headers.Host = host;
+  if (forwardedHost) headers['X-Forwarded-Host'] = forwardedHost;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const response = await realFetch(origin + endpoint, {
-    method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+    method, headers, redirect: redirect || 'follow', body: body === undefined ? undefined : JSON.stringify(body),
   });
   const content = await response.text();
-  return { status: response.status, body: JSON.parse(content), headers: response.headers };
+  let parsed;
+  try { parsed = JSON.parse(content); } catch (_) { parsed = content; }
+  return { status: response.status, body: parsed, text: content, headers: response.headers };
 }
 
 async function routerSync(location, { ack = [], report = '', token = location.routerToken, transport = 'header' } = {}) {
@@ -135,7 +142,7 @@ async function operator(suffix, collectionMode = 'fiti', rateLimit = '2M/5M') {
   const packaged = await api('/api/business/packages', { method: 'POST', token,
     body: { name: `${suffix} Hour`, price: 20, hours: 1, rateLimit } });
   assert.equal(packaged.status, 201, JSON.stringify(packaged.body));
-  return { token, business: registered.body.business, location: located.body.location,
+  return { token, business: registered.body.business, location: located.body.location, portalUrl: located.body.portalUrl,
     package: packaged.body.packages[0] };
 }
 
@@ -206,13 +213,61 @@ async function boot() {
 }
 
 async function main() {
+  await test('an unset APP_URL keeps a staging deployment on its configured public URL', async () => {
+    const result = execFileSync(process.execPath, ['-e', "process.stdout.write(require('./src/config').domains.appUrl)"], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, APP_URL: '', PUBLIC_URL: 'https://staging.wififiti.example.test' },
+    }).toString();
+    assert.equal(result, 'https://staging.wififiti.example.test');
+  });
+
   await boot();
+
+  await test('www is marketing-only while app remains the live workspace and legacy host stays compatible', async () => {
+    const www = 'www.wififiti.co.ke';
+    const appHost = 'app.wififiti.co.ke';
+    const legacyHost = 'wififiti.co.ke';
+    const marketing = await api('/', { host: www, redirect: 'manual' });
+    assert.equal(marketing.status, 200);
+    assert.match(marketing.text, /Run your Wi‑Fi business/);
+    assert.match(marketing.text, /app\.wififiti\.co\.ke\/business\.html/);
+    assert.equal((await api('/api/config', { host: www, redirect: 'manual' })).status, 404,
+      'the public site must not expose the application API');
+    assert.equal((await api('/api/mpesa/callback', { method: 'POST', body: {}, host: www, redirect: 'manual' })).status, 404,
+      'the public site must not accept payment callbacks');
+    assert.equal((await api('/api/router/sync?site=nope', { method: 'POST', body: {}, host: www, redirect: 'manual' })).status, 404,
+      'the public site must not accept router polling');
+    assert.equal((await api('/p/any-location', { host: www, redirect: 'manual' })).status, 404,
+      'the public site must not serve captive portals');
+    const appLink = await api('/business.html?do-not-forward=this', { host: www, redirect: 'manual' });
+    assert.equal(appLink.status, 302);
+    assert.equal(appLink.headers.get('location'), 'https://app.wififiti.co.ke/business.html');
+    const appRoot = await api('/', { host: appHost, redirect: 'manual' });
+    assert.equal(appRoot.status, 302);
+    assert.equal(appRoot.headers.get('location'), '/business.html');
+    const forwardedHost = await api('/', { host: appHost, forwardedHost: www, redirect: 'manual' });
+    assert.equal(forwardedHost.status, 302, 'host routing must use Host, not a forwarded host value');
+    const legacyAtApp = await api('/legacy?mac=AA:BB:CC:00:00:01', { host: appHost, redirect: 'manual' });
+    assert.equal(legacyAtApp.status, 200);
+    assert.match(legacyAtApp.text, /WiFi Fiti/);
+    const oldRouterPortal = await api('/?mac=AA:BB:CC:00:00:01', { host: legacyHost, redirect: 'manual' });
+    assert.equal(oldRouterPortal.status, 200);
+    assert.equal(oldRouterPortal.headers.get('x-robots-tag'), 'noindex, nofollow');
+    assert.match(oldRouterPortal.text, /WiFi Fiti/);
+    const unknownHost = await api('/api/config', { host: 'unexpected.example.test', redirect: 'manual' });
+    assert.equal(unknownHost.status, 421, 'unknown hosts must not expose the live app');
+    const freshRouterSetup = fs.readFileSync(path.join(__dirname, '..', 'routeros', 'hotspot-setup.rsc'), 'utf8');
+    assert.match(freshRouterSetup, /:global portalHost\s+"app\.wififiti\.co\.ke"/);
+    assert.match(freshRouterSetup, /add dst-host="\$portalHost" action=allow comment="WiFi Fiti live app"/);
+  });
+
   const alpha = await operator('Alpha');
   const bravo = await operator('Bravo', 'own');
   console.log('\nTenant HTTP integration (production payment verification)');
 
   await test('business accounts, packages, location controls, and router secrets are isolated', async () => {
     assert.equal((await api('/api/business/me')).status, 401);
+    assert.equal(alpha.portalUrl, `https://app.wififiti.co.ke/p/${alpha.location.id}`);
     const mine = await api('/api/business/me', { token: alpha.token });
     assert.deepEqual(mine.body.locations.map((item) => item.id), [alpha.location.id]);
     assert.equal(mine.body.locations[0].routerToken, undefined, 'pairing secret is shown only once');
@@ -221,6 +276,9 @@ async function main() {
     assert.deepEqual(publicConfig.body.packages.map((item) => item.id), [alpha.package.id]);
     assert.equal(publicConfig.body.packages[0].rate_limit, '2M/5M');
     assert.equal(publicConfig.headers.get('referrer-policy'), 'no-referrer');
+    const routerLogin = await api(`/api/tenant/${alpha.location.id}/router-login`, { routerToken: alpha.location.routerToken });
+    assert.equal(routerLogin.status, 200);
+    assert.match(routerLogin.text, new RegExp(`https://app\\.wififiti\\.co\\.ke/p/${alpha.location.id}`));
     const canonicalSpeed = await api(`/api/business/packages/${alpha.package.id}`, { method: 'PATCH', token: alpha.token,
       body: { rateLimit: '512K/1m' } });
     assert.equal(canonicalSpeed.status, 200, JSON.stringify(canonicalSpeed.body));

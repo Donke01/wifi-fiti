@@ -14,16 +14,6 @@ const { PACKAGES, findPackage } = require('./packages');
 
 const app = express();
 app.set('trust proxy', 1);
-// The router's usage report must be parsed as raw text, and this has to
-// be registered BEFORE the JSON/urlencoded parsers below. RouterOS sends
-// it as application/x-www-form-urlencoded, so urlencoded() would claim it
-// first, hand back a null-prototype object, and mark the body as handled -
-// after which String(req.body) throws "Cannot convert object to primitive
-// value" and every sync 500s.
-app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
-
-app.use(express.json({ limit: '64kb' }));
-app.use(express.urlencoded({ extended: false }));
 app.use((req, res, next) => {
   // Captive portal links carry RouterOS values and one-time pairing URLs can
   // carry a router credential. Do not let browsers forward either to a
@@ -35,7 +25,107 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
   next();
 });
-app.use(express.static(path.join(__dirname, '..', 'public')));
+
+/* ------------------------------------------------------------------ */
+/* Public site / application host boundary                            */
+/* ------------------------------------------------------------------ */
+
+const publicDirectory = path.join(__dirname, '..', 'public');
+
+// Use the raw Host header rather than req.hostname. `trust proxy` is enabled
+// for Railway, so an untrusted X-Forwarded-Host must not decide whether a
+// request reaches the public marketing site or the signed-in application.
+function requestHost(req) {
+  const value = String(req.headers.host || '').split(',')[0].trim().toLowerCase();
+  if (!value) return '';
+  if (value.startsWith('[')) return value.replace(/^\[([^\]]+)](?::\d+)?$/, '$1').replace(/\.$/, '');
+  return value.replace(/:\d+$/, '').replace(/\.$/, '');
+}
+
+function localDevelopmentHost(host) {
+  // A developer can still run the service directly at localhost. A LAN test
+  // should set APP_URL to that LAN address instead of relying on an arbitrary
+  // Host header, which keeps production's named-host boundary meaningful.
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost');
+}
+
+function legacyPortalRequest(req) {
+  // A legacy Hotspot redirect always contains RouterOS identity values. Keep
+  // it working at app root while allowing a normal human visit to open the
+  // business workspace instead.
+  const search = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?') + 1) : '';
+  return /(?:^|&)(?:mac|ip|link-login-only|link-orig|error)=/i.test(search);
+}
+
+function sendLegacyPortal(res) {
+  return res.sendFile(path.join(publicDirectory, 'index.html'));
+}
+
+function redirectToApp(req, res) {
+  // Marketing links never need to carry a router MAC, portal capability or
+  // other query value across hostnames. Only redirect the small public set of
+  // dashboard paths below, and deliberately drop any supplied query string.
+  return res.redirect(302, config.domains.appUrl + req.path);
+}
+
+app.use((req, res, next) => {
+  const host = requestHost(req);
+  const isGet = req.method === 'GET' || req.method === 'HEAD';
+  res.vary('Host');
+
+  if (host === config.domains.marketingHost) {
+    // The public site deliberately has no business data, customer portals or
+    // payment API. Assets are the only static files it is allowed to borrow.
+    if (!isGet) return res.status(404).type('text/plain').send('Not found.');
+    if (req.path === '/' || req.path === '/index.html' || req.path === '/marketing.html') {
+      return res.sendFile(path.join(publicDirectory, 'marketing.html'));
+    }
+    if (req.path === '/business.html' || req.path === '/operations.html' || req.path === '/legacy') {
+      return redirectToApp(req, res);
+    }
+    if (/^\/assets\/[A-Za-z0-9._-]+$/.test(req.path)) return next();
+    return res.status(404).type('text/plain').send('Not found.');
+  }
+
+  if (host === config.domains.appHost) {
+    if (req.path === '/' || req.path === '/index.html') {
+      if (legacyPortalRequest(req)) return sendLegacyPortal(res);
+      return res.redirect(302, '/business.html');
+    }
+    if (req.path === '/legacy' || req.path === '/legacy/') return sendLegacyPortal(res);
+    if (req.path === '/marketing.html') return res.redirect(302, config.domains.marketingUrl);
+  }
+
+  // The bare legacy host is intentionally left alone during the migration:
+  // routers and outstanding M-Pesa callbacks may still be using it. Once all
+  // old routers have been moved to app, it can be redirected at DNS/edge level.
+  if (host === config.domains.legacyHost) {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    // Business users should land on app even if they follow an old bookmark.
+    // Keep portal and API paths here because existing routers still use them.
+    if (isGet && (req.path === '/business.html' || req.path === '/operations.html')) return redirectToApp(req, res);
+    return next();
+  }
+
+  // Do not expose the live portal, dashboard, payment callbacks, or router
+  // API through Railway's generated URL or an arbitrary attached hostname.
+  // Localhost remains useful for development; LAN testing should configure
+  // that LAN name/address as APP_URL explicitly.
+  if (localDevelopmentHost(host)) return next();
+  return res.status(421).type('text/plain').send('Misdirected request.');
+});
+
+// The router's usage report must be parsed as raw text, and this has to
+// be registered BEFORE the JSON/urlencoded parsers below. RouterOS sends
+// it as application/x-www-form-urlencoded, so urlencoded() would claim it
+// first, hand back a null-prototype object, and mark the body as handled -
+// after which String(req.body) throws "Cannot convert object to primitive
+// value" and every sync 500s. This comes after host routing so www never
+// spends work parsing app-only requests.
+app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
+app.use(express.json({ limit: '64kb' }));
+app.use(express.urlencoded({ extended: false }));
+app.use(express.static(publicDirectory));
 
 // Limit credential guessing and payment-prompt abuse with a persisted
 // window. A service restart must not reset these limits.
@@ -354,7 +444,7 @@ app.post('/api/business/locations', (req, res) => {
     routerName: routerName || null });
   res.status(201).json({
     location,
-    portalUrl: `${config.publicUrl}/p/${encodeURIComponent(location.id)}`,
+    portalUrl: `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`,
   });
 });
 
@@ -366,7 +456,7 @@ app.post('/api/business/locations/:locationId/router-token', (req, res) => {
   if (!location) return res.status(404).json({ error: 'Location not found.' });
   res.json({
     location,
-    portalUrl: `${config.publicUrl}/p/${encodeURIComponent(location.id)}`,
+    portalUrl: `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`,
   });
 });
 
@@ -840,7 +930,7 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
   const location = tenant.authenticateRouter(req.params.locationId, header || req.query.token, header ? 'header' : 'query');
   if (!location) return res.status(403).type('text/plain').send('forbidden');
   const site = encodeURIComponent(location.id);
-  const portal = `${config.publicUrl}/p/${site}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)`;
+  const portal = `${config.domains.appUrl}/p/${site}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)`;
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
 });

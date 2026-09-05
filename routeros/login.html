@@ -6,7 +6,8 @@
   the four values only RouterOS knows: the device MAC, its leased IP, the
   URL that performs the login, and where the user was heading.
 
-  This replacement-router copy points to the production Railway portal.
+  This replacement-router copy points to the live app subdomain. The public
+  www site is marketing only and must not be used as a captive portal.
 
   Keep this file small - the hAP lite has 16MB of flash and every
   unauthenticated device loads it.
@@ -16,7 +17,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WiFi Fiti</title>
-<meta http-equiv="refresh" content="0; url=https://wififiti.co.ke/?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)&error=$(error)">
+<meta http-equiv="refresh" content="0; url=https://app.wififiti.co.ke/legacy?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)&error=$(error)">
 <style>
   body{font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
        background:#F2F4F8;color:#14171C;display:flex;height:100vh;margin:0;
@@ -27,7 +28,7 @@
 <body>
   <div>
     <p>Inakupeleka kwa payment page…</p>
-    <p><a href="https://wififiti.co.ke/?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)">Bonyeza hapa kama hakuna kitu</a></p>
+    <p><a href="https://app.wififiti.co.ke/legacy?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)">Bonyeza hapa kama hakuna kitu</a></p>
   </div>
 
   <noscript>

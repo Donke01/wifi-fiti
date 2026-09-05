@@ -34,7 +34,10 @@ global.fetch = async (input, options = {}) => {
     request.method = options.method || 'GET';
     request.url = url.pathname + url.search;
     request.headers = Object.fromEntries(new Headers(options.headers || {}));
-    request.headers.host = url.host;
+    // Tests can deliberately exercise virtual-host routing. A real HTTP
+    // client supplies Host separately from the transport address, so preserve
+    // an explicit header and otherwise use the URL host as before.
+    if (!request.headers.host) request.headers.host = url.host;
     if (options.body !== undefined) request.headers['content-length'] = String(Buffer.byteLength(options.body));
     const response = new http.ServerResponse(request);
     const chunks = [];

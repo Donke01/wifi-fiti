@@ -15,7 +15,7 @@ Refreshing the portal reads the same persisted expiry from the server.
 
 ```
                     ┌─────────────────────┐
-   Safaricom  ──────▶  this app (public)  │  STK push + callback
+   Safaricom  ──────▶ app.wififiti.co.ke  │  STK push + callback
                     │  Node + Express     │
                     └──────────┬──────────┘
                                │ RouterOS API :8728
@@ -66,7 +66,9 @@ version if the API connection is good.
 
 Router config is in `routeros/hotspot-setup.rsc` (edit the SETTINGS block
 first). The redirect page `routeros/login.html` goes in `/hotspot` on the
-router via Winbox → Files.
+router via Winbox → Files. For the hosted service, leave that script's
+`portalHost` set to `app.wififiti.co.ke`; business locations should then use
+their dashboard pairing kit for outbound router polling.
 
 ---
 
@@ -77,7 +79,7 @@ subscribes for the capacity it needs, pairs its own routers, and runs its own
 customer portal. It does not reuse Pawa branding, code, accounts or customer
 data.
 
-Open `/business.html` on your WiFi Fiti domain to create an operator account
+Open `https://app.wififiti.co.ke/business.html` to create an operator account
 or sign in. A newly registered business starts with a 14-day trial. The
 control centre is designed around this operating sequence:
 
@@ -183,6 +185,73 @@ is copied, a router is replaced, or it was sent to the wrong person.
 
 ---
 
+## Public domains: www, app and the migration host
+
+WiFi Fiti uses three hostnames with deliberately different jobs:
+
+| Address | Purpose |
+|---|---|
+| `https://www.wififiti.co.ke` | Public **WiFi Fiti for Business** website — product, pricing and trial invitation. |
+| `https://app.wififiti.co.ke` | Live platform — business workspace, customer portals, router polling, installers and M-Pesa callbacks. |
+| `https://wififiti.co.ke` | Temporary compatibility host for older routers and M-Pesa callbacks while they are migrated. |
+
+Do **not** point a captive portal at `www`. It is a marketing page and it
+deliberately cannot serve payment or router API routes.
+
+For Railway, add `www.wififiti.co.ke` and `app.wififiti.co.ke` as custom
+domains on the same service, then create the CNAME and verification TXT records
+Railway gives you. Keep the bare domain on the same service during migration.
+Use the CNAME Railway provides instead of an A record to a guessed fixed IP.
+
+Set these Railway variables together:
+
+```bash
+PUBLIC_URL=https://app.wififiti.co.ke
+APP_URL=https://app.wififiti.co.ke
+MARKETING_URL=https://www.wififiti.co.ke
+LEGACY_HOST=wififiti.co.ke
+```
+
+`APP_URL` is the source for new customer portal addresses and router pairing
+kits. `PUBLIC_URL` is the source for new M-Pesa callbacks; in production it
+must be the same `app` URL. If `APP_URL` is omitted for an older or staging
+deployment, it safely falls back to `PUBLIC_URL` rather than pointing routers
+at the production app. Existing pending M-Pesa requests and old routers can
+continue to use the bare domain because it remains on this service.
+Business sign-in storage is per website origin, so operators should sign in
+again at `app` after the switch. One-time pairing tokens should be copied again
+or rotated there rather than moved through chat or screenshots.
+
+### Move an existing router safely
+
+Do this one router at a time, after both `www` and `app` have valid HTTPS:
+
+1. **Allow the app host first.** Add `app.wififiti.co.ke` to the Hotspot
+   walled garden before changing the login page. An unauthenticated customer
+   otherwise cannot reach the new captive payment page. On a legacy router:
+
+   ```routeros
+   :if ([:len [/ip hotspot walled-garden find where dst-host="app.wififiti.co.ke"]] = 0) do={ /ip hotspot walled-garden add dst-host="app.wififiti.co.ke" comment="WiFi Fiti live app" }
+   ```
+2. **Update the login redirect.** Upload the current `routeros/login.html` as
+   the router's `hotspot/login.html`. It points to
+   `https://app.wififiti.co.ke/legacy`.
+3. **Move router polling.** For a legacy router, re-run the current
+   `routeros/poll-setup.rsc` with its existing site ID and token. For a
+   business location, sign in at `app`, rotate its router token to generate a
+   fresh pairing kit, and paste it into the router. Changing only a live
+   `fitiUrl` global is not enough: the router's boot script restores its saved
+   settings after reboot.
+4. **Verify.** Join the Wi-Fi as an unauthenticated customer, make sure the
+   payment page loads from `app`, then run `/system script run fiti-poll` and
+   inspect `/log print where message~"fiti"` on the router.
+
+Keep the bare domain live until every router has been tested and old pending
+payments have settled. Do not use a browser-only redirect for router polling or
+M-Pesa callbacks: they must keep reaching the same backend directly.
+
+---
+
 ## Railway and production configuration
 
 For a Railway deployment, mount a persistent volume at `/data` and set:
@@ -190,7 +259,10 @@ For a Railway deployment, mount a persistent volume at `/data` and set:
 ```bash
 DATABASE_PATH=/data/hotspot.db
 TENANT_SECRETS_KEY=<a long, stable random value>
-PUBLIC_URL=https://your-public-wifi-fiti-domain
+PUBLIC_URL=https://app.wififiti.co.ke
+APP_URL=https://app.wififiti.co.ke
+MARKETING_URL=https://www.wififiti.co.ke
+LEGACY_HOST=wififiti.co.ke
 ```
 
 Generate the tenant key once with `openssl rand -base64 48`. Keep it in

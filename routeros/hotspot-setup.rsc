@@ -26,8 +26,13 @@
 # =====================================================================
 
 # ---------------------------- SETTINGS -------------------------------
-# Where the WiFi Fiti app is running. While testing this is your Mac's
-# address on the main router's network. Find it with: ipconfig getifaddr en0
+# Public WiFi Fiti app that captive customers must be able to reach before
+# they sign in. Keep this on app.wififiti.co.ke for the hosted service.
+:global portalHost  "app.wififiti.co.ke"
+
+# Optional legacy local-app address. Keep it only when this router also uses
+# a billing computer on the trusted LAN; it is not the customer portal host.
+# Find a Mac address with: ipconfig getifaddr en0
 :global portalIp    "192.168.0.75"
 :global portalPort  "3000"
 
@@ -132,10 +137,11 @@ add chain=postrouting out-interface=bridge-hs action=change-ttl \
 #  An unauthenticated phone must reach the portal, or the payment flow
 #  dead-ends before it starts.
 /ip hotspot walled-garden
-add dst-host="$portalIp" action=allow comment="portal"
+add dst-host="$portalHost" action=allow comment="WiFi Fiti live app"
+add dst-host="$portalIp" action=allow comment="legacy local portal compatibility"
 
 /ip hotspot walled-garden ip
-add dst-address="$portalIp" action=accept comment="portal (all ports)"
+add dst-address="$portalIp" action=accept comment="legacy local portal compatibility"
 
 # --- API account for the billing app ----------------------------------
 #  Least privilege, and reachable only from your trusted LAN.

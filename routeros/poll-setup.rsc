@@ -29,7 +29,7 @@
 # =====================================================================
 
 # ---------------------------- SETTINGS -------------------------------
-:global fitiUrl   "https://wififiti.co.ke"
+:global fitiUrl   "https://app.wififiti.co.ke"
 :global fitiSite  "kitale-1"
 :global fitiToken "PASTE-THE-SITE-TOKEN-HERE"
 # ---------------------------------------------------------------------

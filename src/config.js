@@ -26,9 +26,46 @@ if (missing.length) {
 
 const env = process.env.MPESA_ENV === 'production' ? 'production' : 'sandbox';
 
+function webOrigin(value, name) {
+  try {
+    const parsed = new URL(value);
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+    return parsed.origin;
+  } catch (_) {
+    console.error(`${name} must be a full http:// or https:// URL.`);
+    process.exit(1);
+  }
+}
+
+function hostname(value, name) {
+  try { return new URL(value).hostname.toLowerCase(); }
+  catch (_) {
+    console.error(`${name} must be a full http:// or https:// URL.`);
+    process.exit(1);
+  }
+}
+
+const publicUrl = webOrigin(process.env.PUBLIC_URL, 'PUBLIC_URL');
+// `PUBLIC_URL` was the original application's only public-origin setting.
+// Keep an older or staging deployment safe when APP_URL has not been added:
+// generated portals and pairing kits must stay on that deployment, never jump
+// to the production app host. Production sets both values to the app domain.
+const appUrl = process.env.APP_URL
+  ? webOrigin(process.env.APP_URL, 'APP_URL')
+  : publicUrl;
+const marketingUrl = webOrigin(process.env.MARKETING_URL || 'https://www.wififiti.co.ke', 'MARKETING_URL');
+const legacyHost = String(process.env.LEGACY_HOST || 'wififiti.co.ke').trim().toLowerCase().replace(/\.$/, '') || 'wififiti.co.ke';
+
 module.exports = {
   port: Number(process.env.PORT || 3000),
-  publicUrl: process.env.PUBLIC_URL.replace(/\/$/, ''),
+  publicUrl,
+  domains: {
+    appUrl,
+    appHost: hostname(appUrl, 'APP_URL'),
+    marketingUrl,
+    marketingHost: hostname(marketingUrl, 'MARKETING_URL'),
+    legacyHost,
+  },
 
   mpesa: {
     env,
