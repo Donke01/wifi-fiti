@@ -1,4 +1,5 @@
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 
 const config = require('./config');
@@ -38,6 +39,106 @@ setInterval(() => {
   const cutoff = Date.now() - 10 * 60_000;
   for (const [k, t] of lastPush) if (t < cutoff) lastPush.delete(k);
 }, 60_000).unref();
+
+/* ------------------------------------------------------------------ */
+/* Commercial business onboarding                                     */
+/* ------------------------------------------------------------------ */
+
+function businessId(prefix) {
+  return `${prefix}-${crypto.randomBytes(8).toString('hex')}`;
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const digest = crypto.scryptSync(password, salt, 32).toString('hex');
+  return `${salt}:${digest}`;
+}
+
+function passwordMatches(password, stored) {
+  const [salt, expectedHex] = String(stored || '').split(':');
+  if (!salt || !expectedHex) return false;
+  const expected = Buffer.from(expectedHex, 'hex');
+  const actual = crypto.scryptSync(password, salt, 32);
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function issueBusinessSession(businessId) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  db.addBusinessSession.run({
+    tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
+    businessId,
+    expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''),
+  });
+  return token;
+}
+
+function businessAuth(req, res) {
+  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (!token) { res.status(401).json({ error: 'Please sign in.' }); return null; }
+  const business = db.businessForSession.get(crypto.createHash('sha256').update(token).digest('hex'));
+  if (!business) { res.status(401).json({ error: 'Your session has expired. Please sign in again.' }); return null; }
+  return business;
+}
+
+app.post('/api/business/register', (req, res) => {
+  const name = String(req.body && req.body.name || '').trim().slice(0, 80);
+  const ownerName = String(req.body && req.body.ownerName || '').trim().slice(0, 80);
+  const email = String(req.body && req.body.email || '').trim().toLowerCase();
+  const ownerPhone = mpesa.normalizePhone(req.body && req.body.phone);
+  const password = String(req.body && req.body.password || '');
+  if (!name || !ownerName || !/^\S+@\S+\.\S+$/.test(email) || !ownerPhone || password.length < 8) {
+    return res.status(400).json({ error: 'Enter business details, a valid email and an 8-character password.' });
+  }
+  if (db.businessByEmail.get(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
+  const id = businessId('biz');
+  try {
+    db.addBusiness.run({ id, name, ownerName, ownerPhone, email, passwordHash: hashPassword(password) });
+    const token = issueBusinessSession(id);
+    res.status(201).json({ token, business: db.businessById.get(id) });
+  } catch (err) {
+    console.error('[business] registration failed:', err.message);
+    res.status(500).json({ error: 'Could not create the business account.' });
+  }
+});
+
+app.post('/api/business/login', (req, res) => {
+  const email = String(req.body && req.body.email || '').trim().toLowerCase();
+  const password = String(req.body && req.body.password || '');
+  const business = db.businessByEmail.get(email);
+  if (!business || !passwordMatches(password, business.password_hash)) {
+    return res.status(401).json({ error: 'Email or password is incorrect.' });
+  }
+  res.json({ token: issueBusinessSession(business.id), business: db.businessById.get(business.id) });
+});
+
+app.get('/api/business/me', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const locations = db.locationsForBusiness.all(business.id);
+  res.json({ business, locations, packages: db.packagesForBusiness.all(business.id),
+    monthlyActiveDevices: 0, note: 'Usage metering starts when a router is paired.' });
+});
+
+app.post('/api/business/locations', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const name = String(req.body && req.body.name || '').trim().slice(0, 80);
+  const routerName = String(req.body && req.body.routerName || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'Give this location a name.' });
+  const location = { id: businessId('loc'), businessId: business.id, name,
+    routerName: routerName || null, routerToken: crypto.randomBytes(24).toString('base64url') };
+  db.addLocation.run(location);
+  res.status(201).json({ location });
+});
+
+app.post('/api/business/packages', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const name = String(req.body && req.body.name || '').trim().slice(0, 48);
+  const price = Number(req.body && req.body.price);
+  const hours = Number(req.body && req.body.hours);
+  if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31) {
+    return res.status(400).json({ error: 'Enter a package name, price and duration up to 31 days.' });
+  }
+  db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600) });
+  res.status(201).json({ packages: db.packagesForBusiness.all(business.id) });
+});
 
 /* ------------------------------------------------------------------ */
 /* Client identity                                                     */
@@ -899,7 +1000,6 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* Router polling API                                                  */
 /* ------------------------------------------------------------------ */
 
-const crypto = require('crypto');
 const { buildScript, buildExpiryScript } = require('./lib/rsc');
 
 /** Constant-time compare so the token cannot be guessed by timing. */

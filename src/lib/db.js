@@ -103,6 +103,47 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_devices_phone ON devices(phone);
+
+  -- Commercial platform layer. These tables are deliberately separate from
+  -- the original single-site ledger while existing operators are migrated.
+  CREATE TABLE IF NOT EXISTS businesses (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    owner_name      TEXT NOT NULL,
+    owner_phone     TEXT NOT NULL,
+    email           TEXT NOT NULL UNIQUE,
+    password_hash   TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS business_sessions (
+    token_hash      TEXT PRIMARY KEY,
+    business_id     TEXT NOT NULL REFERENCES businesses(id),
+    expires_at      TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS locations (
+    id              TEXT PRIMARY KEY,
+    business_id     TEXT NOT NULL REFERENCES businesses(id),
+    name            TEXT NOT NULL,
+    router_token    TEXT NOT NULL UNIQUE,
+    router_name     TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS business_packages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id     TEXT NOT NULL REFERENCES businesses(id),
+    name            TEXT NOT NULL,
+    price           INTEGER NOT NULL,
+    seconds         INTEGER NOT NULL,
+    active          INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_locations_business ON locations(business_id);
+  CREATE INDEX IF NOT EXISTS idx_business_packages ON business_packages(business_id, active);
 `);
 
 /* Columns added after first release. SQLite has no IF NOT EXISTS for
@@ -474,6 +515,36 @@ const reduceTotal = db.prepare(`
    WHERE phone = @phone
 `);
 
+/* Commercial business dashboard ------------------------------------ */
+const addBusiness = db.prepare(`
+  INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash)
+  VALUES (@id, @name, @ownerName, @ownerPhone, @email, @passwordHash)
+`);
+const businessByEmail = db.prepare(`SELECT * FROM businesses WHERE email = ?`);
+const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, created_at FROM businesses WHERE id = ?`);
+const addBusinessSession = db.prepare(`
+  INSERT INTO business_sessions (token_hash, business_id, expires_at)
+  VALUES (@tokenHash, @businessId, @expiresAt)
+`);
+const businessForSession = db.prepare(`
+  SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email
+    FROM business_sessions s JOIN businesses b ON b.id = s.business_id
+   WHERE s.token_hash = ? AND s.expires_at > datetime('now')
+`);
+const addLocation = db.prepare(`
+  INSERT INTO locations (id, business_id, name, router_token, router_name)
+  VALUES (@id, @businessId, @name, @routerToken, @routerName)
+`);
+const locationsForBusiness = db.prepare(`
+  SELECT id, name, router_token, router_name, created_at FROM locations WHERE business_id = ? ORDER BY created_at
+`);
+const addBusinessPackage = db.prepare(`
+  INSERT INTO business_packages (business_id, name, price, seconds) VALUES (@businessId, @name, @price, @seconds)
+`);
+const packagesForBusiness = db.prepare(`
+  SELECT id, name, price, seconds, active FROM business_packages WHERE business_id = ? ORDER BY price
+`);
+
 module.exports = {
   db,
   stats,
@@ -525,4 +596,13 @@ module.exports = {
   removeDevice,
   touchDevice,
   devicesToKeepOnline,
+  addBusiness,
+  businessByEmail,
+  businessById,
+  addBusinessSession,
+  businessForSession,
+  addLocation,
+  locationsForBusiness,
+  addBusinessPackage,
+  packagesForBusiness,
 };
