@@ -53,7 +53,9 @@ const publicUrl = webOrigin(process.env.PUBLIC_URL, 'PUBLIC_URL');
 const appUrl = process.env.APP_URL
   ? webOrigin(process.env.APP_URL, 'APP_URL')
   : publicUrl;
-const marketingUrl = webOrigin(process.env.MARKETING_URL || 'https://www.wififiti.co.ke', 'MARKETING_URL');
+// The root domain is the public WiFi Fiti Business site. The live billing
+// application, captive portals, and router polling live on APP_URL.
+const marketingUrl = webOrigin(process.env.MARKETING_URL || 'https://wififiti.co.ke', 'MARKETING_URL');
 const legacyHost = String(process.env.LEGACY_HOST || 'wififiti.co.ke').trim().toLowerCase().replace(/\.$/, '') || 'wififiti.co.ke';
 
 module.exports = {

@@ -19,6 +19,8 @@ Object.assign(process.env, {
   PORT: '0',
   PUBLIC_URL: 'https://wifi-fiti.example.test',
   APP_URL: 'https://app.wififiti.co.ke',
+  MARKETING_URL: 'https://wififiti.co.ke',
+  LEGACY_HOST: 'wififiti.co.ke',
   MPESA_ENV: 'production',
   MPESA_CONSUMER_KEY: 'platform-test-key',
   MPESA_CONSUMER_SECRET: 'platform-test-secret',
@@ -223,37 +225,46 @@ async function main() {
 
   await boot();
 
-  await test('www is marketing-only while app remains the live workspace and legacy host stays compatible', async () => {
-    const www = 'www.wififiti.co.ke';
+  await test('the root is the public landing while app is live and legacy root traffic stays compatible', async () => {
+    const root = 'wififiti.co.ke';
     const appHost = 'app.wififiti.co.ke';
-    const legacyHost = 'wififiti.co.ke';
-    const marketing = await api('/', { host: www, redirect: 'manual' });
+    const marketing = await api('/', { host: root, redirect: 'manual' });
     assert.equal(marketing.status, 200);
     assert.match(marketing.text, /Run your Wi‑Fi business/);
     assert.match(marketing.text, /app\.wififiti\.co\.ke\/business\.html/);
-    assert.equal((await api('/api/config', { host: www, redirect: 'manual' })).status, 404,
-      'the public site must not expose the application API');
-    assert.equal((await api('/api/mpesa/callback', { method: 'POST', body: {}, host: www, redirect: 'manual' })).status, 404,
-      'the public site must not accept payment callbacks');
-    assert.equal((await api('/api/router/sync?site=nope', { method: 'POST', body: {}, host: www, redirect: 'manual' })).status, 404,
-      'the public site must not accept router polling');
-    assert.equal((await api('/p/any-location', { host: www, redirect: 'manual' })).status, 404,
-      'the public site must not serve captive portals');
-    const appLink = await api('/business.html?do-not-forward=this', { host: www, redirect: 'manual' });
+    assert.match(marketing.text, /canonical" href="https:\/\/wififiti\.co\.ke\//);
+    assert.equal(marketing.headers.get('x-robots-tag'), null, 'the public landing must be indexable');
+    const appLink = await api('/business.html?do-not-forward=this', { host: root, redirect: 'manual' });
     assert.equal(appLink.status, 302);
     assert.equal(appLink.headers.get('location'), 'https://app.wififiti.co.ke/business.html');
+    const rootApi = await api('/api/config', { host: root, redirect: 'manual' });
+    assert.equal(rootApi.status, 200, 'legacy portal API must remain live during migration');
+    assert.equal(rootApi.headers.get('x-robots-tag'), 'noindex, nofollow');
+    const rootPoll = await api('/api/router/sync?site=nope', { method: 'POST', body: {}, host: root, redirect: 'manual' });
+    assert.equal(rootPoll.status, 403, 'legacy router polling must reach the application during migration');
+    assert.equal(rootPoll.headers.get('x-robots-tag'), 'noindex, nofollow');
+    const rootCallback = await api('/api/mpesa/callback', { method: 'POST', body: {}, host: root, redirect: 'manual' });
+    assert.equal(rootCallback.status, 200, 'legacy payment callbacks must reach the application during migration');
+    assert.equal(rootCallback.headers.get('x-robots-tag'), 'noindex, nofollow');
+    const rootPortal = await api('/p/any-location', { host: root, redirect: 'manual' });
+    assert.equal(rootPortal.status, 404, 'an unknown legacy location may be absent but its route must reach the app');
+    assert.equal(rootPortal.headers.get('x-robots-tag'), 'noindex, nofollow');
     const appRoot = await api('/', { host: appHost, redirect: 'manual' });
     assert.equal(appRoot.status, 302);
     assert.equal(appRoot.headers.get('location'), '/business.html');
-    const forwardedHost = await api('/', { host: appHost, forwardedHost: www, redirect: 'manual' });
+    assert.equal((await api('/api/config', { host: appHost, redirect: 'manual' })).status, 200,
+      'the live app host must serve the application API');
+    const forwardedHost = await api('/', { host: appHost, forwardedHost: root, redirect: 'manual' });
     assert.equal(forwardedHost.status, 302, 'host routing must use Host, not a forwarded host value');
     const legacyAtApp = await api('/legacy?mac=AA:BB:CC:00:00:01', { host: appHost, redirect: 'manual' });
     assert.equal(legacyAtApp.status, 200);
     assert.match(legacyAtApp.text, /WiFi Fiti/);
-    const oldRouterPortal = await api('/?mac=AA:BB:CC:00:00:01', { host: legacyHost, redirect: 'manual' });
+    const oldRouterPortal = await api('/?mac=AA:BB:CC:00:00:01', { host: root, redirect: 'manual' });
     assert.equal(oldRouterPortal.status, 200);
     assert.equal(oldRouterPortal.headers.get('x-robots-tag'), 'noindex, nofollow');
     assert.match(oldRouterPortal.text, /WiFi Fiti/);
+    const absentWww = await api('/', { host: 'www.wififiti.co.ke', redirect: 'manual' });
+    assert.equal(absentWww.status, 421, 'www is not part of this two-domain deployment');
     const unknownHost = await api('/api/config', { host: 'unexpected.example.test', redirect: 'manual' });
     assert.equal(unknownHost.status, 421, 'unknown hosts must not expose the live app');
     const freshRouterSetup = fs.readFileSync(path.join(__dirname, '..', 'routeros', 'hotspot-setup.rsc'), 'utf8');

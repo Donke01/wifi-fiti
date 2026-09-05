@@ -185,30 +185,32 @@ is copied, a router is replaced, or it was sent to the wrong person.
 
 ---
 
-## Public domains: www, app and the migration host
+## Public domains: root landing page and live app
 
-WiFi Fiti uses three hostnames with deliberately different jobs:
+WiFi Fiti uses two hostnames with deliberately different jobs:
 
 | Address | Purpose |
 |---|---|
-| `https://www.wififiti.co.ke` | Public **WiFi Fiti for Business** website — product, pricing and trial invitation. |
+| `https://wififiti.co.ke` | Public **WiFi Fiti for Business** landing page — product, pricing and trial invitation. During migration it also keeps only the legacy portal/API paths old routers need. |
 | `https://app.wififiti.co.ke` | Live platform — business workspace, customer portals, router polling, installers and M-Pesa callbacks. |
-| `https://wififiti.co.ke` | Temporary compatibility host for older routers and M-Pesa callbacks while they are migrated. |
 
-Do **not** point a captive portal at `www`. It is a marketing page and it
-deliberately cannot serve payment or router API routes.
+The public landing is served at the root domain; the existing `business.html`
+dashboard belongs on `app`. Do **not** point a captive portal at the root once
+its router has been migrated: use `app` instead.
 
-For Railway, add `www.wififiti.co.ke` and `app.wififiti.co.ke` as custom
-domains on the same service, then create the CNAME and verification TXT records
-Railway gives you. Keep the bare domain on the same service during migration.
-Use the CNAME Railway provides instead of an A record to a guessed fixed IP.
+For Railway, keep the existing `wififiti.co.ke` custom domain attached and add
+only `app.wififiti.co.ke` as the second custom domain on the same service. Add
+the CNAME and verification TXT records Railway gives you; do not replace the
+root domain's DNS record or guess a Railway IP address. If the current Railway
+plan permits only one custom domain, upgrade to a plan that permits two before
+adding `app`; replacing the root domain would disconnect existing routers.
 
 Set these Railway variables together:
 
 ```bash
 PUBLIC_URL=https://app.wififiti.co.ke
 APP_URL=https://app.wififiti.co.ke
-MARKETING_URL=https://www.wififiti.co.ke
+MARKETING_URL=https://wififiti.co.ke
 LEGACY_HOST=wififiti.co.ke
 ```
 
@@ -222,9 +224,14 @@ Business sign-in storage is per website origin, so operators should sign in
 again at `app` after the switch. One-time pairing tokens should be copied again
 or rotated there rather than moved through chat or screenshots.
 
+After the variables are deployed, normal visitors to the root domain see the
+public landing page. A legacy Hotspot redirect carrying RouterOS values such as
+`?mac=...`, plus legacy `/api/*` and `/p/*` requests, remains available only
+for the migration period so no existing customer or pending payment is cut off.
+
 ### Move an existing router safely
 
-Do this one router at a time, after both `www` and `app` have valid HTTPS:
+Do this one router at a time, after `app` has valid HTTPS:
 
 1. **Allow the app host first.** Add `app.wififiti.co.ke` to the Hotspot
    walled garden before changing the login page. An unauthenticated customer
@@ -246,9 +253,9 @@ Do this one router at a time, after both `www` and `app` have valid HTTPS:
    payment page loads from `app`, then run `/system script run fiti-poll` and
    inspect `/log print where message~"fiti"` on the router.
 
-Keep the bare domain live until every router has been tested and old pending
-payments have settled. Do not use a browser-only redirect for router polling or
-M-Pesa callbacks: they must keep reaching the same backend directly.
+Keep the legacy root API paths live until every router has been tested and old
+pending payments have settled. Do not use a browser-only redirect for router
+polling or M-Pesa callbacks: they must keep reaching the same backend directly.
 
 ---
 
@@ -261,7 +268,7 @@ DATABASE_PATH=/data/hotspot.db
 TENANT_SECRETS_KEY=<a long, stable random value>
 PUBLIC_URL=https://app.wififiti.co.ke
 APP_URL=https://app.wififiti.co.ke
-MARKETING_URL=https://www.wififiti.co.ke
+MARKETING_URL=https://wififiti.co.ke
 LEGACY_HOST=wififiti.co.ke
 ```
 

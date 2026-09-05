@@ -51,8 +51,8 @@ function localDevelopmentHost(host) {
 
 function legacyPortalRequest(req) {
   // A legacy Hotspot redirect always contains RouterOS identity values. Keep
-  // it working at app root while allowing a normal human visit to open the
-  // business workspace instead.
+  // it working on the former application root while a normal human visit sees
+  // the public WiFi Fiti Business site.
   const search = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?') + 1) : '';
   return /(?:^|&)(?:mac|ip|link-login-only|link-orig|error)=/i.test(search);
 }
@@ -73,17 +73,43 @@ app.use((req, res, next) => {
   const isGet = req.method === 'GET' || req.method === 'HEAD';
   res.vary('Host');
 
-  if (host === config.domains.marketingHost) {
-    // The public site deliberately has no business data, customer portals or
-    // payment API. Assets are the only static files it is allowed to borrow.
-    if (!isGet) return res.status(404).type('text/plain').send('Not found.');
-    if (req.path === '/' || req.path === '/index.html' || req.path === '/marketing.html') {
+  // The production marketing site uses the root domain. Until every old
+  // router has moved to app, that same host must retain only the legacy
+  // portal/API routes it needs. This makes ordinary root visits public while
+  // preventing an old RouterOS login or M-Pesa callback from breaking.
+  const servesSeparateMarketingHost =
+    host === config.domains.marketingHost && host !== config.domains.appHost;
+  if (servesSeparateMarketingHost) {
+    const keepsLegacyCompatibility = host === config.domains.legacyHost;
+    if (isGet && (req.path === '/' || req.path === '/index.html')) {
+      if (legacyPortalRequest(req)) {
+        if (!keepsLegacyCompatibility) return res.status(404).type('text/plain').send('Not found.');
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        return sendLegacyPortal(res);
+      }
       return res.sendFile(path.join(publicDirectory, 'marketing.html'));
     }
-    if (req.path === '/business.html' || req.path === '/operations.html' || req.path === '/legacy') {
+    if (isGet && req.path === '/marketing.html') {
+      return res.sendFile(path.join(publicDirectory, 'marketing.html'));
+    }
+    // The public landing lives at the root; the original dashboard and
+    // operations pages have moved to app.
+    if (isGet && (req.path === '/business.html' || req.path === '/operations.html')) {
       return redirectToApp(req, res);
     }
-    if (/^\/assets\/[A-Za-z0-9._-]+$/.test(req.path)) return next();
+    if (isGet && (req.path === '/legacy' || req.path === '/legacy/')) {
+      if (!keepsLegacyCompatibility) return redirectToApp(req, res);
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      return sendLegacyPortal(res);
+    }
+    // Keep the narrow set of paths used by older routers and outstanding
+    // payment flows while the router-by-router migration is underway.
+    if (req.path.startsWith('/api/') || req.path.startsWith('/p/')) {
+      if (!keepsLegacyCompatibility) return res.status(404).type('text/plain').send('Not found.');
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      return next();
+    }
+    if (isGet && /^\/assets\/[A-Za-z0-9._-]+$/.test(req.path)) return next();
     return res.status(404).type('text/plain').send('Not found.');
   }
 
@@ -94,11 +120,15 @@ app.use((req, res, next) => {
     }
     if (req.path === '/legacy' || req.path === '/legacy/') return sendLegacyPortal(res);
     if (req.path === '/marketing.html') return res.redirect(302, config.domains.marketingUrl);
+    // The app host is the full runtime: dashboard, customer portals, M-Pesa
+    // callbacks, and outbound router polling all continue to its routes.
+    // If an old/staging setup intentionally has app and legacy on one host,
+    // fall through so that compatibility branch can apply its headers.
+    if (host !== config.domains.legacyHost) return next();
   }
 
-  // The bare legacy host is intentionally left alone during the migration:
-  // routers and outstanding M-Pesa callbacks may still be using it. Once all
-  // old routers have been moved to app, it can be redirected at DNS/edge level.
+  // The legacy host only differs from the marketing host in a transitional or
+  // staging configuration. Keep it available for routers and callbacks there.
   if (host === config.domains.legacyHost) {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     // Business users should land on app even if they follow an old bookmark.
@@ -120,8 +150,8 @@ app.use((req, res, next) => {
 // it as application/x-www-form-urlencoded, so urlencoded() would claim it
 // first, hand back a null-prototype object, and mark the body as handled -
 // after which String(req.body) throws "Cannot convert object to primitive
-// value" and every sync 500s. This comes after host routing so www never
-// spends work parsing app-only requests.
+// value" and every sync 500s. This comes after host routing so rejected
+// hostnames never spend work parsing application-only requests.
 app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false }));
