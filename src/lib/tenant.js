@@ -51,6 +51,7 @@ db.exec(`
     mac             TEXT NOT NULL,
     password        TEXT NOT NULL,
     total_seconds   INTEGER NOT NULL DEFAULT 0,
+    rate_limit      TEXT,
     expires_at      TEXT NOT NULL,
     used_seconds    INTEGER NOT NULL DEFAULT 0,
     is_active       INTEGER NOT NULL DEFAULT 0,
@@ -75,6 +76,7 @@ db.exec(`
     package_name        TEXT NOT NULL,
     amount              INTEGER NOT NULL,
     seconds             INTEGER NOT NULL,
+    rate_limit          TEXT,
     mac                 TEXT NOT NULL,
     ip                  TEXT,
     status              TEXT NOT NULL DEFAULT 'pending',
@@ -101,6 +103,7 @@ db.exec(`
     password        TEXT NOT NULL,
     profile         TEXT NOT NULL DEFAULT 'standard',
     total_seconds   INTEGER NOT NULL,
+    rate_limit      TEXT,
     mac             TEXT,
     ip              TEXT,
     action          TEXT NOT NULL DEFAULT 'upsert',
@@ -148,6 +151,7 @@ db.exec(`
     package_id              INTEGER,
     package_name            TEXT NOT NULL,
     seconds                 INTEGER NOT NULL,
+    rate_limit              TEXT,
     batch                   TEXT,
     created_at              TEXT NOT NULL DEFAULT (datetime('now')),
     redeemed_at             TEXT,
@@ -221,7 +225,11 @@ for (const statement of [
   `ALTER TABLE tenant_transactions ADD COLUMN platform_fee_minor INTEGER`,
   `ALTER TABLE tenant_transactions ADD COLUMN portal_token_hash TEXT`,
   `ALTER TABLE tenant_transactions ADD COLUMN portal_token_expires_at TEXT`,
+  `ALTER TABLE tenant_transactions ADD COLUMN rate_limit TEXT`,
   `ALTER TABLE tenant_subscriptions ADD COLUMN expiry_job_id INTEGER`,
+  `ALTER TABLE tenant_subscriptions ADD COLUMN rate_limit TEXT`,
+  `ALTER TABLE tenant_jobs ADD COLUMN rate_limit TEXT`,
+  `ALTER TABLE tenant_vouchers ADD COLUMN rate_limit TEXT`,
 ]) {
   try { db.exec(statement); } catch { /* existing deployment */ }
 }
@@ -275,12 +283,12 @@ const updateLocation = db.prepare(`
 `);
 
 const packageForLocation = db.prepare(`
-  SELECT p.id, p.name, p.price, p.seconds
+  SELECT p.id, p.name, p.price, p.seconds, p.rate_limit
     FROM business_packages p JOIN locations l ON l.business_id = p.business_id
    WHERE p.id = ? AND l.id = ? AND p.active = 1
 `);
 const packagesForLocation = db.prepare(`
-  SELECT p.id, p.name, p.price, p.seconds FROM business_packages p
+  SELECT p.id, p.name, p.price, p.seconds, p.rate_limit FROM business_packages p
    JOIN locations l ON l.business_id = p.business_id
    WHERE l.id = ? AND p.active = 1 ORDER BY p.price
 `);
@@ -288,9 +296,9 @@ const packagesForLocation = db.prepare(`
 const insertTransaction = db.prepare(`
   INSERT INTO tenant_transactions
     (checkout_request_id, merchant_request_id, business_id, location_id, phone, package_id,
-     package_name, amount, seconds, mac, ip)
+     package_name, amount, seconds, rate_limit, mac, ip)
   VALUES (@checkoutRequestId, @merchantRequestId, @businessId, @locationId, @phone, @packageId,
-          @packageName, @amount, @seconds, @mac, @ip)
+          @packageName, @amount, @seconds, @rateLimit, @mac, @ip)
 `);
 const getTransaction = db.prepare(`SELECT * FROM tenant_transactions WHERE checkout_request_id = ?`);
 const setTransactionResult = db.prepare(`
@@ -343,10 +351,10 @@ const subscriptionForPayer = db.prepare(`
 `);
 const upsertSubscription = db.prepare(`
   INSERT INTO tenant_subscriptions
-    (id, business_id, location_id, router_username, payer_phone, mac, password, total_seconds, expires_at)
-  VALUES (@id, @businessId, @locationId, @routerUsername, @payerPhone, @mac, @password, @totalSeconds, @expiresAt)
+    (id, business_id, location_id, router_username, payer_phone, mac, password, total_seconds, rate_limit, expires_at)
+  VALUES (@id, @businessId, @locationId, @routerUsername, @payerPhone, @mac, @password, @totalSeconds, @rateLimit, @expiresAt)
   ON CONFLICT(location_id, mac) DO UPDATE SET
-    password=excluded.password, total_seconds=excluded.total_seconds, expires_at=excluded.expires_at,
+    password=excluded.password, total_seconds=excluded.total_seconds, rate_limit=excluded.rate_limit, expires_at=excluded.expires_at,
     expiry_job_id=NULL, updated_at=datetime('now')
 `);
 const setSubscriptionMac = db.prepare(`
@@ -375,8 +383,8 @@ const meterDevice = db.prepare(`INSERT OR IGNORE INTO tenant_monthly_devices(bus
   VALUES (?, strftime('%Y-%m','now'), ?)`);
 
 const insertJob = db.prepare(`
-  INSERT INTO tenant_jobs (location_id, username, password, profile, total_seconds, mac, ip, action)
-  VALUES (@locationId, @username, @password, @profile, @totalSeconds, @mac, @ip, @action)
+  INSERT INTO tenant_jobs (location_id, username, password, profile, total_seconds, rate_limit, mac, ip, action)
+  VALUES (@locationId, @username, @password, @profile, @totalSeconds, @rateLimit, @mac, @ip, @action)
 `);
 const pendingJobs = db.prepare(`
   SELECT * FROM tenant_jobs j WHERE location_id=? AND acked_at IS NULL
@@ -433,7 +441,7 @@ const businessPackageById = db.prepare(`
   SELECT * FROM business_packages WHERE id=? AND business_id=?
 `);
 const updateBusinessPackage = db.prepare(`
-  UPDATE business_packages SET name=@name, price=@price, seconds=@seconds
+  UPDATE business_packages SET name=@name, price=@price, seconds=@seconds, rate_limit=@rateLimit
    WHERE id=@id AND business_id=@businessId
 `);
 const setBusinessPackageActive = db.prepare(`
@@ -441,11 +449,11 @@ const setBusinessPackageActive = db.prepare(`
 `);
 
 const addVoucher = db.prepare(`
-  INSERT INTO tenant_vouchers (code, business_id, location_id, package_id, package_name, seconds, batch)
-  VALUES (@code, @businessId, @locationId, @packageId, @packageName, @seconds, @batch)
+  INSERT INTO tenant_vouchers (code, business_id, location_id, package_id, package_name, seconds, rate_limit, batch)
+  VALUES (@code, @businessId, @locationId, @packageId, @packageName, @seconds, @rateLimit, @batch)
 `);
 const vouchersForBusiness = db.prepare(`
-  SELECT v.code, v.location_id, l.name AS location_name, v.package_name, v.seconds, v.batch,
+  SELECT v.code, v.location_id, l.name AS location_name, v.package_name, v.seconds, v.rate_limit, v.batch,
          v.created_at, v.redeemed_at, v.redeemed_by
     FROM tenant_vouchers v JOIN locations l ON l.id=v.location_id
    WHERE v.business_id=? ORDER BY v.created_at DESC LIMIT ?
@@ -581,20 +589,24 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   const routerUsername = usernameFor({ locationId: transaction.location_id, payerPhone: transaction.phone, mac: transaction.mac });
   const password = existing?.password || generatePassword();
   const totalSeconds = (existing?.total_seconds || 0) + transaction.seconds;
+  // A top-up follows the package the customer selected. A blank speed means
+  // return to the normal RouterOS profile rather than retain an old per-user
+  // limit invisibly.
+  const rateLimit = transaction.rate_limit || null;
   const oldExpiry = existing?.expires_at ? new Date(existing.expires_at.replace(' ', 'T') + 'Z').getTime() : 0;
   const expiresAt = nowSql(Math.max(Date.now(), Number.isFinite(oldExpiry) ? oldExpiry : 0) + transaction.seconds * 1000);
   upsertSubscription.run({ id, businessId: transaction.business_id, locationId: transaction.location_id,
-    routerUsername, payerPhone: transaction.phone, mac: transaction.mac, password, totalSeconds, expiresAt });
+    routerUsername, payerPhone: transaction.phone, mac: transaction.mac, password, totalSeconds, rateLimit, expiresAt });
   meterDevice.run(transaction.business_id, transaction.mac);
   const job = insertJob.run({ locationId: transaction.location_id, username: routerUsername, password, profile,
-    totalSeconds, mac: transaction.mac, ip: transaction.ip || null, action: 'upsert' });
+    totalSeconds, rateLimit, mac: transaction.mac, ip: transaction.ip || null, action: 'upsert' });
   // A top-up must refresh the TV's RouterOS ceiling too. Otherwise the
   // phone receives the extension but its paired TV disconnects early.
   for (const device of devicesForSubscription.all(transaction.location_id, id)) {
     insertJob.run({ locationId: transaction.location_id, username: `${routerUsername}-tv`, password, profile,
-      totalSeconds, mac: device.mac, ip: null, action: 'upsert' });
+      totalSeconds, rateLimit, mac: device.mac, ip: null, action: 'upsert' });
   }
-  return { id, username: routerUsername, password, totalSeconds, expiresAt,
+  return { id, username: routerUsername, password, totalSeconds, rateLimit, expiresAt,
     provisioningJobId: Number(job.lastInsertRowid) };
 }
 
@@ -613,7 +625,7 @@ function transferSubscription({ locationId, payerPhone, subscriptionId, password
   meterDevice.run(subscription.business_id, mac);
   setSubscriptionMac.run({ id: subscription.id, locationId, mac });
   const job = insertJob.run({ locationId, username: subscription.router_username, password: subscription.password,
-    profile, totalSeconds: subscription.total_seconds, mac, ip: ip || null, action: 'transfer' });
+    profile, totalSeconds: subscription.total_seconds, rateLimit: subscription.rate_limit, mac, ip: ip || null, action: 'transfer' });
   return { ...subscription, mac, provisioningJobId: Number(job.lastInsertRowid) };
 }
 
@@ -635,7 +647,7 @@ function addTvDevice({ locationId, payerPhone, subscriptionId, password, mac, la
   else addDevice.run({ locationId, mac, subscriptionId, label });
   meterDevice.run(subscription.business_id, mac);
   const job = insertJob.run({ locationId, username: `${subscription.router_username}-tv`, password: subscription.password,
-    profile, totalSeconds: subscription.total_seconds, mac, ip: null, action: 'upsert' });
+    profile, totalSeconds: subscription.total_seconds, rateLimit: subscription.rate_limit, mac, ip: null, action: 'upsert' });
   return { subscription, mac, label, provisioningJobId: Number(job.lastInsertRowid) };
 }
 
@@ -648,16 +660,17 @@ function removeTvDevice({ locationId, payerPhone, subscriptionId, password, mac 
   const removed = removeDevice.run({ locationId, mac, subscriptionId });
   if (!removed.changes) return false;
   insertJob.run({ locationId, username: `${subscription.router_username}-tv`, password: '2222', profile: 'standard',
-    totalSeconds: 1, mac: null, ip: null, action: 'revoke' });
+    totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
   return true;
 }
 
-function issueVouchers({ businessId, locationId, packageId, packageName, seconds, count, batch }) {
+function issueVouchers({ businessId, locationId, packageId, packageName, seconds, rateLimit, count, batch }) {
   const issued = [];
   for (let tries = 0; issued.length < count && tries < count * 5; tries++) {
     const code = `FITI${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
     try {
-      addVoucher.run({ code, businessId, locationId, packageId, packageName, seconds, batch: batch || null });
+      addVoucher.run({ code, businessId, locationId, packageId, packageName, seconds,
+        rateLimit: rateLimit || null, batch: batch || null });
       issued.push(code);
     } catch (err) {
       if (!/UNIQUE/i.test(String(err.message))) throw err;
@@ -682,7 +695,7 @@ function redeemVoucher({ locationId, code, phone, mac, ip, profile = 'standard' 
     }
     const grant = grantSubscription({ transaction: {
       location_id: locationId, business_id: voucher.business_id, phone, mac, ip,
-      seconds: voucher.seconds, checkout_request_id: `voucher-${voucher.code}`,
+      seconds: voucher.seconds, rate_limit: voucher.rate_limit, checkout_request_id: `voucher-${voucher.code}`,
     }, profile });
     markVoucherGranted.run(grant.id, code, locationId);
     db.exec('COMMIT');
@@ -697,13 +710,13 @@ function queueExpiredSubscriptions(locationId) {
   const expired = expiredSubscriptionsNeedingJob.all(locationId);
   for (const subscription of expired) {
     const job = insertJob.run({ locationId, username: subscription.router_username, password: '2222',
-      profile: 'standard', totalSeconds: 1, mac: null, ip: null, action: 'revoke' });
+      profile: 'standard', totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
     // A TV has its own RouterOS identity and therefore its own local uptime
     // counter. Revoke it alongside the phone so a TV cannot outlive the
     // server's wall-clock expiry.
     for (const device of devicesForSubscription.all(locationId, subscription.id)) {
       insertJob.run({ locationId, username: `${subscription.router_username}-tv`, password: '2222',
-        profile: 'standard', totalSeconds: 1, mac: null, ip: null, action: 'revoke' });
+        profile: 'standard', totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
     }
     setExpiryJob.run(Number(job.lastInsertRowid), subscription.id, locationId);
   }

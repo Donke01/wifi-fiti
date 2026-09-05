@@ -46,6 +46,13 @@ app.use((req, res, next) => {
     key = path + ':' + req.ip;
     maximum = path.endsWith('register') ? 20 : 50;
     windowMs = 15 * 60_000;
+  } else if (path.startsWith('/api/admin/')) {
+    // The platform desk is token-protected, but bound its guessing surface
+    // as well. This leaves room for an operator to refresh the desk without
+    // allowing unlimited token attempts from one address.
+    key = '/api/admin:' + req.ip;
+    maximum = 30;
+    windowMs = 5 * 60_000;
   } else if (req.method === 'POST' && path.startsWith('/api/tenant/')) {
     const identity = String(req.body && (req.body.phone || req.body.subscriptionId || req.body.mac) || '').slice(0, 100);
     key = path + ':' + req.ip + ':' + identity;
@@ -368,10 +375,11 @@ app.post('/api/business/packages', (req, res) => {
   const name = String(req.body && req.body.name || '').trim().slice(0, 48);
   const price = Number(req.body && req.body.price);
   const hours = Number(req.body && req.body.hours);
-  if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31) {
-    return res.status(400).json({ error: 'Enter a package name, price and duration up to 31 days.' });
+  const rate = normaliseRateLimit(req.body && req.body.rateLimit);
+  if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31 || !rate.valid) {
+    return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }
-  db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600) });
+  db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
   res.status(201).json({ packages: db.packagesForBusiness.all(business.id) });
 });
 
@@ -383,10 +391,11 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
   const name = String(req.body && req.body.name || current.name).trim().slice(0, 48);
   const price = req.body && req.body.price === undefined ? current.price : Number(req.body.price);
   const hours = req.body && req.body.hours === undefined ? current.seconds / 3600 : Number(req.body.hours);
-  if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31) {
-    return res.status(400).json({ error: 'Enter a package name, price and duration up to 31 days.' });
+  const rate = normaliseRateLimit(req.body && req.body.rateLimit === undefined ? current.rate_limit : req.body.rateLimit);
+  if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31 || !rate.valid) {
+    return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }
-  tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600) });
+  tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
   res.json({ packages: db.packagesForBusiness.all(business.id) });
 });
 
@@ -443,7 +452,8 @@ app.post('/api/business/vouchers', (req, res) => {
   if (!location || !pkg || !pkg.active) return res.status(400).json({ error: 'Choose one of your active packages and locations.' });
   try {
     const codes = tenant.issueVouchers({ businessId: business.id, locationId, packageId: pkg.id,
-      packageName: pkg.name, seconds: pkg.seconds, count, batch: String(req.body && req.body.batch || '').trim().slice(0, 40) });
+      packageName: pkg.name, seconds: pkg.seconds, rateLimit: pkg.rate_limit, count,
+      batch: String(req.body && req.body.batch || '').trim().slice(0, 40) });
     res.status(201).json({ codes, locationId, package: pkg.name });
   } catch (err) {
     console.error('[business vouchers] issue failed:', err.message);
@@ -466,6 +476,7 @@ function tenantSessionPayload(subscription, issueToken = false) {
   return { found: true, authenticated: true, subscriptionId: subscription.id,
     payerPhone: subscription.payer_phone, username: subscription.router_username,
     password: subscription.password, remainingSeconds: tenantRemaining(subscription),
+    rateLimit: subscription.rate_limit || null,
     expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z',
     device: tenant.deviceForSubscription.get(subscription.location_id, subscription.id) || null,
     awaitingRouter: Boolean(tenant.pendingProvisioningJobForUsername.get(subscription.location_id, subscription.router_username)),
@@ -595,7 +606,7 @@ app.post('/api/tenant/:locationId/session/connect', (req, res) => {
   const ip = cleanIp(req.body && req.body.ip);
   const job = tenant.insertJob.run({ locationId: location.id, username: subscription.router_username,
     password: subscription.password, profile: 'standard', totalSeconds: subscription.total_seconds,
-    mac: subscription.mac, ip, action: 'upsert' });
+    rateLimit: subscription.rate_limit, mac: subscription.mac, ip, action: 'upsert' });
   res.json({ ...tenantSessionPayload(subscription), status: 'pending', provisioningJobId: Number(job.lastInsertRowid) });
 });
 
@@ -649,7 +660,8 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
     const portalToken = tenantPortalCapability();
     tenant.insertTransaction.run({ checkoutRequestId: pushed.checkoutRequestId,
       merchantRequestId: pushed.merchantRequestId, businessId: location.business_id, locationId: location.id,
-      phone, packageId: pkg.id, packageName: pkg.name, amount: pkg.price, seconds: pkg.seconds, mac, ip });
+      phone, packageId: pkg.id, packageName: pkg.name, amount: pkg.price, seconds: pkg.seconds,
+      rateLimit: pkg.rate_limit, mac, ip });
     tenant.setTransactionTerms.run({ checkoutRequestId: pushed.checkoutRequestId, paymentSource, platformFee });
     tenant.setTransactionPortalCapability.run({
       checkoutRequestId: pushed.checkoutRequestId,
@@ -692,6 +704,7 @@ function publicTenantSubscription(locationId, subscription) {
     id: subscription.id,
     mac: subscription.mac,
     remainingSeconds,
+    rateLimit: subscription.rate_limit || null,
     expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z',
     device: device ? { mac: device.mac, label: device.label } : null,
   };
@@ -858,6 +871,33 @@ function cleanIp(value) {
   const ip = value.trim();
   if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return null;
   return ip.split('.').every((o) => Number(o) <= 255) ? ip : null;
+}
+
+/**
+ * RouterOS accepts a rich `rate-limit` grammar, but package editors should
+ * not be able to turn a customer package into arbitrary RouterOS syntax.
+ * Keep the commercial setting intentionally small: upload/download values
+ * using k or M, for example `2M/5M`. RouterOS reads those as rx/tx from the
+ * router's perspective: customer upload, then customer download. An empty
+ * setting means “use the router profile's normal speed”.
+ */
+function normaliseRateLimit(value) {
+  const rate = String(value == null ? '' : value).trim().replace(/\s+/g, '');
+  if (!rate) return { valid: true, value: null };
+  const parts = rate.split('/');
+  if (parts.length !== 2 || !parts.every((part) => /^\d+(?:\.\d+)?[kKmM]$/.test(part))) {
+    return { valid: false, value: null };
+  }
+  const validAmount = parts.every((part) => {
+    const amount = Number(part.slice(0, -1));
+    return Number.isFinite(amount) && amount > 0 && amount <= 10000;
+  });
+  if (!validAmount) return { valid: false, value: null };
+  const canonical = parts.map((part) => {
+    const amount = part.slice(0, -1);
+    return amount + (part.at(-1).toLowerCase() === 'k' ? 'k' : 'M');
+  }).join('/');
+  return { valid: true, value: canonical };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1851,7 +1891,11 @@ function rebuildLedger(phone, apply) {
 
 function adminOk(req) {
   const admin = process.env.ADMIN_TOKEN;
-  return Boolean(admin) && String(req.headers['x-admin-token'] || '') === admin;
+  const supplied = String(req.headers['x-admin-token'] || '');
+  if (!admin) return false;
+  const expectedBytes = Buffer.from(admin);
+  const suppliedBytes = Buffer.from(supplied);
+  return expectedBytes.length === suppliedBytes.length && crypto.timingSafeEqual(expectedBytes, suppliedBytes);
 }
 
 app.get('/api/admin/ledger/:phone', (req, res) => {

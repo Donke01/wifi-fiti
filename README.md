@@ -104,6 +104,32 @@ control centre is designed around this operating sequence:
    move an existing package to the current phone. One optional TV can share a
    subscription; it does not turn a purchase into a general shared hotspot.
 
+### Package speed limits
+
+Each customer package can optionally include a simple speed setting such as
+`2M/5M` (upload/download). RouterOS interprets the two numbers as receive and
+transmit from the router's perspective: customer upload first, then customer
+download. Use `k` or `M`, such as `512k/2M`. Leave it blank to use the router's
+normal Hotspot profile speed.
+WiFi Fiti snapshots a chosen package's speed when the customer pays or redeems
+a voucher, then sends it to RouterOS with that customer account. The linked TV
+gets the same **per-device** cap; it is not a shared aggregate bandwidth cap
+across both devices. Editing a package affects future sales; a later top-up
+adopts the newly selected package speed, or restores the normal profile speed
+if that package is blank.
+
+### Operations and payouts
+
+`/operations.html` gives an operator customer history, support tickets and
+confirmed platform-plan receipts. It also tracks customer money collected by
+WiFi Fiti and lets the operator submit a payout request. Payout requests are
+an internal record and reservation only: this application **does not transfer
+money**, verify bank disbursements, or automate refunds or chargebacks. A
+platform staff member must independently verify a destination and record the
+external reference before marking a payout paid. The platform desk is at
+`/operations.html?admin=1` and requires a strong `ADMIN_TOKEN`; do not share
+that token with an operator.
+
 ### Subscription plans and business billing
 
 The included commercial tiers are capacity plans, not a charge for every

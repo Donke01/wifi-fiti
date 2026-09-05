@@ -26,6 +26,7 @@ Object.assign(process.env, {
   SITE_ID: 'legacy-integration-site',
   SITE_TOKEN: 'legacy-integration-router-token',
   TENANT_SECRETS_KEY: 'integration-only-encryption-key-do-not-deploy',
+  ADMIN_TOKEN: 'integration-admin-token',
   DATABASE_PATH: path.join(temporaryDirectory, 'hotspot.db'),
 });
 
@@ -89,11 +90,12 @@ async function test(name, run) {
   }
 }
 
-async function api(endpoint, { method = 'GET', body, token, portalToken, sessionToken } = {}) {
+async function api(endpoint, { method = 'GET', body, token, portalToken, sessionToken, adminToken } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (portalToken) headers['X-WiFi-Fiti-Portal'] = portalToken;
   if (sessionToken) headers['X-WiFi-Fiti-Session'] = sessionToken;
+  if (adminToken) headers['X-Admin-Token'] = adminToken;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const response = await realFetch(origin + endpoint, {
     method, headers, body: body === undefined ? undefined : JSON.stringify(body),
@@ -119,7 +121,7 @@ function endpoint(location, suffix) {
   return `/api/tenant/${location.id}/${suffix}`;
 }
 
-async function operator(suffix, collectionMode = 'fiti') {
+async function operator(suffix, collectionMode = 'fiti', rateLimit = '2M/5M') {
   const registered = await api('/api/business/register', { method: 'POST', body: {
     name: `${suffix} Internet`, ownerName: `${suffix} Owner`, phone: '0712000000',
     email: `${suffix.toLowerCase()}@example.test`, password: 'integration-password',
@@ -131,7 +133,7 @@ async function operator(suffix, collectionMode = 'fiti') {
     body: { name: `${suffix} Main`, routerName: 'RB951Ui' } });
   assert.equal(located.status, 201, JSON.stringify(located.body));
   const packaged = await api('/api/business/packages', { method: 'POST', token,
-    body: { name: `${suffix} Hour`, price: 20, hours: 1 } });
+    body: { name: `${suffix} Hour`, price: 20, hours: 1, rateLimit } });
   assert.equal(packaged.status, 201, JSON.stringify(packaged.body));
   return { token, business: registered.body.business, location: located.body.location,
     package: packaged.body.packages[0] };
@@ -217,7 +219,15 @@ async function main() {
     assert.equal(mine.body.locations[0].router_token, undefined);
     const publicConfig = await api(endpoint(alpha.location, 'config'));
     assert.deepEqual(publicConfig.body.packages.map((item) => item.id), [alpha.package.id]);
+    assert.equal(publicConfig.body.packages[0].rate_limit, '2M/5M');
     assert.equal(publicConfig.headers.get('referrer-policy'), 'no-referrer');
+    const canonicalSpeed = await api(`/api/business/packages/${alpha.package.id}`, { method: 'PATCH', token: alpha.token,
+      body: { rateLimit: '512K/1m' } });
+    assert.equal(canonicalSpeed.status, 200, JSON.stringify(canonicalSpeed.body));
+    assert.equal(canonicalSpeed.body.packages.find((item) => item.id === alpha.package.id).rate_limit, '512k/1M');
+    const restoredSpeed = await api(`/api/business/packages/${alpha.package.id}`, { method: 'PATCH', token: alpha.token,
+      body: { rateLimit: '2M/5M' } });
+    assert.equal(restoredSpeed.status, 200, JSON.stringify(restoredSpeed.body));
     const foreignPay = await api(endpoint(alpha.location, 'pay'), { method: 'POST',
       body: { packageId: bravo.package.id, phone: '0712000002', mac: 'AA:BB:CC:00:00:02' } });
     assert.equal(foreignPay.status, 400);
@@ -230,6 +240,12 @@ async function main() {
       'a newly paired router must not accept a secret in the URL');
     assert.equal((await api('/api/business/vouchers', { method: 'POST', token: alpha.token,
       body: { locationId: bravo.location.id, packageId: alpha.package.id } })).status, 400);
+    assert.equal((await api('/api/business/packages', { method: 'POST', token: alpha.token,
+      body: { name: 'Broken speed', price: 1, hours: 1, rateLimit: '5M; /system reboot' } })).status, 400,
+      'package speed input must not become RouterOS script syntax');
+    assert.equal((await api('/api/admin/business-operations/tickets')).status, 403);
+    assert.equal((await api('/api/admin/business-operations/tickets', { adminToken: 'wrong-token' })).status, 403);
+    assert.equal((await api('/api/admin/business-operations/tickets', { adminToken: 'integration-admin-token' })).status, 200);
   });
 
   await test('voucher grants survive HTTP reloads and require the correct router acknowledgement', async () => {
@@ -246,6 +262,7 @@ async function main() {
     const delivered = await routerSync(alpha.location);
     assert.ok(delivered.ids.includes(granted.provisioningJobId));
     assert.ok(delivered.script.includes(`mac-address=${mac}`));
+    assert.ok(delivered.script.includes('rate-limit=2M/5M'));
     await routerSync(alpha.location, { ack: delivered.ids });
     assert.equal((await api(jobPath)).body.ready, true);
     const first = await api(endpoint(alpha.location, `session?mac=${mac}`));
@@ -403,6 +420,21 @@ async function main() {
     await api(billingPath, { token: alpha.token });
     assert.equal((await api('/api/business/me', { token: alpha.token })).body.business.billing_expires_at, expiry);
     assert.equal(database.prepare('SELECT COUNT(*) AS n FROM business_billing_grants WHERE checkout_request_id=?').get(id).n, 1);
+  });
+
+  await test('platform administrator request limits cover changing record IDs', async () => {
+    // Three administrator checks above already consumed three of the shared
+    // 30-attempt window. Each new ticket ID must still count against it.
+    for (let i = 0; i < 27; i++) {
+      const response = await api(`/api/admin/business-operations/tickets/rate-limit-${i}`, {
+        adminToken: 'integration-admin-token',
+      });
+      assert.equal(response.status, 404);
+    }
+    const blocked = await api('/api/admin/business-operations/tickets/rate-limit-blocked', {
+      adminToken: 'integration-admin-token',
+    });
+    assert.equal(blocked.status, 429);
   });
 
   console.log(`\nTenant HTTP integration: ${passed} passed, ${failures.length} failed`);

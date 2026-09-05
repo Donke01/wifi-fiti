@@ -35,7 +35,7 @@ function addBusiness(id, name, email) {
   });
 }
 
-function addPaidTransaction({ checkoutRequestId, businessId, locationId, packageId, packageName, amount, seconds, phone, mac }) {
+function addPaidTransaction({ checkoutRequestId, businessId, locationId, packageId, packageName, amount, seconds, rateLimit = null, phone, mac }) {
   tenant.insertTransaction.run({
     checkoutRequestId,
     merchantRequestId: `merchant-${checkoutRequestId}`,
@@ -46,6 +46,7 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     packageName,
     amount,
     seconds,
+    rateLimit,
     mac,
     ip: '10.5.50.20',
   });
@@ -87,14 +88,15 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   assert.ok(paired.last_seen_at, 'successful pairing should record router health');
 
   const alphaPackageId = legacy.addBusinessPackage.run({
-    businessId: 'business-a', name: 'Ten minutes', price: 10, seconds: 600,
+    businessId: 'business-a', name: 'Ten minutes', price: 10, seconds: 600, rateLimit: '2M/5M',
   }).lastInsertRowid;
   const bravoPackageId = legacy.addBusinessPackage.run({
-    businessId: 'business-b', name: 'One hour', price: 30, seconds: 3600,
+    businessId: 'business-b', name: 'One hour', price: 30, seconds: 3600, rateLimit: null,
   }).lastInsertRowid;
   const alphaPackages = tenant.packagesForLocation.all(alpha.id);
   const bravoPackages = tenant.packagesForLocation.all(bravo.id);
   assert.deepStrictEqual(alphaPackages.map((p) => p.name), ['Ten minutes']);
+  assert.strictEqual(alphaPackages[0].rate_limit, '2M/5M');
   assert.deepStrictEqual(bravoPackages.map((p) => p.name), ['One hour']);
   assert.strictEqual(tenant.packageForLocation.get(bravoPackageId, alpha.id), undefined,
     'a package from another business must not be purchasable at this location');
@@ -103,30 +105,38 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   const mac = 'AA:BB:CC:DD:EE:01';
   const firstPayment = addPaidTransaction({
     checkoutRequestId: 'tenant-payment-a1', businessId: 'business-a', locationId: alpha.id,
-    packageId: alphaPackageId, packageName: 'Ten minutes', amount: 10, seconds: 600, phone, mac,
+    packageId: alphaPackageId, packageName: 'Ten minutes', amount: 10, seconds: 600, rateLimit: '2M/5M', phone, mac,
   });
   const firstGrant = tenant.grantSubscription({ transaction: firstPayment });
   const initialExpiry = new Date(firstGrant.expiresAt.replace(' ', 'T') + 'Z').getTime();
   assert.ok(initialExpiry > Date.now() + 590000, 'first grant needs a future wall-clock expiry');
   assert.strictEqual(firstGrant.totalSeconds, 600);
+  assert.strictEqual(firstGrant.rateLimit, '2M/5M');
 
   // A repeat purchase keeps the same credentials and extends from the prior
   // expiry, not from the browser timer or router activity counter.
   const topUp = addPaidTransaction({
     checkoutRequestId: 'tenant-payment-a2', businessId: 'business-a', locationId: alpha.id,
-    packageId: alphaPackageId, packageName: 'Two minutes', amount: 4, seconds: 120, phone, mac,
+    packageId: alphaPackageId, packageName: 'Two minutes', amount: 4, seconds: 120, rateLimit: null, phone, mac,
   });
   const extended = tenant.grantSubscription({ transaction: topUp });
   const extendedExpiry = new Date(extended.expiresAt.replace(' ', 'T') + 'Z').getTime();
   assert.strictEqual(extended.id, firstGrant.id);
   assert.strictEqual(extended.username, firstGrant.username);
   assert.strictEqual(extended.totalSeconds, 720);
+  assert.strictEqual(tenant.subscriptionByMac.get(alpha.id, mac).rate_limit, null,
+    'a speedless package restores the normal router profile speed');
   assert.ok(extendedExpiry >= initialExpiry + 119000 && extendedExpiry <= initialExpiry + 121000,
     'top-up must add time to the persisted expiry');
 
   const alphaJobs = tenant.pendingJobs.all(alpha.id);
   assert.deepStrictEqual(alphaJobs.map((job) => job.total_seconds), [720],
     'router jobs carry absolute totals so retrying them is safe');
+  assert.strictEqual(alphaJobs[0].rate_limit, null);
+  assert.ok(require('../src/lib/rsc').jobToScript(alphaJobs[0], 'hotspot1').includes('rate-limit=""'),
+    'the router job must clear a previous per-user speed for a normal-profile package');
+  assert.strictEqual(require('../src/lib/rsc').jobToScript({ ...alphaJobs[0], rate_limit: '2M/5M;:beep' }, 'hotspot1'), null,
+    'a corrupted rate setting must never become RouterOS code');
   assert.strictEqual(tenant.pendingJobs.all(bravo.id).length, 0,
     'a tenant router must never receive another tenant\'s jobs');
   tenant.markDelivered.run(alphaJobs[0].id);
@@ -137,7 +147,7 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   // Usage reports are scoped by location even if the router usernames match.
   const bravoPayment = addPaidTransaction({
     checkoutRequestId: 'tenant-payment-b1', businessId: 'business-b', locationId: bravo.id,
-    packageId: bravoPackageId, packageName: 'One hour', amount: 30, seconds: 3600, phone, mac,
+    packageId: bravoPackageId, packageName: 'One hour', amount: 30, seconds: 3600, rateLimit: null, phone, mac,
   });
   const bravoGrant = tenant.grantSubscription({ transaction: bravoPayment });
   tenant.recordUsage.run({
@@ -158,7 +168,7 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   // must retain its first grant/job rather than add a second package.
   const replayPayment = addPaidTransaction({
     checkoutRequestId: 'tenant-payment-idempotent', businessId: 'business-a', locationId: alpha.id,
-    packageId: alphaPackageId, packageName: 'Fifteen minutes', amount: 15, seconds: 900,
+    packageId: alphaPackageId, packageName: 'Fifteen minutes', amount: 15, seconds: 900, rateLimit: '2M/1M',
     phone: '254712000009', mac: 'AA:BB:CC:DD:EE:09',
   });
   const replayFirst = tenant.provisionPaidTransaction(replayPayment.checkout_request_id);
@@ -224,10 +234,12 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   // Vouchers are location-scoped and claim atomically, so a used code cannot
   // credit a second device or a different business.
   const [voucher] = tenant.issueVouchers({ businessId: 'business-a', locationId: alpha.id,
-    packageId: alphaPackageId, packageName: 'Ten minutes', seconds: 600, count: 1, batch: 'test' });
+    packageId: alphaPackageId, packageName: 'Ten minutes', seconds: 600, rateLimit: '2M/5M', count: 1, batch: 'test' });
   const redeemed = tenant.redeemVoucher({ locationId: alpha.id, code: voucher, phone,
     mac: 'AA:BB:CC:DD:EE:77', ip: '10.5.50.77' });
   assert.ok(redeemed && redeemed.provisioningJobId > 0);
+  assert.strictEqual(tenant.subscriptionByMac.get(alpha.id, 'AA:BB:CC:DD:EE:77').rate_limit, '2M/5M',
+    'a voucher keeps the speed package that was active when the code was issued');
   assert.strictEqual(tenant.redeemVoucher({ locationId: alpha.id, code: voucher, phone,
     mac: 'AA:BB:CC:DD:EE:78', ip: '10.5.50.78' }), null);
   assert.strictEqual(tenant.redeemVoucher({ locationId: bravo.id, code: voucher, phone,

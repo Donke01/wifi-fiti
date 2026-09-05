@@ -65,11 +65,11 @@
     var data = await api(base + '/customers/' + encodeURIComponent(id)), box = $('customer-detail'); empty(box); box.classList.remove('hidden');
     var row = add(box, 'div', undefined, 'row'); add(row, 'h3', data.subscription.payer_phone + ' · ' + data.subscription.location_name); button(row, 'Close', function () { box.classList.add('hidden'); });
     add(box, 'p', 'Device ' + data.subscription.mac + ' · WiFi username ' + data.subscription.router_username, 'muted');
-    add(box, 'p', 'Package ends ' + when(data.subscription.expires_at) + '. Router-reported usage: ' + Math.floor(data.subscription.used_seconds / 60) + ' minutes.', 'note');
+    add(box, 'p', 'Package ends ' + when(data.subscription.expires_at) + (data.subscription.rate_limit ? ' · Speed ' + data.subscription.rate_limit : '') + '. Router-reported usage: ' + Math.floor(data.subscription.used_seconds / 60) + ' minutes.', 'note');
     data.devices.forEach(function (device) { add(box, 'p', (device.label || 'TV') + ': ' + device.mac, 'note'); });
     if (!data.history.length) emptyState(box, 'No M-Pesa payments for this subscription. Access may have come from a voucher.');
-    else { var tbody = table(box, ['Package','Amount','Payment','Access','Date']); data.history.forEach(function (payment) { var tr = add(tbody, 'tr'); add(tr, 'td', payment.package_name); add(tr, 'td', currency(payment.amount * 100)); var reference = add(tr, 'td'); add(reference, 'div', statusText(payment.status)); add(reference, 'small', payment.mpesa_receipt || 'No receipt reference recorded'); add(tr, 'td', payment.provisioned ? 'Command issued' : 'Not provisioned'); add(tr, 'td', when(payment.created_at)); }); }
-    (data.vouchers || []).forEach(function (voucher) { add(box, 'p', 'Voucher redeemed: ' + voucher.package_name + ' · ' + when(voucher.redeemed_at) + (voucher.batch ? ' · Batch: ' + voucher.batch : ''), 'note'); });
+    else { var tbody = table(box, ['Package','Amount','Payment','Access','Date']); data.history.forEach(function (payment) { var tr = add(tbody, 'tr'); add(tr, 'td', payment.package_name + (payment.rate_limit ? ' · ' + payment.rate_limit : '')); add(tr, 'td', currency(payment.amount * 100)); var reference = add(tr, 'td'); add(reference, 'div', statusText(payment.status)); add(reference, 'small', payment.mpesa_receipt || 'No receipt reference recorded'); add(tr, 'td', payment.provisioned ? 'Command issued' : 'Not provisioned'); add(tr, 'td', when(payment.created_at)); }); }
+    (data.vouchers || []).forEach(function (voucher) { add(box, 'p', 'Voucher redeemed: ' + voucher.package_name + (voucher.rate_limit ? ' · ' + voucher.rate_limit : '') + ' · ' + when(voucher.redeemed_at) + (voucher.batch ? ' · Batch: ' + voucher.batch : ''), 'note'); });
     box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   async function loadTickets(offset, admin) {
@@ -108,10 +108,17 @@
     if (admin && ['pending','approved'].includes(payout.status)) {
       var form = add(card, 'form'), action = labeledInput(form, 'Record an action', 'status', 'select');
       (payout.status === 'pending' ? [['approved','Approve for manual processing'],['rejected','Reject request']] : [['paid','Record external payment as paid'],['rejected','Reject and release reservation']]).forEach(function (pair) { var option = add(action, 'option', pair[1]); option.value = pair[0]; });
-      var reference = labeledInput(form, 'External review or payment reference', 'reference'); reference.maxLength = 100;
-      var note = labeledInput(form, 'Note (required when rejecting)', 'note', 'textarea'); note.maxLength = 1000;
+      var referenceLabel = add(form, 'label', 'External review reference'), reference = add(referenceLabel, 'input'); reference.name = 'reference'; reference.maxLength = 100; reference.autocomplete = 'off';
+      var noteLabel = add(form, 'label', 'Reason for rejection'), note = add(noteLabel, 'textarea'); note.name = 'note'; note.maxLength = 1000;
+      function updatePayoutRequirements() {
+        var needsReference = action.value === 'approved' || action.value === 'paid', needsReason = action.value === 'rejected';
+        referenceLabel.classList.toggle('hidden', !needsReference); noteLabel.classList.toggle('hidden', !needsReason);
+        reference.required = needsReference; note.required = needsReason;
+        referenceLabel.firstChild.textContent = action.value === 'paid' ? 'External payment reference' : 'External review reference';
+      }
+      action.addEventListener('change', updatePayoutRequirements); updatePayoutRequirements();
       var submit = add(form, 'button', 'Record action'); submit.type = 'submit'; var errorBox = add(form, 'p', '', 'error');
-      form.addEventListener('submit', async function (event) { event.preventDefault(); submit.disabled = true; errorBox.textContent = ''; try { await api(adminBase + '/payouts/' + encodeURIComponent(payout.id) + '/status', { method: 'POST', body: JSON.stringify({ status: action.value, externalReference: reference.value, note: note.value }) }, true); await loadPayouts(0, true); } catch (error) { errorBox.textContent = error.message; } finally { submit.disabled = false; } });
+      form.addEventListener('submit', async function (event) { event.preventDefault(); submit.disabled = true; errorBox.textContent = ''; try { var needsReference = action.value === 'approved' || action.value === 'paid', needsReason = action.value === 'rejected'; await api(adminBase + '/payouts/' + encodeURIComponent(payout.id) + '/status', { method: 'POST', body: JSON.stringify({ status: action.value, externalReference: needsReference ? reference.value : '', note: needsReason ? note.value : '' }) }, true); await loadPayouts(0, true); } catch (error) { errorBox.textContent = error.message; } finally { submit.disabled = false; } });
     }
   }
   async function loadPayouts(offset, admin) {

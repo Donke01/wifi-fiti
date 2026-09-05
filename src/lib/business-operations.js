@@ -149,18 +149,18 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
 
   app.get(`${base}/customers/:subscriptionId`, operator((req, res, business) => {
     const subscription = db.prepare(`SELECT s.id,s.location_id,l.name AS location_name,s.payer_phone,s.mac,
-      s.router_username,s.expires_at,s.total_seconds,s.used_seconds,s.is_active,s.created_at,s.updated_at
+      s.router_username,s.expires_at,s.total_seconds,s.rate_limit,s.used_seconds,s.is_active,s.created_at,s.updated_at
       FROM tenant_subscriptions s JOIN locations l ON l.id=s.location_id AND l.business_id=s.business_id
       WHERE s.id=? AND s.business_id=?`).get(req.params.subscriptionId, business.id);
     if (!subscription) throw fail('Customer not found.', 404);
-    const history = db.prepare(`SELECT checkout_request_id,package_name,amount,status,mpesa_receipt,payment_source,
+    const history = db.prepare(`SELECT checkout_request_id,package_name,amount,rate_limit,status,mpesa_receipt,payment_source,
       provisioned,created_at,updated_at FROM tenant_transactions WHERE business_id=? AND location_id=?
       AND (subscription_id=? OR (subscription_id IS NULL AND mac=? AND phone=?)) ORDER BY created_at DESC LIMIT 100`)
       .all(business.id, subscription.location_id, subscription.id, subscription.mac, subscription.payer_phone);
     const devices = db.prepare(`SELECT d.mac,d.label,d.created_at FROM tenant_devices d JOIN tenant_subscriptions s
       ON s.id=d.subscription_id AND s.location_id=d.location_id WHERE s.business_id=? AND s.id=?`)
       .all(business.id, subscription.id);
-    const vouchers = db.prepare(`SELECT package_name,seconds,redeemed_at,batch FROM tenant_vouchers
+    const vouchers = db.prepare(`SELECT package_name,seconds,rate_limit,redeemed_at,batch FROM tenant_vouchers
       WHERE business_id=? AND location_id=? AND redeemed_subscription_id=? ORDER BY redeemed_at DESC LIMIT 100`)
       .all(business.id, subscription.location_id, subscription.id);
     res.json({ subscription, history, devices, vouchers });
@@ -286,12 +286,17 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
   const adminBase = '/api/admin/business-operations';
   app.get(`${adminBase}/tickets`, administrator((req, res) => {
     const { limit, offset } = pagination(req);
-    const rows = db.prepare(`SELECT t.*,b.name AS business_name FROM business_support_tickets t
-      JOIN businesses b ON b.id=t.business_id ORDER BY t.updated_at DESC,t.id LIMIT ? OFFSET ?`).all(limit + 1, offset);
+    const rows = db.prepare(`SELECT t.*,b.name AS business_name,l.name AS location_name FROM business_support_tickets t
+      JOIN businesses b ON b.id=t.business_id
+      LEFT JOIN locations l ON l.id=t.location_id AND l.business_id=t.business_id
+      ORDER BY t.updated_at DESC,t.id LIMIT ? OFFSET ?`).all(limit + 1, offset);
     res.json({ tickets: rows.slice(0, limit), nextOffset: rows.length > limit ? offset + limit : null });
   }));
   app.get(`${adminBase}/tickets/:ticketId`, administrator((req, res) => {
-    const ticket = db.prepare(`SELECT t.*,b.name AS business_name FROM business_support_tickets t JOIN businesses b ON b.id=t.business_id WHERE t.id=?`).get(req.params.ticketId);
+    const ticket = db.prepare(`SELECT t.*,b.name AS business_name,l.name AS location_name FROM business_support_tickets t
+      JOIN businesses b ON b.id=t.business_id
+      LEFT JOIN locations l ON l.id=t.location_id AND l.business_id=t.business_id
+      WHERE t.id=?`).get(req.params.ticketId);
     if (!ticket) throw fail('Ticket not found.', 404);
     res.json({ ticket, messages: messagesForTicket.all(ticket.id, ticket.business_id) });
   }));

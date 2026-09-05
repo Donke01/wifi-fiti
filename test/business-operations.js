@@ -126,6 +126,9 @@ try {
   const ticketPayload = { subject: 'Help with this payment', category: 'payment', locationId: 'loc-a', message: 'Customer paid but cannot connect.' };
   assert.equal(request('POST', base + '/tickets', { business: 'b', body: ticketPayload }).status, 404, 'foreign location cannot be attached');
   const ticket = request('POST', base + '/tickets', { business: 'a', body: ticketPayload }).body.ticket;
+  const adminTicketList = request('GET', adminBase + '/tickets', { admin: true });
+  assert.equal(adminTicketList.body.tickets.find(row => row.id === ticket.id).location_name, 'Location a', 'admin list retains the ticket location');
+  assert.equal(request('GET', adminBase + '/tickets/' + ticket.id, { admin: true }).body.ticket.location_name, 'Location a', 'admin detail retains the ticket location');
   assert.equal(request('GET', base + '/tickets/' + ticket.id, { business: 'b' }).status, 404);
   assert.equal(request('POST', base + '/tickets/' + ticket.id + '/messages', { business: 'b', body: { message: 'Intrusion' } }).status, 404);
   assert.equal(request('POST', adminBase + '/tickets/' + ticket.id + '/messages', { admin: true, body: { message: 'Router connection restored.', status: 'resolved' } }).status, 201);

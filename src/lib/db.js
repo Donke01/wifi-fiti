@@ -138,6 +138,7 @@ db.exec(`
     name            TEXT NOT NULL,
     price           INTEGER NOT NULL,
     seconds         INTEGER NOT NULL,
+    rate_limit      TEXT,
     active          INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -163,6 +164,7 @@ for (const stmt of [
   `ALTER TABLE businesses ADD COLUMN collection_mode TEXT NOT NULL DEFAULT 'own'`,
   `ALTER TABLE businesses ADD COLUMN billing_status TEXT NOT NULL DEFAULT 'trial'`,
   `ALTER TABLE businesses ADD COLUMN billing_expires_at TEXT`,
+  `ALTER TABLE business_packages ADD COLUMN rate_limit TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
@@ -549,10 +551,11 @@ const locationsForBusiness = db.prepare(`
   SELECT id, name, router_token, router_name, created_at FROM locations WHERE business_id = ? ORDER BY created_at
 `);
 const addBusinessPackage = db.prepare(`
-  INSERT INTO business_packages (business_id, name, price, seconds) VALUES (@businessId, @name, @price, @seconds)
+  INSERT INTO business_packages (business_id, name, price, seconds, rate_limit)
+  VALUES (@businessId, @name, @price, @seconds, @rateLimit)
 `);
 const packagesForBusiness = db.prepare(`
-  SELECT id, name, price, seconds, active FROM business_packages WHERE business_id = ? ORDER BY price
+  SELECT id, name, price, seconds, rate_limit, active FROM business_packages WHERE business_id = ? ORDER BY price
 `);
 
 module.exports = {

@@ -15,6 +15,9 @@ const PATTERNS = {
   password: /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4,12}$/,
   profile: /^[a-z0-9-]{1,20}$/,
   server: /^[A-Za-z0-9_-]{1,32}$/,
+  // The business editor accepts only this small RouterOS speed grammar.
+  // Recheck it here because this value is interpolated into router code.
+  rateLimit: /^\d+(?:\.\d+)?[kM]\/\d+(?:\.\d+)?[kM]$/,
   mac: /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/,
   ip: /^\d{1,3}(\.\d{1,3}){3}$/,
 };
@@ -62,23 +65,31 @@ function jobToScript(job, hotspotServer) {
 
   const mac = safe('mac', job.mac || '');
   const ip = safe('ip', job.ip || '');
+  const rateLimit = job.rate_limit ? safe('rateLimit', job.rate_limit) : null;
+  // A malformed optional rate must reject the whole job. Silently omitting
+  // it would turn a paid speed package into unlimited/profile speed.
+  if (job.rate_limit && !rateLimit) return null;
+  const update = [`limit-uptime=${seconds}`, 'password=$p', `profile=${profile}`, 'disabled=no'];
+  const add = ['name=$u', 'password=$p', `profile=${profile}`, `limit-uptime=${seconds}`, `server=${server}`];
+  if (mac) { update.push(`mac-address=${mac}`); add.push(`mac-address=${mac}`); }
+  if (rateLimit) {
+    update.push(`rate-limit=${rateLimit}`);
+    add.push(`rate-limit=${rateLimit}`);
+  } else {
+    // `rate-limit` is per-user state in RouterOS. Explicitly clear an old
+    // override when the selected package uses the normal profile speed.
+    update.push('rate-limit=""');
+  }
 
   const lines = [
     `:local u "${username}"`,
     `:local p "${password}"`,
     `:if ([:len [/ip hotspot user find name=$u]] > 0) do={`,
-    `  /ip hotspot user set [find name=$u] limit-uptime=${seconds} password=$p profile=${profile} disabled=no`,
+    `  /ip hotspot user set [find name=$u] ${update.join(' ')}`,
     `} else={`,
-    `  /ip hotspot user add name=$u password=$p profile=${profile} limit-uptime=${seconds} server=${server}`,
+    `  /ip hotspot user add ${add.join(' ')}`,
     `}`,
   ];
-
-  // A username is one physical-device slot. Binding it here means copied
-  // credentials cannot be used by a third phone or laptop.
-  if (mac) {
-    lines.splice(4, 0, `  /ip hotspot user set [find name=$u] mac-address=${mac}`);
-    lines[6] = `  /ip hotspot user add name=$u password=$p profile=${profile} limit-uptime=${seconds} server=${server} mac-address=${mac}`;
-  }
 
   if (job.action === 'transfer') {
     lines.unshift(
@@ -90,8 +101,9 @@ function jobToScript(job, hotspotServer) {
   // Auto-login is best effort. A failure here must not abort the script
   // and lose the provisioning above, hence the swallowed on-error.
   // TVs have no useful captive-portal browser, so log their dedicated
-  // identity in as soon as it is provisioned. Phones with an IP are the
-  // legacy direct-login path; the current portal submits login itself.
+  // identity in as soon as it is provisioned. Phones with a captive-portal
+  // IP receive the same best-effort direct login; the browser never posts
+  // hotspot credentials itself.
   if (ip || username.endsWith('-tv') || job.action === 'transfer') {
     const args = ['user=$u', 'password=$p'];
     if (mac) args.push(`mac-address=${mac}`);

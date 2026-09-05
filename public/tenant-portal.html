@@ -89,7 +89,8 @@
         $('manage-tv').disabled = remaining <= 0;
       }
       message('recovery-code', result.password || 'Enter your saved recovery code to manage this package.');
-      message('active-phone', result.payerPhone ? 'Paying number: ' + result.payerPhone : '');
+      message('active-phone', [result.payerPhone ? 'Paying number: ' + result.payerPhone : '',
+        result.rateLimit ? 'Your device speed: ' + result.rateLimit : ''].filter(Boolean).join(' · '));
       draw(); clockTimer = setInterval(draw, 1000);
     }
     function waiting(title, copy) {
@@ -165,7 +166,7 @@
         button.type = 'button'; button.className = 'plan' + (index === 0 ? ' active' : '');
         name.className = 'plan-title'; name.textContent = pkg.name;
         price.className = 'price'; price.textContent = 'KES ' + Number(pkg.price).toLocaleString();
-        var duration = document.createElement('span'); duration.className = 'plan-detail'; duration.textContent = formatSeconds(pkg.seconds);
+        var duration = document.createElement('span'); duration.className = 'plan-detail'; duration.textContent = formatSeconds(pkg.seconds) + (pkg.rate_limit ? ' · Device speed ' + pkg.rate_limit : '');
         left.append(name, duration); button.append(left, price);
         button.onclick = function () {
           selected = Number(pkg.id);
@@ -181,7 +182,7 @@
         var button = document.createElement('button'); button.type = 'button'; button.className = 'existing' + (index === 0 ? ' active' : '');
         button.style.color = 'inherit'; button.style.textAlign = 'left';
         var name = document.createElement('b'); name.textContent = 'Device ' + subscription.mac;
-        var remaining = document.createElement('div'); remaining.className = 'remaining'; remaining.textContent = formatSeconds(subscription.remainingSeconds) + ' remaining';
+        var remaining = document.createElement('div'); remaining.className = 'remaining'; remaining.textContent = formatSeconds(subscription.remainingSeconds) + ' remaining' + (subscription.rateLimit ? ' · ' + subscription.rateLimit : '');
         button.append(name, remaining);
         button.onclick = function () {
           selectedSubscription = subscription;
