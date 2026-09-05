@@ -159,6 +159,8 @@ for (const stmt of [
   `ALTER TABLE transactions ADD COLUMN auto_login INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE jobs ADD COLUMN action TEXT NOT NULL DEFAULT 'upsert'`,
   `ALTER TABLE accounts ADD COLUMN payer_phone TEXT`,
+  `ALTER TABLE businesses ADD COLUMN plan TEXT NOT NULL DEFAULT 'starter'`,
+  `ALTER TABLE businesses ADD COLUMN collection_mode TEXT NOT NULL DEFAULT 'own'`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
@@ -517,19 +519,22 @@ const reduceTotal = db.prepare(`
 
 /* Commercial business dashboard ------------------------------------ */
 const addBusiness = db.prepare(`
-  INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash)
-  VALUES (@id, @name, @ownerName, @ownerPhone, @email, @passwordHash)
+  INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash, plan, collection_mode)
+  VALUES (@id, @name, @ownerName, @ownerPhone, @email, @passwordHash, @plan, @collectionMode)
 `);
 const businessByEmail = db.prepare(`SELECT * FROM businesses WHERE email = ?`);
-const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, created_at FROM businesses WHERE id = ?`);
+const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, created_at FROM businesses WHERE id = ?`);
 const addBusinessSession = db.prepare(`
   INSERT INTO business_sessions (token_hash, business_id, expires_at)
   VALUES (@tokenHash, @businessId, @expiresAt)
 `);
 const businessForSession = db.prepare(`
-  SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email
+  SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode
     FROM business_sessions s JOIN businesses b ON b.id = s.business_id
    WHERE s.token_hash = ? AND s.expires_at > datetime('now')
+`);
+const setBusinessPlan = db.prepare(`
+  UPDATE businesses SET plan = @plan, collection_mode = @collectionMode WHERE id = @id
 `);
 const addLocation = db.prepare(`
   INSERT INTO locations (id, business_id, name, router_token, router_name)
@@ -601,6 +606,7 @@ module.exports = {
   businessById,
   addBusinessSession,
   businessForSession,
+  setBusinessPlan,
   addLocation,
   locationsForBusiness,
   addBusinessPackage,

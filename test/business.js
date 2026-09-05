@@ -13,13 +13,15 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   body: JSON.stringify(body || {}) }).then(async r => ({ status:r.status, body:await r.json() }));
 (async () => {
   await new Promise(r => setTimeout(r, 200));
-  const created = await call('/api/business/register', {name:'North Star WiFi',ownerName:'Amina',phone:'0712345678',email:'amina@example.test',password:'securepass'});
+  const created = await call('/api/business/register', {name:'North Star WiFi',ownerName:'Amina',phone:'0712345678',email:'amina@example.test',password:'securepass',plan:'starter',collectionMode:'own'});
   assert.strictEqual(created.status, 201); assert.ok(created.body.token);
   const token = created.body.token;
   const location = await call('/api/business/locations',{name:'Kitale One',routerName:'RB951Ui'},token);
   assert.strictEqual(location.status,201); assert.ok(location.body.location.routerToken);
   const pkg = await call('/api/business/packages',{name:'Three hours',price:20,hours:3},token);
   assert.strictEqual(pkg.status,201); assert.strictEqual(pkg.body.packages.length,1);
+  const plan = await call('/api/business/billing-plan',{plan:'growth',collectionMode:'fiti'},token);
+  assert.strictEqual(plan.status,200); assert.strictEqual(plan.body.plan.monthlyKes,3500);
   const login = await call('/api/business/login',{email:'amina@example.test',password:'securepass'});
   assert.strictEqual(login.status,200); assert.ok(login.body.token);
   console.log('business onboarding: ok');

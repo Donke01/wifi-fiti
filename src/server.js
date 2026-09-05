@@ -79,19 +79,32 @@ function businessAuth(req, res) {
   return business;
 }
 
+const BUSINESS_PLANS = {
+  starter: { name: 'Starter', monthlyKes: 1500, routerLimit: 2, activeDeviceLimit: 2000 },
+  growth: { name: 'Growth', monthlyKes: 3500, routerLimit: 5, activeDeviceLimit: 5000 },
+  custom: { name: 'Custom', monthlyKes: null, routerLimit: null, activeDeviceLimit: null },
+};
+
+function validBusinessPlan(plan, collectionMode) {
+  return BUSINESS_PLANS[plan] && ['own', 'fiti'].includes(collectionMode);
+}
+
 app.post('/api/business/register', (req, res) => {
   const name = String(req.body && req.body.name || '').trim().slice(0, 80);
   const ownerName = String(req.body && req.body.ownerName || '').trim().slice(0, 80);
   const email = String(req.body && req.body.email || '').trim().toLowerCase();
   const ownerPhone = mpesa.normalizePhone(req.body && req.body.phone);
   const password = String(req.body && req.body.password || '');
+  const plan = String(req.body && req.body.plan || 'starter');
+  const collectionMode = String(req.body && req.body.collectionMode || 'own');
   if (!name || !ownerName || !/^\S+@\S+\.\S+$/.test(email) || !ownerPhone || password.length < 8) {
     return res.status(400).json({ error: 'Enter business details, a valid email and an 8-character password.' });
   }
+  if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid WiFi Fiti plan.' });
   if (db.businessByEmail.get(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
   const id = businessId('biz');
   try {
-    db.addBusiness.run({ id, name, ownerName, ownerPhone, email, passwordHash: hashPassword(password) });
+    db.addBusiness.run({ id, name, ownerName, ownerPhone, email, passwordHash: hashPassword(password), plan, collectionMode });
     const token = issueBusinessSession(id);
     res.status(201).json({ token, business: db.businessById.get(id) });
   } catch (err) {
@@ -113,8 +126,17 @@ app.post('/api/business/login', (req, res) => {
 app.get('/api/business/me', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const locations = db.locationsForBusiness.all(business.id);
-  res.json({ business, locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: 0, note: 'Usage metering starts when a router is paired.' });
+});
+
+app.post('/api/business/billing-plan', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const plan = String(req.body && req.body.plan || '');
+  const collectionMode = String(req.body && req.body.collectionMode || '');
+  if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid plan.' });
+  db.setBusinessPlan.run({ id: business.id, plan, collectionMode });
+  res.json({ plan: BUSINESS_PLANS[plan], collectionMode });
 });
 
 app.post('/api/business/locations', (req, res) => {
