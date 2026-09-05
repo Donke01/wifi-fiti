@@ -10,6 +10,8 @@
  * Jobs that fail validation are dropped and logged, never emitted.
  */
 
+const crypto = require('crypto');
+
 const PATTERNS = {
   username: /^254[17]\d{8}(?:-[0-9A-F]{8})?(?:-tv)?$/,
   password: /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4,12}$/,
@@ -35,6 +37,17 @@ function safeSeconds(value) {
   // their lifetime purchases crossed one year.
   if (!Number.isInteger(n) || n < 1 || n > 10 * 366 * 86400) return null;
   return n;
+}
+
+/**
+ * RouterOS v7 applies a HotSpot bandwidth cap through a *user profile*,
+ * not the local `/ip hotspot user` record.  Keep the generated name short
+ * and deterministic: the router can reuse one profile for every package
+ * with the same speed, without letting an editable package name become a
+ * RouterOS identifier.
+ */
+function rateProfileName(rateLimit) {
+  return `fiti-${crypto.createHash('sha256').update(rateLimit).digest('hex').slice(0, 12)}`;
 }
 
 /**
@@ -69,27 +82,36 @@ function jobToScript(job, hotspotServer) {
   // A malformed optional rate must reject the whole job. Silently omitting
   // it would turn a paid speed package into unlimited/profile speed.
   if (job.rate_limit && !rateLimit) return null;
-  const update = [`limit-uptime=${seconds}`, 'password=$p', `profile=${profile}`, 'disabled=no'];
-  const add = ['name=$u', 'password=$p', `profile=${profile}`, `limit-uptime=${seconds}`, `server=${server}`];
+  const effectiveProfile = rateLimit ? rateProfileName(rateLimit) : profile;
+  const profileArg = rateLimit ? 'profile=$fitiProfile' : `profile=${effectiveProfile}`;
+  const update = [`limit-uptime=${seconds}`, 'password=$p', profileArg, 'disabled=no'];
+  const add = ['name=$u', 'password=$p', profileArg, `limit-uptime=${seconds}`, `server=${server}`];
   if (mac) { update.push(`mac-address=${mac}`); add.push(`mac-address=${mac}`); }
-  if (rateLimit) {
-    update.push(`rate-limit=${rateLimit}`);
-    add.push(`rate-limit=${rateLimit}`);
-  } else {
-    // `rate-limit` is per-user state in RouterOS. Explicitly clear an old
-    // override when the selected package uses the normal profile speed.
-    update.push('rate-limit=""');
-  }
 
-  const lines = [
+  const lines = [];
+  if (rateLimit) {
+    // `rate-limit` belongs to `/ip hotspot user profile` in RouterOS v7.
+    // A profile is created once per safe, canonical package speed. The
+    // normal package path continues to use the operator's `standard`
+    // profile, so it keeps the router's normal speed and settings.
+    lines.push(
+      `:local fitiProfile "${effectiveProfile}"`,
+      `:local fitiRate "${rateLimit}"`,
+      // Clone the operator's standard profile so package speeds retain its
+      // cookie, queue and session settings. The explicit set also repairs a
+      // managed profile if it was edited directly on the router.
+      `:if ([:len [/ip hotspot user profile find where name=$fitiProfile]] = 0) do={ /ip hotspot user profile add copy-from=${profile} name=$fitiProfile rate-limit=$fitiRate } else={ /ip hotspot user profile set [find where name=$fitiProfile] rate-limit=$fitiRate }`
+    );
+  }
+  lines.push(
     `:local u "${username}"`,
     `:local p "${password}"`,
     `:if ([:len [/ip hotspot user find name=$u]] > 0) do={`,
     `  /ip hotspot user set [find name=$u] ${update.join(' ')}`,
     `} else={`,
     `  /ip hotspot user add ${add.join(' ')}`,
-    `}`,
-  ];
+    `}`
+  );
 
   if (job.action === 'transfer') {
     lines.unshift(
@@ -177,4 +199,4 @@ function buildExpiryScript(accounts) {
   return blocks.join('\n');
 }
 
-module.exports = { buildScript, buildExpiryScript, jobToScript, safe, safeSeconds };
+module.exports = { buildScript, buildExpiryScript, jobToScript, rateProfileName, safe, safeSeconds };

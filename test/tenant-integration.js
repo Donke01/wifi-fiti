@@ -335,7 +335,9 @@ async function main() {
     const delivered = await routerSync(alpha.location);
     assert.ok(delivered.ids.includes(granted.provisioningJobId));
     assert.ok(delivered.script.includes(`mac-address=${mac}`));
-    assert.ok(delivered.script.includes('rate-limit=2M/5M'));
+    assert.ok(delivered.script.includes('/ip hotspot user profile add'));
+    assert.ok(delivered.script.includes('rate-limit=$fitiRate'));
+    assert.ok(delivered.script.includes('profile=$fitiProfile'));
     await routerSync(alpha.location, { ack: delivered.ids });
     assert.equal((await api(jobPath)).body.ready, true);
     const first = await api(endpoint(alpha.location, `session?mac=${mac}`));

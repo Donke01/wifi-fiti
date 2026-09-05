@@ -295,7 +295,7 @@ internet; use the polling pairing model or a properly secured VPN.
 That applies to the original single-site portal. Business operators manage
 their own packages in the WiFi Fiti for Business control centre, where those
 packages remain scoped to their business.
-Speed and device limits live on the router:
+The normal package speed and device limit live on the router:
 
 ```
 /ip hotspot user profile set standard rate-limit=5M/5M shared-users=1
@@ -303,6 +303,11 @@ Speed and device limits live on the router:
 
 `shared-users=1` stops one purchase covering a whole hostel. `2` is a
 reasonable default — a phone and a laptop.
+
+When an operator sets a package-specific speed in the business dashboard,
+WiFi Fiti creates a reusable `fiti-*` HotSpot user profile once per speed,
+on that router and assigns the customer to it. RouterOS v7 applies
+`rate-limit` on HotSpot user profiles, not directly on HotSpot user records.
 
 ---
 

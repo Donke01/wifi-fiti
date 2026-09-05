@@ -133,8 +133,23 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   assert.deepStrictEqual(alphaJobs.map((job) => job.total_seconds), [720],
     'router jobs carry absolute totals so retrying them is safe');
   assert.strictEqual(alphaJobs[0].rate_limit, null);
-  assert.ok(require('../src/lib/rsc').jobToScript(alphaJobs[0], 'hotspot1').includes('rate-limit=""'),
-    'the router job must clear a previous per-user speed for a normal-profile package');
+  const normalSpeedScript = require('../src/lib/rsc').jobToScript(alphaJobs[0], 'hotspot1');
+  assert.ok(normalSpeedScript.includes('profile=standard'),
+    'a normal-speed package must return the customer to the router standard profile');
+  assert.ok(!normalSpeedScript.includes('rate-limit='),
+    'RouterOS v7 does not accept rate-limit on /ip hotspot user records');
+  const limitedSpeedScript = require('../src/lib/rsc').jobToScript({ ...alphaJobs[0], rate_limit: '2M/5M' }, 'hotspot1');
+  assert.ok(limitedSpeedScript.includes('/ip hotspot user profile add'),
+    'a package speed must create a dedicated HotSpot user profile');
+  assert.ok(limitedSpeedScript.includes('copy-from=standard'),
+    'a package speed profile must retain the router standard profile settings');
+  assert.ok(limitedSpeedScript.includes('rate-limit=$fitiRate'),
+    'the dedicated profile must carry the selected speed');
+  assert.ok(limitedSpeedScript.includes('profile=$fitiProfile'),
+    'the customer must be assigned to the dedicated speed profile');
+  assert.ok(!limitedSpeedScript.split('\n').some((line) =>
+    /\/ip hotspot user (?:set|add)\b/.test(line) && line.includes('rate-limit=')),
+  'a speed must never be emitted on an unsupported HotSpot user command');
   assert.strictEqual(require('../src/lib/rsc').jobToScript({ ...alphaJobs[0], rate_limit: '2M/5M;:beep' }, 'hotspot1'), null,
     'a corrupted rate setting must never become RouterOS code');
   assert.strictEqual(tenant.pendingJobs.all(bravo.id).length, 0,
