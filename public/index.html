@@ -316,7 +316,7 @@
   .dname{font-weight:620}
   .drm{margin-left:auto;background:none;border:0;color:var(--danger);
     font-size:12px;font-weight:600;cursor:pointer;padding:4px}
-  #k-devices .drow{width:100%;justify-content:space-between;text-align:left;
+  #k-devices .drow,#existing-list .drow{width:100%;justify-content:space-between;text-align:left;
     color:inherit;background:transparent;border-left:0;border-right:0;border-bottom:0;cursor:pointer}
 
   .callout{
@@ -411,6 +411,18 @@
     </div>
 
     <button class="btn btn-main" id="pay">LIPA NA M-PESA</button>
+
+    <div class="callout" id="existing-wrap" hidden>
+      <b>Active package found</b>
+      <p>Connect this device to an existing package, or continue with a new purchase.</p>
+      <div class="devlist glass" id="existing-list"></div>
+      <div class="field-row" id="transfer-password-wrap" hidden>
+        <label for="transfer-password">Existing WiFi password</label>
+        <input type="text" id="transfer-password" autocomplete="off" placeholder="Password from receipt" maxlength="12">
+      </div>
+      <button class="btn btn-main" id="transfer-go" hidden>MOVE CONNECTION HERE</button>
+      <button class="link" id="buy-anyway">Continue with another purchase</button>
+    </div>
 
     <div class="alt">
       <button class="action-btn" id="go-voucher"><span class="action-icon icon-voucher"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 0 6.5 10 2.5 2.5 0 0 0 4 12.5V16h16v-3.5a2.5 2.5 0 0 1 0-5V4H4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M13 6v8" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></svg></span><span>I have a voucher</span></button>
@@ -744,12 +756,41 @@
   }
 
   /* ---- pay ---- */
+  var purchaseChecked = false, transferChoice = null;
+  $('phone').addEventListener('input', function () {
+    purchaseChecked = false; transferChoice = null; $('existing-wrap').hidden = true;
+  });
   $('pay').addEventListener('click', function () {
     var chosen = document.querySelector('input[name=pkg]:checked');
     var phone = $('phone').value.trim();
     clear($('err'));
     if (!chosen) return warn($('err'), 'Choose a package first.');
     if (phone.replace(/\D/g, '').length < 9) return warn($('err'), 'Enter your M-Pesa number, e.g. 0712 345 678.');
+    if (!purchaseChecked) {
+      $('pay').disabled = true; $('pay').textContent = 'CHECKING…';
+      return fetch('/api/subscriptions/check', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phone }) }).then(function (r) { return r.json(); })
+        .then(function (s) {
+          $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
+          if (!s.found) { purchaseChecked = true; $('pay').click(); return; }
+          $('existing-list').innerHTML = s.subscriptions.map(function (x, i) {
+            return '<button class="drow existing-choice" data-user="' + esc(x.username) + '">' +
+              '<span><span class="dname">Package ' + (i + 1) + '</span><br><span class="dmac">' +
+              esc(x.mac || 'Saved device') + '</span></span><span class="dmac">' +
+              humanTime(x.remainingSeconds) + '</span></button>';
+          }).join('');
+          $('existing-wrap').hidden = false;
+          Array.prototype.forEach.call(document.querySelectorAll('.existing-choice'), function (btn) {
+            btn.onclick = function () {
+              transferChoice = btn.getAttribute('data-user');
+              $('transfer-password-wrap').hidden = false; $('transfer-go').hidden = false;
+            };
+          });
+        }).catch(function () {
+          $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
+          warn($('err'), 'Could not check existing packages. Try again.');
+        });
+    }
     $('pay').disabled = true; $('pay').textContent = 'SENDING…';
     fetch('/api/pay', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ packageId: chosen.value, phone: phone, mac: MAC, ip: IP }) })
@@ -768,6 +809,31 @@
       })
       .catch(function () {
         $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
+        warn($('err'), 'Network problem. Try again.');
+      });
+  });
+
+  $('buy-anyway').addEventListener('click', function () {
+    purchaseChecked = true; $('existing-wrap').hidden = true; $('pay').click();
+  });
+
+  $('transfer-go').addEventListener('click', function () {
+    var password = $('transfer-password').value.trim();
+    if (!transferChoice || !password) return warn($('err'), 'Choose a package and enter its WiFi password.');
+    $('transfer-go').disabled = true; $('transfer-go').textContent = 'MOVING…';
+    fetch('/api/subscriptions/transfer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: $('phone').value.trim(), username: transferChoice,
+        password: password, mac: MAC, ip: IP }) })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (res) {
+        $('transfer-go').disabled = false; $('transfer-go').textContent = 'MOVE CONNECTION HERE';
+        if (!res.ok) return warn($('err'), res.body.error || 'Could not move the connection.');
+        $('wait-title').textContent = 'Moving connection';
+        $('wait-line').textContent = 'Disconnecting the previous device and connecting this one…';
+        show('s-wait');
+        setTimeout(function () { signIn(res.body.username, password.toUpperCase()); }, 7000);
+      }).catch(function () {
+        $('transfer-go').disabled = false; $('transfer-go').textContent = 'MOVE CONNECTION HERE';
         warn($('err'), 'Network problem. Try again.');
       });
   });

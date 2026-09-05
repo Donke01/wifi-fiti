@@ -159,6 +159,22 @@ async function t(name, fn) {
     assert.strictEqual(selected.b.username, '254744000001-A1B2C3D4');
   });
 
+  await t('requires the package password before transferring its connection', async () => {
+    const denied = await post('/api/subscriptions/transfer', {
+      phone: '0744000001', username: '254744000001-A1B2C3D4', password: 'WRONG2',
+      mac: 'AA:BB:CC:00:00:09', ip: '10.5.50.99',
+    });
+    assert.strictEqual(denied.s, 403);
+    const moved = await post('/api/subscriptions/transfer', {
+      phone: '0744000001', username: '254744000001-A1B2C3D4', password: 'ABC234',
+      mac: 'AA:BB:CC:00:00:09', ip: '10.5.50.99',
+    });
+    assert.strictEqual(moved.s, 200);
+    assert.strictEqual(db.getAccount.get('254744000001-A1B2C3D4').last_mac, 'AA:BB:CC:00:00:09');
+    const job = db.pendingJobs.all('kitale-1').find((j) => j.action === 'transfer');
+    assert.ok(job, 'router transfer job should be queued');
+  });
+
   console.log('\nRouter reporting with wall-clock subscriptions');
 
   await t('records usage without pausing or changing wall-clock expiry', async () => {

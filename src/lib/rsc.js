@@ -76,12 +76,19 @@ function jobToScript(job, hotspotServer) {
     lines[6] = `  /ip hotspot user add name=$u password=$p profile=${profile} limit-uptime=${seconds} server=${server} mac-address=${mac}`;
   }
 
+  if (job.action === 'transfer') {
+    lines.unshift(
+      `:do { /ip hotspot active remove [find user="${username}"] } on-error={}`,
+      `:do { /ip hotspot cookie remove [find user="${username}"] } on-error={}`
+    );
+  }
+
   // Auto-login is best effort. A failure here must not abort the script
   // and lose the provisioning above, hence the swallowed on-error.
   // TVs have no useful captive-portal browser, so log their dedicated
   // identity in as soon as it is provisioned. Phones with an IP are the
   // legacy direct-login path; the current portal submits login itself.
-  if (ip || username.endsWith('-tv')) {
+  if (ip || username.endsWith('-tv') || job.action === 'transfer') {
     const args = ['user=$u', 'password=$p'];
     if (mac) args.push(`mac-address=${mac}`);
     if (ip) args.push(`ip=${ip}`);

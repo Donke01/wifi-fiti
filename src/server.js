@@ -493,6 +493,51 @@ app.post('/api/session/lookup', (req, res) => {
   });
 });
 
+/** Check before taking more money: a payer may already own usable time. */
+app.post('/api/subscriptions/check', (req, res) => {
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  if (!phone) return res.status(400).json({ error: 'Enter a valid M-Pesa number.' });
+  const subscriptions = db.activeAccountsForPayer.all(phone)
+    .map((account) => ({
+      username: account.phone,
+      mac: account.last_mac,
+      remainingSeconds: remainingFor(account.phone).remainingSeconds,
+    }))
+    .filter((account) => account.remainingSeconds > 0);
+  res.json({ found: subscriptions.length > 0, subscriptions });
+});
+
+/** Password-authorised move of an existing subscription to this device. */
+app.post('/api/subscriptions/transfer', (req, res) => {
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  const username = String((req.body && req.body.username) || '');
+  const suppliedPassword = String((req.body && req.body.password) || '').toUpperCase();
+  const mac = cleanMac(req.body && req.body.mac);
+  const ip = cleanIp(req.body && req.body.ip);
+  if (!phone || !mac || !suppliedPassword) {
+    return res.status(400).json({ error: 'Enter the WiFi password from the receipt.' });
+  }
+
+  const account = db.getAccount.get(username);
+  const info = account && remainingFor(account.phone);
+  const expected = Buffer.from(account ? account.password : '');
+  const supplied = Buffer.from(suppliedPassword);
+  const passwordOk = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
+  if (!account || (account.payer_phone || account.phone) !== phone || !passwordOk ||
+      !info || info.remainingSeconds <= 0) {
+    return res.status(403).json({ error: 'The selected package or WiFi password is incorrect.' });
+  }
+
+  db.rememberMac.run({ phone: account.phone, mac });
+  db.transferUser.run({
+    site: config.site.id, username: account.phone, password: account.password,
+    profile: 'standard', totalSeconds: account.total_seconds, mac, ip,
+  });
+  console.log(`[transfer] ${account.phone} moved to ${mac}`);
+  res.json({ ok: true, username: account.phone,
+    remainingSeconds: info.remainingSeconds, expiresAt: info.expiresAt });
+});
+
 /* ------------------------------------------------------------------ */
 /* Connect one TV to an existing account                              */
 /* ------------------------------------------------------------------ */

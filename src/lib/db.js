@@ -244,6 +244,11 @@ const revokeUser = db.prepare(`
   VALUES (@site, @username, '2222', 'standard', 1, NULL, NULL, 'revoke')
 `);
 
+const transferUser = db.prepare(`
+  INSERT INTO jobs (site, username, password, profile, total_seconds, mac, ip, action)
+  VALUES (@site, @username, @password, @profile, @totalSeconds, @mac, @ip, 'transfer')
+`);
+
 /** Undelivered, or delivered but unacknowledged for over a minute. */
 const pendingJobs = db.prepare(`
   SELECT * FROM jobs
@@ -486,6 +491,7 @@ module.exports = {
   addPurchased,
   addJob,
   revokeUser,
+  transferUser,
   pendingJobs,
   markDelivered,
   markAcked,
