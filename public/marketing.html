@@ -171,13 +171,37 @@
     @media(max-width:620px){
       .page{padding-top:8px}.shell{width:min(100% - 24px,1160px)}.top{top:8px;min-height:64px;padding:7px 12px;border-radius:18px}.brand{gap:9px}.brand img{width:43px;height:43px}.brand span{font-size:23px}.hero{padding:60px 0 30px}.hero h1{font-size:clamp(49px,14vw,68px)}.hero-grid{gap:34px}.proof{display:grid;text-align:left}.strip{margin-bottom:55px;padding:19px;grid-template-columns:1fr;text-align:center}.section{padding:62px 0}.section h2,.customer h2{font-size:clamp(36px,10.5vw,49px)}.section-head p{font-size:16px}.customer{grid-template-columns:1fr;padding:54px 0}.customer-card{order:0}.feature-list{padding-left:0}.payment{padding:27px 20px}.payment .secondary{width:100%}.final{margin-bottom:42px}.footer{align-items:center}.footer-links{justify-content:center;flex-wrap:wrap}
     }
+    /* Navigation, contact and lower-page motion. */
+    .nav-toggle{display:none;border:1px solid #ceddeb;border-radius:13px;background:#fff;color:#173b60;width:44px;height:44px;padding:0;place-items:center;box-shadow:0 5px 14px rgba(33,70,109,.07);cursor:pointer}
+    .nav-toggle svg{width:21px;height:21px}.nav-toggle[aria-expanded="true"]{color:#1766d6;border-color:#aecaef;background:#f1f6ff}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    .contact-card{display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:32px;align-items:center;margin:18px auto 46px;padding:34px;text-align:left;background:linear-gradient(130deg,#f4f9ff,#fff 52%,#effbf8)}
+    .contact-card .eyebrow{margin-bottom:10px}.contact-card h2{margin:0 0 8px;color:#173653;font-size:clamp(31px,3.7vw,46px);line-height:1;letter-spacing:-.064em}.contact-card p:last-child{margin:0;color:#63768b;font-size:16px}
+    .contact-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .contact-link{display:flex;min-width:0;align-items:center;gap:10px;padding:14px 12px;border:1px solid #d7e4ef;border-radius:16px;background:rgba(255,255,255,.92);color:#1c456c;box-shadow:0 6px 15px rgba(37,72,108,.045);transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease}
+    .contact-link:hover{color:#125fc9;transform:translateY(-3px);border-color:#abc8ed;box-shadow:0 14px 25px rgba(37,72,108,.11)}
+    .contact-icon{display:grid;place-items:center;width:35px;height:35px;flex:0 0 auto;border-radius:11px;color:#1765d0;background:#eaf3ff}.contact-link.whatsapp .contact-icon{color:#13885e;background:#e7f8ef}.contact-icon svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    .contact-link span{display:block;min-width:0}.contact-link strong{display:block;color:#244664;font-size:12px}.contact-link small{display:block;overflow:hidden;color:#65778b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+    .footer{display:grid;grid-template-columns:minmax(0,1.25fr) auto auto;align-items:start;justify-content:normal;gap:32px;padding:30px 0 42px;text-align:left}.footer-brand{display:flex;align-items:flex-start;gap:11px}.footer-brand img{width:38px;height:38px;flex:0 0 auto}.footer-brand strong{display:block;color:#26435e;font-size:14px}.footer-brand span{display:block;margin-top:2px;color:#718297;font-size:12px}.footer-label{display:block;margin-bottom:9px;color:#718297;font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}.footer-links{display:grid;gap:7px}.footer-links a{font-size:13px}.footer-contact{display:grid;gap:7px}.footer-contact a{display:inline-flex;align-items:center;gap:6px;color:#49627b;font-size:13px}.footer-contact a:hover{color:#1763cc}.footer-contact svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    .social-row{display:flex;align-items:center;gap:8px;margin-top:13px}.social-link{display:inline-grid;place-items:center;width:31px;height:31px;border:1px solid #d8e3ed;border-radius:10px;color:#8a99a9;background:#fff;font-weight:850;line-height:1}.social-link.is-placeholder{cursor:default}.social-link:nth-child(2){font-size:19px}.social-link:nth-child(3){font-size:11px}.social-link:nth-child(4){font-size:16px}
+    @keyframes fiti-menu-open{from{opacity:0;transform:translateY(-8px) scale(.98)}to{opacity:1;transform:none}}
+    @keyframes fiti-item-rise{from{opacity:0;transform:translateY(11px)}to{opacity:1;transform:none}}
+    @media(prefers-reduced-motion:no-preference){
+      .motion-ready [data-reveal]{opacity:0;transform:translateY(22px)}.motion-ready [data-reveal].is-visible{opacity:1;transform:none;transition:opacity .64s ease,transform .64s cubic-bezier(.22,.8,.3,1)}
+      .motion-ready [data-reveal].is-visible .step,.motion-ready [data-reveal].is-visible .plan-card,.motion-ready [data-reveal].is-visible .security-card,.motion-ready [data-reveal].is-visible .contact-link{animation:fiti-item-rise .48s cubic-bezier(.22,.8,.3,1) both}.motion-ready [data-reveal].is-visible .step:nth-child(2),.motion-ready [data-reveal].is-visible .plan-card:nth-child(2),.motion-ready [data-reveal].is-visible .contact-link:nth-child(2){animation-delay:.08s}.motion-ready [data-reveal].is-visible .step:nth-child(3),.motion-ready [data-reveal].is-visible .plan-card:nth-child(3),.motion-ready [data-reveal].is-visible .contact-link:nth-child(3){animation-delay:.16s}.motion-ready [data-reveal].is-visible .step:nth-child(4){animation-delay:.24s}
+    }
+    @media(max-width:620px){
+      .top{position:sticky}.nav-toggle{display:grid;flex:0 0 auto}.nav{display:none;position:absolute;top:calc(100% + 10px);left:0;right:0;z-index:25;padding:9px;border:1px solid #d4e1ed;border-radius:18px;background:rgba(255,255,255,.98);box-shadow:0 18px 35px rgba(29,63,100,.15);backdrop-filter:blur(14px)}.nav.is-open{display:grid;animation:fiti-menu-open .22s ease-out both}.nav a{display:flex;min-height:44px;align-items:center;padding:9px 11px;border-radius:11px;color:#284968}.nav a:hover{background:#f2f7ff}.nav .pill{justify-content:center;margin-top:3px;color:#fff;border-color:#1f68d5;background:linear-gradient(135deg,#1766d6,#3b85f4)}
+      .contact-card{grid-template-columns:1fr;gap:22px;margin-bottom:34px;padding:26px 20px;text-align:center}.contact-links{grid-template-columns:1fr}.contact-link{text-align:left}.footer{grid-template-columns:1fr;gap:22px;padding:28px 0 38px;text-align:center}.footer-brand{justify-content:center;text-align:left}.footer-links,.footer-contact{justify-items:center}.social-row{justify-content:center}
+    }
   </style>
 </head>
 <body>
   <div class="page">
     <header class="shell top">
       <a class="brand" href="/" aria-label="WiFi Fiti for Business home"><img src="/assets/wifi-fiti-logo.png" alt=""><span>WiFi Fiti<small>FOR BUSINESS</small></span></a>
-      <nav class="nav" aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#faq">Questions</a><a class="pill" href="https://cloud.wififiti.co.ke/business.html">Sign in</a></nav>
+      <nav class="nav" id="site-nav" aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#faq">Questions</a><a href="#contact">Contact</a><a class="pill" href="https://cloud.wififiti.co.ke/business.html">Open workspace</a></nav>
+      <button class="nav-toggle" id="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false"><span class="sr-only">Open menu</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
     </header>
 
     <main>
@@ -185,11 +209,11 @@
         <span class="orbit one"></span><span class="orbit two"></span>
         <div class="hero-grid">
           <div>
-            <p class="eyebrow">MIKROTIK HOTSPOT BILLING, MADE CLEAR</p>
-            <h1>Run your Wi‑Fi business <span class="shine">from one place.</span></h1>
-            <p class="lead">WiFi Fiti helps hotspot operators set up locations, sell time-based Wi‑Fi packages, collect M‑Pesa payments, and manage customer access from one calm control centre.</p>
-            <div class="actions"><a class="primary" href="https://cloud.wififiti.co.ke/business.html">Start your 14-day trial <span aria-hidden="true">→</span></a><a class="secondary" href="#how-it-works">See how it works</a></div>
-            <ul class="proof"><li>Your own packages and locations</li><li>Router pairs securely from behind NAT</li><li>Built for MikroTik Hotspot</li></ul>
+            <p class="eyebrow">MIKROTIK HOTSPOT BILLING</p>
+            <h1>Run your Wi‑Fi business <span class="shine">from one dashboard.</span></h1>
+            <p class="lead">Set packages, accept M‑Pesa, provision access, and manage every location from one workspace.</p>
+            <div class="actions"><a class="primary" href="https://cloud.wififiti.co.ke/business.html">Start free trial <span aria-hidden="true">→</span></a><a class="secondary" href="#how-it-works">View workflow</a></div>
+            <ul class="proof"><li>Packages and vouchers</li><li>Secure router pairing</li><li>Server-side access time</li></ul>
           </div>
           <div class="product-shot glass" aria-label="Illustration of the WiFi Fiti business dashboard">
             <div class="browser"><div class="browser-top"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="url">cloud.wififiti.co.ke</span></div><div class="dash"><div class="dash-label"><span>EXAMPLE WORKSPACE</span><span class="online">ROUTER ONLINE</span></div><h2>Example Main Branch</h2><div class="stat-grid"><div class="stat"><span>SALES</span><b>KES 8,420</b></div><div class="stat"><span>PACKAGES</span><b>4</b></div><div class="stat"><span>DEVICES</span><b>126</b></div></div><div class="flow"><div class="flow-row"><span>3 Hours · KES 20</span><b class="tag">ACTIVE</b></div><div class="flow-row"><span>Evening Pass · KES 50</span><b class="tag">ACTIVE</b></div><div class="flow-row"><span>Router check-in</span><b class="online">JUST NOW</b></div></div></div></div>
@@ -197,47 +221,47 @@
         </div>
       </section>
 
-      <section class="shell strip glass" aria-label="Platform highlights">
-        <div class="strip-item"><span class="strip-icon">◌</span><div><strong>Your branded Wi‑Fi experience</strong><p>Set your packages and customer-facing location details.</p></div></div>
-        <div class="strip-item"><span class="strip-icon">↗</span><div><strong>Remote router pairing</strong><p>Your router checks in over outbound HTTPS.</p></div></div>
-        <div class="strip-item"><span class="strip-icon">KSh</span><div><strong>M‑Pesa-ready sales</strong><p>Use your own collection setup or WiFi Fiti collection.</p></div></div>
-        <div class="strip-item"><span class="strip-icon">⌁</span><div><strong>One workspace</strong><p>See locations, customers, vouchers and sales together.</p></div></div>
+      <section class="shell strip glass" data-reveal aria-label="Platform highlights">
+        <div class="strip-item"><span class="strip-icon">◌</span><div><strong>Branded portal</strong><p>Set packages and location details.</p></div></div>
+        <div class="strip-item"><span class="strip-icon">↗</span><div><strong>Router pairing</strong><p>Pair securely over outbound HTTPS.</p></div></div>
+        <div class="strip-item"><span class="strip-icon">KSh</span><div><strong>M‑Pesa sales</strong><p>Use your own Till or PayBill.</p></div></div>
+        <div class="strip-item"><span class="strip-icon">⌁</span><div><strong>One workspace</strong><p>Manage locations, access, and sales.</p></div></div>
       </section>
 
-      <section class="shell section" id="how-it-works">
-        <div class="section-head"><p class="eyebrow">A CLEAR START, NOT A BLACK BOX</p><h2>From configured Hotspot to a sellable Wi‑Fi service.</h2><p>WiFi Fiti guides the business side while the router keeps doing what it does best: providing the local Wi‑Fi network and captive portal.</p></div>
+      <section class="shell section" id="how-it-works" data-reveal>
+        <div class="section-head"><p class="eyebrow">FOUR STEPS</p><h2>Set up. Pair. Sell.</h2><p>The router runs Wi‑Fi. WiFi Fiti runs billing and access.</p></div>
         <div class="steps">
-          <article class="step glass"><span class="number">01</span><h3>Create your workspace</h3><p>Choose a plan and create the business that owns your locations, packages and sales records.</p></article>
-          <article class="step glass"><span class="number">02</span><h3>Pair your MikroTik</h3><p>Copy the one-time pairing kit into a configured MikroTik Hotspot. No public router IP or exposed management port is required.</p></article>
-          <article class="step glass"><span class="number">03</span><h3>Set your packages</h3><p>Create time packages, optional per-device speed limits and prepaid voucher batches for customers.</p></article>
-          <article class="step glass"><span class="number">04</span><h3>Start selling Wi‑Fi</h3><p>Customers join, choose a package, pay through M‑Pesa, and their access is provisioned after payment is confirmed.</p></article>
+          <article class="step glass"><span class="number">01</span><h3>Create workspace</h3><p>Add the business account and select a plan.</p></article>
+          <article class="step glass"><span class="number">02</span><h3>Add router</h3><p>Run the pairing kit in your configured MikroTik Hotspot.</p></article>
+          <article class="step glass"><span class="number">03</span><h3>Set packages</h3><p>Choose duration, price, and optional speed limits.</p></article>
+          <article class="step glass"><span class="number">04</span><h3>Sell access</h3><p>Payment confirms. The router receives the access job.</p></article>
         </div>
       </section>
 
-      <section class="shell customer">
+      <section class="shell customer" data-reveal>
         <div class="customer-card glass" aria-label="Illustration of the customer WiFi Fiti package page"><div class="phone"><div class="phone-bar"></div><div class="phone-content"><div class="phone-brand"><img class="mini-logo" src="/assets/wifi-fiti-logo.png" alt="">WiFi Fiti</div><h3>Choose package</h3><p>Kitale Main Branch</p><div class="plan-line"><b>1 Hour</b><span>KES 10</span></div><div class="plan-line"><b>3 Hours</b><span>KES 20</span></div><div class="plan-line"><b>Evening Pass</b><span>KES 50</span></div><span class="phone-button">LIPA NA M‑PESA</span></div></div></div>
-        <div><p class="eyebrow">A BETTER CUSTOMER JOURNEY</p><h2>Simple to buy. Easier to return to.</h2><p class="lead">The customer page keeps the purchase focused, and the platform keeps the important state on the server instead of relying on a browser timer.</p><ul class="feature-list"><li>Time begins when a payment is confirmed <span>— and continues as wall-clock time whether the device is active or not.</span></li><li>Interrupted payment screens can resume <span>without creating a second M‑Pesa request.</span></li><li>Customers can check time, redeem vouchers and recover eligible access <span>using the details tied to their package.</span></li><li>One linked TV or streaming device can be managed alongside a phone <span>when the operator enables it.</span></li></ul></div>
+        <div><p class="eyebrow">CUSTOMER CHECKOUT</p><h2>A focused checkout. A stored expiry.</h2><p class="lead">Payment state and package expiry stay on the server. Refreshing does not reset time.</p><ul class="feature-list"><li>Time starts after payment confirmation.</li><li>Checkout resumes without a second M‑Pesa request.</li><li>Customers can check time or redeem a voucher.</li><li>One optional TV can link to a phone.</li></ul></div>
       </section>
 
-      <section class="shell payment glass"><div><h3>Use your own M‑Pesa setup — or WiFi Fiti collection.</h3><p>Businesses can connect verified Daraja credentials for their own Till or PayBill, or use WiFi Fiti collection with a 5% platform fee on completed customer sales. The choice stays visible in the control centre.</p></div><a class="secondary" href="https://cloud.wififiti.co.ke/business.html">Explore the workspace</a></section>
+      <section class="shell payment glass" data-reveal><div><h3>Choose payment collection.</h3><p>Use your own Till or PayBill, or WiFi Fiti collection at 5% of confirmed customer sales.</p></div><a class="secondary" href="https://cloud.wififiti.co.ke/business.html">Open workspace</a></section>
 
-      <section class="shell section" id="pricing">
-        <div class="section-head"><p class="eyebrow">PRICING THAT GROWS WITH THE WORK</p><h2>Choose the capacity your Wi‑Fi business needs.</h2><p>Every new workspace begins with a 14-day trial. Paid plans cover the number of routers and monthly active devices your business runs through WiFi Fiti.</p></div>
+      <section class="shell section" id="pricing" data-reveal>
+        <div class="section-head"><p class="eyebrow">PLATFORM PRICING</p><h2>Pay for the capacity you use.</h2><p>Every workspace starts with a 14-day trial.</p></div>
         <div class="plans">
           <article class="plan-card glass"><p class="plan-name">STARTER</p><div class="plan-price">KES 1,500 <small>/ month</small></div><p class="plan-capacity">Up to 2 routers and 2,000 monthly active devices.</p><a class="secondary" href="https://cloud.wififiti.co.ke/business.html">Start trial</a></article>
           <article class="plan-card highlight glass"><span class="flag">GROW WITH CONFIDENCE</span><p class="plan-name">GROWTH</p><div class="plan-price">KES 3,500 <small>/ month</small></div><p class="plan-capacity">Up to 5 routers and 5,000 monthly active devices.</p><a class="primary" href="https://cloud.wififiti.co.ke/business.html">Start trial</a></article>
           <article class="plan-card glass"><p class="plan-name">CUSTOM</p><div class="plan-price">Let’s talk</div><p class="plan-capacity">A tailored router, active-device and support arrangement.</p><a class="secondary" href="https://cloud.wififiti.co.ke/business.html">Create workspace</a></article>
         </div>
-        <p class="fine">A business plan and a customer Wi‑Fi package are separate: a business plan controls platform capacity, while customer packages control purchased Wi‑Fi time.</p>
+        <p class="fine">Business plans set platform capacity. Customer packages set purchased Wi‑Fi time.</p>
       </section>
 
-      <section class="shell section">
-        <div class="section-head"><p class="eyebrow">BUILT FOR THE REAL NETWORK</p><h2>Designed for routers behind NAT.</h2><p>Pairing uses the router’s outbound HTTPS connection. That keeps MikroTik management ports off the public internet while WiFi Fiti receives router check-ins and sends access work back securely.</p></div>
-        <div class="security"><article class="security-card glass"><span class="symbol">⌁</span><h3>One-time router pairing</h3><p>Each location gets a unique router credential shown once when the location is created or rotated. The router polls for its own work only.</p></article><article class="security-card glass"><span class="symbol">⌘</span><h3>Separate business records</h3><p>Locations, packages, customer subscriptions, vouchers and sales are separated by business and location in the platform.</p></article></div>
+      <section class="shell section" data-reveal>
+        <div class="section-head"><p class="eyebrow">ROUTER SECURITY</p><h2>Built for routers behind NAT.</h2><p>Pair over outbound HTTPS. Keep router management ports off the public internet.</p></div>
+        <div class="security"><article class="security-card glass"><span class="symbol">⌁</span><h3>One-time pairing</h3><p>Each location receives a unique router credential. The router polls only for its own work.</p></article><article class="security-card glass"><span class="symbol">⌘</span><h3>Separate records</h3><p>Business, location, package, customer, voucher, and sale records stay separated.</p></article></div>
       </section>
 
-      <section class="shell section" id="faq">
-        <div class="section-head"><p class="eyebrow">COMMON QUESTIONS</p><h2>What operators usually want to know.</h2></div>
+      <section class="shell section" id="faq" data-reveal>
+        <div class="section-head"><p class="eyebrow">COMMON QUESTIONS</p><h2>What operators need to know.</h2></div>
         <div class="faq">
           <details><summary>Do I need a public IP address for my MikroTik?</summary><p>No. The router checks in to WiFi Fiti over outbound HTTPS, so you do not need to expose WinBox or the RouterOS API publicly. You still need administrator access to configure the router and a working MikroTik Hotspot.</p></details>
           <details><summary>Which routers does this setup support?</summary><p>The current pairing flow is built for MikroTik RouterOS Hotspot. The router needs internet access, DNS, HTTPS fetch permission and a configured customer bridge and Hotspot server.</p></details>
@@ -247,11 +271,51 @@
         </div>
       </section>
 
-      <section class="shell final glass"><p class="eyebrow">READY WHEN YOUR HOTSPOT IS</p><h2>Make your Wi‑Fi service feel like a real business.</h2><p>Create your workspace, add a first location, then generate the router pairing kit when your MikroTik Hotspot is ready.</p><div class="actions"><a class="primary" href="https://cloud.wififiti.co.ke/business.html">Start your 14-day trial <span aria-hidden="true">→</span></a></div></section>
+      <section class="shell final glass" data-reveal><p class="eyebrow">READY TO LAUNCH</p><h2>Launch your Wi‑Fi service.</h2><p>Create a workspace. Pair a router. Start selling.</p><div class="actions"><a class="primary" href="https://cloud.wififiti.co.ke/business.html">Start free trial <span aria-hidden="true">→</span></a></div></section>
+
+      <section class="shell contact-card glass" id="contact" data-reveal aria-labelledby="contact-title">
+        <div><p class="eyebrow">CONTACT</p><h2 id="contact-title">Talk to WiFi Fiti.</h2><p>Sales, setup, and support.</p></div>
+        <div class="contact-links">
+          <a class="contact-link" href="mailto:info@wififiti.co.ke" aria-label="Email WiFi Fiti at info@wififiti.co.ke"><span class="contact-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg></span><span><strong>Email</strong><small>info@wififiti.co.ke</small></span></a>
+          <a class="contact-link" href="tel:+2547180166833" aria-label="Call WiFi Fiti on +254 718 016 683"><span class="contact-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h3l1.5 4.5-2 1.5a15.4 15.4 0 0 0 5.5 5.5l1.5-2L21 14v3c0 1.1-.9 2-2 2C10.2 19 5 13.8 5 5c0-1.1.9-2 2-2Z"></path></svg></span><span><strong>Call</strong><small>+254 718 016 683</small></span></a>
+          <a class="contact-link whatsapp" href="https://wa.me/2547180166833?text=Hello%20WiFi%20Fiti%2C%20I%20need%20help%20with%20my%20hotspot." target="_blank" rel="noopener noreferrer" aria-label="Chat with WiFi Fiti on WhatsApp"><span class="contact-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 11.4a8.5 8.5 0 0 1-12.6 7.5L3.5 20l1.1-4.2a8.5 8.5 0 1 1 15.9-4.4Z"></path><path d="M9 8.1c.2-.5.5-.5.8-.5h.4c.2 0 .4.1.5.4l.7 1.7c.1.2.1.4 0 .6l-.5.7c.6 1.2 1.6 2.2 2.8 2.8l.7-.5c.2-.1.4-.1.6 0l1.7.7c.3.1.4.3.4.5v.4c0 .3 0 .6-.5.8-.5.2-1.7.3-3.4-.5-1.1-.5-2.2-1.4-3.1-2.4-.9-1-1.7-2.2-2.1-3.3-.6-1.7-.5-2.9-.3-3.4Z"></path></svg></span><span><strong>WhatsApp</strong><small>Chat with support</small></span></a>
+        </div>
+      </section>
     </main>
 
-    <footer class="shell footer"><span>© <span id="year"></span> WiFi Fiti. All rights reserved.</span><div class="footer-links"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="https://cloud.wififiti.co.ke/business.html">Business sign in</a></div></footer>
+    <footer class="shell footer">
+      <div>
+        <div class="footer-brand"><img src="/assets/wifi-fiti-logo.png" alt=""><div><strong>WiFi Fiti</strong><span>© <span id="year"></span> WiFi Fiti. All rights reserved.</span></div></div>
+        <div class="social-row" aria-label="Social profiles coming soon"><span class="social-link is-placeholder" role="img" aria-label="Facebook page coming soon" title="Facebook page coming soon">f</span><span class="social-link is-placeholder" role="img" aria-label="Instagram page coming soon" title="Instagram page coming soon">◎</span><span class="social-link is-placeholder" role="img" aria-label="LinkedIn page coming soon" title="LinkedIn page coming soon">in</span><span class="social-link is-placeholder" role="img" aria-label="TikTok page coming soon" title="TikTok page coming soon">♪</span></div>
+      </div>
+      <div><span class="footer-label">Platform</span><div class="footer-links"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#faq">Questions</a><a href="https://cloud.wififiti.co.ke/business.html">Open workspace</a></div></div>
+      <div><span class="footer-label">Contact</span><div class="footer-contact"><a href="mailto:info@wififiti.co.ke"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg>info@wififiti.co.ke</a><a href="tel:+2547180166833"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h3l1.5 4.5-2 1.5a15.4 15.4 0 0 0 5.5 5.5l1.5-2L21 14v3c0 1.1-.9 2-2 2C10.2 19 5 13.8 5 5c0-1.1.9-2 2-2Z"></path></svg>+254 718 016 683</a><a href="https://wa.me/2547180166833?text=Hello%20WiFi%20Fiti%2C%20I%20need%20help%20with%20my%20hotspot." target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 11.4a8.5 8.5 0 0 1-12.6 7.5L3.5 20l1.1-4.2a8.5 8.5 0 1 1 15.9-4.4Z"></path></svg>WhatsApp</a></div></div>
+    </footer>
   </div>
-  <script>document.getElementById('year').textContent=new Date().getFullYear();</script>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    (function () {
+      var toggle = document.getElementById('nav-toggle');
+      var nav = document.getElementById('site-nav');
+      if (!toggle || !nav) return;
+      function closeMenu() { nav.classList.remove('is-open'); toggle.setAttribute('aria-expanded', 'false'); }
+      toggle.addEventListener('click', function () { var open = !nav.classList.contains('is-open'); nav.classList.toggle('is-open', open); toggle.setAttribute('aria-expanded', String(open)); });
+      nav.addEventListener('click', function (event) { if (event.target.closest('a')) closeMenu(); });
+      document.addEventListener('click', function (event) { if (!nav.contains(event.target) && !toggle.contains(event.target)) closeMenu(); });
+      document.addEventListener('keydown', function (event) { if (event.key === 'Escape') { closeMenu(); toggle.focus(); } });
+    }());
+
+    (function () {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) return;
+      var sections = Array.prototype.slice.call(document.querySelectorAll('[data-reveal]'));
+      if (!sections.length) return;
+      document.documentElement.classList.add('motion-ready');
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) { if (entry.isIntersecting) { entry.target.classList.add('is-visible'); observer.unobserve(entry.target); } });
+      }, { threshold: 0.12 });
+      sections.forEach(function (section) { observer.observe(section); });
+    }());
+  </script>
 </body>
 </html>
