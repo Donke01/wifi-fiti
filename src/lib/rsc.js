@@ -50,9 +50,9 @@ function jobToScript(job, hotspotServer) {
   if (job.action === 'revoke') {
     if (!username) return null;
     return `:local u "${username}"\n` +
-      `:do { /ip hotspot active remove [find user=$u] } on-error={}\n` +
-      `:do { /ip hotspot cookie remove [find user=$u] } on-error={}\n` +
-      `:do { /ip hotspot user remove [find name=$u] } on-error={}`;
+      `:if ([:len [/ip hotspot active find where user=$u]] > 0) do={ /ip hotspot active remove [find where user=$u] }\n` +
+      `:if ([:len [/ip hotspot cookie find where user=$u]] > 0) do={ /ip hotspot cookie remove [find where user=$u] }\n` +
+      `:if ([:len [/ip hotspot user find where name=$u]] > 0) do={ /ip hotspot user remove [find where name=$u] }`;
   }
   const password = safe('password', job.password);
   const profile = safe('profile', job.profile);
@@ -93,8 +93,8 @@ function jobToScript(job, hotspotServer) {
 
   if (job.action === 'transfer') {
     lines.unshift(
-      `:do { /ip hotspot active remove [find user="${username}"] } on-error={}`,
-      `:do { /ip hotspot cookie remove [find user="${username}"] } on-error={}`
+      `:if ([:len [/ip hotspot active find where user="${username}"]] > 0) do={ /ip hotspot active remove [find where user="${username}"] }`,
+      `:if ([:len [/ip hotspot cookie find where user="${username}"]] > 0) do={ /ip hotspot cookie remove [find where user="${username}"] }`
     );
   }
 
@@ -163,11 +163,15 @@ function buildExpiryScript(accounts) {
     if (!username) continue;
     blocks.push(
       `:local u "${username}"\n` +
-      `:do { /ip hotspot active remove [find user=$u] } on-error={}\n` +
-      `:do { /ip hotspot user set [find name=$u] disabled=yes } on-error={}\n` +
+      // A router replacement is allowed to have no record of an expired
+      // account. RouterOS treats `set [find]` as an error; when that error
+      // escapes :parse it prevents every later paid-user job in this poll
+      // response from running. Check for an actual item before each action.
+      `:if ([:len [/ip hotspot active find where user=$u]] > 0) do={ /ip hotspot active remove [find where user=$u] }\n` +
+      `:if ([:len [/ip hotspot user find where name=$u]] > 0) do={ /ip hotspot user set [find where name=$u] disabled=yes }\n` +
       `:local tv ($u . "-tv")\n` +
-      `:do { /ip hotspot active remove [find user=$tv] } on-error={}\n` +
-      `:do { /ip hotspot user set [find name=$tv] disabled=yes } on-error={}`
+      `:if ([:len [/ip hotspot active find where user=$tv]] > 0) do={ /ip hotspot active remove [find where user=$tv] }\n` +
+      `:if ([:len [/ip hotspot user find where name=$tv]] > 0) do={ /ip hotspot user set [find where name=$tv] disabled=yes }`
     );
   }
   return blocks.join('\n');

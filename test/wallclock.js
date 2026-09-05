@@ -38,6 +38,10 @@ const { buildExpiryScript } = require('../src/lib/rsc');
   const script = buildExpiryScript(db.expiredAccounts.all());
   assert.ok(script.includes('disabled=yes') && script.includes('active remove'),
     'router must disconnect expired accounts');
+  assert.ok(script.includes('[:len [/ip hotspot user find where name=$u]] > 0'),
+    'an expired account absent after a router replacement must be skipped safely');
+  assert.ok(!script.includes('/ip hotspot user set [find name=$u] disabled=yes'),
+    'RouterOS treats set [find] as an error and would abort later paid-user work');
 
   db.insert.run({ checkoutRequestId: 'recover-ios-1', merchantRequestId: 'm',
     phone, packageId: 'hr1', amount: 10, seconds: 3600,
