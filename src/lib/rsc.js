@@ -26,7 +26,11 @@ function safe(field, value) {
 
 function safeSeconds(value) {
   const n = Number(value);
-  if (!Number.isInteger(n) || n < 1 || n > 366 * 86400) return null;
+  // `limit-uptime` is a router-side safety ceiling. The authoritative
+  // entitlement is the server wall-clock expiry, so long-lived customers
+  // must not eventually receive an invalid RouterOS job simply because
+  // their lifetime purchases crossed one year.
+  if (!Number.isInteger(n) || n < 1 || n > 10 * 366 * 86400) return null;
   return n;
 }
 

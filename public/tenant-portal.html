@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#071322">
+  <title>WiFi Fiti</title>
+  <style>
+    :root{color-scheme:dark;--night:#071322;--ink:#f2faff;--muted:#9eb4c7;--line:rgba(175,220,244,.19);--glass:rgba(12,34,55,.78);--blue:#57c6ff;--aqua:#55e2c6;--good:#50dfa5;--warn:#ffc66d;--bad:#ff92a2;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{min-width:320px;min-height:100dvh;margin:0;color:var(--ink);background:radial-gradient(circle at 8% -6%,#299ee345,transparent 31rem),radial-gradient(circle at 98% 2%,#58e5cd21,transparent 27rem),var(--night)}button,input{font:inherit}button{-webkit-tap-highlight-color:transparent}button:focus-visible,input:focus-visible{outline:3px solid #5ee4cc8f;outline-offset:3px}.shell{width:min(560px,100%);margin:auto;padding:22px 16px 44px}.brand{text-align:center;margin:5px 0 22px}.brand-mark{display:inline-grid;place-items:center;width:42px;height:42px;margin-bottom:8px;border-radius:14px;background:linear-gradient(135deg,var(--aqua),var(--blue));color:#032333;font-size:15px;font-weight:900;letter-spacing:-.12em;box-shadow:0 12px 30px #40d2df3d}.brand-name{display:block;font-size:clamp(28px,7vw,38px);font-weight:900;letter-spacing:-.065em}.brand-location{display:block;margin-top:4px;color:var(--aqua);font-size:12px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}.card{border:1px solid var(--line);border-radius:24px;background:var(--glass);box-shadow:0 25px 70px #0006;backdrop-filter:blur(18px);padding:20px}.hidden{display:none!important}h1,h2,h3,p{margin-top:0}h1{margin-bottom:7px;font-size:clamp(25px,6vw,32px);letter-spacing:-.05em}h2{margin:0;font-size:19px;letter-spacing:-.035em}h3{margin-bottom:5px;font-size:16px}.copy{margin-bottom:18px;color:var(--muted);font-size:16px;line-height:1.52}.plans{display:grid;gap:10px;margin:17px 0}.plan{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:73px;padding:14px 15px;border:1px solid var(--line);border-radius:17px;color:var(--ink);background:#06182aaa;text-align:left;box-shadow:none}.plan:hover{border-color:#6ed9f766;background:#0c2942}.plan.active{border-color:var(--aqua);background:linear-gradient(120deg,#147f842e,#103b5a8a);box-shadow:inset 0 0 0 1px #5ae5cd1c}.plan-title{display:block;font-size:18px;font-weight:850;letter-spacing:-.025em}.plan-detail{display:block;margin-top:3px;color:var(--muted);font-size:13px}.price{color:var(--aqua);font-size:19px;font-weight:900;letter-spacing:-.035em;white-space:nowrap}label{display:block;margin:15px 0 5px;color:#b5ccde;font-size:13px;font-weight:760}input{width:100%;min-height:52px;padding:13px 14px;border:1px solid var(--line);border-radius:14px;color:var(--ink);background:#041525b8;box-shadow:inset 0 1px #fff1}input::placeholder{color:#66819a}.primary,.secondary,.text-button{display:inline-flex;justify-content:center;align-items:center;min-height:50px;border:1px solid transparent;border-radius:14px;font-weight:880;cursor:pointer;transition:transform .16s ease,filter .16s ease}.primary:hover,.secondary:hover,.text-button:hover{filter:brightness(1.06);transform:translateY(-1px)}.primary{width:100%;margin-top:17px;padding:13px;color:#022131;background:linear-gradient(135deg,var(--aqua),var(--blue));box-shadow:0 13px 30px #34bbde32}.secondary{padding:10px 13px;color:var(--ink);border-color:var(--line);background:#0a2137bd;box-shadow:none}.text-button{min-height:auto;padding:5px 0;color:var(--aqua);background:transparent;border:0;box-shadow:none;font-size:13px}.primary:disabled,.secondary:disabled{cursor:wait;opacity:.62;transform:none}.error{min-height:20px;margin:10px 0 0;color:var(--bad);font-size:14px;line-height:1.4}.utilities{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:13px}.utility{min-height:66px;padding:11px 12px;color:#d5e6f1;border:1px solid var(--line);border-radius:16px;background:#06192b94;text-align:left;box-shadow:none}.utility b{display:block;margin-bottom:3px;color:var(--aqua);font-size:13px}.utility small{color:var(--muted);font-size:12px;line-height:1.3}.waiting{text-align:center;padding:26px 20px}.spinner{width:43px;height:43px;margin:0 auto 19px;border:4px solid #eafaff1d;border-top-color:var(--aqua);border-radius:50%;animation:spin .85s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.waiting h1{margin-bottom:8px}.waiting p{max-width:360px;margin:0 auto;color:var(--muted);line-height:1.52}.elapsed{margin-top:18px;color:#c5dce9;font-size:13px}.active-card{overflow:hidden;position:relative}.active-card:after{position:absolute;right:-72px;top:-82px;width:210px;height:210px;border-radius:50%;background:radial-gradient(circle,#54e4c42d,transparent 65%);content:"";pointer-events:none}.active-card>*{position:relative;z-index:1}.active-kicker{color:var(--aqua);font-size:12px;font-weight:850;letter-spacing:.14em}.clock{margin:15px 0 3px;color:var(--good);font-size:clamp(42px,12vw,61px);font-weight:900;letter-spacing:-.075em;line-height:1}.expiry{margin:8px 0 19px;color:var(--muted);font-size:13px}.active-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.section{margin-top:14px}.section .card{padding:17px}.section-title{display:flex;align-items:center;justify-content:space-between;gap:10px}.section-copy{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.45}.existing-list{display:grid;gap:9px;margin-top:13px}.existing{padding:12px;border:1px solid var(--line);border-radius:13px;background:#06192b8a}.existing.active{border-color:var(--aqua);background:#147f8422}.existing-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.existing b{font-size:14px}.remaining{color:var(--good);font-size:13px;font-weight:800}.notice{margin:12px 0 0;padding:11px 12px;border:1px solid #ffc66d38;border-radius:12px;color:#f8d9a6;background:#84601a19;font-size:13px;line-height:1.43}.footer{margin:25px 0 0;color:#7f98ae;font-size:12px;line-height:1.5;text-align:center}@media(max-width:400px){.utilities,.active-actions{grid-template-columns:1fr}.shell{padding:15px 12px 35px}.card{border-radius:20px;padding:17px}.brand{margin-bottom:17px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="brand" aria-label="WiFi Fiti"><span class="brand-mark" aria-hidden="true">WF</span><strong class="brand-name" id="brand">WiFi Fiti</strong><span class="brand-location" id="location">CONNECT · PAY · GO</span></header>
+    <section class="card" id="buy"><h1>Choose your package</h1><p class="copy">Lipa na M‑Pesa. Your time begins immediately and stays saved even if this page closes.</p><div class="plans" id="plans" aria-label="Packages"></div><label for="phone">M‑Pesa number</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><div class="error" id="error" aria-live="polite"></div><button class="primary" type="button" id="pay">LIPA NA M‑PESA</button><div class="utilities"><button class="utility" type="button" id="check-time"><b>◷ Check my time</b><small>Find a package already linked to your number.</small></button><button class="utility" type="button" id="open-voucher"><b>◇ I have a voucher</b><small>Use a prepaid WiFi code instead.</small></button></div></section>
+    <section class="card hidden" id="waiting" aria-live="polite"><div class="waiting"><div class="spinner" id="waiting-spinner" aria-hidden="true"></div><h1 id="waiting-title">Check your phone</h1><p id="waiting-copy">Enter your M‑Pesa PIN to complete the payment.</p><div class="elapsed" id="elapsed"></div><div class="error" id="waiting-error"></div><button class="secondary hidden" id="retry-waiting" type="button">Check again</button><button class="text-button" id="leave-waiting" type="button">Back to my packages</button></div></section>
+    <section class="card active-card hidden" id="active" aria-live="polite"><div class="active-kicker" id="active-kicker">YOUR WIFI PACKAGE</div><h1 id="active-title">You have Wi‑Fi time</h1><div class="clock" id="clock">—</div><p class="expiry" id="expiry"></p><div class="notice"><strong>Save your WiFi recovery code</strong><p class="section-copy">Use this code and the paying number to restore your package or move it to another phone.</p><p id="recovery-code" style="font:800 24px ui-monospace,monospace;letter-spacing:.12em;margin:12px 0;overflow-wrap:anywhere"></p><button class="text-button" id="copy-recovery" type="button">Copy recovery code</button><p class="section-copy" id="active-phone"></p></div><div class="error" id="active-error" aria-live="polite"></div><div class="active-actions"><button class="primary" type="button" id="connect">RECONNECT THIS DEVICE</button><button class="secondary" type="button" id="manage-tv">CONNECT YOUR TV</button></div><button class="primary" type="button" id="top-up">BUY MORE TIME</button></section>
+    <section class="section hidden" id="existing-section"><div class="card"><div class="section-title"><h2>Existing package found</h2><button class="text-button" type="button" id="buy-anyway">Continue with purchase</button></div><p class="section-copy">Choose the package to check its balance. To move its remaining time to this device, enter the WiFi recovery code; the previous phone will be disconnected.</p><div id="existing-list" class="existing-list"></div><label for="transfer-password">WiFi recovery code</label><input id="transfer-password" autocomplete="off" autocapitalize="characters" placeholder="Code saved on your WiFi countdown page"><div class="error" id="transfer-error" aria-live="polite"></div><button class="primary" type="button" id="transfer">CONNECT THIS PACKAGE</button></div></section>
+    <section class="section hidden" id="voucher-section"><div class="card"><div class="section-title"><h2>Use a voucher</h2><button class="text-button" type="button" id="close-voucher">Close</button></div><p class="section-copy">Enter the voucher code and the phone number that should own the package.</p><label for="voucher-code">Voucher code</label><input id="voucher-code" autocomplete="off" autocapitalize="characters" placeholder="FITI…"><div class="error" id="voucher-error" aria-live="polite"></div><button class="primary" type="button" id="redeem">REDEEM VOUCHER</button></div></section>
+    <section class="section hidden" id="tv-section"><div class="card"><div class="section-title"><h2>Connect your TV</h2><button class="text-button" type="button" id="close-tv">Close</button></div><p class="section-copy">One TV or streaming device can share this package. Remove an existing TV before replacing it.</p><p class="notice" id="tv-existing"></p><button type="button" id="remove-tv" class="secondary hidden">REMOVE LINKED TV</button><label for="tv-name">Device name</label><input id="tv-name" autocomplete="off" value="TV" maxlength="24"><label for="tv-mac">TV MAC address</label><input id="tv-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><button class="primary" type="button" id="add-tv">CONNECT TV</button><div class="error" id="tv-error" aria-live="polite"></div></div></section>
+    <button class="primary hidden" type="button" id="resume-payment">RESUME PAYMENT</button>
+    <p class="footer" id="support">© <span id="year"></span> WiFi Fiti</p>
+  </main>
+  <script>
+  (function () {
+    'use strict';
+    var site = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+    var params = new URLSearchParams(location.search);
+    var mac = (params.get('mac') || '').toUpperCase(), ip = params.get('ip') || '';
+    var key = 'fiti_' + site + '_' + mac, current = null, checkout = null, selected = null;
+    var selectedSubscription = null, timer = null, clockTimer = null, generation = 0, bypassLookup = false;
+    var $ = function (id) { return document.getElementById(id); };
+    function read(name) {
+      // Captive-portal browsers sometimes block one storage area but not the
+      // other. Try each separately so a blocked localStorage does not erase a
+      // saved payment or a legitimate signed-in browser session.
+      var raw = null;
+      try { raw = localStorage.getItem(key + name); } catch (_) { raw = null; }
+      if (raw) { try { return JSON.parse(raw); } catch (_) { /* try session storage */ } }
+      try { raw = sessionStorage.getItem(key + name); return raw ? JSON.parse(raw) : null; }
+      catch (_) { return null; }
+    }
+    function write(name, value) {
+      [function () { return localStorage; }, function () { return sessionStorage; }].forEach(function (storage) {
+        try { if (value === null) storage().removeItem(key + name); else storage().setItem(key + name, JSON.stringify(value)); }
+        catch (_) { /* The router can complete a paid connection even when browser storage is unavailable. */ }
+      });
+    }
+    var sessionToken = read('_session') || '';
+    async function api(path, body) {
+      var headers = { 'X-WiFi-Fiti-Session': sessionToken };
+      if (checkout && checkout.portalToken) headers['X-WiFi-Fiti-Portal'] = checkout.portalToken;
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      var response = await fetch('/api/tenant/' + encodeURIComponent(site) + path, {
+        method: body === undefined ? 'GET' : 'POST', headers: headers,
+        body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store'
+      });
+      var result = await response.json().catch(function () { return {}; });
+      if (!response.ok) { var error = new Error(result.error || 'Please try again.'); error.status = response.status; throw error; }
+      return result;
+    }
+    function stop() { generation++; clearTimeout(timer); clearInterval(clockTimer); }
+    function show() {
+      var visible = Array.prototype.slice.call(arguments);
+      ['buy','waiting','active','existing-section','voucher-section','tv-section'].forEach(function (id) {
+        $(id).classList.toggle('hidden', visible.indexOf(id) === -1);
+      });
+      $('resume-payment').classList.toggle('hidden', visible.indexOf('resume-payment') === -1);
+    }
+    function message(id, text) { $(id).textContent = text || ''; }
+    function phone() { return $('phone').value.trim(); }
+    function formatSeconds(value) {
+      var s = Math.max(0, Math.ceil(Number(value) || 0)), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+      return d ? d + 'd ' + h + 'h' : h ? h + 'h ' + String(m).padStart(2, '0') + 'm' : m + 'm ' + String(s % 60).padStart(2, '0') + 's';
+    }
+    function remember(result) {
+      if (result.sessionToken) { sessionToken = result.sessionToken; write('_session', sessionToken); }
+      current = result;
+      if (result.payerPhone) $('phone').value = result.payerPhone;
+    }
+    function active(result) {
+      remember(result); stop(); show('active');
+      var end = Date.parse(result.expiresAt);
+      function draw() {
+        var remaining = Number.isFinite(end) ? Math.max(0, (end - Date.now()) / 1000) : 0;
+        message('clock', formatSeconds(remaining));
+        message('expiry', remaining ? 'Time ends ' + new Date(end).toLocaleString() : 'Your package has ended. Choose new time below.');
+        $('connect').disabled = remaining <= 0;
+        $('manage-tv').disabled = remaining <= 0;
+      }
+      message('recovery-code', result.password || 'Enter your saved recovery code to manage this package.');
+      message('active-phone', result.payerPhone ? 'Paying number: ' + result.payerPhone : '');
+      draw(); clockTimer = setInterval(draw, 1000);
+    }
+    function waiting(title, copy) {
+      show('waiting'); message('waiting-title', title); message('waiting-copy', copy);
+      message('elapsed', 'Your payment and package are saved on WiFi Fiti.');
+      $('retry-waiting').classList.add('hidden');
+    }
+    function pauseWait(text, retry) {
+      message('waiting-copy', text); $('retry-waiting').classList.remove('hidden');
+      $('retry-waiting').onclick = retry;
+    }
+    async function pollPayment() {
+      if (!checkout || !checkout.portalToken) return;
+      stop(); var version = generation, attempts = 0;
+      waiting('Check your phone', 'Complete your M-Pesa payment. We will connect your WiFi automatically after confirmation.');
+      async function check() {
+        if (version !== generation || !checkout) return;
+        try {
+          var result = await api('/status/' + encodeURIComponent(checkout.checkoutRequestId));
+          if (version !== generation) return;
+          if (result.status === 'paid') { checkout = null; write('_checkout', null); active(result); return; }
+          if (result.status === 'failed' || result.status === 'transferred') {
+            checkout = null; write('_checkout', null); stop(); show('buy');
+            message('error', result.reason || 'This payment was not completed.'); return;
+          }
+          if (result.awaitingRouter) {
+            message('waiting-title', 'Payment received');
+            message('waiting-copy', 'The router is connecting your device. Your package is saved.');
+          }
+        } catch (error) {
+          if (version !== generation) return;
+          if ([401,403,404,409].indexOf(error.status) !== -1) {
+            pauseWait(error.message + ' If you already paid, use Check my time and your recovery code.', pollPayment); return;
+          }
+          message('waiting-copy', 'Connection interrupted. We are checking again; do not make another payment.');
+        }
+        if (++attempts >= 150) { pauseWait('Confirmation is taking longer than expected. Check again or contact the operator; do not pay a second time.', pollPayment); return; }
+        timer = setTimeout(check, 2400);
+      }
+      check();
+    }
+    function waitForRouter(result, complete) {
+      remember(result); stop(); var version = generation, attempts = 0;
+      waiting('Connecting your WiFi', 'Your package is saved. Waiting for the router to finish connecting this device.');
+      async function check() {
+        if (version !== generation) return;
+        try {
+          var job = await api('/router-jobs/' + encodeURIComponent(result.provisioningJobId));
+          if (version !== generation) return;
+          if (job.ready) { if (complete) complete(); else active(result); return; }
+        } catch (error) {
+          if ([401,403,404].indexOf(error.status) !== -1) { pauseWait(error.message, function () { waitForRouter(result, complete); }); return; }
+        }
+        if (++attempts >= 60) {
+          pauseWait('The router has not checked in yet. Your package is saved. Try again when the WiFi is available.',
+            function () { waitForRouter(result, complete); }); return;
+        }
+        timer = setTimeout(check, 2500);
+      }
+      check();
+    }
+    async function reconnect() {
+      if (!current || !sessionToken) { show('buy'); message('error', 'Enter your paying number, then use Check my time and your saved recovery code.'); return; }
+      $('connect').disabled = true;
+      try { var result = await api('/session/connect', { mac: mac, ip: ip }); waitForRouter(result); }
+      catch (error) { message('expiry', error.message); $('connect').disabled = false; }
+    }
+    function renderPackages(packages) {
+      var root = $('plans'); root.replaceChildren();
+      if (!packages.length) { message('error', 'This operator has not added packages yet.'); $('pay').disabled = true; return; }
+      packages.forEach(function (pkg, index) {
+        var button = document.createElement('button'), left = document.createElement('span'), name = document.createElement('span'), price = document.createElement('span');
+        button.type = 'button'; button.className = 'plan' + (index === 0 ? ' active' : '');
+        name.className = 'plan-title'; name.textContent = pkg.name;
+        price.className = 'price'; price.textContent = 'KES ' + Number(pkg.price).toLocaleString();
+        var duration = document.createElement('span'); duration.className = 'plan-detail'; duration.textContent = formatSeconds(pkg.seconds);
+        left.append(name, duration); button.append(left, price);
+        button.onclick = function () {
+          selected = Number(pkg.id);
+          root.querySelectorAll('.plan').forEach(function (item) { item.classList.toggle('active', item === button); });
+        };
+        root.appendChild(button);
+      });
+      selected = Number(packages[0].id);
+    }
+    function renderExisting(subscriptions) {
+      var root = $('existing-list'); root.replaceChildren(); selectedSubscription = subscriptions[0] || null;
+      subscriptions.forEach(function (subscription, index) {
+        var button = document.createElement('button'); button.type = 'button'; button.className = 'existing' + (index === 0 ? ' active' : '');
+        button.style.color = 'inherit'; button.style.textAlign = 'left';
+        var name = document.createElement('b'); name.textContent = 'Device ' + subscription.mac;
+        var remaining = document.createElement('div'); remaining.className = 'remaining'; remaining.textContent = formatSeconds(subscription.remainingSeconds) + ' remaining';
+        button.append(name, remaining);
+        button.onclick = function () {
+          selectedSubscription = subscription;
+          root.querySelectorAll('.existing').forEach(function (item) { item.classList.toggle('active', item === button); });
+        };
+        root.appendChild(button);
+      });
+      show('buy', 'existing-section');
+    }
+    async function checkExisting(silent) {
+      if (!phone()) { if (!silent) message('error', 'Enter the number used to pay.'); return false; }
+      try {
+        var result = await api('/subscriptions/check', { phone: phone() });
+        if (result.found) { renderExisting(result.subscriptions); return true; }
+        if (!silent) message('error', 'No active package was found for this number at this location.');
+        return false;
+      } catch (error) { message('error', error.message); throw error; }
+    }
+    async function pay() {
+      if (!selected || !phone() || !mac) { message('error', 'Choose a package, enter your M-Pesa number, and open this page from the WiFi.'); return; }
+      if (checkout && checkout.portalToken && checkout.startedAt > Date.now() - 2 * 3600000) {
+        // The previous request is still recoverable. Checking it again is
+        // safer than sending a second STK prompt to the same customer.
+        pollPayment(); return;
+      }
+      var button = $('pay'); button.disabled = true; message('error', '');
+      try {
+        if (!bypassLookup && await checkExisting(true)) return;
+        checkout = await api('/pay', { packageId: selected, phone: phone(), mac: mac, ip: ip });
+        checkout.startedAt = Date.now(); write('_checkout', checkout); bypassLookup = false; pollPayment();
+      } catch (error) { show('buy'); message('error', error.message); }
+      finally { button.disabled = false; }
+    }
+    async function transfer() {
+      var password = $('transfer-password').value.trim();
+      if (!selectedSubscription || !password || !mac) { message('transfer-error', 'Join this WiFi, choose a package, and enter its recovery code.'); return; }
+      $('transfer').disabled = true; message('transfer-error', '');
+      try {
+        var result = await api('/subscriptions/transfer', { phone: phone(), subscriptionId: selectedSubscription.id, password: password, mac: mac, ip: ip });
+        waitForRouter(result);
+      } catch (error) { message('transfer-error', error.message); }
+      finally { $('transfer').disabled = false; }
+    }
+    async function redeem() {
+      var code = $('voucher-code').value.trim();
+      if (!code || !phone() || !mac) { message('voucher-error', 'Enter a voucher, your phone number, and join this WiFi.'); return; }
+      $('redeem').disabled = true;
+      try { var result = await api('/voucher/redeem', { code: code, phone: phone(), mac: mac, ip: ip }); waitForRouter(result); }
+      catch (error) { message('voucher-error', error.message); }
+      finally { $('redeem').disabled = false; }
+    }
+    function tvDetails() {
+      if (!current) return;
+      message('tv-existing', current.device ? 'Linked device: ' + current.device.label + ' · ' + current.device.mac : 'No TV is linked yet.');
+      $('remove-tv').classList.toggle('hidden', !current.device);
+      if (current.device) { $('tv-name').value = current.device.label; $('tv-mac').value = current.device.mac; }
+      show('active', 'tv-section');
+    }
+    async function refreshSession() {
+      var result = await api('/session?mac=' + encodeURIComponent(mac));
+      if (!result.authenticated) throw new Error('Use your recovery code to manage this package.');
+      remember(result); return result;
+    }
+    async function addTv() {
+      if (!current) return;
+      var button = $('add-tv'); button.disabled = true; message('tv-error', '');
+      try {
+        var result = await api('/devices/add', { phone: current.payerPhone, subscriptionId: current.subscriptionId,
+          password: current.password, mac: $('tv-mac').value.trim(), label: $('tv-name').value.trim() || 'TV' });
+        var prior = current;
+        waitForRouter(Object.assign({}, prior, result), function () {
+          refreshSession().then(function (session) { active(session); tvDetails(); }).catch(function (error) { active(prior); message('expiry', error.message); });
+        });
+      } catch (error) { message('tv-error', error.message); }
+      finally { button.disabled = false; }
+    }
+    async function removeTv() {
+      if (!current || !current.device) return;
+      $('remove-tv').disabled = true;
+      try {
+        await api('/devices/remove', { phone: current.payerPhone, subscriptionId: current.subscriptionId,
+          password: current.password, mac: current.device.mac });
+        current.device = null; tvDetails(); message('tv-error', 'Removal is queued for the router.');
+      } catch (error) { message('tv-error', error.message); }
+      finally { $('remove-tv').disabled = false; }
+    }
+    async function boot() {
+      try {
+        var config = await api('/config');
+        message('brand', config.location.businessName || 'WiFi Fiti'); message('location', config.location.name);
+        document.title = (config.location.businessName || 'WiFi Fiti') + ' WiFi';
+        renderPackages(config.packages || []);
+        message('support', '© ' + new Date().getFullYear() + ' ' + (config.location.businessName || 'WiFi Fiti') +
+          (config.supportPhone ? ' · Help: ' + config.supportPhone : ''));
+        checkout = read('_checkout');
+        if (checkout && checkout.portalToken && checkout.startedAt > Date.now() - 2 * 3600000) { pollPayment(); return; }
+        checkout = null; write('_checkout', null);
+        if (!mac) { message('error', 'Join this WiFi to buy or reconnect a package.'); return; }
+        var session = await api('/session?mac=' + encodeURIComponent(mac));
+        if (session.authenticated) { active(session); if (session.remainingSeconds > 0) reconnect(); return; }
+        if (session.found) message('error', 'This device already has ' + formatSeconds(session.remainingSeconds) + '. Enter your paying number and use Check my time to reconnect.');
+      } catch (error) { message('error', error.message); }
+    }
+    $('pay').onclick = pay; $('connect').onclick = reconnect;
+    $('check-time').onclick = function () { checkExisting(false).catch(function () {}); };
+    $('transfer').onclick = transfer; $('redeem').onclick = redeem; $('add-tv').onclick = addTv; $('remove-tv').onclick = removeTv;
+    $('open-voucher').onclick = function () { show('buy', 'voucher-section'); };
+    $('close-voucher').onclick = function () { show('buy'); };
+    $('buy-anyway').onclick = function () { bypassLookup = true; show('buy'); message('error', 'You can continue with another purchase.'); };
+    $('phone').oninput = function () { bypassLookup = false; };
+    $('manage-tv').onclick = tvDetails; $('close-tv').onclick = function () { show('active'); };
+    $('top-up').onclick = function () { stop(); bypassLookup = true; show('buy'); message('error', 'New time will extend the package on this device.'); };
+    $('copy-recovery').onclick = function () { if (current && current.password && navigator.clipboard) navigator.clipboard.writeText(current.password).then(function () { message('active-error', 'Recovery code copied.'); }).catch(function () { message('active-error', 'Select and copy the recovery code above.'); }); };
+    $('leave-waiting').onclick = function () { stop(); show('buy'); message('error', checkout ? 'Your previous payment is saved. Use Resume payment before making another purchase.' : 'Your package is saved. Use Check my time to reconnect.'); $('resume-payment').classList.toggle('hidden', !checkout); };
+    $('resume-payment').onclick = pollPayment;
+    $('year').textContent = String(new Date().getFullYear()); boot();
+  }());
+  </script>
+</body>
+</html>

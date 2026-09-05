@@ -4,6 +4,11 @@ M-Pesa pay-as-you-go WiFi for a MikroTik hAP lite TC. A customer connects,
 picks a package, gets an STK prompt, enters their PIN, and is online. No
 vouchers, no manual verification, no screenshots on WhatsApp.
 
+The original single-site flow remains supported. **WiFi Fiti for Business**
+adds a separate, multi-tenant control centre so independent hotspot operators
+can run their own locations, packages, customer payments, vouchers and
+routers without seeing each other's customers or sales.
+
 Package durations are wall-clock subscriptions: time starts as soon as the
 payment is confirmed and continues whether the customer is online or offline.
 Refreshing the portal reads the same persisted expiry from the server.
@@ -65,9 +70,126 @@ router via Winbox → Files.
 
 ---
 
+## WiFi Fiti for Business
+
+This is an independently built, Pawa-inspired operating model: a business
+subscribes for the capacity it needs, pairs its own routers, and runs its own
+customer portal. It does not reuse Pawa branding, code, accounts or customer
+data.
+
+Open `/business.html` on your WiFi Fiti domain to create an operator account
+or sign in. A newly registered business starts with a 14-day trial. The
+control centre is designed around this operating sequence:
+
+1. **Register the business.** The owner creates a business account and
+   chooses a collection mode and subscription plan.
+2. **Add a location.** Give each physical hotspot its own name and MikroTik
+   hotspot-server name. Locations are isolated: their router jobs,
+   subscriptions, vouchers, customer devices and sales never mix with another
+   business or location.
+3. **Copy the one-time pairing kit.** The dashboard provides the customer
+   portal URL and RouterOS commands for that location. Paste them into the
+   location's router while logged in as its administrator. The router polls
+   WiFi Fiti over outbound HTTPS, so it can stay behind NAT without exposing
+   its administration API to the internet. If the customer bridge has a name
+   other than `bridge-hs`, replace the `fitiBridge` value in the kit before
+   pasting it.
+4. **Verify the portal.** The pairing kit allows the WiFi Fiti domain through
+   the hotspot walled garden and enables the router polling job. From a fresh,
+   unauthenticated phone, join the Wi-Fi and confirm the location portal opens
+   at `/p/<location-id>`.
+5. **Sell and support.** The customer portal shows that business's packages,
+   starts M-Pesa collection, restores interrupted payment screens, remembers
+   a wall-clock subscription, supports voucher redemption and lets the payer
+   move an existing package to the current phone. One optional TV can share a
+   subscription; it does not turn a purchase into a general shared hotspot.
+
+### Subscription plans and business billing
+
+The included commercial tiers are capacity plans, not a charge for every
+router command:
+
+| WiFi Fiti plan | Monthly price | Included capacity |
+|---|---:|---|
+| Starter | KES 1,500 | 2 routers, up to 2,000 monthly active devices |
+| Growth | KES 3,500 | 5 routers, up to 5,000 monthly active devices |
+| Custom | Quote | Bespoke router and active-device capacity |
+
+The dashboard measures monthly active devices from subscriptions issued at
+paired locations. A paid plan change is deliberately not applied when an STK
+prompt is merely sent: it becomes active only after the M-Pesa payment is
+confirmed. Confirmation grants 30 days from the later of the current expiry
+or the confirmation time, so an early renewal is not lost. A custom plan is
+arranged with WiFi Fiti rather than charged automatically.
+
+If a business plan expires or is suspended, the platform stops that business
+from taking **new** customer payments. Existing paid customer subscriptions
+keep their already-issued wall-clock expiry. The business's platform plan and
+a customer's Wi-Fi package are therefore two separate subscriptions.
+
+### Customer M-Pesa collection
+
+A business chooses one of these modes in the control centre:
+
+- **Own M-Pesa** — the business connects its own Daraja application,
+  shortcode and passkey. WiFi Fiti verifies the credentials before saving
+  them, encrypts them at rest, and does not return them to the browser.
+- **WiFi Fiti collection** — customer STK payments use the platform Daraja
+  account. The business dashboard records the platform service fee alongside
+  its sales, while WiFi Fiti handles the payment reconciliation and router
+  provisioning path.
+
+Selecting either option alone does not make live payments work. The platform
+needs valid Daraja credentials, a valid shortcode/Till or Paybill, a passkey,
+and a public HTTPS callback URL. A business can only use **Own M-Pesa** after
+the platform has set `TENANT_SECRETS_KEY` and its supplied credentials pass
+verification. Sandbox settings are for testing; they do not collect real
+money.
+
+### Pairing-token safety
+
+Each location receives a high-entropy router token exactly once: when the
+location is created or when its token is rotated. WiFi Fiti keeps only a hash
+of that token, so it cannot be redisplayed later. Treat the one-time pairing
+kit like a router password: paste it directly into the intended router, do not
+put it in screenshots, tickets or chat groups, and rotate it immediately if it
+is copied, a router is replaced, or it was sent to the wrong person.
+
+---
+
+## Railway and production configuration
+
+For a Railway deployment, mount a persistent volume at `/data` and set:
+
+```bash
+DATABASE_PATH=/data/hotspot.db
+TENANT_SECRETS_KEY=<a long, stable random value>
+PUBLIC_URL=https://your-public-wifi-fiti-domain
+```
+
+Generate the tenant key once with `openssl rand -base64 48`. Keep it in
+Railway's secret variables, never in Git, and do not rotate it casually: it
+encrypts connected businesses' Daraja credentials and changing it without a
+credential-migration process would make those connections unreadable.
+
+Also set the platform `MPESA_*` values to real production Daraja credentials
+before offering WiFi Fiti collection or automated business-plan billing. The
+callback endpoint must be reachable over public HTTPS. Keep the database on
+the `/data` volume; a Railway redeploy without that volume loses transaction,
+subscription, router-pairing and billing records.
+
+Routers need outbound DNS and HTTPS access to the public WiFi Fiti domain. Do
+not solve a connection problem by opening MikroTik's API port (`8728`) to the
+internet; use the polling pairing model or a properly secured VPN.
+
+---
+
 ## Changing what you sell
 
 `src/packages.js` is the only file to edit for prices and durations.
+That applies to the original single-site portal. Business operators manage
+their own packages in the WiFi Fiti for Business control centre, where those
+packages remain scoped to their business.
 Speed and device limits live on the router:
 
 ```

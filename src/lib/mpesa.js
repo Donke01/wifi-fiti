@@ -112,6 +112,7 @@ async function stkPush({ phone, amount, accountReference, description }) {
   };
 
   const res = await fetch(`${baseUrl}/mpesa/stkpush/v1/processrequest`, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -145,6 +146,7 @@ async function stkQuery(checkoutRequestId) {
   const ts = timestamp();
 
   const res = await fetch(`${baseUrl}/mpesa/stkpushquery/v1/query`, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -160,6 +162,7 @@ async function stkQuery(checkoutRequestId) {
 
   const data = await res.json().catch(() => ({}));
 
+  if (!res.ok) throw new Error(`M-Pesa query is unavailable (${res.status}).`);
   // ResultCode 1032 = cancelled by user, 1037 = timeout/unreachable,
   // 0 = success. While still in flight Daraja answers with an
   // errorCode of 500.001.1001 ("transaction is being processed").

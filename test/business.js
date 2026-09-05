@@ -21,7 +21,7 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   const pkg = await call('/api/business/packages',{name:'Three hours',price:20,hours:3},token);
   assert.strictEqual(pkg.status,201); assert.strictEqual(pkg.body.packages.length,1);
   const plan = await call('/api/business/billing-plan',{plan:'growth',collectionMode:'fiti'},token);
-  assert.strictEqual(plan.status,200); assert.strictEqual(plan.body.plan.monthlyKes,3500);
+  assert.strictEqual(plan.status,200); assert.strictEqual(plan.body.checkoutRequired,true); assert.strictEqual(plan.body.amount,3500);
   const login = await call('/api/business/login',{email:'amina@example.test',password:'securepass'});
   assert.strictEqual(login.status,200); assert.ok(login.body.token);
   console.log('business onboarding: ok');

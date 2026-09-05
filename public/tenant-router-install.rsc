@@ -1,5 +1,5 @@
 # =====================================================================
-#  WiFi Fiti - router-side polling, usage reporting and acknowledgement
+#  WiFi Fiti for Business - router-side polling, usage reporting and acknowledgement
 #
 #  Every 5 seconds the router does ONE round trip that carries: which
 #  jobs it ran last cycle and a request for new work. The server also sends
@@ -39,6 +39,36 @@
 }
 :if ([:len $fitiBridge] = 0) do={ :set fitiBridge "bridge-hs" }
 
+
+:global fitiHotspotServer
+:if ([:len $fitiHotspotServer] = 0) do={ :set fitiHotspotServer "hotspot1" }
+
+# Validate this router before modifying its portal or installed scripts.
+:if ([:len [/ip hotspot find where name=$fitiHotspotServer]] != 1) do={
+  :error "Hotspot server not found. Finish RouterOS Hotspot Setup and set fitiHotspotServer first."
+}
+:if ([:len [/interface find where name=$fitiBridge]] != 1) do={
+  :error "Customer bridge not found. Correct fitiBridge before importing."
+}
+:local previousBoot [/system script find where name="fiti-boot"]
+:if ([:len $previousBoot] > 0) do={
+  :local previous [/system script get $previousBoot source]
+  :if ([:typeof [:find $previous $fitiSite]] = "nil") do={
+    :error "This router is paired to a different WiFi Fiti site. Complete a deliberate migration before pairing it here."
+  }
+}
+
+# Keep the private router credential out of request URLs.
+:local profileId [/ip hotspot get [find where name=$fitiHotspotServer] profile]
+:local htmlDir [/ip hotspot profile get [find where name=$profileId] html-directory]
+:if ([:len $htmlDir] = 0) do={ :set htmlDir "hotspot" }
+/tool fetch url=($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login") \
+  http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($htmlDir . "/login.html")
+
+:if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={
+  /ip hotspot user profile add name=standard shared-users=1
+}
+
 # Enforce one physical device per MAC-bound identity and prevent ordinary
 # phone hotspot/tether forwarding by delivering client packets with TTL 1.
 /ip hotspot user profile set [find name="standard"] shared-users=1
@@ -58,7 +88,7 @@
 /system scheduler remove [find name="fiti-poll"]
 /system scheduler remove [find name="fiti-globals"]
 
-/system script add name=fiti-poll owner=admin policy=read,write,test,policy source="\
+/system script add name=fiti-poll policy=read,write,test,policy source="\
 :global fitiUrl\r\
 \n:global fitiSite\r\
 \n:global fitiToken\r\
@@ -74,11 +104,11 @@
 \n    :set report (\$report . \$n . \":\" . [:tonum \$up] . \":\" . [:tonum \$lim] . \":\" . \$act . \"\\n\")\r\
 \n  }\r\
 \n  :local sending \$fitiAck\r\
-\n  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite . \"&token=\" . \$fitiToken . \"&ack=\" . \$sending)\r\
+\n  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite . \"&ack=\" . \$sending)\r\
 \n  :local reply \"\"\r\
 \n  :local ok false\r\
 \n  :do {\r\
-\n    :set reply [/tool fetch url=\$url http-method=post http-data=\$report output=user as-value]\r\
+\n    :set reply [/tool fetch url=\$url http-header-field=(\"X-WiFi-Fiti-Router: \" . \$fitiToken) http-method=post http-data=\$report output=user as-value]\r\
 \n    :set ok true\r\
 \n  } on-error={\r\
 \n    :log warning \"fiti: server unreachable\"\r\
@@ -104,7 +134,7 @@
 # --- Restore settings at boot ----------------------------------------
 #  RouterOS clears globals on restart. Without this the poll silently
 #  stops after every power cut and payments queue up unseen.
-/system script add name=fiti-boot owner=admin policy=read,write,test,policy source="\
+/system script add name=fiti-boot policy=read,write,test,policy source="\
 :global fitiUrl \"$fitiUrl\"\r\
 \n:global fitiSite \"$fitiSite\"\r\
 \n:global fitiToken \"$fitiToken\"\r\
@@ -117,12 +147,12 @@
   policy=read,write,test,policy on-event="/system script run fiti-boot" \
   comment="WiFi Fiti: restore settings after reboot"
 
-/system scheduler add name=fiti-poll interval=5s disabled=yes \
+/system scheduler add name=fiti-poll interval=5s disabled=no \
   policy=read,write,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 
 :put ""
-:put "Installed but paused. Enable fiti-poll only after disabling the old router."
+:put "Business router paired. Polling is active."
 :put "Test now:      /system script run fiti-poll"
 :put "Check logs:    /log print where message~\"fiti\""
 :put "Granted users: /ip hotspot user print detail"

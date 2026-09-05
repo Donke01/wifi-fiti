@@ -161,6 +161,8 @@ for (const stmt of [
   `ALTER TABLE accounts ADD COLUMN payer_phone TEXT`,
   `ALTER TABLE businesses ADD COLUMN plan TEXT NOT NULL DEFAULT 'starter'`,
   `ALTER TABLE businesses ADD COLUMN collection_mode TEXT NOT NULL DEFAULT 'own'`,
+  `ALTER TABLE businesses ADD COLUMN billing_status TEXT NOT NULL DEFAULT 'trial'`,
+  `ALTER TABLE businesses ADD COLUMN billing_expires_at TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
@@ -217,7 +219,7 @@ const markResult = db.prepare(`
          result_desc = @resultDesc,
          mpesa_receipt = COALESCE(@receipt, mpesa_receipt),
          updated_at = datetime('now')
-   WHERE checkout_request_id = @checkoutRequestId
+   WHERE checkout_request_id = @checkoutRequestId AND (status!='paid' OR @status='paid')
 `);
 
 const markProvisioned = db.prepare(`
@@ -523,18 +525,21 @@ const addBusiness = db.prepare(`
   VALUES (@id, @name, @ownerName, @ownerPhone, @email, @passwordHash, @plan, @collectionMode)
 `);
 const businessByEmail = db.prepare(`SELECT * FROM businesses WHERE email = ?`);
-const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, created_at FROM businesses WHERE id = ?`);
+const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at, created_at FROM businesses WHERE id = ?`);
 const addBusinessSession = db.prepare(`
   INSERT INTO business_sessions (token_hash, business_id, expires_at)
   VALUES (@tokenHash, @businessId, @expiresAt)
 `);
 const businessForSession = db.prepare(`
-  SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode
+  SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode, b.billing_status, b.billing_expires_at
     FROM business_sessions s JOIN businesses b ON b.id = s.business_id
    WHERE s.token_hash = ? AND s.expires_at > datetime('now')
 `);
 const setBusinessPlan = db.prepare(`
   UPDATE businesses SET plan = @plan, collection_mode = @collectionMode WHERE id = @id
+`);
+const setBusinessTrial = db.prepare(`
+  UPDATE businesses SET billing_status='trial', billing_expires_at=@expiresAt WHERE id=@id
 `);
 const addLocation = db.prepare(`
   INSERT INTO locations (id, business_id, name, router_token, router_name)
@@ -607,6 +612,7 @@ module.exports = {
   addBusinessSession,
   businessForSession,
   setBusinessPlan,
+  setBusinessTrial,
   addLocation,
   locationsForBusiness,
   addBusinessPackage,

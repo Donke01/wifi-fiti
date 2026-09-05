@@ -4,6 +4,9 @@ const express = require('express');
 
 const config = require('./config');
 const db = require('./lib/db');
+const tenant = require('./lib/tenant');
+const tenantAccess = require('./lib/tenant-access');
+const tenantMpesa = require('./lib/tenant-mpesa');
 const mpesa = require('./lib/mpesa');
 const mikrotik = require('./lib/mikrotik');
 const { fulfil } = require('./lib/fulfil');
@@ -21,7 +24,42 @@ app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
 
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false }));
+app.use((req, res, next) => {
+  // Captive portal links carry RouterOS values and one-time pairing URLs can
+  // carry a router credential. Do not let browsers forward either to a
+  // third-party asset or destination.
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// Limit credential guessing and payment-prompt abuse with a persisted
+// window. A service restart must not reset these limits.
+app.use((req, res, next) => {
+  const path = req.path;
+  let key, maximum, windowMs;
+  if (path === '/api/business/login' || path === '/api/business/register') {
+    key = path + ':' + req.ip;
+    maximum = path.endsWith('register') ? 20 : 50;
+    windowMs = 15 * 60_000;
+  } else if (req.method === 'POST' && path.startsWith('/api/tenant/')) {
+    const identity = String(req.body && (req.body.phone || req.body.subscriptionId || req.body.mac) || '').slice(0, 100);
+    key = path + ':' + req.ip + ':' + identity;
+    maximum = path.endsWith('/pay') ? 12 : 40;
+    windowMs = 5 * 60_000;
+  }
+  if (key) {
+    const limit = tenantAccess.allowed(key, maximum, windowMs);
+    if (!limit.allowed) return res.status(429).set('Retry-After', String(limit.retryAfter))
+      .json({ error: 'Too many attempts. Please wait a few minutes before trying again.' });
+  }
+  next();
+});
+setInterval(() => tenantAccess.purge(), 60 * 60_000).unref();
 
 /* ------------------------------------------------------------------ */
 /* Throttle                                                            */
@@ -104,9 +142,11 @@ app.post('/api/business/register', (req, res) => {
   if (db.businessByEmail.get(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
   const id = businessId('biz');
   try {
-    db.addBusiness.run({ id, name, ownerName, ownerPhone, email, passwordHash: hashPassword(password), plan, collectionMode });
+    db.addBusiness.run({ id, name, ownerName, ownerPhone, email, passwordHash: hashPassword(password),
+      plan: plan === 'custom' ? 'starter' : plan, collectionMode });
+    db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
     const token = issueBusinessSession(id);
-    res.status(201).json({ token, business: db.businessById.get(id) });
+    res.status(201).json({ token, business: db.businessById.get(id), requestedCustom: plan === 'custom' });
   } catch (err) {
     console.error('[business] registration failed:', err.message);
     res.status(500).json({ error: 'Could not create the business account.' });
@@ -123,11 +163,20 @@ app.post('/api/business/login', (req, res) => {
   res.json({ token: issueBusinessSession(business.id), business: db.businessById.get(business.id) });
 });
 
+app.post('/api/business/logout', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  db.db.prepare('DELETE FROM business_sessions WHERE token_hash=? AND business_id=?')
+    .run(crypto.createHash('sha256').update(token).digest('hex'), business.id);
+  res.json({ ok: true });
+});
+
 app.get('/api/business/me', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  const locations = db.locationsForBusiness.all(business.id);
+  const locations = tenant.locationsForBusiness.all(business.id);
   res.json({ business, plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
-    monthlyActiveDevices: 0, note: 'Usage metering starts when a router is paired.' });
+    monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
+    note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
 });
 
 app.post('/api/business/billing-plan', (req, res) => {
@@ -135,8 +184,151 @@ app.post('/api/business/billing-plan', (req, res) => {
   const plan = String(req.body && req.body.plan || '');
   const collectionMode = String(req.body && req.body.collectionMode || '');
   if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid plan.' });
+  // Changing collection mode is immediate. Changing the paid platform plan
+  // is completed only after the monthly M-Pesa checkout below settles.
+  if (plan !== business.plan && plan !== 'custom') {
+    db.setBusinessPlan.run({ id: business.id, plan: business.plan, collectionMode });
+    return res.json({ plan: BUSINESS_PLANS[business.plan], collectionMode,
+      checkoutRequired: true, requestedPlan: plan, amount: BUSINESS_PLANS[plan].monthlyKes });
+  }
+  if (plan === 'custom') {
+    db.setBusinessPlan.run({ id: business.id, plan: business.plan, collectionMode });
+    return res.json({ plan: BUSINESS_PLANS[business.plan], collectionMode,
+      contactRequired: true, requestedPlan: 'custom' });
+  }
   db.setBusinessPlan.run({ id: business.id, plan, collectionMode });
   res.json({ plan: BUSINESS_PLANS[plan], collectionMode });
+});
+
+app.post('/api/business/billing/checkout', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const plan = String(req.body && req.body.plan || business.plan);
+  const definition = BUSINESS_PLANS[plan];
+  const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
+  if (!definition || !definition.monthlyKes) return res.status(400).json({ error: 'Custom plans are arranged with WiFi Fiti directly.' });
+  if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay for this plan.' });
+  if (definition.routerLimit && tenant.locationsForBusiness.all(business.id).length > definition.routerLimit) {
+    return res.status(409).json({ error: 'This plan does not cover your existing routers. Choose a plan with enough router capacity.' });
+  }
+  const pending = db.db.prepare(`SELECT checkout_request_id FROM business_billing_transactions
+    WHERE business_id=? AND status='pending' AND created_at>datetime('now','-3 minutes')
+    ORDER BY created_at DESC LIMIT 1`).get(business.id);
+  if (pending) return res.status(409).json({ error: 'Your previous plan payment is still processing. Check its status before sending another request.' });
+  const throttleKey = `platform:${business.id}:${phone}`;
+  const previous = lastPush.get(throttleKey);
+  if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A plan payment request is already on its way. Please wait a moment.' });
+  try {
+    lastPush.set(throttleKey, Date.now());
+    const pushed = await mpesa.stkPush({ phone, amount: definition.monthlyKes,
+      accountReference: `WF-${plan}`, description: `${definition.name} plan` });
+    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId,
+      merchantRequestId: pushed.merchantRequestId, businessId: business.id, plan, phone, amount: definition.monthlyKes });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, plan, amount: definition.monthlyKes,
+      phoneDisplay: mpesa.displayPhone(phone) });
+  } catch (err) {
+    lastPush.delete(throttleKey);
+    console.error('[business billing] STK push failed:', err.message);
+    res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
+  }
+});
+
+async function queryBusinessBillingNow(transaction) {
+  const age = Date.now() - new Date(transaction.created_at + 'Z').getTime();
+  if (!Number.isFinite(age) || age < QUERY_AFTER_MS) return transaction;
+  const last = lastQueryAt.get(transaction.checkout_request_id) || 0;
+  if (Date.now() - last < QUERY_EVERY_MS) return transaction;
+  lastQueryAt.set(transaction.checkout_request_id, Date.now());
+  try {
+    const result = await mpesa.stkQuery(transaction.checkout_request_id);
+    if (!result.settled) return transaction;
+    if (result.resultCode === 0) {
+      tenant.setBusinessBillingResult.run({ checkoutRequestId: transaction.checkout_request_id,
+        status: 'paid', resultCode: 0, resultDesc: result.resultDesc, receipt: null });
+      tenant.activateBusinessBilling(transaction.checkout_request_id);
+    } else if (age >= QUERY_FAILURE_AFTER_MS) {
+      tenant.setBusinessBillingResult.run({ checkoutRequestId: transaction.checkout_request_id,
+        status: 'failed', resultCode: result.resultCode, resultDesc: result.resultDesc, receipt: null });
+    }
+  } catch (err) {
+    console.warn(`[business billing] query failed for ${transaction.checkout_request_id}: ${err.message}`);
+  }
+  return tenant.businessBillingTransaction.get(transaction.checkout_request_id);
+}
+
+app.get('/api/business/billing/status/:checkoutRequestId', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  let transaction = tenant.businessBillingTransaction.get(req.params.checkoutRequestId);
+  if (!transaction || transaction.business_id !== business.id) return res.status(404).json({ error: 'Plan payment not found.' });
+  if (transaction.status === 'pending') transaction = await queryBusinessBillingNow(transaction);
+  if (transaction.status === 'paid') {
+    try { tenant.activateBusinessBilling(transaction.checkout_request_id); }
+    catch (err) { console.error('[business billing] activation failed:', err.message); }
+  }
+  transaction = tenant.businessBillingTransaction.get(transaction.checkout_request_id);
+  res.json({ status: transaction.status === 'paid' && !transaction.activated ? 'pending' : transaction.status, plan: transaction.plan, amount: transaction.amount,
+    expiresAt: transaction.status === 'paid' ? db.businessById.get(business.id).billing_expires_at : null,
+    reason: transaction.status === 'failed' ? friendlyFailure(transaction.result_code, transaction.result_desc) : null });
+});
+
+app.get('/api/business/billing/recover', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const transaction = db.db.prepare(`SELECT * FROM business_billing_transactions
+    WHERE business_id=? AND ((status='pending' AND created_at>datetime('now','-2 hours'))
+      OR (status!='pending' AND updated_at>datetime('now','-30 minutes')))
+    ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(business.id);
+  if (!transaction) return res.json({ found: false });
+  res.json({ found: true, checkoutRequestId: transaction.checkout_request_id,
+    plan: transaction.plan, amount: transaction.amount, phoneDisplay: mpesa.displayPhone(transaction.phone),
+    status: transaction.status === 'paid' && !transaction.activated ? 'pending' : transaction.status,
+    expiresAt: transaction.activated ? business.billing_expires_at : null,
+    reason: transaction.status === 'failed' ? friendlyFailure(transaction.result_code, transaction.result_desc) : null });
+});
+
+app.get('/api/business/payment-collection', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const connection = tenant.paymentConnectionSummary.get(business.id);
+  res.json({
+    mode: business.collection_mode,
+    configured: Boolean(connection),
+    secureStorageReady: Boolean(process.env.TENANT_SECRETS_KEY),
+    connection: connection ? {
+      collectionName: connection.collection_name,
+      shortcode: connection.shortcode,
+      transactionType: connection.transaction_type,
+      lastVerifiedAt: connection.last_verified_at,
+    } : null,
+  });
+});
+
+/** Connect a business-owned Daraja account. Credentials are verified before
+ * storage and encrypted at rest; this endpoint never returns them. */
+app.post('/api/business/payment-collection', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const collectionName = String(req.body && req.body.collectionName || '').trim().slice(0, 80);
+  const shortcode = String(req.body && req.body.shortcode || '').trim();
+  const transactionType = String(req.body && req.body.transactionType || 'CustomerPayBillOnline');
+  const consumerKey = String(req.body && req.body.consumerKey || '').trim();
+  const consumerSecret = String(req.body && req.body.consumerSecret || '').trim();
+  const passkey = String(req.body && req.body.passkey || '').trim();
+  if (!/^\d{5,12}$/.test(shortcode) || !['CustomerPayBillOnline', 'CustomerBuyGoodsOnline'].includes(transactionType) ||
+      consumerKey.length < 4 || consumerSecret.length < 4 || passkey.length < 4) {
+    return res.status(400).json({ error: 'Enter valid Daraja credentials, a shortcode, and the correct transaction type.' });
+  }
+  if (!process.env.TENANT_SECRETS_KEY) {
+    return res.status(503).json({ error: 'Secure payment storage has not been configured by WiFi Fiti yet.' });
+  }
+  const credentials = { shortcode, transactionType, consumerKey, consumerSecret, passkey };
+  try {
+    await tenantMpesa.verify(credentials);
+    const connection = tenant.savePaymentConnection({ businessId: business.id, collectionName, ...credentials, verified: true });
+    res.status(201).json({ configured: true, connection: {
+      collectionName: connection.collection_name, shortcode: connection.shortcode,
+      transactionType: connection.transaction_type, lastVerifiedAt: connection.last_verified_at,
+    } });
+  } catch (err) {
+    console.warn(`[business payment collection] verification failed for ${business.id}: ${err.message}`);
+    res.status(400).json({ error: 'M-Pesa could not verify those credentials. Check the Daraja app and try again.' });
+  }
 });
 
 app.post('/api/business/locations', (req, res) => {
@@ -144,10 +336,31 @@ app.post('/api/business/locations', (req, res) => {
   const name = String(req.body && req.body.name || '').trim().slice(0, 80);
   const routerName = String(req.body && req.body.routerName || '').trim().slice(0, 80);
   if (!name) return res.status(400).json({ error: 'Give this location a name.' });
-  const location = { id: businessId('loc'), businessId: business.id, name,
-    routerName: routerName || null, routerToken: crypto.randomBytes(24).toString('base64url') };
-  db.addLocation.run(location);
-  res.status(201).json({ location });
+  const plan = BUSINESS_PLANS[business.plan];
+  const existing = tenant.locationsForBusiness.all(business.id);
+  if (plan.routerLimit && existing.length >= plan.routerLimit) {
+    return res.status(402).json({
+      error: `${plan.name} includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Choose a larger plan before adding another location.`,
+    });
+  }
+  const location = tenant.createLocation({ id: businessId('loc'), businessId: business.id, name,
+    routerName: routerName || null });
+  res.status(201).json({
+    location,
+    portalUrl: `${config.publicUrl}/p/${encodeURIComponent(location.id)}`,
+  });
+});
+
+/** A router credential is shown once, at pairing time.  Rotate rather than
+ * redisplay it if a device is replaced, lost or sent to the wrong person. */
+app.post('/api/business/locations/:locationId/router-token', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const location = tenant.rotateLocationToken({ locationId: String(req.params.locationId), businessId: business.id });
+  if (!location) return res.status(404).json({ error: 'Location not found.' });
+  res.json({
+    location,
+    portalUrl: `${config.publicUrl}/p/${encodeURIComponent(location.id)}`,
+  });
 });
 
 app.post('/api/business/packages', (req, res) => {
@@ -160,6 +373,463 @@ app.post('/api/business/packages', (req, res) => {
   }
   db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600) });
   res.status(201).json({ packages: db.packagesForBusiness.all(business.id) });
+});
+
+app.patch('/api/business/packages/:packageId', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const id = Number(req.params.packageId);
+  const current = tenant.businessPackageById.get(id, business.id);
+  if (!current) return res.status(404).json({ error: 'Package not found.' });
+  const name = String(req.body && req.body.name || current.name).trim().slice(0, 48);
+  const price = req.body && req.body.price === undefined ? current.price : Number(req.body.price);
+  const hours = req.body && req.body.hours === undefined ? current.seconds / 3600 : Number(req.body.hours);
+  if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31) {
+    return res.status(400).json({ error: 'Enter a package name, price and duration up to 31 days.' });
+  }
+  tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600) });
+  res.json({ packages: db.packagesForBusiness.all(business.id) });
+});
+
+app.patch('/api/business/packages/:packageId/availability', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const id = Number(req.params.packageId);
+  if (!tenant.businessPackageById.get(id, business.id)) return res.status(404).json({ error: 'Package not found.' });
+  tenant.setBusinessPackageActive.run({ id, businessId: business.id, active: req.body && req.body.active === false ? 0 : 1 });
+  res.json({ packages: db.packagesForBusiness.all(business.id) });
+});
+
+app.patch('/api/business/locations/:locationId', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const current = tenant.locationForBusiness.get(String(req.params.locationId), business.id);
+  if (!current) return res.status(404).json({ error: 'Location not found.' });
+  const name = String(req.body && req.body.name === undefined ? current.name : req.body.name || '').trim().slice(0, 80);
+  const routerName = String(req.body && req.body.routerName === undefined ? current.router_name || '' : req.body.routerName || '').trim().slice(0, 80);
+  const hotspotServer = String(req.body && req.body.hotspotServer === undefined ? current.hotspot_server || '' : req.body.hotspotServer || '').trim();
+  if (!name || (hotspotServer && !/^[A-Za-z0-9_-]{1,32}$/.test(hotspotServer))) {
+    return res.status(400).json({ error: 'Enter a location name and a valid RouterOS hotspot server name.' });
+  }
+  const location = tenant.updateLocationSettings({ locationId: current.id, businessId: business.id, name, routerName, hotspotServer });
+  res.json({ location });
+});
+
+app.get('/api/business/dashboard', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const period = String(req.query.period || '30d');
+  const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
+  const since = new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+  const totals = tenant.salesSummary.get(business.id, since);
+  const gross = Number(totals.gross || 0);
+  const platformFee = Number(totals.platform_fee || 0);
+  res.json({
+    period, since, gross, payments: Number(totals.payments || 0), customers: Number(totals.customers || 0),
+    platformFee, netToBusiness: gross - platformFee,
+    byLocation: tenant.salesByLocation.all(since, business.id),
+    recentPayments: tenant.recentSales.all(business.id, 25),
+  });
+});
+
+app.get('/api/business/vouchers', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  res.json({ vouchers: tenant.vouchersForBusiness.all(business.id, 100) });
+});
+
+app.post('/api/business/vouchers', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const locationId = String(req.body && req.body.locationId || '');
+  const packageId = Number(req.body && req.body.packageId);
+  const count = Math.min(Math.max(Math.floor(Number(req.body && req.body.count) || 1), 1), 200);
+  const location = tenant.locationForBusiness.get(locationId, business.id);
+  const pkg = tenant.businessPackageById.get(packageId, business.id);
+  if (!location || !pkg || !pkg.active) return res.status(400).json({ error: 'Choose one of your active packages and locations.' });
+  try {
+    const codes = tenant.issueVouchers({ businessId: business.id, locationId, packageId: pkg.id,
+      packageName: pkg.name, seconds: pkg.seconds, count, batch: String(req.body && req.body.batch || '').trim().slice(0, 40) });
+    res.status(201).json({ codes, locationId, package: pkg.name });
+  } catch (err) {
+    console.error('[business vouchers] issue failed:', err.message);
+    res.status(500).json({ error: 'Could not create vouchers.' });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Tenant customer portal                                             */
+/* ------------------------------------------------------------------ */
+
+function tenantRemaining(subscription) {
+  if (!subscription) return 0;
+  const raw = String(subscription.expires_at || subscription.expiresAt || '');
+  const expiry = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z').getTime();
+  return Number.isFinite(expiry) ? Math.max(0, Math.ceil((expiry - Date.now()) / 1000)) : 0;
+}
+
+function tenantSessionPayload(subscription, issueToken = false) {
+  return { found: true, authenticated: true, subscriptionId: subscription.id,
+    payerPhone: subscription.payer_phone, username: subscription.router_username,
+    password: subscription.password, remainingSeconds: tenantRemaining(subscription),
+    expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z',
+    device: tenant.deviceForSubscription.get(subscription.location_id, subscription.id) || null,
+    awaitingRouter: Boolean(tenant.pendingProvisioningJobForUsername.get(subscription.location_id, subscription.router_username)),
+    ...(issueToken ? { sessionToken: tenantAccess.issue(subscription) } : {}) };
+}
+
+function tenantSessionForRequest(location, req) {
+  return tenantAccess.authenticate(location.id, req.get('X-WiFi-Fiti-Session'),
+    cleanMac(req.query.mac || req.body && req.body.mac));
+}
+
+function tenantPortalCapability() {
+  return crypto.randomBytes(24).toString('base64url');
+}
+
+function tenantPortalCapabilityOk(transaction, supplied) {
+  const expected = Buffer.from(String(transaction && transaction.portal_token_hash || ''), 'hex');
+  const actual = Buffer.from(tenant.tokenHash(supplied), 'hex');
+  if (!expected.length || expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return false;
+  const expiresAt = new Date(String(transaction.portal_token_expires_at || '').replace(' ', 'T') + 'Z').getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
+function tenantProvisioningPending(transaction) {
+  if (!transaction || !transaction.provisioned || !transaction.subscription_id) return true;
+  if (!transaction.provisioning_job_id) return true;
+  const job = tenant.jobById.get(transaction.provisioning_job_id, transaction.location_id);
+  return !job || !job.acked_at;
+}
+
+function tenantPaidPayload(transaction) {
+  const subscription = tenant.subscriptionById.get(transaction.subscription_id, transaction.location_id);
+  if (!subscription) return { status: 'pending', awaitingRouter: true };
+  if (tenantProvisioningPending(transaction)) return { status: 'pending', awaitingRouter: true };
+  if (subscription.mac !== transaction.mac) return { status: 'transferred',
+    reason: 'This package was moved to another device. Use its WiFi recovery code to move it back.' };
+  return { status: 'paid', ...tenantSessionPayload(subscription, true) };
+}
+
+function provisionTenantPayment(checkoutRequestId) {
+  const transaction = tenant.getTransaction.get(checkoutRequestId);
+  if (!transaction || transaction.status !== 'paid') return transaction;
+  if (!transaction.provisioned) tenant.provisionPaidTransaction(checkoutRequestId);
+  return tenant.getTransaction.get(checkoutRequestId);
+}
+
+async function queryTenantMpesa(transaction) {
+  if (transaction.payment_source === 'own') {
+    const credentials = tenant.paymentCredentials(transaction.business_id);
+    if (!credentials) throw new Error('Business M-Pesa credentials are unavailable.');
+    return tenantMpesa.stkQuery({ credentials, checkoutRequestId: transaction.checkout_request_id });
+  }
+  return mpesa.stkQuery(transaction.checkout_request_id);
+}
+
+async function queryTenantNow(transaction) {
+  const age = Date.now() - new Date(transaction.created_at + 'Z').getTime();
+  if (!Number.isFinite(age) || age < QUERY_AFTER_MS) return transaction;
+  const last = lastQueryAt.get(transaction.checkout_request_id) || 0;
+  if (Date.now() - last < QUERY_EVERY_MS) return transaction;
+  lastQueryAt.set(transaction.checkout_request_id, Date.now());
+
+  try {
+    const result = await queryTenantMpesa(transaction);
+    if (!result.settled) return transaction;
+    if (result.resultCode === 0) {
+      tenant.setTransactionResult.run({ checkoutRequestId: transaction.checkout_request_id,
+        status: 'paid', resultCode: 0, resultDesc: result.resultDesc, receipt: null });
+      return provisionTenantPayment(transaction.checkout_request_id);
+    }
+    if (age >= QUERY_FAILURE_AFTER_MS) {
+      tenant.setTransactionResult.run({ checkoutRequestId: transaction.checkout_request_id,
+        status: 'failed', resultCode: result.resultCode, resultDesc: result.resultDesc, receipt: null });
+    }
+  } catch (err) {
+    console.warn(`[tenant status] query failed for ${transaction.checkout_request_id}: ${err.message}`);
+  }
+  return tenant.getTransaction.get(transaction.checkout_request_id);
+}
+
+function publicLocation(id, res) {
+  const location = tenant.locationById.get(id);
+  if (!location) { res.status(404).json({ error: 'This WiFi location was not found.' }); return null; }
+  return location;
+}
+
+function businessCanSell(location) {
+  if (location.billing_status === 'suspended') return 'This WiFi service is temporarily unavailable.';
+  if (!location.billing_expires_at) return null; // existing operators are migrated without interruption
+  const expiry = new Date(location.billing_expires_at.replace(' ', 'T') + 'Z').getTime();
+  if (Number.isFinite(expiry) && expiry <= Date.now()) {
+    return 'This WiFi service needs its business plan renewed before it can take a new payment.';
+  }
+  return null;
+}
+
+app.get('/p/:locationId', (req, res) => {
+  if (!tenant.locationById.get(req.params.locationId)) return res.status(404).send('WiFi location not found.');
+  res.sendFile(path.join(__dirname, '..', 'public', 'tenant-portal.html'));
+});
+
+app.get('/api/tenant/:locationId/config', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  res.json({ location: { id: location.id, name: location.name, businessName: location.business_name },
+    packages: tenant.packagesForLocation.all(location.id), supportPhone: config.supportPhone });
+});
+
+app.get('/api/tenant/:locationId/session', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const authenticated = tenantSessionForRequest(location, req);
+  if (authenticated) return res.json(tenantSessionPayload(authenticated));
+  const mac = cleanMac(req.query.mac);
+  const subscription = mac && tenant.subscriptionByMac.get(location.id, mac);
+  const remainingSeconds = tenantRemaining(subscription);
+  if (!subscription || remainingSeconds <= 0) return res.json({ found: false });
+  // A MAC address is only a router routing hint, not proof of ownership.
+  // Never disclose credentials, phone numbers or subscription ids from it.
+  res.json({ found: true, manualConnect: true, remainingSeconds,
+    expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z' });
+});
+
+app.post('/api/tenant/:locationId/session/connect', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const subscription = tenantSessionForRequest(location, req);
+  if (!subscription) return res.status(403).json({ error: 'Use your WiFi recovery code to reconnect this package.' });
+  if (!tenantRemaining(subscription)) return res.status(402).json({ error: 'This package has ended. Choose a new package to continue.' });
+  const ip = cleanIp(req.body && req.body.ip);
+  const job = tenant.insertJob.run({ locationId: location.id, username: subscription.router_username,
+    password: subscription.password, profile: 'standard', totalSeconds: subscription.total_seconds,
+    mac: subscription.mac, ip, action: 'upsert' });
+  res.json({ ...tenantSessionPayload(subscription), status: 'pending', provisioningJobId: Number(job.lastInsertRowid) });
+});
+
+app.post('/api/tenant/:locationId/pay', async (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const salesBlocked = businessCanSell(location);
+  if (salesBlocked) return res.status(402).json({ error: salesBlocked });
+  const pkg = tenant.packageForLocation.get(Number(req.body && req.body.packageId), location.id);
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  const mac = cleanMac(req.body && req.body.mac);
+  const ip = cleanIp(req.body && req.body.ip);
+  if (!pkg || !phone || !mac) return res.status(400).json({ error: 'Choose a package, enter a valid number, and reconnect to this WiFi.' });
+  const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
+  const existingSubscription = tenant.subscriptionByMac.get(location.id, mac);
+  if (!existingSubscription && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
+    return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
+  }
+  const pendingPayment = tenant.pendingPaymentForPhone.get(location.id, phone);
+  if (pendingPayment) {
+    return res.status(429).json({ error: 'A payment request is already on its way to this number. Please check the phone first.' });
+  }
+  const throttleKey = `${location.id}:${phone}`;
+  const previous = lastPush.get(throttleKey);
+  if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) {
+    return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
+  }
+  try {
+    lastPush.set(throttleKey, Date.now());
+    let pushed;
+    let paymentSource = 'fiti';
+    let platformFee = pkg.price * 5 / 100;
+    if (location.collection_mode === 'own') {
+      let credentials;
+      try { credentials = tenant.paymentCredentials(location.business_id); }
+      catch (err) {
+        lastPush.delete(throttleKey);
+        return res.status(409).json({ error: 'This operator needs to reconnect their own M-Pesa collection account.' });
+      }
+      if (!credentials) {
+        lastPush.delete(throttleKey);
+        return res.status(409).json({ error: 'This operator must finish connecting their own M-Pesa collection account before taking payments.' });
+      }
+      pushed = await tenantMpesa.stkPush({ credentials, phone, amount: pkg.price,
+        accountReference: `WF-${location.id.slice(-6)}`, description: pkg.name });
+      paymentSource = 'own';
+      platformFee = 0;
+    } else {
+      pushed = await mpesa.stkPush({ phone, amount: pkg.price,
+        accountReference: `WF-${location.id.slice(-6)}`, description: pkg.name });
+    }
+    const portalToken = tenantPortalCapability();
+    tenant.insertTransaction.run({ checkoutRequestId: pushed.checkoutRequestId,
+      merchantRequestId: pushed.merchantRequestId, businessId: location.business_id, locationId: location.id,
+      phone, packageId: pkg.id, packageName: pkg.name, amount: pkg.price, seconds: pkg.seconds, mac, ip });
+    tenant.setTransactionTerms.run({ checkoutRequestId: pushed.checkoutRequestId, paymentSource, platformFee });
+    tenant.setTransactionPortalCapability.run({
+      checkoutRequestId: pushed.checkoutRequestId,
+      portalTokenHash: tenant.tokenHash(portalToken),
+      portalTokenExpiresAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''),
+    });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price, phoneDisplay: mpesa.displayPhone(phone) });
+  } catch (err) {
+    lastPush.delete(throttleKey);
+    console.error('[tenant pay] STK push failed:', err.message);
+    res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
+  }
+});
+
+app.get('/api/tenant/:locationId/status/:checkoutRequestId', async (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  let tx = tenant.getTransaction.get(req.params.checkoutRequestId);
+  if (!tx || tx.location_id !== location.id) return res.status(404).json({ error: 'Payment not found.' });
+  if (!tenantPortalCapabilityOk(tx, req.get('X-WiFi-Fiti-Portal'))) {
+    return res.status(403).json({ error: 'This payment page has expired. Start a new M-Pesa request from this WiFi.' });
+  }
+  if (tx.status === 'pending') {
+    tx = await queryTenantNow(tx);
+  }
+  if (tx.status === 'paid') {
+    try { tx = provisionTenantPayment(tx.checkout_request_id); }
+    catch (err) {
+      console.error(`[tenant status] could not provision ${tx.checkout_request_id}:`, err.message);
+      return res.json({ status: 'pending', awaitingRouter: true });
+    }
+    return res.json(tenantPaidPayload(tx));
+  }
+  res.json({ status: tx.status, reason: tx.status === 'failed' ? friendlyFailure(tx.result_code, tx.result_desc) : null });
+});
+
+function publicTenantSubscription(locationId, subscription) {
+  const remainingSeconds = tenantRemaining(subscription);
+  const device = tenant.deviceForSubscription.get(locationId, subscription.id);
+  return {
+    id: subscription.id,
+    mac: subscription.mac,
+    remainingSeconds,
+    expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z',
+    device: device ? { mac: device.mac, label: device.label } : null,
+  };
+}
+
+app.post('/api/tenant/:locationId/subscriptions/check', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  if (!phone) return res.status(400).json({ error: 'Enter the number used to buy the package.' });
+  const subscriptions = tenant.subscriptionsForPayer.all(location.id, phone)
+    .map((subscription) => publicTenantSubscription(location.id, subscription))
+    .filter((subscription) => subscription.remainingSeconds > 0);
+  res.json({ found: subscriptions.length > 0, subscriptions });
+});
+
+/** Move a remaining package to the device currently opening the portal.
+ * The receipt password prevents a guessed phone number from taking over a
+ * customer’s time; RouterOS then removes the old live session. */
+app.post('/api/tenant/:locationId/subscriptions/transfer', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  const subscriptionId = String(req.body && req.body.subscriptionId || '');
+  const password = String(req.body && req.body.password || '');
+  const mac = cleanMac(req.body && req.body.mac);
+  const ip = cleanIp(req.body && req.body.ip);
+  if (!phone || !subscriptionId || !password || !mac) {
+    return res.status(400).json({ error: 'Choose the package, enter its WiFi password, and reconnect to this WiFi.' });
+  }
+  const moved = tenant.transferSubscription({ locationId: location.id, payerPhone: phone, subscriptionId,
+    password, mac, ip });
+  if (moved && moved.error === 'occupied') {
+    return res.status(409).json({ error: 'This device already has another active package. Use that package or wait for it to end before moving this one.' });
+  }
+  if (!moved) return res.status(403).json({ error: 'That package has ended or its WiFi password is not correct.' });
+  tenantAccess.revoke.run(moved.id);
+  const movedSession = tenant.subscriptionById.get(moved.id, location.id);
+  res.json({ status: 'pending', provisioningJobId: moved.provisioningJobId,
+    ...tenantSessionPayload(movedSession, true) });
+});
+
+app.get('/api/tenant/:locationId/router-jobs/:jobId', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const id = Number(req.params.jobId);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid router job.' });
+  const job = tenant.jobById.get(id, location.id);
+  if (!job) return res.status(404).json({ error: 'Router job not found.' });
+  res.json({ ready: Boolean(job.acked_at) });
+});
+
+function deviceMac(value) {
+  const compact = String(value || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+  return compact.length === 12 ? compact.match(/.{2}/g).join(':') : null;
+}
+
+app.post('/api/tenant/:locationId/devices/list', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  if (!phone) return res.status(400).json({ error: 'Enter the number used to buy the package.' });
+  const subscriptions = tenant.subscriptionsForPayer.all(location.id, phone)
+    .map((subscription) => publicTenantSubscription(location.id, subscription))
+    .filter((subscription) => subscription.remainingSeconds > 0);
+  res.json({ subscriptions, maxDevicesPerSubscription: 1 });
+});
+
+app.post('/api/tenant/:locationId/devices/add', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  const subscriptionId = String(req.body && req.body.subscriptionId || '');
+  const mac = deviceMac(req.body && req.body.mac);
+  const password = String(req.body && req.body.password || '');
+  const label = String(req.body && req.body.label || 'TV').replace(/[^\w \-]/g, '').trim().slice(0, 24) || 'TV';
+  if (!phone || !subscriptionId || !mac || !password) {
+    return res.status(400).json({ error: 'Enter the package WiFi password and a complete TV MAC address.' });
+  }
+  const added = tenant.addTvDevice({ locationId: location.id, payerPhone: phone, subscriptionId, password, mac, label });
+  if (added.error === 'subscription' || added.error === 'password') {
+    return res.status(403).json({ error: 'That package or WiFi password is not correct.' });
+  }
+  if (added.error === 'expired') return res.status(402).json({ error: 'This package has ended. Buy time before connecting a TV.' });
+  if (added.error === 'same-device') return res.status(400).json({ error: 'Use the MAC address of the TV or streaming device, not the phone already using this package.' });
+  if (added.error === 'owned') return res.status(409).json({ error: 'That device is already attached to another customer package.' });
+  if (added.error === 'limit') return res.status(409).json({
+    error: `This package already has ${added.device.label || 'a TV'} connected. Remove it before adding another device.`,
+    device: { mac: added.device.mac, label: added.device.label },
+  });
+  res.json({ status: 'pending', provisioningJobId: added.provisioningJobId, mac: added.mac, label: added.label });
+});
+
+app.post('/api/tenant/:locationId/devices/remove', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  const subscriptionId = String(req.body && req.body.subscriptionId || '');
+  const mac = deviceMac(req.body && req.body.mac);
+  const password = String(req.body && req.body.password || '');
+  if (!phone || !subscriptionId || !mac || !password) return res.status(400).json({ error: 'Complete the package details before removing a device.' });
+  const removed = tenant.removeTvDevice({ locationId: location.id, payerPhone: phone, subscriptionId, password, mac });
+  if (!removed) return res.status(403).json({ error: 'The selected device or WiFi password is not correct.' });
+  res.json({ ok: true });
+});
+
+app.post('/api/tenant/:locationId/voucher/redeem', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const salesBlocked = businessCanSell(location);
+  if (salesBlocked) return res.status(402).json({ error: salesBlocked });
+  const code = String(req.body && req.body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  const mac = cleanMac(req.body && req.body.mac);
+  const ip = cleanIp(req.body && req.body.ip);
+  if (code.length < 6 || !phone || !mac) return res.status(400).json({ error: 'Enter a valid voucher code, phone number, and reconnect to this WiFi.' });
+  const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
+  if (!tenant.subscriptionByMac.get(location.id, mac) && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
+    return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
+  }
+  try {
+    const result = tenant.redeemVoucher({ locationId: location.id, code, phone, mac, ip });
+    if (!result) return res.status(409).json({ error: 'That voucher is not available at this location, or it has already been used.' });
+    res.json({ status: 'pending', provisioningJobId: result.provisioningJobId,
+      ...tenantSessionPayload(tenant.subscriptionById.get(result.id, location.id), true) });
+  } catch (err) {
+    console.error('[tenant voucher] redemption failed:', err.message);
+    res.status(500).json({ error: 'Could not redeem the voucher. Please try again.' });
+  }
+});
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+app.get('/api/tenant/:locationId/router-login', (req, res) => {
+  const header = req.get('X-WiFi-Fiti-Router');
+  const location = tenant.authenticateRouter(req.params.locationId, header || req.query.token, header ? 'header' : 'query');
+  if (!location) return res.status(403).type('text/plain').send('forbidden');
+  const site = encodeURIComponent(location.id);
+  const portal = `${config.publicUrl}/p/${site}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)`;
+  const safePortal = escapeHtml(portal);
+  res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
 });
 
 /* ------------------------------------------------------------------ */
@@ -419,6 +1089,69 @@ app.post('/api/mpesa/callback', (req, res) => {
   ));
 });
 
+function callbackReceipt(callback) {
+  const receipt = String(callback && callback.receipt || '').trim().toUpperCase();
+  return /^[A-Z0-9]{6,32}$/.test(receipt) ? receipt : null;
+}
+
+function callbackNeedsVerification(callback, transaction) {
+  // A late authentic success may recover an earlier timeout. A callback
+  // arriving after STK Query succeeded can also fill in the receipt without
+  // crediting the subscription a second time.
+  return transaction.status === 'pending' || (Number(callback.resultCode) === 0 &&
+    (transaction.status === 'failed' || !transaction.mpesa_receipt));
+}
+
+function callbackMatchesTransaction(callback, transaction) {
+  if (!transaction || !callback) return false;
+  if (transaction.merchant_request_id &&
+      String(callback.merchantRequestId || '') !== String(transaction.merchant_request_id)) {
+    console.warn(`[callback] merchant request mismatch for ${transaction.checkout_request_id}`);
+    return false;
+  }
+  // A successful STK callback includes the amount and paying number. These
+  // values are not used to grant time, but rejecting mismatches prevents a
+  // guessed checkout id from being paired with unrelated callback metadata.
+  if (Number(callback.resultCode) === 0 && callback.amount !== undefined &&
+      Math.round(Number(callback.amount)) !== Number(transaction.amount)) {
+    console.warn(`[callback] amount mismatch for ${transaction.checkout_request_id}`);
+    return false;
+  }
+  if (Number(callback.resultCode) === 0 && callback.phone !== undefined) {
+    const paidBy = mpesa.normalizePhone(callback.phone);
+    if (paidBy && transaction.phone && paidBy !== transaction.phone) {
+      console.warn(`[callback] payer mismatch for ${transaction.checkout_request_id}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Daraja callbacks do not carry a request signature. In production, treat
+ * their payload only as a signal to query the checkout directly with the
+ * merchant credentials; a forged HTTP POST must never create Wi-Fi time or
+ * activate a business plan. Sandbox has no real funds and intentionally
+ * keeps the direct callback behaviour used by the offline test suite.
+ */
+async function confirmCallbackResult(callback, transaction, query, ledgerName) {
+  if (!callbackMatchesTransaction(callback, transaction)) return null;
+  if (config.mpesa.env !== 'production') {
+    return { settled: true, resultCode: Number(callback.resultCode), resultDesc: callback.resultDesc };
+  }
+  try {
+    const result = await query();
+    if (!result || !result.settled) {
+      console.warn(`[${ledgerName} callback] checkout ${transaction.checkout_request_id} was not settled by Daraja query; leaving it pending`);
+      return null;
+    }
+    return result;
+  } catch (err) {
+    console.warn(`[${ledgerName} callback] could not verify ${transaction.checkout_request_id}: ${err.message}`);
+    return null;
+  }
+}
+
 async function handleCallback(body) {
   const cb = mpesa.parseCallback(body);
   if (!cb) {
@@ -428,29 +1161,43 @@ async function handleCallback(body) {
 
   const tx = db.get.get(cb.checkoutRequestId);
   if (!tx) {
+    const tenantTx = tenant.getTransaction.get(cb.checkoutRequestId);
+    if (tenantTx) {
+      await handleTenantCallback(cb, tenantTx);
+      return;
+    }
+    const billingTx = tenant.businessBillingTransaction.get(cb.checkoutRequestId);
+    if (billingTx) {
+      await handleBusinessBillingCallback(cb, billingTx);
+      return;
+    }
     console.warn(`[callback] no transaction for ${cb.checkoutRequestId}`);
     return;
   }
 
-  if (tx.status !== 'pending') {
+  if (!callbackNeedsVerification(cb, tx)) {
     console.log(`[callback] ${cb.checkoutRequestId} already ${tx.status}, ignoring replay`);
     return;
   }
 
-  if (cb.resultCode !== 0) {
+  const confirmed = await confirmCallbackResult(cb, tx, () => mpesa.stkQuery(tx.checkout_request_id), 'legacy');
+  if (!confirmed) return;
+  if (confirmed.resultCode !== 0) {
     db.markResult.run({
       checkoutRequestId: cb.checkoutRequestId,
       status: 'failed',
-      resultCode: cb.resultCode,
-      resultDesc: cb.resultDesc,
+      resultCode: confirmed.resultCode,
+      resultDesc: confirmed.resultDesc || cb.resultDesc,
       receipt: null,
     });
-    console.log(`[callback] ${cb.checkoutRequestId} failed: ${cb.resultDesc}`);
+    console.log(`[callback] ${cb.checkoutRequestId} failed: ${confirmed.resultDesc || cb.resultDesc}`);
     return;
   }
-
-  if (db.isDuplicateReceipt(cb.receipt, cb.checkoutRequestId)) {
-    console.error(`[callback] receipt ${cb.receipt} already banked elsewhere - not crediting again`);
+  const receipt = callbackReceipt(cb);
+  if (db.isDuplicateReceipt(receipt, cb.checkoutRequestId) ||
+      tenant.duplicateReceipt.get(receipt, cb.checkoutRequestId) ||
+      tenant.duplicateBusinessBillingReceipt.get(receipt, cb.checkoutRequestId)) {
+    console.error(`[callback] receipt ${receipt} already banked elsewhere - not crediting again`);
     return;
   }
 
@@ -458,11 +1205,79 @@ async function handleCallback(body) {
     checkoutRequestId: cb.checkoutRequestId,
     status: 'paid',
     resultCode: 0,
-    resultDesc: cb.resultDesc,
-    receipt: cb.receipt,
+    resultDesc: confirmed.resultDesc || cb.resultDesc,
+    receipt,
   });
 
   await fulfil(db.get.get(cb.checkoutRequestId));
+}
+
+async function handleTenantCallback(cb, tx) {
+  if (!callbackNeedsVerification(cb, tx)) {
+    console.log(`[tenant callback] ${cb.checkoutRequestId} already ${tx.status}, ignoring replay`);
+    return;
+  }
+  const confirmed = await confirmCallbackResult(cb, tx, () => queryTenantMpesa(tx), 'tenant');
+  if (!confirmed) return;
+  if (confirmed.resultCode !== 0) {
+    tenant.setTransactionResult.run({
+      checkoutRequestId: cb.checkoutRequestId,
+      status: 'failed', resultCode: confirmed.resultCode, resultDesc: confirmed.resultDesc || cb.resultDesc, receipt: null,
+    });
+    console.log(`[tenant callback] ${cb.checkoutRequestId} failed: ${confirmed.resultDesc || cb.resultDesc}`);
+    return;
+  }
+
+  // A receipt is globally unique on M-Pesa. Check both the original live
+  // hotspot ledger and the tenant ledger so a callback replay cannot grant
+  // two businesses a package.
+  const receipt = callbackReceipt(cb);
+  if (db.isDuplicateReceipt(receipt, cb.checkoutRequestId) ||
+      tenant.duplicateReceipt.get(receipt, cb.checkoutRequestId) ||
+      tenant.duplicateBusinessBillingReceipt.get(receipt, cb.checkoutRequestId)) {
+    console.error(`[tenant callback] receipt ${receipt} already banked elsewhere - not crediting again`);
+    return;
+  }
+
+  tenant.setTransactionResult.run({
+    checkoutRequestId: cb.checkoutRequestId,
+    status: 'paid', resultCode: 0, resultDesc: confirmed.resultDesc || cb.resultDesc, receipt,
+  });
+  try {
+    provisionTenantPayment(cb.checkoutRequestId);
+  } catch (err) {
+    // The payment stays paid and reconciliation will retry safely; the
+    // idempotent grant ledger guarantees it cannot be credited twice.
+    console.error(`[tenant callback] provisioning ${cb.checkoutRequestId} failed:`, err.message);
+  }
+}
+
+async function handleBusinessBillingCallback(cb, transaction) {
+  if (!callbackNeedsVerification(cb, transaction)) {
+    console.log(`[business billing callback] ${cb.checkoutRequestId} already ${transaction.status}, ignoring replay`);
+    return;
+  }
+  const confirmed = await confirmCallbackResult(cb, transaction, () => mpesa.stkQuery(transaction.checkout_request_id), 'business billing');
+  if (!confirmed) return;
+  if (confirmed.resultCode !== 0) {
+    tenant.setBusinessBillingResult.run({ checkoutRequestId: cb.checkoutRequestId,
+      status: 'failed', resultCode: confirmed.resultCode, resultDesc: confirmed.resultDesc || cb.resultDesc, receipt: null });
+    return;
+  }
+  const receipt = callbackReceipt(cb);
+  if (db.isDuplicateReceipt(receipt, cb.checkoutRequestId) ||
+      tenant.duplicateReceipt.get(receipt, cb.checkoutRequestId) ||
+      tenant.duplicateBusinessBillingReceipt.get(receipt, cb.checkoutRequestId)) {
+    console.error(`[business billing callback] receipt ${receipt} already banked elsewhere - not activating plan`);
+    return;
+  }
+  tenant.setBusinessBillingResult.run({ checkoutRequestId: cb.checkoutRequestId,
+    status: 'paid', resultCode: 0, resultDesc: confirmed.resultDesc || cb.resultDesc, receipt });
+  try {
+    tenant.activateBusinessBilling(cb.checkoutRequestId);
+  } catch (err) {
+    console.error(`[business billing callback] activation ${cb.checkoutRequestId} failed:`, err.message);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -528,6 +1343,64 @@ async function reconcile() {
     } catch (err) {
       console.warn(`[reconcile] provisioning still failing for ${tx.phone}:`, err.message);
     }
+  }
+
+  for (const tx of tenant.staleTransactions.all(STALE_AFTER_SECONDS)) {
+    try {
+      const q = await queryTenantMpesa(tx);
+      if (!q.settled) continue;
+      if (q.resultCode === 0) {
+        tenant.setTransactionResult.run({
+          checkoutRequestId: tx.checkout_request_id,
+          status: 'paid', resultCode: 0, resultDesc: q.resultDesc, receipt: null,
+        });
+        provisionTenantPayment(tx.checkout_request_id);
+        console.log(`[tenant reconcile] recovered ${tx.checkout_request_id}`);
+      } else {
+        const age = Date.now() - new Date(tx.created_at + 'Z').getTime();
+        if (!Number.isFinite(age) || age < QUERY_FAILURE_AFTER_MS) continue;
+        tenant.setTransactionResult.run({
+          checkoutRequestId: tx.checkout_request_id,
+          status: 'failed', resultCode: q.resultCode, resultDesc: q.resultDesc, receipt: null,
+        });
+      }
+    } catch (err) {
+      console.warn(`[tenant reconcile] query failed for ${tx.checkout_request_id}:`, err.message);
+    }
+  }
+
+  for (const tx of tenant.paidUnprovisioned.all()) {
+    try {
+      provisionTenantPayment(tx.checkout_request_id);
+      console.log(`[tenant reconcile] provisioned backlog for ${tx.phone}`);
+    } catch (err) {
+      console.warn(`[tenant reconcile] provisioning still failing for ${tx.phone}:`, err.message);
+    }
+  }
+
+  for (const tx of tenant.staleBusinessBilling.all(STALE_AFTER_SECONDS)) {
+    try {
+      const q = await mpesa.stkQuery(tx.checkout_request_id);
+      if (!q.settled) continue;
+      if (q.resultCode === 0) {
+        tenant.setBusinessBillingResult.run({ checkoutRequestId: tx.checkout_request_id,
+          status: 'paid', resultCode: 0, resultDesc: q.resultDesc, receipt: null });
+        tenant.activateBusinessBilling(tx.checkout_request_id);
+        console.log(`[business billing reconcile] renewed ${tx.business_id}`);
+      } else {
+        const age = Date.now() - new Date(tx.created_at + 'Z').getTime();
+        if (!Number.isFinite(age) || age < QUERY_FAILURE_AFTER_MS) continue;
+        tenant.setBusinessBillingResult.run({ checkoutRequestId: tx.checkout_request_id,
+          status: 'failed', resultCode: q.resultCode, resultDesc: q.resultDesc, receipt: null });
+      }
+    } catch (err) {
+      console.warn(`[business billing reconcile] query failed for ${tx.checkout_request_id}:`, err.message);
+    }
+  }
+
+  for (const tx of tenant.paidBusinessBilling.all()) {
+    try { tenant.activateBusinessBilling(tx.checkout_request_id); }
+    catch (err) { console.warn(`[business billing reconcile] activation failed for ${tx.business_id}:`, err.message); }
   }
 }
 
@@ -1043,12 +1916,81 @@ function authSite(req, res) {
   return site;
 }
 
+/** Tenant routers use their location id as `site` and a unique pairing
+ * secret. Keep this branch deliberately separate from the legacy site so a
+ * valid tenant acknowledgement can never touch the original hotspot jobs. */
+function tenantRouterForRequest(req, res) {
+  const site = String(req.query.site || '');
+  if (!site.startsWith('loc-')) return null;
+  const header = req.get('X-WiFi-Fiti-Router');
+  const location = tenant.authenticateRouter(site, header || req.query.token, header ? 'header' : 'query');
+  if (!location) {
+    res.status(403).type('text/plain').send('# forbidden\n');
+    return false;
+  }
+  return location;
+}
+
+function routerAckIds(value) {
+  return String(value || '')
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .slice(0, 50);
+}
+
+function tenantRouterScript(location) {
+  tenant.queueExpiredSubscriptions(location.id);
+  const jobs = tenant.pendingJobs.all(location.id);
+  if (!jobs.length) return { script: '', emitted: [], rejected: [] };
+
+  const { script, emitted, rejected } = buildScript({
+    jobs,
+    hotspotServer: location.hotspot_server || config.site.hotspotServer,
+  });
+  for (const id of emitted) tenant.markDelivered.run(id);
+  if (rejected.length) {
+    console.error(`[tenant router] ${location.id} refused malformed jobs: ${rejected.join(', ')}`);
+  }
+  if (emitted.length) console.log(`[tenant router] ${location.id} collected job(s) ${emitted.join(', ')}`);
+  return { script, emitted, rejected };
+}
+
+function acknowledgeTenantRouterJobs(location, value) {
+  const ids = routerAckIds(value);
+  for (const id of ids) tenant.markAcked.run(id, location.id);
+  if (ids.length) console.log(`[tenant router] ${location.id} acked ${ids.join(', ')}`);
+  return ids;
+}
+
+function ingestTenantUsage(location, rawBody) {
+  const raw = typeof rawBody === 'string' ? rawBody : '';
+  let updated = 0;
+  for (const line of raw.split('\n')) {
+    const parts = line.trim().split(':');
+    if (parts.length < 2) continue;
+    const username = parts[0].trim();
+    const used = Number(parts[1]);
+    if (!/^254[17]\d{8}(?:-[0-9A-F]{8})?(?:-tv)?$/.test(username) || username.endsWith('-tv')) continue;
+    if (!Number.isFinite(used) || used < 0) continue;
+    const isActive = parts.length > 3 && parts[3].trim() === '1' ? 1 : 0;
+    tenant.recordUsage.run({ locationId: location.id, routerUsername: username,
+      usedSeconds: Math.round(used), isActive });
+    updated++;
+  }
+  if (updated) console.log(`[tenant router] ${location.id} reported usage for ${updated} user(s)`);
+}
+
 /**
  * A router asks what work is waiting. The reply is RouterOS script, which
  * the router parses and runs in memory - no file written, no flash wear.
  * Empty means nothing to do, which is the common case.
  */
 app.get('/api/router/jobs', (req, res) => {
+  const location = tenantRouterForRequest(req, res);
+  if (location === false) return;
+  if (location) return res.type('text/plain').send(tenantRouterScript(location).script);
+
   const site = authSite(req, res);
   if (!site) return;
 
@@ -1082,6 +2024,14 @@ app.get('/api/router/jobs', (req, res) => {
  * Body is plain text, one line per user: username:used:limit
  */
 app.post('/api/router/sync', (req, res) => {
+  const location = tenantRouterForRequest(req, res);
+  if (location === false) return;
+  if (location) {
+    acknowledgeTenantRouterJobs(location, req.query.ack);
+    ingestTenantUsage(location, req.body);
+    return res.type('text/plain').send(tenantRouterScript(location).script);
+  }
+
   const site = authSite(req, res);
   if (!site) return;
 
@@ -1157,6 +2107,13 @@ app.post('/api/router/sync', (req, res) => {
 
 /** The router confirms it ran the work. Unacked jobs get redelivered. */
 app.get('/api/router/ack', (req, res) => {
+  const location = tenantRouterForRequest(req, res);
+  if (location === false) return;
+  if (location) {
+    acknowledgeTenantRouterJobs(location, req.query.ids);
+    return res.type('text/plain').send('# ok\n');
+  }
+
   const site = authSite(req, res);
   if (!site) return;
 
@@ -1205,6 +2162,8 @@ app.get('/api/health', async (req, res) => {
   }
   res.status(out.ok ? 200 : 503).json(out);
 });
+
+require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk });
 
 app.listen(config.port, () => {
   console.log(`${config.brandName} hotspot billing on :${config.port}`);
