@@ -391,7 +391,7 @@
       $('dismiss-setups').addEventListener('click', function () { try { var key = setupStoreKey(); if (key) sessionStorage.removeItem(key); } catch (_) {} renderPairingKits(); renderLocations(); });
       document.querySelectorAll('[data-scroll]').forEach(function (button) { button.addEventListener('click', function (event) { var target = $(event.currentTarget.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); });
       $('sign-out').addEventListener('click', function (event) { var button = event.currentTarget; setBusy(button, true, 'Signing out…'); clearBillingPolling(); api('/api/business/logout', { method: 'POST', body: '{}' }).then(function () { clearSession(); }).catch(function () { clearSession(); $('login-error').textContent = 'Signed out on this browser. The server could not confirm the session was closed.'; }).finally(function () { setBusy(button, false); window.scrollTo({ top: 0, behavior: 'smooth' }); }); });
-      $('copyright-year').textContent = String(new Date().getFullYear()); load();
+      $('copyright-year').textContent = String(new Date().getFullYear()); if (!token && new URLSearchParams(window.location.search).get('mode') === 'login') chooseAccess('login'); load();
     }());
   </script>
 </body>
