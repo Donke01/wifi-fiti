@@ -28,8 +28,8 @@
 </head>
 <body>
   <main class="shell">
-    <header class="brand" aria-label="WiFi Fiti"><img class="brand-mark" src="/assets/wifi-fiti-logo.png" alt="" aria-hidden="true"><strong class="brand-name" id="brand">WiFi Fiti</strong><span class="brand-location" id="location">CONNECT · PAY · GO</span></header>
-    <section class="card" id="buy"><h1>Choose your package</h1><p class="copy">Lipa na M‑Pesa. Your time begins immediately and stays saved even if this page closes.</p><div class="plans" id="plans" aria-label="Packages"></div><label for="phone">M‑Pesa number</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><div class="error" id="error" aria-live="polite"></div><button class="primary" type="button" id="pay">LIPA NA M‑PESA</button><div class="utilities"><button class="utility" type="button" id="check-time"><b>◷ Check my time</b><small>Find a package already linked to your number.</small></button><button class="utility" type="button" id="open-voucher"><b>◇ I have a voucher</b><small>Use a prepaid WiFi code instead.</small></button></div></section>
+    <header class="brand" aria-label="WiFi Fiti"><img class="brand-mark" id="brand-logo" src="/assets/wifi-fiti-logo.png" alt="" aria-hidden="true"><strong class="brand-name" id="brand">WiFi Fiti</strong><span class="brand-location" id="location">CONNECT · PAY · GO</span></header>
+    <section class="card" id="buy"><h1>Choose your package</h1><p class="copy" id="portal-message">Lipa na M‑Pesa. Your time begins immediately and stays saved even if this page closes.</p><div class="plans" id="plans" aria-label="Packages"></div><label for="phone">M‑Pesa number</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><div class="error" id="error" aria-live="polite"></div><button class="primary" type="button" id="pay">LIPA NA M‑PESA</button><div class="utilities"><button class="utility" type="button" id="check-time"><b>◷ Check my time</b><small>Find a package already linked to your number.</small></button><button class="utility" type="button" id="open-voucher"><b>◇ I have a voucher</b><small>Use a prepaid WiFi code instead.</small></button></div></section>
     <section class="card hidden" id="waiting" aria-live="polite"><div class="waiting"><div class="spinner" id="waiting-spinner" aria-hidden="true"></div><h1 id="waiting-title">Check your phone</h1><p id="waiting-copy">Enter your M‑Pesa PIN to complete the payment.</p><div class="elapsed" id="elapsed"></div><div class="error" id="waiting-error"></div><button class="secondary hidden" id="retry-waiting" type="button">Check again</button><button class="text-button" id="leave-waiting" type="button">Back to my packages</button></div></section>
     <section class="card active-card hidden" id="active" aria-live="polite"><div class="active-kicker" id="active-kicker">YOUR WIFI PACKAGE</div><h1 id="active-title">You have Wi‑Fi time</h1><div class="clock" id="clock">—</div><p class="expiry" id="expiry"></p><div class="notice"><strong>Save your WiFi recovery code</strong><p class="section-copy">Use this code and the paying number to restore your package or move it to another phone.</p><p id="recovery-code" style="font:800 24px ui-monospace,monospace;letter-spacing:.12em;margin:12px 0;overflow-wrap:anywhere"></p><button class="text-button" id="copy-recovery" type="button">Copy recovery code</button><p class="section-copy" id="active-phone"></p></div><div class="error" id="active-error" aria-live="polite"></div><div class="active-actions"><button class="primary" type="button" id="connect">RECONNECT THIS DEVICE</button><button class="secondary" type="button" id="manage-tv">CONNECT YOUR TV</button></div><button class="primary" type="button" id="top-up">BUY MORE TIME</button></section>
     <section class="section hidden" id="existing-section"><div class="card"><div class="section-title"><h2>Existing package found</h2><button class="text-button" type="button" id="buy-anyway">Continue with purchase</button></div><p class="section-copy">Choose the package to check its balance. To move its remaining time to this device, enter the WiFi recovery code; the previous phone will be disconnected.</p><div id="existing-list" class="existing-list"></div><label for="transfer-password">WiFi recovery code</label><input id="transfer-password" autocomplete="off" autocapitalize="characters" placeholder="Code saved on your WiFi countdown page"><div class="error" id="transfer-error" aria-live="polite"></div><button class="primary" type="button" id="transfer">CONNECT THIS PACKAGE</button></div></section>
@@ -85,6 +85,22 @@
       $('resume-payment').classList.toggle('hidden', visible.indexOf('resume-payment') === -1);
     }
     function message(id, text) { $(id).textContent = text || ''; }
+    function applyBranding(config) {
+      var branding = config && config.branding || {};
+      var name = branding.name || config.location.businessName || 'WiFi Fiti';
+      message('brand', name);
+      message('location', config.location.name || 'CONNECT · PAY · GO');
+      document.title = name + ' WiFi';
+      if (branding.logoUrl) $('brand-logo').src = branding.logoUrl;
+      var color = String(branding.primaryColor || '');
+      if (/^#[0-9A-Fa-f]{6}$/.test(color) && document.documentElement && document.documentElement.style) {
+        document.documentElement.style.setProperty('--blue', color);
+        document.documentElement.style.setProperty('--aqua', color);
+      }
+      if (branding.message) message('portal-message', branding.message);
+      message('support', '© ' + new Date().getFullYear() + ' ' + name +
+        ((branding.supportPhone || config.supportPhone) ? ' · Help: ' + (branding.supportPhone || config.supportPhone) : ''));
+    }
     function phone() { return $('phone').value.trim(); }
     function formatSeconds(value) {
       var s = Math.max(0, Math.ceil(Number(value) || 0)), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
@@ -289,11 +305,8 @@
     async function boot() {
       try {
         var config = await api('/config');
-        message('brand', config.location.businessName || 'WiFi Fiti'); message('location', config.location.name);
-        document.title = (config.location.businessName || 'WiFi Fiti') + ' WiFi';
+        applyBranding(config);
         renderPackages(config.packages || []);
-        message('support', '© ' + new Date().getFullYear() + ' ' + (config.location.businessName || 'WiFi Fiti') +
-          (config.supportPhone ? ' · Help: ' + config.supportPhone : ''));
         checkout = read('_checkout');
         if (checkout && checkout.portalToken && checkout.startedAt > Date.now() - 2 * 3600000) { pollPayment(); return; }
         checkout = null; write('_checkout', null);

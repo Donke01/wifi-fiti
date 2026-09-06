@@ -8,7 +8,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node test/run.js && node test/e2e.js && node test/dryrun.js && node test/poll.js && node test/features.js && node test/devices.js && node test/lockout.js && node test/ack.js && node test/paypath.js && node test/balance.js && node test/ledger.js && node test/autologin.js && node test/reset.js && node test/wallclock.js && node test/multi-device-balance.js && node test/business.js && npm run test:tenant && npm run test:tenant:http",
-    "test:tenant": "node test/tenant.js && node test/business-operations.js && node test/tenant-portal-ui.js",
+    "test:tenant": "node test/tenant.js && node test/business-operations.js && node test/router-setup.js && node test/tenant-portal-ui.js",
     "test:tenant:http": "node --require ./test/in-process-http.js test/tenant-integration.js"
   },
   "engines": {

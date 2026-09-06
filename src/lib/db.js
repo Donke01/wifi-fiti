@@ -113,6 +113,11 @@ db.exec(`
     owner_phone     TEXT NOT NULL,
     email           TEXT NOT NULL UNIQUE,
     password_hash   TEXT NOT NULL,
+    portal_name     TEXT,
+    support_phone   TEXT,
+    brand_primary_color TEXT,
+    brand_logo_path TEXT,
+    portal_message  TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -128,7 +133,20 @@ db.exec(`
     business_id     TEXT NOT NULL REFERENCES businesses(id),
     name            TEXT NOT NULL,
     router_token    TEXT NOT NULL UNIQUE,
+    router_pending_token_hash TEXT,
+    router_pending_token_expires_at TEXT,
     router_name     TEXT,
+    hotspot_server  TEXT,
+    setup_mode      TEXT,
+    router_model    TEXT,
+    routeros_version TEXT,
+    wifi_stack      TEXT,
+    customer_bridge TEXT,
+    wan_interface   TEXT,
+    wifi_interface  TEXT,
+    wifi_ssid       TEXT,
+    customer_ports  TEXT,
+    hotspot_subnet  TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -164,6 +182,11 @@ for (const stmt of [
   `ALTER TABLE businesses ADD COLUMN collection_mode TEXT NOT NULL DEFAULT 'own'`,
   `ALTER TABLE businesses ADD COLUMN billing_status TEXT NOT NULL DEFAULT 'trial'`,
   `ALTER TABLE businesses ADD COLUMN billing_expires_at TEXT`,
+  `ALTER TABLE businesses ADD COLUMN portal_name TEXT`,
+  `ALTER TABLE businesses ADD COLUMN support_phone TEXT`,
+  `ALTER TABLE businesses ADD COLUMN brand_primary_color TEXT`,
+  `ALTER TABLE businesses ADD COLUMN brand_logo_path TEXT`,
+  `ALTER TABLE businesses ADD COLUMN portal_message TEXT`,
   `ALTER TABLE business_packages ADD COLUMN rate_limit TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
@@ -527,13 +550,14 @@ const addBusiness = db.prepare(`
   VALUES (@id, @name, @ownerName, @ownerPhone, @email, @passwordHash, @plan, @collectionMode)
 `);
 const businessByEmail = db.prepare(`SELECT * FROM businesses WHERE email = ?`);
-const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at, created_at FROM businesses WHERE id = ?`);
+const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at, portal_name, support_phone, brand_primary_color, brand_logo_path, portal_message, created_at FROM businesses WHERE id = ?`);
 const addBusinessSession = db.prepare(`
   INSERT INTO business_sessions (token_hash, business_id, expires_at)
   VALUES (@tokenHash, @businessId, @expiresAt)
 `);
 const businessForSession = db.prepare(`
-  SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode, b.billing_status, b.billing_expires_at
+  SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode, b.billing_status, b.billing_expires_at,
+         b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message
     FROM business_sessions s JOIN businesses b ON b.id = s.business_id
    WHERE s.token_hash = ? AND s.expires_at > datetime('now')
 `);
@@ -542,6 +566,19 @@ const setBusinessPlan = db.prepare(`
 `);
 const setBusinessTrial = db.prepare(`
   UPDATE businesses SET billing_status='trial', billing_expires_at=@expiresAt WHERE id=@id
+`);
+const updateBusinessBranding = db.prepare(`
+  UPDATE businesses
+     SET portal_name=@portalName, support_phone=@supportPhone,
+         brand_primary_color=@primaryColor, portal_message=@portalMessage
+   WHERE id=@id
+`);
+const setBusinessLogo = db.prepare(`
+  UPDATE businesses SET brand_logo_path=@brandLogoPath WHERE id=@id
+`);
+const businessBrandingById = db.prepare(`
+  SELECT id, name, portal_name, support_phone, brand_primary_color, brand_logo_path, portal_message
+    FROM businesses WHERE id=?
 `);
 const addLocation = db.prepare(`
   INSERT INTO locations (id, business_id, name, router_token, router_name)
@@ -616,6 +653,9 @@ module.exports = {
   businessForSession,
   setBusinessPlan,
   setBusinessTrial,
+  updateBusinessBranding,
+  setBusinessLogo,
+  businessBrandingById,
   addLocation,
   locationsForBusiness,
   addBusinessPackage,

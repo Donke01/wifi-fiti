@@ -85,26 +85,34 @@ control centre is designed around this operating sequence:
 
 1. **Register the business.** The owner creates a business account and
    chooses a collection mode and subscription plan.
-2. **Add a location.** Give each physical hotspot its own name and MikroTik
-   hotspot-server name. Locations are isolated: their router jobs,
-   subscriptions, vouchers, customer devices and sales never mix with another
-   business or location.
-3. **Copy the one-time pairing kit.** The dashboard provides the customer
-   portal URL and RouterOS commands for that location. Paste them into the
-   location's router while logged in as its administrator. The router polls
-   WiFi Fiti over outbound HTTPS, so it can stay behind NAT without exposing
-   its administration API to the internet. If the customer bridge has a name
-   other than `bridge-hs`, replace the `fitiBridge` value in the kit before
-   pasting it.
-4. **Verify the portal.** The pairing kit allows the WiFi Fiti domain through
-   the hotspot walled garden and enables the router polling job. From a fresh,
-   unauthenticated phone, join the Wi-Fi and confirm the location portal opens
-   at `/p/<location-id>`.
-5. **Sell and support.** The customer portal shows that business's packages,
+2. **Set the customer portal identity.** Choose the portal name, support
+   phone, colour, short message and optional logo. The logo is served from the
+   cloud portal domain, so it remains available behind the Hotspot walled
+   garden.
+3. **Use the router wizard.** Give each physical hotspot its location name,
+   model, bridge and Hotspot-server name. A new/reset RouterOS 7 kit creates
+   Wi-Fi, DHCP, NAT, Hotspot and cloud pairing. An existing-Hotspot kit first
+   verifies the selected bridge and server, then preserves its WAN, Wi-Fi and
+   DHCP settings while adding WiFi Fiti pairing.
+4. **Copy or import the one-time kit.** The router polls WiFi Fiti over
+   outbound HTTPS, so it stays behind NAT without exposing its administration
+   API to the internet. New-router kits never reset a router themselves; they
+   generate a strong `admin` password inside the kit, block WAN management,
+   and keep retrying cloud pairing until WAN/DNS is ready. Save that password
+   before importing.
+5. **Verify the portal.** From a fresh unauthenticated phone, join the Wi-Fi
+   and confirm the location portal opens at `/p/<location-id>`. The dashboard
+   changes the router state to online after its first cloud check-in.
+6. **Sell and support.** The customer portal shows that business's packages,
    starts M-Pesa collection, restores interrupted payment screens, remembers
    a wall-clock subscription, supports voucher redemption and lets the payer
    move an existing package to the current phone. One optional TV can share a
    subscription; it does not turn a purchase into a general shared hotspot.
+
+The new/reset templates currently cover hAP lite / RB941, RB951Ui, other
+RouterOS 7 legacy-wireless hardware, and RouterOS 7 devices using the modern
+WiFi interface. Select the actual interface names shown in WinBox. A router
+with live customers should always use the existing-Hotspot path.
 
 ### Package speed limits
 
@@ -177,11 +185,12 @@ money.
 ### Pairing-token safety
 
 Each location receives a high-entropy router token exactly once: when the
-location is created or when its token is rotated. WiFi Fiti keeps only a hash
-of that token, so it cannot be redisplayed later. Treat the one-time pairing
-kit like a router password: paste it directly into the intended router, do not
-put it in screenshots, tickets or chat groups, and rotate it immediately if it
-is copied, a router is replaced, or it was sent to the wrong person.
+location is created or when a replacement kit is generated. WiFi Fiti keeps
+only a hash of that token, so it cannot be redisplayed later. A replacement
+token is staged for 24 hours: the live router remains online until the new kit
+checks in, then the old token is retired. Treat every one-time pairing kit like
+a router password: paste it directly into the intended router and do not put it
+in screenshots, tickets or chat groups.
 
 ---
 

@@ -213,12 +213,24 @@ db.exec(`
 
 for (const statement of [
   `ALTER TABLE locations ADD COLUMN router_token_hash TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_pending_token_hash TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_pending_token_expires_at TEXT`,
   // Existing paired locations used a URL token. New pairings use an HTTP
   // header so the secret never lands in RouterOS fetch URLs or web logs.
   `ALTER TABLE locations ADD COLUMN router_auth_mode TEXT NOT NULL DEFAULT 'query'`,
   `ALTER TABLE locations ADD COLUMN router_status TEXT NOT NULL DEFAULT 'waiting'`,
   `ALTER TABLE locations ADD COLUMN last_seen_at TEXT`,
   `ALTER TABLE locations ADD COLUMN hotspot_server TEXT`,
+  `ALTER TABLE locations ADD COLUMN setup_mode TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_model TEXT`,
+  `ALTER TABLE locations ADD COLUMN routeros_version TEXT`,
+  `ALTER TABLE locations ADD COLUMN wifi_stack TEXT`,
+  `ALTER TABLE locations ADD COLUMN customer_bridge TEXT`,
+  `ALTER TABLE locations ADD COLUMN wan_interface TEXT`,
+  `ALTER TABLE locations ADD COLUMN wifi_interface TEXT`,
+  `ALTER TABLE locations ADD COLUMN wifi_ssid TEXT`,
+  `ALTER TABLE locations ADD COLUMN customer_ports TEXT`,
+  `ALTER TABLE locations ADD COLUMN hotspot_subnet TEXT`,
   `ALTER TABLE tenant_transactions ADD COLUMN provisioning_job_id INTEGER`,
   `ALTER TABLE tenant_transactions ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'fiti'`,
   `ALTER TABLE tenant_transactions ADD COLUMN platform_fee INTEGER NOT NULL DEFAULT 0`,
@@ -250,18 +262,26 @@ for (const location of unhashedLocations.all()) {
 }
 
 const createLocationRow = db.prepare(`
-  INSERT INTO locations (id, business_id, name, router_token, router_token_hash, router_auth_mode, router_name)
-  VALUES (@id, @businessId, @name, @routerTokenMarker, @routerTokenHash, 'header', @routerName)
+  INSERT INTO locations
+    (id, business_id, name, router_token, router_token_hash, router_auth_mode, router_name,
+     hotspot_server, setup_mode, router_model, routeros_version, wifi_stack, customer_bridge,
+     wan_interface, wifi_interface, wifi_ssid, customer_ports, hotspot_subnet)
+  VALUES
+    (@id, @businessId, @name, @routerTokenMarker, @routerTokenHash, 'header', @routerName,
+     @hotspotServer, @setupMode, @routerModel, @routerOsVersion, @wifiStack, @customerBridge,
+     @wanInterface, @wifiInterface, @wifiSsid, @customerPorts, @hotspotSubnet)
 `);
 const locationById = db.prepare(`
-  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_auth_mode, l.router_status, l.last_seen_at,
-         b.name AS business_name, b.collection_mode, b.plan AS business_plan,
+  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_auth_mode, l.router_status, l.last_seen_at,
+         l.setup_mode, l.router_model, l.routeros_version, l.wifi_stack, l.customer_bridge, l.wan_interface, l.wifi_interface, l.wifi_ssid, l.customer_ports, l.hotspot_subnet,
+         b.name AS business_name, b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message, b.collection_mode, b.plan AS business_plan,
          b.billing_status, b.billing_expires_at
     FROM locations l JOIN businesses b ON b.id = l.business_id
    WHERE l.id = ?
 `);
 const locationsForBusiness = db.prepare(`
-  SELECT id, name, router_name, hotspot_server,
+  SELECT id, name, router_name, hotspot_server, setup_mode, router_model, routeros_version,
+         wifi_stack, customer_bridge, wan_interface, wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
          CASE WHEN router_status='online' AND (last_seen_at IS NULL OR last_seen_at <= datetime('now','-90 seconds'))
               THEN 'offline' ELSE router_status END AS router_status,
          last_seen_at, created_at
@@ -270,15 +290,31 @@ const locationsForBusiness = db.prepare(`
 const touchRouter = db.prepare(`
   UPDATE locations SET router_status = 'online', last_seen_at = datetime('now') WHERE id = ?
 `);
-const setLocationToken = db.prepare(`
-  UPDATE locations SET router_token=?, router_token_hash=?, router_auth_mode='header' WHERE id=?
+const stageLocationToken = db.prepare(`
+  UPDATE locations
+     SET router_pending_token_hash=?, router_pending_token_expires_at=?
+   WHERE id=?
+`);
+const promotePendingLocationToken = db.prepare(`
+  UPDATE locations
+     SET router_token=?, router_token_hash=?, router_auth_mode='header',
+         router_pending_token_hash=NULL, router_pending_token_expires_at=NULL,
+         router_status='online', last_seen_at=datetime('now')
+   WHERE id=? AND router_pending_token_hash=?
+     AND router_pending_token_expires_at > datetime('now')
 `);
 const locationForBusiness = db.prepare(`
-  SELECT id, business_id, name, router_name, router_status, last_seen_at, hotspot_server
+  SELECT id, business_id, name, router_name, router_status, last_seen_at, hotspot_server,
+         setup_mode, router_model, routeros_version, wifi_stack, customer_bridge, wan_interface,
+         wifi_interface, wifi_ssid, customer_ports, hotspot_subnet
     FROM locations WHERE id=? AND business_id=?
 `);
 const updateLocation = db.prepare(`
-  UPDATE locations SET name=@name, router_name=@routerName, hotspot_server=@hotspotServer
+  UPDATE locations SET name=@name, router_name=@routerName, hotspot_server=@hotspotServer,
+    setup_mode=@setupMode, router_model=@routerModel, routeros_version=@routerOsVersion,
+    wifi_stack=@wifiStack, customer_bridge=@customerBridge, wan_interface=@wanInterface,
+    wifi_interface=@wifiInterface, wifi_ssid=@wifiSsid, customer_ports=@customerPorts,
+    hotspot_subnet=@hotspotSubnet
    WHERE id=@id AND business_id=@businessId
 `);
 
@@ -538,37 +574,89 @@ const duplicateBusinessBillingReceipt = db.prepare(`
    WHERE mpesa_receipt=? AND checkout_request_id != ? LIMIT 1
 `);
 
-function createLocation({ id, businessId, name, routerName }) {
+function savedSetup(setup = {}) {
+  return {
+    hotspotServer: setup.hotspotServer || null,
+    setupMode: setup.mode || null,
+    routerModel: setup.routerModel || null,
+    routerOsVersion: setup.routerOsVersion || null,
+    wifiStack: setup.radio || null,
+    customerBridge: setup.customerBridge || null,
+    wanInterface: setup.wanInterface || null,
+    wifiInterface: setup.wifiInterface || null,
+    wifiSsid: setup.wifiSsid || null,
+    customerPorts: Array.isArray(setup.customerPorts) ? setup.customerPorts.join(',') : (setup.customerPorts || null),
+    hotspotSubnet: setup.customerSubnet || null,
+  };
+}
+
+function setupFromLocation(location) {
+  return {
+    mode: location.setup_mode || 'existing',
+    routerModel: location.router_model || '',
+    routerOsVersion: location.routeros_version || '7',
+    radio: location.wifi_stack || 'wireless',
+    customerBridge: location.customer_bridge || 'bridge-hs',
+    hotspotServer: location.hotspot_server || 'hotspot1',
+    wanInterface: location.wan_interface || 'ether1',
+    wifiInterface: location.wifi_interface || 'wlan1',
+    wifiSsid: location.wifi_ssid || '',
+    customerPorts: location.customer_ports ? location.customer_ports.split(',') : [],
+    customerSubnet: location.hotspot_subnet || '',
+  };
+}
+
+function createLocation({ id, businessId, name, routerName, setup }) {
   const routerToken = crypto.randomBytes(24).toString('base64url');
+  const saved = savedSetup(setup);
   createLocationRow.run({ id, businessId, name, routerName: routerName || null,
-    routerTokenHash: tokenHash(routerToken), routerTokenMarker: tokenMarker(routerToken) });
-  return { id, businessId, name, routerName: routerName || null, routerToken };
+    routerTokenHash: tokenHash(routerToken), routerTokenMarker: tokenMarker(routerToken), ...saved });
+  return { id, businessId, name, routerName: routerName || null, routerToken, ...savedSetup(setup) };
 }
 
 function rotateLocationToken({ locationId, businessId }) {
   const location = locationForBusiness.get(locationId, businessId);
   if (!location) return null;
   const routerToken = crypto.randomBytes(24).toString('base64url');
-  setLocationToken.run(tokenMarker(routerToken), tokenHash(routerToken), locationId);
+  const hash = tokenHash(routerToken);
+  // Staging keeps the live router online until the replacement kit makes its
+  // first authenticated check-in. A pasted-but-never-imported kit therefore
+  // cannot interrupt paid customers.
+  stageLocationToken.run(hash, nowSql(Date.now() + 24 * 60 * 60 * 1000), locationId);
   return { ...location, routerToken };
 }
 
-function updateLocationSettings({ locationId, businessId, name, routerName, hotspotServer }) {
+function updateLocationSettings({ locationId, businessId, name, routerName, hotspotServer, setup }) {
   const current = locationForBusiness.get(locationId, businessId);
   if (!current) return null;
+  const resolvedHotspotServer = hotspotServer === undefined
+    ? (setup?.hotspotServer === undefined ? current.hotspot_server : setup.hotspotServer)
+    : hotspotServer;
+  const saved = savedSetup({ ...setupFromLocation(current), ...(setup || {}), hotspotServer: resolvedHotspotServer });
   updateLocation.run({ id: locationId, businessId, name: name || current.name,
-    routerName: routerName || null, hotspotServer: hotspotServer || null });
+    routerName: routerName === undefined ? current.router_name || null : routerName || null, ...saved });
   return locationForBusiness.get(locationId, businessId);
 }
 
 function authenticateRouter(locationId, rawToken, transport = 'header') {
   const location = locationById.get(locationId);
   if (location?.router_auth_mode === 'header' && transport !== 'header') return null;
-  const expected = Buffer.from(location?.router_token_hash || '', 'hex');
-  const supplied = Buffer.from(tokenHash(rawToken), 'hex');
-  if (!location || !expected.length || expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) return null;
-  touchRouter.run(locationId);
-  return location;
+  const suppliedHash = tokenHash(rawToken);
+  const supplied = Buffer.from(suppliedHash, 'hex');
+  const matches = (expectedHash) => {
+    const expected = Buffer.from(expectedHash || '', 'hex');
+    return Boolean(expected.length && expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied));
+  };
+  if (!location || !supplied.length) return null;
+  if (matches(location.router_token_hash)) {
+    touchRouter.run(locationId);
+    return location;
+  }
+  if (matches(location.router_pending_token_hash)) {
+    const promoted = promotePendingLocationToken.run(tokenMarker(rawToken), suppliedHash, locationId, suppliedHash);
+    if (promoted.changes) return locationById.get(locationId);
+  }
+  return null;
 }
 
 function generatePassword() {

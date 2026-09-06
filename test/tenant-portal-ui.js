@@ -79,6 +79,7 @@ function createPage(options = {}) {
   const sessionData = options.sessionData || new Map();
   const requests = [];
   const navigations = [];
+  const cssVariables = new Map();
   let now = options.now || originTime;
   let nextTimer = 0;
   const timers = new Map();
@@ -106,6 +107,7 @@ function createPage(options = {}) {
     sessionStorage: storage(sessionData),
     document: {
       title: '',
+      documentElement: { style: { setProperty(name, value) { cssVariables.set(name, value); } } },
       getElementById(id) { assert.ok(elements.has(id), 'script references an existing element: ' + id); return elements.get(id); },
       createElement(tagName) { return new Element(tagName); },
     },
@@ -121,7 +123,7 @@ function createPage(options = {}) {
       requests.push(request);
       let body;
       if (request.path === '/config') {
-        body = { location: { businessName: 'Test WiFi', name: 'Test location' },
+        body = options.config || { location: { businessName: 'Test WiFi', name: 'Test location' },
           packages: [{ id: 1, name: 'One hour', price: 20, seconds: 3600 }] };
       } else if (options.respond) {
         body = await options.respond(request);
@@ -141,7 +143,7 @@ function createPage(options = {}) {
     for (let i = 0; i < 30; i++) await Promise.resolve();
   }
   return {
-    localData, sessionData, requests, navigations, flush,
+    localData, sessionData, requests, navigations, cssVariables, flush,
     element: id => elements.get(id),
     visible: id => !elements.get(id).classList.contains('hidden'),
     count: pathname => requests.filter(request => request.path === pathname).length,
@@ -179,6 +181,25 @@ async function test(name, callback) {
 }
 
 (async () => {
+  await test('customer branding is applied from the public portal configuration', async () => {
+    const page = createPage({ config: {
+      location: { businessName: 'Fallback WiFi', name: 'Kisumu Main' },
+      branding: {
+        name: 'Lakeview Internet', supportPhone: '254712345678', primaryColor: '#19A974',
+        message: 'Fast Wi-Fi for Lakeview guests.', logoUrl: '/media/logo/biz-test',
+      },
+      packages: [{ id: 1, name: 'One hour', price: 20, seconds: 3600 }],
+    } });
+    await page.flush();
+    assert.equal(page.element('brand').textContent, 'Lakeview Internet');
+    assert.equal(page.element('location').textContent, 'Kisumu Main');
+    assert.equal(page.element('portal-message').textContent, 'Fast Wi-Fi for Lakeview guests.');
+    assert.equal(page.element('brand-logo').src, '/media/logo/biz-test');
+    assert.equal(page.cssVariables.get('--blue'), '#19A974');
+    assert.equal(page.cssVariables.get('--aqua'), '#19A974');
+    assert.match(page.element('support').textContent, /254712345678/);
+  });
+
   await test('saved payment resumes across refresh and remains on the waiting page beyond five seconds', async () => {
     const data = savedCheckout();
     const page = createPage({ localData: data });

@@ -50,6 +50,10 @@
 :if ([:len [/interface find where name=$fitiBridge]] != 1) do={
   :error "Customer bridge not found. Correct fitiBridge before importing."
 }
+:local fitiHotspotBridge [/ip hotspot get [find where name=$fitiHotspotServer] interface]
+:if ($fitiHotspotBridge != $fitiBridge) do={
+  :error "The selected Hotspot server is not on fitiBridge. Correct the bridge or Hotspot name before importing."
+}
 :local previousBoot [/system script find where name="fiti-boot"]
 :if ([:len $previousBoot] > 0) do={
   :local previous [/system script get $previousBoot source]

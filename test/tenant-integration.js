@@ -321,6 +321,62 @@ async function main() {
     assert.equal((await api('/api/admin/business-operations/tickets', { adminToken: 'integration-admin-token' })).status, 200);
   });
 
+  await test('guided router setup safely brands a portal and stages replacement credentials', async () => {
+    const created = await api('/api/business/router-setup', { method: 'POST', token: alpha.token, body: {
+      name: 'Alpha Second Site', routerName: 'Fresh hAP lite', mode: 'new', routerOsVersion: '7',
+      modelProfile: 'hap-lite', routerModel: 'hAP lite', customerBridge: 'bridge-hs', hotspotServer: 'hotspot1',
+      wanInterface: 'ether1', wifiInterface: 'wlan1', customerPorts: 'ether2,ether3,ether4',
+      wifiSsid: 'Alpha Guest', wifiPassword: 'AlphaGuestPass9', customerSubnet: '10.5.51.0/24', wanMode: 'dhcp',
+    } });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.ok(created.body.location.routerToken, 'a setup kit reveals its pairing secret only once');
+    assert.match(created.body.setup.script, /Router administrator login: admin \/ /);
+    assert.match(created.body.setup.script, /fiti-first-install.*interval=15s/, 'fresh DHCP routers keep retrying WAN/DNS pairing');
+    assert.match(created.body.setup.script, /block WAN management/);
+    assert.doesNotMatch(created.body.setup.script, /\/system reset-configuration|\?token=/);
+    const hidden = (await api('/api/business/me', { token: alpha.token })).body.locations
+      .find((item) => item.id === created.body.location.id);
+    assert.equal(hidden.routerToken, undefined, 'the one-time setup secret is not returned by workspace reloads');
+    assert.equal(hidden.customer_ports, 'ether2,ether3,ether4');
+
+    const invalid = await api('/api/business/router-setup', { method: 'POST', token: alpha.token, body: {
+      name: 'Unsafe Site', mode: 'existing', routerOsVersion: '7', customerBridge: 'bridge-hs; /system reboot', hotspotServer: 'hotspot1',
+    } });
+    assert.equal(invalid.status, 400, 'router field injection is rejected before a location is created');
+
+    const branded = await api('/api/business/branding', { method: 'PATCH', token: alpha.token, body: {
+      portalName: 'Alpha Connect', supportPhone: '0712000099', primaryColor: '#19A974', portalMessage: 'Fast Wi-Fi for Alpha guests.',
+    } });
+    assert.equal(branded.status, 200, JSON.stringify(branded.body));
+    const publicConfig = await api(endpoint(created.body.location, 'config'), { host: 'cloud.wififiti.co.ke' });
+    assert.equal(publicConfig.body.branding.name, 'Alpha Connect');
+    assert.equal(publicConfig.body.branding.supportPhone, '254712000099');
+    assert.equal(publicConfig.body.branding.primaryColor, '#19A974');
+    assert.equal(publicConfig.body.branding.message, 'Fast Wi-Fi for Alpha guests.');
+
+    const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const uploaded = await api('/api/business/branding/logo', { method: 'POST', token: alpha.token,
+      body: { dataUrl: `data:image/png;base64,${pixel}` } });
+    assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
+    const logoPath = new URL(uploaded.body.branding.logoUrl).pathname;
+    const logo = await api(logoPath, { host: 'cloud.wififiti.co.ke' });
+    assert.equal(logo.status, 200);
+    assert.match(logo.headers.get('content-type'), /^image\/png/);
+
+    const oldToken = created.body.location.routerToken;
+    const staged = await api(`/api/business/locations/${created.body.location.id}/router-setup`, { method: 'POST', token: alpha.token, body: {
+      name: 'Alpha Second Site', routerName: 'Fresh hAP lite', mode: 'existing', routerOsVersion: '7',
+      modelProfile: 'hap-lite', customerBridge: 'bridge-hs', hotspotServer: 'hotspot1',
+    } });
+    assert.equal(staged.status, 200, JSON.stringify(staged.body));
+    assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 200,
+      'the active router stays connected while a re-pairing kit waits to be pasted');
+    assert.equal((await routerSync(created.body.location, { token: staged.body.location.routerToken })).status, 200,
+      'the new kit promotes itself by checking in');
+    assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 403,
+      'the original router token is retired after the new kit checks in');
+  });
+
   await test('voucher grants survive HTTP reloads and require the correct router acknowledgement', async () => {
     const mac = 'AA:BB:CC:00:00:10';
     const granted = await voucher(alpha, mac);
@@ -530,12 +586,7 @@ async function finish(exitCode) {
     await new Promise((resolve) => server.close(resolve));
   }
   if (database) database.close();
-  // Delete only this run's generated files, using resolved explicit paths.
-  for (const suffix of ['', '-wal', '-shm']) {
-    try { fs.unlinkSync(path.join(temporaryDirectory, `hotspot.db${suffix}`)); } catch (error) {
-      if (error.code !== 'ENOENT') console.error(error.message);
-    }
-  }
-  try { fs.rmdirSync(temporaryDirectory); } catch (error) { console.error(error.message); }
+  // Delete only this run's mkdtemp directory, including its uploaded-logo test asset.
+  try { fs.rmSync(temporaryDirectory, { recursive: true, force: true }); } catch (error) { console.error(error.message); }
   process.exit(exitCode);
 }

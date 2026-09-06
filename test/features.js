@@ -256,7 +256,8 @@ async function t(name, fn) {
     await new Promise((r) => setTimeout(r, 400));
     const s = await post('/api/session/lookup', { phone: '0766000005' });
     assert.strictEqual(s.b.found, true);
-    assert.strictEqual(s.b.remainingSeconds, 86400, '50 bob should buy the 24h package');
+    assert.ok(s.b.remainingSeconds <= 86400 && s.b.remainingSeconds >= 86399,
+      '50 bob should buy the 24h package (allowing for the wall clock to tick)');
   });
 
   await t('picks the best package the amount covers, not the first', async () => {
@@ -266,7 +267,8 @@ async function t(name, fn) {
     await new Promise((r) => setTimeout(r, 400));
     const s = await post('/api/session/lookup', { phone: '0777000006' });
     // 130 covers the 120/= three-day package but not the 250/= week.
-    assert.strictEqual(s.b.remainingSeconds, 3 * 24 * 3600);
+    assert.ok(s.b.remainingSeconds <= 3 * 24 * 3600 && s.b.remainingSeconds >= 3 * 24 * 3600 - 1,
+      'the three-day package may lose one displayed second while the assertion runs');
   });
 
   await t('grants nothing when the amount is below every package', async () => {

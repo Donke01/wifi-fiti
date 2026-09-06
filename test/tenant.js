@@ -86,6 +86,14 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   const paired = tenant.locationById.get(alpha.id);
   assert.strictEqual(paired.router_status, 'online');
   assert.ok(paired.last_seen_at, 'successful pairing should record router health');
+  const staged = tenant.rotateLocationToken({ locationId: alpha.id, businessId: 'business-a' });
+  assert.ok(staged.routerToken, 'replacement kit receives a one-time staged credential');
+  assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken).business_id, 'business-a',
+    'the live router stays online until the replacement kit checks in');
+  assert.strictEqual(tenant.authenticateRouter(alpha.id, staged.routerToken).business_id, 'business-a');
+  assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken), null,
+    'the old router is retired only after the staged credential checks in');
+  alpha.routerToken = staged.routerToken;
 
   const alphaPackageId = legacy.addBusinessPackage.run({
     businessId: 'business-a', name: 'Ten minutes', price: 10, seconds: 600, rateLimit: '2M/5M',

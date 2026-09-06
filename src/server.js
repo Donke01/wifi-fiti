@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 
@@ -10,6 +11,7 @@ const tenantMpesa = require('./lib/tenant-mpesa');
 const mpesa = require('./lib/mpesa');
 const mikrotik = require('./lib/mikrotik');
 const { fulfil } = require('./lib/fulfil');
+const { validateRouterSetup, buildRouterSetup } = require('./lib/router-setup');
 const { PACKAGES, findPackage } = require('./packages');
 
 const app = express();
@@ -153,6 +155,9 @@ app.use((req, res, next) => {
 // value" and every sync 500s. This comes after host routing so rejected
 // hostnames never spend work parsing application-only requests.
 app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
+// Brand logos are stored on the persistent volume and are deliberately kept
+// separate from the small JSON bodies used by payment and router endpoints.
+app.use('/api/business/branding/logo', express.json({ limit: '520kb' }));
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(publicDirectory));
@@ -244,6 +249,65 @@ function businessAuth(req, res) {
   return business;
 }
 
+const logoDirectory = path.join(path.dirname(path.resolve(config.databasePath)), 'tenant-logos');
+const logoTypes = {
+  'image/png': { extension: 'png', valid: (value) => value.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) },
+  'image/jpeg': { extension: 'jpg', valid: (value) => value.length >= 4 && value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff },
+  'image/webp': { extension: 'webp', valid: (value) => value.length >= 12 && value.subarray(0, 4).equals(Buffer.from('RIFF')) && value.subarray(8, 12).equals(Buffer.from('WEBP')) },
+};
+
+function portalText(value, label, max, required = false) {
+  const text = String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (required && !text) throw Object.assign(new Error(`Enter ${label}.`), { status: 400 });
+  if (text.length > max) throw Object.assign(new Error(`${label} is too long.`), { status: 400 });
+  return text || null;
+}
+
+function primaryColor(value) {
+  const color = String(value || '').trim().toUpperCase();
+  if (!color) return null;
+  if (!/^#[0-9A-F]{6}$/.test(color)) throw Object.assign(new Error('Choose a valid six-digit brand colour.'), { status: 400 });
+  return color;
+}
+
+function brandingPayload(business) {
+  const logo = business && business.brand_logo_path;
+  return {
+    name: business && (business.portal_name || business.name) || config.brandName,
+    supportPhone: business && business.support_phone || config.supportPhone || '',
+    primaryColor: business && /^#[0-9A-Fa-f]{6}$/.test(String(business.brand_primary_color || '')) ? business.brand_primary_color.toUpperCase() : null,
+    message: business && business.portal_message || '',
+    logoUrl: logo && business && business.id
+      ? `${config.domains.appUrl}/media/logo/${encodeURIComponent(business.id)}?v=${encodeURIComponent(logo)}`
+      : null,
+  };
+}
+
+function decodeLogo(dataUrl) {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(dataUrl || ''));
+  if (!match || !logoTypes[match[1]]) throw Object.assign(new Error('Upload a PNG, JPEG, or WebP logo.'), { status: 400 });
+  const data = Buffer.from(match[2], 'base64');
+  if (data.length < 16 || data.length > 360 * 1024 || !logoTypes[match[1]].valid(data)) {
+    throw Object.assign(new Error('Logo file is invalid or larger than 360 KB.'), { status: 400 });
+  }
+  return { data, ...logoTypes[match[1]] };
+}
+
+app.get('/media/logo/:businessId', (req, res) => {
+  const id = String(req.params.businessId || '');
+  if (!/^biz-[a-f0-9]{16}$/.test(id)) return res.status(404).type('text/plain').send('Not found.');
+  const business = db.businessBrandingById.get(id);
+  const filename = business && String(business.brand_logo_path || '');
+  if (!filename || !/^biz-[a-f0-9]{16}-[a-f0-9]{16}\.(?:png|jpg|webp)$/.test(filename)) {
+    return res.status(404).type('text/plain').send('Not found.');
+  }
+  const file = path.resolve(logoDirectory, filename);
+  if (!file.startsWith(logoDirectory + path.sep) || !fs.existsSync(file)) return res.status(404).type('text/plain').send('Not found.');
+  const type = filename.endsWith('.png') ? 'image/png' : filename.endsWith('.jpg') ? 'image/jpeg' : 'image/webp';
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.type(type).sendFile(file);
+});
+
 const BUSINESS_PLANS = {
   starter: { name: 'Starter', monthlyKes: 1500, routerLimit: 2, activeDeviceLimit: 2000 },
   growth: { name: 'Growth', monthlyKes: 3500, routerLimit: 5, activeDeviceLimit: 5000 },
@@ -304,6 +368,44 @@ app.get('/api/business/me', (req, res) => {
   res.json({ business, plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
+});
+
+/** Customer-facing portal identity. Branding remains in the cloud rather
+ * than on a router, so logo delivery is reliable behind a captive portal. */
+app.patch('/api/business/branding', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const body = req.body || {};
+    const portalName = portalText(body.portalName === undefined ? (business.portal_name || business.name) : body.portalName, 'customer-facing business name', 80, true);
+    const supportRaw = String(body.supportPhone === undefined ? business.support_phone || '' : body.supportPhone || '').trim();
+    const supportPhone = supportRaw ? mpesa.normalizePhone(supportRaw) : null;
+    if (supportRaw && !supportPhone) return res.status(400).json({ error: 'Enter a valid Kenyan support phone number, or leave it blank.' });
+    const color = primaryColor(body.primaryColor === undefined ? business.brand_primary_color : body.primaryColor);
+    const message = portalText(body.portalMessage === undefined ? business.portal_message : body.portalMessage, 'portal message', 120);
+    db.updateBusinessBranding.run({ id: business.id, portalName, supportPhone, primaryColor: color, portalMessage: message });
+    const updated = db.businessById.get(business.id);
+    res.json({ business: updated, branding: brandingPayload(updated) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not save portal branding.' });
+  }
+});
+
+app.post('/api/business/branding/logo', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const logo = decodeLogo(req.body && req.body.dataUrl);
+    fs.mkdirSync(logoDirectory, { recursive: true, mode: 0o700 });
+    const filename = `${business.id}-${crypto.randomBytes(8).toString('hex')}.${logo.extension}`;
+    const temporary = path.join(logoDirectory, `.${filename}.upload`);
+    const destination = path.join(logoDirectory, filename);
+    fs.writeFileSync(temporary, logo.data, { mode: 0o600 });
+    fs.renameSync(temporary, destination);
+    db.setBusinessLogo.run({ id: business.id, brandLogoPath: filename });
+    const updated = db.businessById.get(business.id);
+    res.status(201).json({ business: updated, branding: brandingPayload(updated) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not save the logo.' });
+  }
 });
 
 app.post('/api/business/billing-plan', (req, res) => {
@@ -458,6 +560,66 @@ app.post('/api/business/payment-collection', async (req, res) => {
   }
 });
 
+/** Create a location and a one-time, server-generated RouterOS setup kit.
+ * The token is returned only in this response, inside the script. */
+app.post('/api/business/router-setup', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const body = req.body || {};
+  const name = String(body.name || '').trim().slice(0, 80);
+  const requestedRouterName = String(body.routerName || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'Give this location a name.' });
+  try {
+    const setup = validateRouterSetup(body);
+    const plan = BUSINESS_PLANS[business.plan];
+    const existing = tenant.locationsForBusiness.all(business.id);
+    if (plan.routerLimit && existing.length >= plan.routerLimit) {
+      return res.status(402).json({
+        error: `${plan.name} includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Choose a larger plan before adding another location.`,
+      });
+    }
+    const location = tenant.createLocation({ id: businessId('loc'), businessId: business.id, name,
+      routerName: requestedRouterName || setup.routerModel, setup });
+    const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, input: body });
+    res.status(201).json({
+      location,
+      portalUrl: `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`,
+      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script },
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not create this router setup.' });
+  }
+});
+
+/** Rebuild a one-time kit for an existing location. Rotating the token is
+ * staged: the live router keeps working until this kit checks in. */
+app.post('/api/business/locations/:locationId/router-setup', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const current = tenant.locationForBusiness.get(String(req.params.locationId), business.id);
+  if (!current) return res.status(404).json({ error: 'Location not found.' });
+  const body = req.body || {};
+  try {
+    const setup = validateRouterSetup(body);
+    if (setup.mode === 'new' && String(body.replaceRouter || '') !== 'yes') {
+      return res.status(400).json({ error: 'Confirm that this new/reset kit is replacing the current router before generating it.' });
+    }
+    const name = body.name === undefined ? current.name : String(body.name || '').trim().slice(0, 80);
+    const routerName = body.routerName === undefined ? current.router_name : String(body.routerName || '').trim().slice(0, 80);
+    if (!name) return res.status(400).json({ error: 'Give this location a name.' });
+    tenant.updateLocationSettings({ locationId: current.id, businessId: business.id, name, routerName,
+      hotspotServer: setup.hotspotServer, setup });
+    const location = tenant.rotateLocationToken({ locationId: current.id, businessId: business.id });
+    if (!location) return res.status(404).json({ error: 'Location not found.' });
+    const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, input: body });
+    res.json({
+      location,
+      portalUrl: `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`,
+      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script },
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not create this router setup.' });
+  }
+});
+
 app.post('/api/business/locations', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const name = String(req.body && req.body.name || '').trim().slice(0, 80);
@@ -478,8 +640,9 @@ app.post('/api/business/locations', (req, res) => {
   });
 });
 
-/** A router credential is shown once, at pairing time.  Rotate rather than
- * redisplay it if a device is replaced, lost or sent to the wrong person. */
+/** A replacement credential is shown once. It is staged for 24 hours, so the
+ * current router remains connected until the replacement makes its first
+ * authenticated check-in. */
 app.post('/api/business/locations/:locationId/router-token', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const location = tenant.rotateLocationToken({ locationId: String(req.params.locationId), businessId: business.id });
@@ -700,8 +863,13 @@ app.get('/p/:locationId', (req, res) => {
 
 app.get('/api/tenant/:locationId/config', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
-  res.json({ location: { id: location.id, name: location.name, businessName: location.business_name },
-    packages: tenant.packagesForLocation.all(location.id), supportPhone: config.supportPhone });
+  const branding = brandingPayload({
+    id: location.business_id, name: location.business_name, portal_name: location.portal_name,
+    support_phone: location.support_phone, brand_primary_color: location.brand_primary_color,
+    brand_logo_path: location.brand_logo_path, portal_message: location.portal_message,
+  });
+  res.json({ location: { id: location.id, name: location.name, businessName: branding.name }, branding,
+    packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone });
 });
 
 app.get('/api/tenant/:locationId/session', (req, res) => {
