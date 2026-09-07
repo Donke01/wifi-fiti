@@ -39,6 +39,27 @@ assert.match(html, /confirm:\s*'DELETE'/,
 assert.doesNotMatch(html, /\/system\s+reset-configuration/,
   'the dashboard must not offer a remote RouterOS factory reset');
 
+// First-time owners should land in a real setup journey rather than a long
+// dashboard of unrelated forms. Router readiness is based on a completed
+// authenticated sync—not a transient online indication—and the small status
+// watcher must be explicit, scoped, and safe to stop.
+assert.match(html, /id="onboarding-section"/,
+  'the business workspace includes a dedicated guided setup surface');
+assert.match(html, /Set up your first Wi-Fi location with confidence/,
+  'the onboarding journey has a focused first-location heading');
+assert.match(html, /Workspace.*Connect router.*Customer portal.*Package.*Go live/s,
+  'the journey presents the complete workspace-to-live sequence');
+assert.match(html, /last_successful_sync_at/,
+  'router pairing is derived from a completed secure sync');
+assert.match(html, /Checking this router automatically every 5 seconds/,
+  'an awaiting router receives a clear, live connection status');
+assert.match(html, /document\.visibilityState === 'hidden'/,
+  'automatic status checks pause while the dashboard is not visible');
+assert.match(html, /Chat with setup support/,
+  'contextual setup support is available at the point of need');
+assert.match(html, /WiFi Fiti never factory-resets a router remotely/,
+  'the new onboarding language keeps router resets explicitly owner-controlled');
+
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
 console.log('Business UI: remote onboarding, discoverable managed portal addressing, and client-script safety passed.');
