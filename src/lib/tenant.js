@@ -505,16 +505,30 @@ const locationById = db.prepare(`
     FROM locations l JOIN businesses b ON b.id = l.business_id
    WHERE l.id = ?
 `);
-const locationsForBusiness = db.prepare(`
+const locationsForBusinessQuery = db.prepare(`
   SELECT id, name, router_name, hotspot_server, setup_mode, router_model, routeros_version,
          wifi_stack, customer_bridge, wan_interface, wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
          CASE WHEN router_status='online' AND (last_seen_at IS NULL OR last_seen_at <= datetime('now','-90 seconds'))
               THEN 'offline' ELSE router_status END AS router_status,
          last_seen_at, last_successful_sync_at, created_at,
+         CASE WHEN router_pending_token_hash IS NOT NULL
+                    AND router_pending_token_expires_at > datetime('now')
+              THEN 1 ELSE 0 END AS router_pairing_pending,
          (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname,
          COALESCE((SELECT r.status FROM tenant_remote_access r WHERE r.location_id=locations.id), 'not_requested') AS remote_access_status
     FROM locations WHERE business_id = ? ORDER BY created_at
 `);
+// Keep pairing-token state private: the owner UI only needs to know whether
+// a replacement kit is still waiting to check in, never its token or expiry.
+// Convert SQLite's 0/1 result into a real JavaScript boolean for every caller.
+const locationsForBusiness = {
+  all(businessId) {
+    return locationsForBusinessQuery.all(businessId).map((location) => ({
+      ...location,
+      router_pairing_pending: Boolean(location.router_pairing_pending),
+    }));
+  },
+};
 const touchRouter = db.prepare(`
   UPDATE locations SET router_status = 'online', last_seen_at = datetime('now') WHERE id = ?
 `);

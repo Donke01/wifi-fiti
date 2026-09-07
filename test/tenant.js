@@ -285,12 +285,25 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   assert.strictEqual(tenant.managedPortalSlugReserved('cloud'), true, 'system host labels cannot be claimed by tenants');
   const staged = tenant.rotateLocationToken({ locationId: alpha.id, businessId: 'business-a' });
   assert.ok(staged.routerToken, 'replacement kit receives a one-time staged credential');
+  assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_pairing_pending, true,
+    'the owner workspace reports a replacement-router pairing only while its staged token is valid');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken).business_id, 'business-a',
     'the live router stays online until the replacement kit checks in');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, staged.routerToken).business_id, 'business-a');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken), null,
     'the old router is retired only after the staged credential checks in');
+  assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_pairing_pending, false,
+    'the owner workspace clears pairing-pending immediately after the staged token promotes');
   alpha.routerToken = staged.routerToken;
+
+  const expiring = tenant.rotateLocationToken({ locationId: bravo.id, businessId: 'business-b' });
+  assert.ok(expiring.routerToken);
+  assert.strictEqual(tenant.locationsForBusiness.all('business-b')[0].router_pairing_pending, true);
+  legacy.db.prepare(`UPDATE locations SET router_pending_token_expires_at=datetime('now','-1 second') WHERE id=?`).run(bravo.id);
+  assert.strictEqual(tenant.locationsForBusiness.all('business-b')[0].router_pairing_pending, false,
+    'an expired replacement token is never presented as a pending router pairing');
+  assert.strictEqual(tenant.authenticateRouter(bravo.id, expiring.routerToken), null,
+    'an expired replacement token cannot promote itself');
 
   const alphaPackageId = legacy.addBusinessPackage.run({
     businessId: 'business-a', name: 'Ten minutes', price: 10, seconds: 600, rateLimit: '2M/5M',

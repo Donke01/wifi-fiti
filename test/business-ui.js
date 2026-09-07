@@ -51,10 +51,22 @@ assert.match(html, /Workspace.*Connect router.*Customer portal.*Package.*Go live
   'the journey presents the complete workspace-to-live sequence');
 assert.match(html, /last_successful_sync_at/,
   'router pairing is derived from a completed secure sync');
+assert.match(html, /router_pairing_pending/,
+  'a staged replacement router cannot inherit the old router pairing state');
+assert.match(html, /onboardingStatusFingerprint/,
+  'unchanged router-status checks can avoid rebuilding the guided setup UI');
 assert.match(html, /Checking this router automatically every 5 seconds/,
   'an awaiting router receives a clear, live connection status');
 assert.match(html, /document\.visibilityState === 'hidden'/,
   'automatic status checks pause while the dashboard is not visible');
+assert.match(html, /ROUTER OFFLINE/,
+  'a historically paired but offline router is never presented as ready for customers');
+assert.match(html, /Review or delete unused setup/,
+  'the guided setup exposes the safe recovery route for a pristine draft');
+assert.match(html, /openOnboardingPortal/,
+  'the customer-portal step leads owners to their managed portal address settings');
+assert.match(html, /@media\(max-width:900px\)\{\.onboarding-progress\{grid-template-columns:1fr/,
+  'the five setup stages stay readable in one connected mobile/tablet sequence');
 assert.match(html, /Chat with setup support/,
   'contextual setup support is available at the point of need');
 assert.match(html, /WiFi Fiti never factory-resets a router remotely/,
