@@ -556,6 +556,27 @@ const updateLocation = db.prepare(`
     hotspot_subnet=@hotspotSubnet
    WHERE id=@id AND business_id=@businessId
 `);
+// A location may be discarded only while it is a genuinely unused setup
+// draft. Most tenant tables intentionally do not use cascading foreign keys:
+// payment and customer history must survive ordinary lifecycle operations.
+// Keep the eligibility check explicit and conservative instead of risking an
+// orphaned paid checkout, subscription, voucher, job, or support lifecycle.
+const unusedLocationForDiscard = db.prepare(`
+  SELECT l.id, l.name, l.router_status, l.last_seen_at, l.last_successful_sync_at,
+         (SELECT COUNT(*) FROM tenant_transactions WHERE location_id=l.id) AS transaction_count,
+         (SELECT COUNT(*) FROM tenant_subscriptions WHERE location_id=l.id) AS subscription_count,
+         (SELECT COUNT(*) FROM tenant_jobs WHERE location_id=l.id) AS job_count,
+         (SELECT COUNT(*) FROM tenant_devices WHERE location_id=l.id) AS device_count,
+         (SELECT COUNT(*) FROM tenant_vouchers WHERE location_id=l.id) AS voucher_count,
+         (SELECT COUNT(*) FROM tenant_remote_access WHERE location_id=l.id) AS remote_access_count,
+         (SELECT COUNT(*) FROM tenant_remote_access_events WHERE location_id=l.id) AS remote_access_event_count,
+         (SELECT COUNT(*) FROM tenant_remote_support_controls WHERE location_id=l.id) AS remote_control_count
+    FROM locations l
+   WHERE l.id=@locationId AND l.business_id=@businessId
+`);
+const deletePortalDomainsForLocation = db.prepare(`DELETE FROM tenant_portal_domains WHERE location_id=?`);
+const deleteLocationForBusiness = db.prepare(`DELETE FROM locations WHERE id=? AND business_id=?`);
+const databaseTableExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`);
 
 const remoteAccessByLocation = db.prepare(`
   SELECT location_id, status, requested_at, approved_at, configured_at, revoked_at,
@@ -1259,6 +1280,54 @@ function updateLocationSettings({ locationId, businessId, name, routerName, hots
   return locationForBusiness.get(locationId, businessId);
 }
 
+/**
+ * Delete only a pristine dashboard draft. This is intentionally not a router
+ * factory reset and not an archive operation: it removes the one-time cloud
+ * pairing and managed portal address before either one has served anybody.
+ * Once a router has checked in or commercial data exists, the replacement-kit
+ * path must be used so records and existing customers are kept safe.
+ */
+function discardUnusedLocation({ locationId, businessId, confirm }) {
+  if (confirm !== 'DELETE') {
+    const error = new Error('Type DELETE to remove an unused setup.');
+    error.status = 400;
+    throw error;
+  }
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const location = unusedLocationForDiscard.get({ locationId, businessId });
+    if (!location) {
+      db.exec('COMMIT');
+      return null;
+    }
+    // Support operations are attached by the HTTP server after this module is
+    // loaded, so only query that optional table when it exists. A support
+    // record is still business history and must block a discard.
+    const supportTicketCount = databaseTableExists.get('business_support_tickets')
+      ? Number(db.prepare(`SELECT COUNT(*) AS count FROM business_support_tickets WHERE location_id=?`).get(location.id).count)
+      : 0;
+    const hasHistory = Number(location.transaction_count) || Number(location.subscription_count) ||
+      Number(location.job_count) || Number(location.device_count) || Number(location.voucher_count) ||
+      Number(location.remote_access_count) || Number(location.remote_access_event_count) ||
+      Number(location.remote_control_count) || supportTicketCount;
+    if (location.router_status !== 'waiting' || location.last_seen_at || location.last_successful_sync_at || hasHistory) {
+      const error = new Error('This setup has already been paired or has customer, payment, voucher, router-job, support, or remote-setup history. Keep the location and generate a replacement router kit instead.');
+      error.status = 409;
+      throw error;
+    }
+    // Delete the hostname first. It is the one location relation that has a
+    // foreign-key declaration on newer databases, and it must not keep an
+    // unused branded address reserved after the draft is gone.
+    deletePortalDomainsForLocation.run(location.id);
+    deleteLocationForBusiness.run(location.id, businessId);
+    db.exec('COMMIT');
+    return { id: location.id, name: location.name };
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+}
+
 function authenticateRouter(locationId, rawToken, transport = 'header') {
   const location = locationById.get(locationId);
   if (location?.router_auth_mode === 'header' && transport !== 'header') return null;
@@ -1527,7 +1596,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, setManagedPortalHostname, authenticateRouter, recordSuccessfulRouterSync,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, recordSuccessfulRouterSync,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
   remoteAccessForLocation, remoteAccessForBusiness, requestRemoteAccess, revokeRemoteAccessForBusiness, manageRemoteAccess, recordRemoteAccessEnrollment,
   pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,

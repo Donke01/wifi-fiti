@@ -74,6 +74,62 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     id: 'location-bravo', businessId: 'business-b', name: 'Bravo Main', routerName: 'RB951Ui',
   });
 
+  // A dashboard owner may abandon an untouched draft, but that operation is
+  // deliberately narrow: it requires the exact confirmation and removes the
+  // paired hostname along with the one-time router credential.  It must not
+  // become a way to erase a router that has ever checked in.
+  const unusedDraft = tenant.createLocation({
+    id: 'location-unused-draft', businessId: 'business-a', name: 'Unused draft', routerName: 'hAP lite',
+  });
+  assert.throws(
+    () => tenant.discardUnusedLocation({ locationId: unusedDraft.id, businessId: 'business-a', confirm: 'delete' }),
+    (error) => error && error.status === 400 && /Type DELETE/.test(error.message),
+    'discarding a draft requires an explicit, case-sensitive confirmation'
+  );
+  assert.ok(tenant.locationById.get(unusedDraft.id), 'a rejected discard leaves the draft intact');
+  assert.ok(tenant.portalDomainByHostname.get(unusedDraft.portalHostname),
+    'a rejected discard keeps the unused portal address reserved');
+  const discarded = tenant.discardUnusedLocation({
+    locationId: unusedDraft.id, businessId: 'business-a', confirm: 'DELETE',
+  });
+  assert.deepStrictEqual(discarded, { id: unusedDraft.id, name: 'Unused draft' });
+  assert.strictEqual(tenant.locationById.get(unusedDraft.id), undefined,
+    'a confirmed discard removes the unused location record');
+  assert.strictEqual(tenant.portalDomainByHostname.get(unusedDraft.portalHostname), undefined,
+    'a confirmed discard frees the managed portal address');
+  assert.strictEqual(tenant.authenticateRouter(unusedDraft.id, unusedDraft.routerToken), null,
+    'the discarded one-time pairing credential cannot check in later');
+
+  const pairedDraft = tenant.createLocation({
+    id: 'location-paired-draft', businessId: 'business-a', name: 'Paired draft', routerName: 'hAP lite',
+  });
+  assert.ok(tenant.authenticateRouter(pairedDraft.id, pairedDraft.routerToken),
+    'the paired-draft guard is exercised after a real router authentication');
+  assert.throws(
+    () => tenant.discardUnusedLocation({ locationId: pairedDraft.id, businessId: 'business-a', confirm: 'DELETE' }),
+    (error) => error && error.status === 409 && /already been paired/.test(error.message),
+    'a router that has checked in must use staged replacement setup instead of deletion'
+  );
+  assert.ok(tenant.locationById.get(pairedDraft.id), 'a paired location remains intact after the rejected discard');
+
+  // The support module is attached later by the HTTP server. If a draft has
+  // already been discussed with support, it is business history too and must
+  // not be silently orphaned by the discard control.
+  legacy.db.exec(`CREATE TABLE business_support_tickets (
+    id TEXT PRIMARY KEY, business_id TEXT NOT NULL, location_id TEXT,
+    subject TEXT NOT NULL, category TEXT NOT NULL
+  )`);
+  const supportDraft = tenant.createLocation({
+    id: 'location-support-draft', businessId: 'business-a', name: 'Support draft', routerName: 'hAP lite',
+  });
+  legacy.db.prepare(`INSERT INTO business_support_tickets(id,business_id,location_id,subject,category) VALUES(?,?,?,?,?)`)
+    .run('ticket-support-draft', 'business-a', supportDraft.id, 'Need help with setup', 'router');
+  assert.throws(
+    () => tenant.discardUnusedLocation({ locationId: supportDraft.id, businessId: 'business-a', confirm: 'DELETE' }),
+    (error) => error && error.status === 409 && /support/.test(error.message),
+    'support history blocks deletion even before a router has checked in'
+  );
+
   // Router pairing secrets are given to the business once. The database only
   // retains a SHA-256 hash, and a token for one location never pairs another.
   const stored = legacy.db.prepare(

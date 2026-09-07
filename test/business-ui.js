@@ -24,6 +24,21 @@ assert.match(locationEditor[0], /field\('Customer portal address',\s*'portalSlug
 assert.doesNotMatch(locationEditor[0], /if\s*\(\s*location\.portal_hostname\s*\)\s*field\(\s*'Customer portal address'/,
   'the managed portal-address field is not hidden until a hostname already exists');
 
+// Starting over must be safe for a live business: the dashboard can clear
+// unsaved wizard choices or stage a replacement kit, while deletion stays
+// limited to an explicitly confirmed, unused draft. It must never offer a
+// remote RouterOS factory reset.
+assert.match(html, /Start router setup again/,
+  'each location offers a safe way to begin its router setup again');
+assert.match(html, /Clear setup form/,
+  'the setup wizard can clear only unsaved form choices');
+assert.match(html, /Delete unused setup/,
+  'a pristine location exposes a clearly scoped discard action');
+assert.match(html, /confirm:\s*'DELETE'/,
+  'the UI sends the explicit deletion confirmation required by the API');
+assert.doesNotMatch(html, /\/system\s+reset-configuration/,
+  'the dashboard must not offer a remote RouterOS factory reset');
+
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
 console.log('Business UI: remote onboarding, discoverable managed portal addressing, and client-script safety passed.');

@@ -136,6 +136,7 @@
       function setupStoreKey() { return state.workspace && state.workspace.business ? setupStorePrefix + state.workspace.business.id : null; }
       function getSetups() { try { var key = setupStoreKey(); var setups = key ? JSON.parse(sessionStorage.getItem(key) || '{}') : {}; return setups && typeof setups === 'object' ? setups : {}; } catch (_) { return {}; } }
       function saveSetups(setups) { try { var key = setupStoreKey(); if (key) sessionStorage.setItem(key, JSON.stringify(setups)); } catch (_) { /* session storage is optional */ } }
+      function forgetSetup(locationId) { var setups = getSetups(); delete setups[String(locationId)]; saveSetups(setups); }
       function clearPairingSecrets() { try { Object.keys(sessionStorage).filter(function (key) { return key.indexOf('fiti_location_setup_secrets_') === 0; }).forEach(function (key) { sessionStorage.removeItem(key); }); } catch (_) {} clear($('setup-list')); $('location-setup-section').classList.add('hidden'); }
       function clearSession() { clearBillingPolling(); clearPairingSecrets(); localStorage.removeItem('fiti_business_token'); token = null; billingRecoveryPending = false; state = { workspace: null, dashboard: null, vouchers: [], payment: null, issuedCodes: [], billing: null }; $('billing-phone').value = ''; $('payment-form').reset(); $('login').reset(); $('register').reset(); showWelcome(); }
       function portalAddressing() { var details = state.workspace && state.workspace.portalAddressing; return details && typeof details === 'object' ? details : { enabled: false, rootDomain: '', kind: 'managed-subdomain' }; }
@@ -320,6 +321,41 @@
         $('generate-router-setup').textContent = 'Generate re-pairing kit'; $('router-setup-error').textContent = ''; syncRouterSetupForm(false); syncWanFields(); $('router-setup-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       function resetRouterSetupTarget() { var form = $('router-setup-form'); delete form.dataset.locationId; $('generate-router-setup').textContent = 'Generate secure router setup'; }
+      // Clearing this form never sends a command to a router. For an existing
+      // location we retain its identity, then prepare a new staged kit only
+      // when the owner deliberately submits the form.
+      function clearRouterSetupForm(location) {
+        var form = $('router-setup-form');
+        form.reset();
+        $('router-profile').value = 'hap-lite';
+        var newMode = form.querySelector('input[name="mode"][value="new"]'); if (newMode) newMode.checked = true;
+        if (location && location.id) {
+          form.dataset.locationId = location.id;
+          form.elements.name.value = location.name || '';
+        } else {
+          delete form.dataset.locationId;
+        }
+        $('router-setup-error').textContent = '';
+        $('router-setup-output').classList.add('hidden');
+        $('generate-router-setup').textContent = location && location.id ? 'Generate replacement router kit' : 'Generate secure router setup';
+        syncRouterSetupForm(true); syncWanFields();
+      }
+      function startRouterSetupAgain(location) {
+        clearRouterSetupForm(location);
+        $('router-setup-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      function installRouterSetupClearAction() {
+        var generate = $('generate-router-setup');
+        if (!generate || $('clear-router-setup')) return;
+        var clearButton = el('button', 'secondary', 'Clear setup form');
+        clearButton.id = 'clear-router-setup'; clearButton.type = 'button';
+        clearButton.addEventListener('click', function () {
+          var form = $('router-setup-form');
+          var location = form.dataset.locationId && state.workspace && (state.workspace.locations || []).find(function (item) { return String(item.id) === String(form.dataset.locationId); });
+          clearRouterSetupForm(location || null);
+        });
+        generate.insertAdjacentElement('afterend', clearButton);
+      }
       function renderBranding() {
         var business = state.workspace && state.workspace.business || {}; var name = business.portal_name || business.name || '';
         $('portal-name').value = name; $('portal-support-phone').value = business.support_phone || ''; $('portal-colour').value = /^#[0-9A-Fa-f]{6}$/.test(String(business.brand_primary_color || '')) ? business.brand_primary_color : '#1769D8'; $('portal-message-input').value = business.portal_message || '';
@@ -363,9 +399,34 @@
           add(form, 'p', 'form-note', 'Managed customer addresses are not enabled on this deployment yet. Your cloud portal stays available while WiFi Fiti completes gateway activation.');
         }
         add(form, 'p', 'form-note', 'This is a WiFi Fiti managed address. A domain you already own is not connected here yet.');
-        var actions = el('div', 'buttons'); var save = el('button', '', 'Save settings'); save.type = 'submit'; var cancel = el('button', 'secondary', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', function () { form.remove(); }); actions.appendChild(save); actions.appendChild(cancel); form.appendChild(actions); var error = el('div', 'error'); error.setAttribute('aria-live', 'polite'); form.appendChild(error);
+        var error = el('div', 'error'); error.setAttribute('aria-live', 'polite');
+        var actions = el('div', 'buttons'); var save = el('button', '', 'Save settings'); save.type = 'submit'; var cancel = el('button', 'secondary', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', function () { form.remove(); }); actions.appendChild(save); actions.appendChild(cancel);
+        if (String(location.router_status || 'waiting').toLowerCase() === 'waiting' && !location.last_seen_at && !location.last_successful_sync_at) {
+          var discard = el('button', 'danger quiet', 'Delete unused setup'); discard.type = 'button';
+          discard.addEventListener('click', function () { discardUnusedLocation(location, discard, error); });
+          actions.appendChild(discard);
+          add(form, 'p', 'form-note', 'Delete unused setup removes this unpaired location, its one-time router token and its managed portal address. It does not reset a router.');
+        } else {
+          add(form, 'p', 'form-note', 'This location has already been paired. To start again, use Start router setup again; your customers and records stay protected.');
+        }
+        form.appendChild(actions); form.appendChild(error);
         form.addEventListener('submit', function (event) { event.preventDefault(); error.textContent = ''; setBusy(save, true, 'Saving…'); var body = values(form); var requestedPortalSlug = String(body.portalSlug || '').trim().toLowerCase(); delete body.portalSlug; var changesPortalAddress = addressing.enabled && requestedPortalSlug && requestedPortalSlug !== currentPortalSlug; api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'PATCH', body: JSON.stringify(body) }).then(function (result) { mergeLocation(result.location); if (changesPortalAddress) return api('/api/business/locations/' + encodeURIComponent(location.id) + '/portal-address', { method: 'PATCH', body: JSON.stringify({ slug: requestedPortalSlug }) }); return result; }).then(function (result) { if (result && result.location) mergeLocation(result.location); renderLocations(); renderPairingKits(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(save, false); }); });
         card.appendChild(form);
+      }
+      function discardUnusedLocation(location, button, error) {
+        var name = location.name || 'this location';
+        var confirmation = window.prompt('Delete the unused setup for "' + name + '"? This removes its pairing token and managed portal address. Type DELETE to confirm.');
+        if (confirmation !== 'DELETE') {
+          if (confirmation !== null) error.textContent = 'Nothing was deleted. Type DELETE exactly to confirm.';
+          return;
+        }
+        error.textContent = ''; setBusy(button, true, 'Deleting…');
+        api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }).then(function () {
+          forgetSetup(location.id);
+          return load();
+        }).then(function () {
+          $('location-error').textContent = 'Unused setup deleted. Its router token and portal address are no longer active.';
+        }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(button, false); });
       }
       function rotateLocationToken(location, button) {
         if (!window.confirm('Stage a new pairing token? The current router stays online until the new kit successfully checks in.')) return;
@@ -378,7 +439,13 @@
           var current = routerState(location); var card = el('article', 'location-card'); var top = el('div', 'location-top'); var info = el('div'); add(info, 'h3', '', location.name || 'Unnamed location'); add(info, 'div', 'location-meta', location.router_name || 'Router name not added'); top.appendChild(info); add(top, 'span', 'status ' + current[0], current[1]); card.appendChild(top);
           var data = el('div', 'location-data'); function datum(label, value) { var entry = el('div'); add(entry, 'span', 'data-label', label); add(entry, 'div', 'data-value', value); data.appendChild(entry); }
           datum('Location ID', location.id || 'Not available'); datum('Hotspot server', location.hotspot_server || 'Router default'); datum('Customer portal', portalStatus(location)); datum('Router check-in', location.last_seen_at ? 'Last seen ' + when(location.last_seen_at) : 'Waiting for first check-in'); var remote = remoteAccessStatus(location.remote_access_status); var remoteDatum = el('div'); add(remoteDatum, 'span', 'data-label', 'Remote setup'); add(remoteDatum, 'div', 'remote-state ' + remote.style, remote.label); data.appendChild(remoteDatum); card.appendChild(data);
-          var actions = el('div', 'location-actions'); var portal = el('a', 'button quiet', 'Open customer portal'); portal.href = publicPortal(location); portal.target = '_blank'; portal.rel = 'noopener'; actions.appendChild(portal); var setup = el('button', 'quiet', 'Router setup'); setup.type = 'button'; setup.addEventListener('click', function () { openRouterSetupForLocation(location); }); actions.appendChild(setup); var remoteSetup = el('button', 'quiet', 'Remote setup'); remoteSetup.type = 'button'; remoteSetup.addEventListener('click', function () { openRemoteAccess(location, card, remoteSetup); }); actions.appendChild(remoteSetup); var edit = el('button', 'quiet', portalHostname(location) ? 'Portal & router settings' : 'Choose portal address'); edit.type = 'button'; edit.addEventListener('click', function () { renderLocationEditor(location, card); }); actions.appendChild(edit); var rotate = el('button', 'danger quiet', 'Rotate router token'); rotate.type = 'button'; rotate.addEventListener('click', function () { rotateLocationToken(location, rotate); }); actions.appendChild(rotate); card.appendChild(actions); root.appendChild(card);
+          var actions = el('div', 'location-actions');
+          var portal = el('a', 'button quiet', 'Open customer portal'); portal.href = publicPortal(location); portal.target = '_blank'; portal.rel = 'noopener'; actions.appendChild(portal);
+          var setup = el('button', 'quiet', 'Router setup'); setup.type = 'button'; setup.addEventListener('click', function () { openRouterSetupForLocation(location); }); actions.appendChild(setup);
+          var restart = el('button', 'quiet', 'Start router setup again'); restart.type = 'button'; restart.addEventListener('click', function () { startRouterSetupAgain(location); }); actions.appendChild(restart);
+          var remoteSetup = el('button', 'quiet', 'Remote setup'); remoteSetup.type = 'button'; remoteSetup.addEventListener('click', function () { openRemoteAccess(location, card, remoteSetup); }); actions.appendChild(remoteSetup);
+          var edit = el('button', 'quiet', portalHostname(location) ? 'Portal & router settings' : 'Choose portal address'); edit.type = 'button'; edit.addEventListener('click', function () { renderLocationEditor(location, card); }); actions.appendChild(edit);
+          var rotate = el('button', 'danger quiet', 'Rotate router token'); rotate.type = 'button'; rotate.addEventListener('click', function () { rotateLocationToken(location, rotate); }); actions.appendChild(rotate); card.appendChild(actions); root.appendChild(card);
         });
       }
 
@@ -590,7 +657,7 @@
       $('dismiss-setups').addEventListener('click', function () { try { var key = setupStoreKey(); if (key) sessionStorage.removeItem(key); } catch (_) {} renderPairingKits(); renderLocations(); });
       document.querySelectorAll('[data-scroll]').forEach(function (button) { button.addEventListener('click', function (event) { var target = $(event.currentTarget.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); });
       $('sign-out').addEventListener('click', function (event) { var button = event.currentTarget; setBusy(button, true, 'Signing out…'); clearBillingPolling(); api('/api/business/logout', { method: 'POST', body: '{}' }).then(function () { clearSession(); }).catch(function () { clearSession(); $('login-error').textContent = 'Signed out on this browser. The server could not confirm the session was closed.'; }).finally(function () { setBusy(button, false); window.scrollTo({ top: 0, behavior: 'smooth' }); }); });
-      $('copyright-year').textContent = String(new Date().getFullYear()); syncRouterSetupForm(true); syncWanFields(); if (!token && new URLSearchParams(window.location.search).get('mode') === 'login') chooseAccess('login'); load();
+      $('copyright-year').textContent = String(new Date().getFullYear()); installRouterSetupClearAction(); syncRouterSetupForm(true); syncWanFields(); if (!token && new URLSearchParams(window.location.search).get('mode') === 'login') chooseAccess('login'); load();
     }());
   </script>
 </body>

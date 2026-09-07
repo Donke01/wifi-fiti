@@ -830,6 +830,24 @@ app.patch('/api/business/locations/:locationId', (req, res) => {
   res.json({ location });
 });
 
+// This intentionally removes only a pristine, unpaired setup draft. It is
+// not a shortcut for deleting customer records or remotely factory-resetting
+// a router; established locations use the staged replacement-kit flow.
+app.delete('/api/business/locations/:locationId', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const location = tenant.discardUnusedLocation({
+      locationId: String(req.params.locationId),
+      businessId: business.id,
+      confirm: String(req.body && req.body.confirm || ''),
+    });
+    if (!location) return res.status(404).json({ error: 'Location not found.' });
+    res.json({ deleted: true, locationId: location.id });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not delete this setup.' });
+  }
+});
+
 // A managed address is a first-level Cloudflare hostname, for example
 // lakeview-main.wififiti.co.ke. It is intentionally a location address: a
 // router can then open exactly the portal that owns its customer jobs.

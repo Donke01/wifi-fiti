@@ -286,6 +286,48 @@ async function main() {
   const bravo = await operator('Bravo', 'own');
   console.log('\nTenant HTTP integration (production payment verification)');
 
+  await test('an owner can discard only a pristine unused router setup', async () => {
+    const draft = await api('/api/business/locations', { method: 'POST', token: alpha.token,
+      body: { name: 'Alpha unused draft', routerName: 'Spare hAP lite' } });
+    assert.equal(draft.status, 201, JSON.stringify(draft.body));
+    const draftLocation = draft.body.location;
+    const discardPath = `/api/business/locations/${encodeURIComponent(draftLocation.id)}`;
+
+    const wrongConfirmation = await api(discardPath, { method: 'DELETE', token: alpha.token,
+      body: { confirm: 'delete' } });
+    assert.equal(wrongConfirmation.status, 400, JSON.stringify(wrongConfirmation.body));
+    assert.match(wrongConfirmation.body.error, /Type DELETE/,
+      'the API requires the deliberate, exact confirmation before discarding a draft');
+    assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(draftLocation.portalHostname)}`, {
+      edgeSecret: 'integration-edge-gateway-secret-for-tests-only',
+    })).status, 200, 'a rejected discard leaves the unused portal address intact');
+
+    const foreignDiscard = await api(discardPath, { method: 'DELETE', token: bravo.token,
+      body: { confirm: 'DELETE' } });
+    assert.equal(foreignDiscard.status, 404, 'one business cannot discard another business\'s draft');
+
+    const discarded = await api(discardPath, { method: 'DELETE', token: alpha.token,
+      body: { confirm: 'DELETE' } });
+    assert.equal(discarded.status, 200, JSON.stringify(discarded.body));
+    assert.deepEqual(discarded.body, { deleted: true, locationId: draftLocation.id });
+    assert.equal((await routerSync(draftLocation)).status, 403,
+      'the deleted draft\'s pairing credential cannot be used after deletion');
+    assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(draftLocation.portalHostname)}`, {
+      edgeSecret: 'integration-edge-gateway-secret-for-tests-only',
+    })).status, 404, 'discarding the draft also frees its managed portal address');
+    assert.ok(!(await api('/api/business/me', { token: alpha.token })).body.locations
+      .some((location) => location.id === draftLocation.id), 'discarded drafts disappear from the owner workspace');
+
+    assert.equal((await routerSync(bravo.location)).status, 200,
+      'a paired-location rejection is tested after a successful real router poll');
+    const pairedDiscard = await api(`/api/business/locations/${encodeURIComponent(bravo.location.id)}`, {
+      method: 'DELETE', token: bravo.token, body: { confirm: 'DELETE' },
+    });
+    assert.equal(pairedDiscard.status, 409, JSON.stringify(pairedDiscard.body));
+    assert.match(pairedDiscard.body.error, /already been paired|replacement router kit/i,
+      'a checked-in router must be kept for staged replacement rather than deleted');
+  });
+
   await test('business accounts, packages, location controls, and router secrets are isolated', async () => {
     assert.equal((await api('/api/business/me')).status, 401);
     assert.equal(alpha.portalUrl, `https://${alpha.location.portalHostname}`);
