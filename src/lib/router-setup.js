@@ -160,11 +160,15 @@ function ros(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function setupPrefix({ location, token, appUrl, config }) {
+function setupPrefix({ location, token, appUrl, portalUrl, config }) {
   const origin = new URL(appUrl).origin;
   const host = new URL(origin).hostname;
+  const portalOrigin = new URL(portalUrl || appUrl).origin;
+  const portalHost = new URL(portalOrigin).hostname;
   return [
     ':global fitiUrl ' + ros(origin),
+    ':global fitiPortalUrl ' + ros(portalOrigin),
+    ':global fitiPortalHost ' + ros(portalHost),
     ':global fitiSite ' + ros(location.id),
     ':global fitiToken ' + ros(token),
     ':global fitiBridge ' + ros(config.customerBridge),
@@ -173,17 +177,23 @@ function setupPrefix({ location, token, appUrl, config }) {
   ];
 }
 
-function pairingSuffix({ appUrl, location, token, config }) {
+function pairingSuffix({ appUrl, portalUrl, location, token, config }) {
   const origin = new URL(appUrl).origin;
   const host = new URL(origin).hostname;
+  const portalOrigin = new URL(portalUrl || appUrl).origin;
+  const portalHost = new URL(portalOrigin).hostname;
   const bootstrap = [
     ':global fitiUrl ' + ros(origin),
+    ':global fitiPortalUrl ' + ros(portalOrigin),
+    ':global fitiPortalHost ' + ros(portalHost),
     ':global fitiSite ' + ros(location.id),
     ':global fitiToken ' + ros(token),
     ':global fitiBridge ' + ros(config.customerBridge),
     ':global fitiHotspotServer ' + ros(config.hotspotServer),
     ':local fitiHost ' + ros(host),
-    ':if ([:len [/ip hotspot walled-garden find where dst-host=$fitiHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiHost comment="WiFi Fiti customer portal" }',
+    ':local fitiPortalHost ' + ros(portalHost),
+    ':if ([:len [/ip hotspot walled-garden find where dst-host=$fitiHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiHost comment="WiFi Fiti cloud API" }',
+    ':if ($fitiPortalHost != $fitiHost) do={ :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiPortalHost comment="WiFi Fiti customer portal" } }',
     ':do {',
     '  /tool fetch url=' + ros(origin + '/tenant-router-install.rsc') + ' dst-path="fiti-tenant-install.rsc"',
     '  /import file-name="fiti-tenant-install.rsc"',
@@ -214,14 +224,14 @@ function assertExistingHotspotLines() {
   ];
 }
 
-function buildExistingRouterKit({ location, token, appUrl, config }) {
+function buildExistingRouterKit({ location, token, appUrl, portalUrl, config }) {
   return [
     '# WiFi Fiti — existing-router pairing kit',
     '# This kit preserves the WAN, Wi-Fi, DHCP and Hotspot configuration.',
     '# It replaces only the captive login redirect and WiFi Fiti polling scripts.',
-    ...setupPrefix({ location, token, appUrl, config }),
+    ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ...assertExistingHotspotLines(),
-    ...pairingSuffix({ appUrl, location, token, config }),
+    ...pairingSuffix({ appUrl, portalUrl, location, token, config }),
   ].join('\n') + '\n';
 }
 
@@ -281,7 +291,7 @@ function newRouterSecurityLines() {
   ];
 }
 
-function buildNewRouterKit({ location, token, appUrl, config }) {
+function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
   const checks = [config.wanInterface, config.wifiInterface, ...config.customerPorts]
     .map((name) => ':if ([:len [/interface find where name=' + ros(name) + ']] != 1) do={ :error ' + ros(`Interface ${name} was not found.`) + ' }');
   const bridgePorts = config.customerPorts.map((name) => '/interface bridge port add bridge=$fitiBridge interface=' + ros(name));
@@ -290,7 +300,7 @@ function buildNewRouterKit({ location, token, appUrl, config }) {
     '# Use only on a router reset with NO default configuration.',
     '# Connect with MAC WinBox or Ethernet. This script never resets the router itself.',
     '# Router administrator login: admin / ' + config.routerAdminPassword,
-    ...setupPrefix({ location, token, appUrl, config }),
+    ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ':local fitiWanInterface ' + ros(config.wanInterface),
     ':local fitiWifiInterface ' + ros(config.wifiInterface),
     ':if ([:len [/interface bridge find where name=$fitiBridge]] > 0) do={ :error "Customer bridge already exists. Use the existing-router path instead." }',
@@ -313,7 +323,7 @@ function buildNewRouterKit({ location, token, appUrl, config }) {
     '/ip hotspot add name=$fitiHotspotServer interface=$fitiBridge address-pool="fiti-pool" profile="fiti-hsprof" addresses-per-mac=1 idle-timeout=10m keepalive-timeout=5m disabled=no',
     ':if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={ /ip hotspot user profile add name="standard" shared-users=1 add-mac-cookie=yes mac-cookie-timeout=1d status-autorefresh=1m transparent-proxy=no }',
     ...newRouterSecurityLines(),
-    ...pairingSuffix({ appUrl, location, token, config }),
+    ...pairingSuffix({ appUrl, portalUrl, location, token, config }),
   ].join('\n') + '\n';
 }
 
@@ -378,11 +388,11 @@ function setupSummary(config) {
   return `Creates ${config.wifiSsid} on ${config.customerBridge}, a ${config.network.cidr} customer network, ${config.hotspotServer}, and WiFi Fiti polling.`;
 }
 
-function buildRouterSetup({ location, token, appUrl, input }) {
+function buildRouterSetup({ location, token, appUrl, portalUrl, input }) {
   const config = validateRouterSetup(input);
   const script = config.mode === 'new'
-    ? buildNewRouterKit({ location, token, appUrl, config })
-    : buildExistingRouterKit({ location, token, appUrl, config });
+    ? buildNewRouterKit({ location, token, appUrl, portalUrl, config })
+    : buildExistingRouterKit({ location, token, appUrl, portalUrl, config });
   const warnings = config.mode === 'new'
     ? [
       'Use this only after resetting the router with no default configuration. It does not reset the router for you.',

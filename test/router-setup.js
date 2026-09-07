@@ -43,6 +43,12 @@ const installer = fs.readFileSync(path.join(__dirname, '../public/tenant-router-
 assert.match(installer, /X-WiFi-Fiti-Router/);
 assert.doesNotMatch(installer, /[?&]token=/);
 
+const edgeKit = buildRouterSetup({ location, token, appUrl, portalUrl: 'https://test-branch.wififiti.co.ke', input: existing });
+assert.match(edgeKit.script, /:global fitiUrl "https:\/\/cloud\.wififiti\.co\.ke"/);
+assert.match(edgeKit.script, /:global fitiPortalHost "test-branch\.wififiti\.co\.ke"/);
+assert.match(edgeKit.script, /dst-host=\$fitiPortalHost/);
+assert.match(installer, /fitiLoginUrl.*\?portal=/);
+
 const newKit = kit(newRouter);
 assert.equal(newKit.config.mode, 'new');
 assert.match(newKit.script, /new\/reset RouterOS 7 setup kit/);

@@ -101,8 +101,10 @@ control centre is designed around this operating sequence:
    and keep retrying cloud pairing until WAN/DNS is ready. Save that password
    before importing.
 5. **Verify the portal.** From a fresh unauthenticated phone, join the Wi-Fi
-   and confirm the location portal opens at `/p/<location-id>`. The dashboard
-   changes the router state to online after its first cloud check-in.
+   and confirm the location portal opens at the address shown in the dashboard
+   (or the cloud `/p/<location-id>` fallback before the optional edge gateway
+   is enabled). The dashboard changes the router state to online after its
+   first cloud check-in.
 6. **Sell and support.** The customer portal shows that business's packages,
    starts M-Pesa collection, restores interrupted payment screens, remembers
    a wall-clock subscription, supports voucher redemption and lets the payer
@@ -223,15 +225,76 @@ MARKETING_URL=https://wififiti.co.ke
 LEGACY_HOST=wififiti.co.ke
 ```
 
-`APP_URL` is the source for new customer portal addresses and router pairing
-kits. `PUBLIC_URL` is the source for new M-Pesa callbacks; in production it
-must be the same `cloud` URL. If `APP_URL` is omitted for an older or staging
-deployment, it safely falls back to `PUBLIC_URL` rather than pointing routers
-at the production app. Existing pending M-Pesa requests and old routers can
-continue to use the bare domain because it remains on this service.
+`APP_URL` is the source for the dashboard, customer portal fallback and router
+pairing API. `PUBLIC_URL` is the source for new M-Pesa callbacks; in production
+it must be the same `cloud` URL. The optional Cloudflare gateway below adds a
+separate customer-facing hostname without changing either value. If `APP_URL`
+is omitted for an older or staging deployment, it safely falls back to
+`PUBLIC_URL` rather than pointing routers at the production app. Existing
+pending M-Pesa requests and old routers can continue to use the bare domain
+because it remains on this service.
 Business sign-in storage is per website origin, so operators should sign in
 again at `cloud` after the switch. One-time pairing tokens should be copied again
 or rotated there rather than moved through chat or screenshots.
+
+### White-label tenant portal addresses with Cloudflare
+
+When the optional edge gateway is enabled, the domains have three separate
+jobs. Railway still hosts the first two; Cloudflare only serves customer portal
+traffic on the wildcard.
+
+| Address pattern | Service | Job |
+|---|---|---|
+| `wififiti.co.ke` | Railway | WiFi Fiti for Business landing page |
+| `cloud.wififiti.co.ke` | Railway | Dashboard, SQLite data, M-Pesa callbacks, router polling and installers |
+| `tenant-name.wififiti.co.ke` | Cloudflare Worker | The tenant's branded customer payment portal |
+
+There is no per-tenant DNS record: one proxied wildcard record and one Worker
+route serve every registered first-level tenant address. The Worker is a
+restricted gateway, not a second backend. It asks `cloud` to resolve the
+hostname and can proxy only that location's customer portal, logo and
+`/api/tenant/<location>` routes. It cannot proxy dashboard, router, M-Pesa or
+admin routes.
+
+**Do not add the wildcard record yet** on a live system. Use this order:
+
+1. Deploy this code to Railway with `PORTAL_GATEWAY_ENABLED=false` (and
+   initially leave `PORTAL_ROOT_DOMAIN` and `EDGE_GATEWAY_SECRET` empty).
+   Existing routers and portals remain on `cloud`.
+2. Deploy `edge/portal-gateway` to Cloudflare. Set its `EDGE_GATEWAY_SECRET`
+   secret to a new value generated with `openssl rand -hex 32`.
+3. Move the **DNS zone** (not the hosting) for `wififiti.co.ke` to Cloudflare.
+   Copy every existing Railway CNAME/verification TXT record and all MX, SPF,
+   DKIM and DMARC records before changing nameservers. Confirm root, `cloud`,
+   email, M-Pesa callbacks and router polling still work.
+4. Add the proxied wildcard A record `* → 192.0.2.0`, then attach
+   `*.wififiti.co.ke/*` to the Worker. Add explicit no-Worker exclusions for
+   `cloud.wififiti.co.ke/*` and every other existing website hostname. This is
+   a release gate: immediately open `https://cloud.wififiti.co.ke/api/health`.
+   It must still return the Railway application response. If it returns a
+   Worker error or a portal-not-found page, fix the `cloud` no-Worker exclusion
+   before continuing; otherwise the Worker can recursively call itself.
+5. Only after the wildcard and both route exclusions have been checked, set
+   these Railway variables and redeploy:
+
+   ```bash
+   PORTAL_ROOT_DOMAIN=wififiti.co.ke
+   EDGE_GATEWAY_SECRET=<the same value stored in the Worker>
+   PORTAL_GATEWAY_ENABLED=true
+   ```
+
+6. Test one newly created location from an unauthenticated phone. Its new kit
+   keeps `fitiUrl=https://cloud.wififiti.co.ke` for polling, but allows its
+   specific tenant hostname in the Hotspot walled garden. Re-import a fresh
+   kit for each existing router one at a time; old kits intentionally keep
+   redirecting to `cloud` until then.
+
+The dashboard lets a tenant choose a managed first-level address. Changing it
+keeps the former hostname as a live alias so an already paired router does not
+break; each location is limited to three active addresses, after which support
+can retire an old one. Tenant-owned domains are a later feature: they need DNS
+ownership verification and certificate lifecycle management, not merely a
+CNAME.
 
 After the variables are deployed, normal visitors to the root domain see the
 public landing page. A legacy Hotspot redirect carrying RouterOS values such as

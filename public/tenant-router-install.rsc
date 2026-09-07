@@ -31,6 +31,8 @@
 # Settings must already exist as globals before import. The installer does
 # not contain or overwrite the private site token.
 :global fitiUrl
+:global fitiPortalUrl
+:global fitiPortalHost
 :global fitiSite
 :global fitiToken
 :global fitiBridge
@@ -38,6 +40,7 @@
   :error "Set fitiUrl, fitiSite and fitiToken before importing"
 }
 :if ([:len $fitiBridge] = 0) do={ :set fitiBridge "bridge-hs" }
+:if ([:len $fitiPortalHost] = 0) do={ :set fitiPortalHost "" }
 
 
 :global fitiHotspotServer
@@ -66,7 +69,9 @@
 :local profileId [/ip hotspot get [find where name=$fitiHotspotServer] profile]
 :local htmlDir [/ip hotspot profile get [find where name=$profileId] html-directory]
 :if ([:len $htmlDir] = 0) do={ :set htmlDir "hotspot" }
-/tool fetch url=($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login") \
+:local fitiLoginUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login")
+:if ([:len $fitiPortalHost] > 0) do={ :set fitiLoginUrl ($fitiLoginUrl . "?portal=" . $fitiPortalHost) }
+/tool fetch url=$fitiLoginUrl \
   http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($htmlDir . "/login.html")
 
 :if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={
@@ -140,6 +145,8 @@
 #  stops after every power cut and payments queue up unseen.
 /system script add name=fiti-boot policy=read,write,test,policy source="\
 :global fitiUrl \"$fitiUrl\"\r\
+\n:global fitiPortalUrl \"$fitiPortalUrl\"\r\
+\n:global fitiPortalHost \"$fitiPortalHost\"\r\
 \n:global fitiSite \"$fitiSite\"\r\
 \n:global fitiToken \"$fitiToken\"\r\
 \n:global fitiBridge \"$fitiBridge\"\r\

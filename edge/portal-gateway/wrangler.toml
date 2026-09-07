@@ -1,0 +1,20 @@
+name = "wifi-fiti-portal-gateway"
+main = "src/index.js"
+compatibility_date = "2026-09-07"
+workers_dev = false
+
+# Attach routes in the Cloudflare dashboard after DNS is active:
+#   *.wififiti.co.ke/*  → this Worker
+# Keep cloud.wififiti.co.ke/* as an explicit no-Worker route BEFORE enabling
+# Railway's PORTAL_GATEWAY_ENABLED switch. Treat a direct cloud /api/health
+# response as the deployment preflight: without this exclusion, CORE_ORIGIN
+# would route back into this Worker.
+#
+# Set these in Cloudflare as secrets, never in this file:
+#   wrangler secret put EDGE_GATEWAY_SECRET
+#
+# CORE_ORIGIN is deliberately the Railway app host. It is not a public
+# browser redirect target; all customer-facing traffic remains on the tenant
+# hostname served by this Worker.
+[vars]
+CORE_ORIGIN = "https://cloud.wififiti.co.ke"

@@ -21,6 +21,9 @@ Object.assign(process.env, {
   APP_URL: 'https://cloud.wififiti.co.ke',
   MARKETING_URL: 'https://wififiti.co.ke',
   LEGACY_HOST: 'wififiti.co.ke',
+  PORTAL_ROOT_DOMAIN: 'wififiti.co.ke',
+  EDGE_GATEWAY_SECRET: 'integration-edge-gateway-secret-for-tests-only',
+  PORTAL_GATEWAY_ENABLED: 'true',
   MPESA_ENV: 'production',
   MPESA_CONSUMER_KEY: 'platform-test-key',
   MPESA_CONSUMER_SECRET: 'platform-test-secret',
@@ -94,13 +97,15 @@ async function test(name, run) {
   }
 }
 
-async function api(endpoint, { method = 'GET', body, token, portalToken, sessionToken, adminToken, routerToken, host, forwardedHost, redirect } = {}) {
+async function api(endpoint, { method = 'GET', body, token, portalToken, sessionToken, adminToken, routerToken, edgeSecret, edgePortalHost, host, forwardedHost, redirect } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (portalToken) headers['X-WiFi-Fiti-Portal'] = portalToken;
   if (sessionToken) headers['X-WiFi-Fiti-Session'] = sessionToken;
   if (adminToken) headers['X-Admin-Token'] = adminToken;
   if (routerToken) headers['X-WiFi-Fiti-Router'] = routerToken;
+  if (edgeSecret) headers['X-WiFi-Fiti-Edge'] = edgeSecret;
+  if (edgePortalHost) headers['X-WiFi-Fiti-Portal-Host'] = edgePortalHost;
   if (host) headers.Host = host;
   if (forwardedHost) headers['X-Forwarded-Host'] = forwardedHost;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -282,7 +287,8 @@ async function main() {
 
   await test('business accounts, packages, location controls, and router secrets are isolated', async () => {
     assert.equal((await api('/api/business/me')).status, 401);
-    assert.equal(alpha.portalUrl, `https://cloud.wififiti.co.ke/p/${alpha.location.id}`);
+    assert.equal(alpha.portalUrl, `https://${alpha.location.portalHostname}`);
+    assert.match(alpha.location.portalHostname, /\.wififiti\.co\.ke$/);
     const mine = await api('/api/business/me', { token: alpha.token });
     assert.deepEqual(mine.body.locations.map((item) => item.id), [alpha.location.id]);
     assert.equal(mine.body.locations[0].routerToken, undefined, 'pairing secret is shown only once');
@@ -294,6 +300,29 @@ async function main() {
     const routerLogin = await api(`/api/tenant/${alpha.location.id}/router-login`, { routerToken: alpha.location.routerToken });
     assert.equal(routerLogin.status, 200);
     assert.match(routerLogin.text, new RegExp(`https://cloud\\.wififiti\\.co\\.ke/p/${alpha.location.id}`));
+    const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
+    assert.equal(whiteLabelRouterLogin.status, 200);
+    assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));
+    assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`)).status, 404,
+      'the core must not reveal tenant hostname mappings without the Worker credential');
+    const resolved = await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' });
+    assert.equal(resolved.status, 200);
+    assert.equal(resolved.body.locationId, alpha.location.id);
+    assert.equal(resolved.body.businessId, alpha.business.id);
+    assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, {
+      host: 'wififiti.co.ke', edgeSecret: 'integration-edge-gateway-secret-for-tests-only',
+    })).status, 404, 'the Worker resolver is available only at the cloud app host');
+    const changedAddress = await api(`/api/business/locations/${alpha.location.id}/portal-address`, {
+      method: 'PATCH', token: alpha.token, body: { slug: 'alpha-guests' },
+    });
+    assert.equal(changedAddress.status, 200, JSON.stringify(changedAddress.body));
+    assert.equal(changedAddress.body.portalUrl, 'https://alpha-guests.wififiti.co.ke');
+    assert.equal(changedAddress.body.location.portal_hostname, 'alpha-guests.wififiti.co.ke');
+    const oldAddressStillWorks = await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' });
+    assert.equal(oldAddressStillWorks.body.locationId, alpha.location.id, 'old paired router hostname remains a live alias');
+    assert.equal((await api(`/api/business/locations/${alpha.location.id}/portal-address`, {
+      method: 'PATCH', token: alpha.token, body: { slug: 'cloud' },
+    })).status, 400, 'reserved Railway hostname cannot be claimed by a tenant');
     const canonicalSpeed = await api(`/api/business/packages/${alpha.package.id}`, { method: 'PATCH', token: alpha.token,
       body: { rateLimit: '512K/1m' } });
     assert.equal(canonicalSpeed.status, 200, JSON.stringify(canonicalSpeed.body));
@@ -331,6 +360,8 @@ async function main() {
     assert.equal(created.status, 201, JSON.stringify(created.body));
     assert.ok(created.body.location.routerToken, 'a setup kit reveals its pairing secret only once');
     assert.match(created.body.setup.script, /Router administrator login: admin \/ /);
+    assert.match(created.body.setup.script, /:global fitiUrl "https:\/\/cloud\.wififiti\.co\.ke"/);
+    assert.match(created.body.setup.script, new RegExp(`:global fitiPortalHost "${created.body.location.portalHostname.replace(/[.]/g, '\\.')}"`));
     assert.match(created.body.setup.script, /fiti-first-install.*interval=15s/, 'fresh DHCP routers keep retrying WAN/DNS pairing');
     assert.match(created.body.setup.script, /block WAN management/);
     assert.doesNotMatch(created.body.setup.script, /\/system reset-configuration|\?token=/);
@@ -362,6 +393,11 @@ async function main() {
     const logo = await api(logoPath, { host: 'cloud.wififiti.co.ke' });
     assert.equal(logo.status, 200);
     assert.match(logo.headers.get('content-type'), /^image\/png/);
+    const edgeConfig = await api(endpoint(created.body.location, 'config'), {
+      host: 'cloud.wififiti.co.ke', edgeSecret: 'integration-edge-gateway-secret-for-tests-only', edgePortalHost: created.body.location.portalHostname,
+    });
+    assert.equal(new URL(edgeConfig.body.branding.logoUrl).origin, `https://${created.body.location.portalHostname}`,
+      'a Worker-served portal loads its logo through its own customer hostname');
 
     const oldToken = created.body.location.routerToken;
     const staged = await api(`/api/business/locations/${created.body.location.id}/router-setup`, { method: 'POST', token: alpha.token, body: {

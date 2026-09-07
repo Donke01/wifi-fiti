@@ -7,6 +7,9 @@ const assert = require('assert');
 const fs = require('fs');
 
 process.env.PUBLIC_URL = 'https://fiti.test';
+process.env.PORTAL_ROOT_DOMAIN = 'fiti.test';
+process.env.EDGE_GATEWAY_SECRET = 'tenant-test-edge-secret-0123456789abcdef';
+process.env.PORTAL_GATEWAY_ENABLED = 'true';
 process.env.MPESA_CONSUMER_KEY = 'k';
 process.env.MPESA_CONSUMER_SECRET = 's';
 process.env.MPESA_SHORTCODE = '174379';
@@ -86,6 +89,26 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   const paired = tenant.locationById.get(alpha.id);
   assert.strictEqual(paired.router_status, 'online');
   assert.ok(paired.last_seen_at, 'successful pairing should record router health');
+
+  // The generated label retains enough of the ID to stay unique at scale, and
+  // location/domain creation is atomic when a malformed legacy record happens
+  // to occupy a hostname.
+  assert.match(alpha.portalHostname, /-locationalpha\.fiti\.test$/, 'the full available location-id suffix is retained');
+  const collisionOwner = tenant.createLocation({
+    id: 'collision-owner', businessId: 'business-a', name: 'Collision owner', routerName: 'hAP lite',
+  });
+  const collidingId = 'loc-1234567890abcdef';
+  legacy.db.prepare(`INSERT INTO tenant_portal_domains (hostname, location_id, kind, status, is_primary)
+    VALUES (?, ?, 'managed', 'active', 0)`).run('collision-1234567890abcdef.fiti.test', collisionOwner.id);
+  assert.throws(() => tenant.createLocation({
+    id: collidingId, businessId: 'business-a', name: 'Collision', routerName: 'hAP lite',
+  }), /UNIQUE constraint failed/);
+  assert.strictEqual(tenant.locationById.get(collidingId), undefined, 'a portal-host collision rolls back the new location and its pairing token');
+
+  tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-one' });
+  tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-two' });
+  assert.throws(() => tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-three' }), /three active portal addresses/);
+  assert.strictEqual(tenant.managedPortalSlugReserved('cloud'), true, 'system host labels cannot be claimed by tenants');
   const staged = tenant.rotateLocationToken({ locationId: alpha.id, businessId: 'business-a' });
   assert.ok(staged.routerToken, 'replacement kit receives a one-time staged credential');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken).business_id, 'business-a',

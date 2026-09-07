@@ -45,6 +45,20 @@ function hostname(value, name) {
   }
 }
 
+function bareHostname(value, name) {
+  const raw = String(value || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!raw) return '';
+  try {
+    const parsed = new URL(`https://${raw}`);
+    if (parsed.hostname !== raw || parsed.port || parsed.username || parsed.password ||
+        parsed.pathname !== '/' || parsed.search || parsed.hash) throw new Error('not a bare hostname');
+    return raw;
+  } catch (_) {
+    console.error(`${name} must be a bare hostname such as wififiti.co.ke.`);
+    process.exit(1);
+  }
+}
+
 const publicUrl = webOrigin(process.env.PUBLIC_URL, 'PUBLIC_URL');
 // `PUBLIC_URL` was the original application's only public-origin setting.
 // Keep an older or staging deployment safe when APP_URL has not been added:
@@ -57,6 +71,27 @@ const appUrl = process.env.APP_URL
 // application, captive portals, and router polling live on APP_URL.
 const marketingUrl = webOrigin(process.env.MARKETING_URL || 'https://wififiti.co.ke', 'MARKETING_URL');
 const legacyHost = String(process.env.LEGACY_HOST || 'wififiti.co.ke').trim().toLowerCase().replace(/\.$/, '') || 'wififiti.co.ke';
+// The Cloudflare Worker owns this hostname space. It is intentionally
+// separate from APP_URL: Railway remains the only app, payment callback and
+// router-poll origin. The explicit switch prevents a DNS/route deployment
+// mistake from changing live customer links merely because the credentials
+// were saved in Railway early.
+const portalRootDomain = bareHostname(process.env.PORTAL_ROOT_DOMAIN || '', 'PORTAL_ROOT_DOMAIN');
+const edgeGatewaySecret = String(process.env.EDGE_GATEWAY_SECRET || '');
+const portalGatewayRequested = String(process.env.PORTAL_GATEWAY_ENABLED || '').trim().toLowerCase() === 'true';
+if (Boolean(portalRootDomain) !== Boolean(edgeGatewaySecret)) {
+  console.error('Set PORTAL_ROOT_DOMAIN and EDGE_GATEWAY_SECRET together, or leave both empty.');
+  process.exit(1);
+}
+if (edgeGatewaySecret && edgeGatewaySecret.length < 32) {
+  console.error('EDGE_GATEWAY_SECRET must be at least 32 characters. Generate it with: openssl rand -hex 32');
+  process.exit(1);
+}
+if (portalGatewayRequested && (!portalRootDomain || !edgeGatewaySecret)) {
+  console.error('PORTAL_GATEWAY_ENABLED=true requires PORTAL_ROOT_DOMAIN and EDGE_GATEWAY_SECRET.');
+  process.exit(1);
+}
+const portalGatewayEnabled = portalGatewayRequested && Boolean(portalRootDomain && edgeGatewaySecret);
 
 module.exports = {
   port: Number(process.env.PORT || 3000),
@@ -67,7 +102,11 @@ module.exports = {
     marketingUrl,
     marketingHost: hostname(marketingUrl, 'MARKETING_URL'),
     legacyHost,
+    portalRootDomain,
+    portalGatewayEnabled,
   },
+
+  edgeGatewaySecret,
 
   mpesa: {
     env,

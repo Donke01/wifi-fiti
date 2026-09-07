@@ -44,6 +44,52 @@ function requestHost(req) {
   return value.replace(/:\d+$/, '').replace(/\.$/, '');
 }
 
+function edgeHostname(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!raw || raw.length > 253) return null;
+  try {
+    const parsed = new URL(`https://${raw}`);
+    if (parsed.hostname !== raw || parsed.port || parsed.username || parsed.password ||
+        parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
+    return raw;
+  } catch (_) {
+    return null;
+  }
+}
+
+function edgeGatewayAuthenticated(req) {
+  const expected = Buffer.from(config.edgeGatewaySecret || '');
+  const supplied = Buffer.from(String(req.get('X-WiFi-Fiti-Edge') || ''));
+  return Boolean(expected.length && supplied.length === expected.length && crypto.timingSafeEqual(expected, supplied));
+}
+
+function portalUrlForLocation(location) {
+  const hostname = edgeHostname(location && (location.portal_hostname || location.portalHostname));
+  if (config.domains.portalGatewayEnabled && hostname) return `https://${hostname}`;
+  return `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`;
+}
+
+function portalUrlForRouter(location, requestedHostname) {
+  const hostname = edgeHostname(requestedHostname);
+  if (config.domains.portalGatewayEnabled && hostname) {
+    const domain = tenant.portalDomainForLocationHostname.get(hostname, location.id);
+    if (domain) return `https://${domain.hostname}`;
+  }
+  // Older router kits did not include a portal hostname. Preserve their
+  // working cloud redirect until they are deliberately re-paired.
+  return `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`;
+}
+
+function edgePortalOriginForRequest(req, location) {
+  const host = requestHost(req);
+  if (host !== config.domains.appHost && !localDevelopmentHost(host)) return null;
+  if (!edgeGatewayAuthenticated(req)) return null;
+  const hostname = edgeHostname(req.get('X-WiFi-Fiti-Portal-Host'));
+  if (!hostname) return null;
+  const domain = tenant.portalDomainForLocationHostname.get(hostname, location.id);
+  return domain ? `https://${domain.hostname}` : null;
+}
+
 function localDevelopmentHost(host) {
   // A developer can still run the service directly at localhost. A LAN test
   // should set APP_URL to that LAN address instead of relying on an arbitrary
@@ -270,7 +316,7 @@ function primaryColor(value) {
   return color;
 }
 
-function brandingPayload(business) {
+function brandingPayload(business, { assetOrigin = config.domains.appUrl } = {}) {
   const logo = business && business.brand_logo_path;
   return {
     name: business && (business.portal_name || business.name) || config.brandName,
@@ -278,7 +324,7 @@ function brandingPayload(business) {
     primaryColor: business && /^#[0-9A-Fa-f]{6}$/.test(String(business.brand_primary_color || '')) ? business.brand_primary_color.toUpperCase() : null,
     message: business && business.portal_message || '',
     logoUrl: logo && business && business.id
-      ? `${config.domains.appUrl}/media/logo/${encodeURIComponent(business.id)}?v=${encodeURIComponent(logo)}`
+      ? `${assetOrigin}/media/logo/${encodeURIComponent(business.id)}?v=${encodeURIComponent(logo)}`
       : null,
   };
 }
@@ -368,6 +414,25 @@ app.get('/api/business/me', (req, res) => {
   res.json({ business, plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
+});
+
+// The Cloudflare Worker is intentionally stateless. It asks the Railway core
+// to resolve a hostname rather than maintaining a second, eventually stale
+// copy of tenant/location data at the edge. This endpoint never exposes a
+// router token, M-Pesa credential, customer record or business session.
+app.get('/api/edge/portal/resolve', (req, res) => {
+  const host = requestHost(req);
+  if (host !== config.domains.appHost && !localDevelopmentHost(host)) {
+    return res.status(404).type('text/plain').send('Not found.');
+  }
+  if (!config.domains.portalGatewayEnabled || !edgeGatewayAuthenticated(req)) {
+    return res.status(404).type('text/plain').send('Not found.');
+  }
+  const hostname = edgeHostname(req.query.host);
+  const domain = hostname && tenant.portalDomainByHostname.get(hostname);
+  const location = domain && tenant.locationById.get(domain.location_id);
+  if (!domain || !location) return res.status(404).type('text/plain').send('Not found.');
+  res.json({ hostname: domain.hostname, locationId: location.id, businessId: location.business_id });
 });
 
 /** Customer-facing portal identity. Branding remains in the cloud rather
@@ -579,10 +644,12 @@ app.post('/api/business/router-setup', (req, res) => {
     }
     const location = tenant.createLocation({ id: businessId('loc'), businessId: business.id, name,
       routerName: requestedRouterName || setup.routerModel, setup });
-    const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, input: body });
+    const portalUrl = portalUrlForLocation(location);
+    const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, portalUrl, input: body });
     res.status(201).json({
       location,
-      portalUrl: `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`,
+      portalUrl,
+      coreUrl: config.domains.appUrl,
       setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script },
     });
   } catch (err) {
@@ -609,10 +676,12 @@ app.post('/api/business/locations/:locationId/router-setup', (req, res) => {
       hotspotServer: setup.hotspotServer, setup });
     const location = tenant.rotateLocationToken({ locationId: current.id, businessId: business.id });
     if (!location) return res.status(404).json({ error: 'Location not found.' });
-    const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, input: body });
+    const portalUrl = portalUrlForLocation(location);
+    const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, portalUrl, input: body });
     res.json({
       location,
-      portalUrl: `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`,
+      portalUrl,
+      coreUrl: config.domains.appUrl,
       setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script },
     });
   } catch (err) {
@@ -636,7 +705,8 @@ app.post('/api/business/locations', (req, res) => {
     routerName: routerName || null });
   res.status(201).json({
     location,
-    portalUrl: `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`,
+    portalUrl: portalUrlForLocation(location),
+    coreUrl: config.domains.appUrl,
   });
 });
 
@@ -649,7 +719,8 @@ app.post('/api/business/locations/:locationId/router-token', (req, res) => {
   if (!location) return res.status(404).json({ error: 'Location not found.' });
   res.json({
     location,
-    portalUrl: `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`,
+    portalUrl: portalUrlForLocation(location),
+    coreUrl: config.domains.appUrl,
   });
 });
 
@@ -702,6 +773,23 @@ app.patch('/api/business/locations/:locationId', (req, res) => {
   }
   const location = tenant.updateLocationSettings({ locationId: current.id, businessId: business.id, name, routerName, hotspotServer });
   res.json({ location });
+});
+
+// A managed address is a first-level Cloudflare hostname, for example
+// lakeview-main.wififiti.co.ke. It is intentionally a location address: a
+// router can then open exactly the portal that owns its customer jobs.
+app.patch('/api/business/locations/:locationId/portal-address', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const slug = String(req.body && req.body.slug || '').trim().toLowerCase();
+  if (tenant.managedPortalSlugReserved(slug)) return res.status(400).json({ error: 'Choose a different portal address.' });
+  try {
+    const location = tenant.setManagedPortalHostname({ locationId: String(req.params.locationId), businessId: business.id, slug });
+    if (!location) return res.status(404).json({ error: 'Location not found.' });
+    res.json({ location, portalUrl: portalUrlForLocation(location), coreUrl: config.domains.appUrl,
+      aliases: tenant.portalDomainsForLocation.all(location.id) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not save the customer portal address.' });
+  }
 });
 
 app.get('/api/business/dashboard', (req, res) => {
@@ -863,11 +951,12 @@ app.get('/p/:locationId', (req, res) => {
 
 app.get('/api/tenant/:locationId/config', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const assetOrigin = edgePortalOriginForRequest(req, location) || config.domains.appUrl;
   const branding = brandingPayload({
     id: location.business_id, name: location.business_name, portal_name: location.portal_name,
     support_phone: location.support_phone, brand_primary_color: location.brand_primary_color,
     brand_logo_path: location.brand_logo_path, portal_message: location.portal_message,
-  });
+  }, { assetOrigin });
   res.json({ location: { id: location.id, name: location.name, businessName: branding.name }, branding,
     packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone });
 });
@@ -1127,8 +1216,7 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
   const header = req.get('X-WiFi-Fiti-Router');
   const location = tenant.authenticateRouter(req.params.locationId, header || req.query.token, header ? 'header' : 'query');
   if (!location) return res.status(403).type('text/plain').send('forbidden');
-  const site = encodeURIComponent(location.id);
-  const portal = `${config.domains.appUrl}/p/${site}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)`;
+  const portal = `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)`;
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
 });

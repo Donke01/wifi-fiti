@@ -7,6 +7,7 @@
  */
 const crypto = require('crypto');
 const { db } = require('./db');
+const config = require('../config');
 
 const tokenHash = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 // `locations.router_token` existed in the first dashboard schema as a
@@ -15,6 +16,57 @@ const tokenHash = (value) => crypto.createHash('sha256').update(String(value)).d
 // more than one location without persisting the usable router credential.
 const tokenMarker = (value) => `hash:${tokenHash(value)}`;
 const nowSql = (ms) => new Date(ms).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+
+function portalHostname(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!raw || raw.length > 253) return null;
+  try {
+    const parsed = new URL(`https://${raw}`);
+    if (parsed.hostname !== raw || parsed.port || parsed.username || parsed.password ||
+        parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
+    return raw;
+  } catch (_) {
+    return null;
+  }
+}
+
+function managedPortalHostname(label, locationId) {
+  const root = config.domains.portalRootDomain;
+  if (!root) return null;
+  let slug = String(label || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!slug) slug = 'wifi';
+  // Location IDs currently contain 64 random bits. Keep all of that entropy
+  // in generated labels: an eight-hex-character suffix would eventually
+  // collide for common location names as the platform grows.
+  const suffix = String(locationId || '').replace(/[^a-z0-9]/gi, '').toLowerCase().slice(-16) || 'portal';
+  slug = slug.slice(0, Math.max(1, 63 - suffix.length - 1)).replace(/-+$/g, '') || 'wifi';
+  return `${slug}-${suffix}.${root}`;
+}
+
+function managedPortalHostnameFromSlug(slug) {
+  const root = config.domains.portalRootDomain;
+  const label = String(slug || '').trim().toLowerCase();
+  if (!root || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) return null;
+  return `${label}.${root}`;
+}
+
+const SYSTEM_PORTAL_LABELS = new Set([
+  'www', 'cloud', 'app', 'api', 'admin', 'mail', 'smtp', 'ftp', 'status', 'help',
+  'support', 'billing', 'dashboard', 'workers',
+]);
+
+function managedPortalSlugReserved(slug) {
+  const label = String(slug || '').trim().toLowerCase();
+  if (SYSTEM_PORTAL_LABELS.has(label)) return true;
+  const root = config.domains.portalRootDomain;
+  if (!root) return false;
+  for (const host of [config.domains.appHost, config.domains.marketingHost, config.domains.legacyHost]) {
+    const suffix = `.${root}`;
+    if (host && host.endsWith(suffix) && host.slice(0, -suffix.length) === label) return true;
+  }
+  return false;
+}
 
 function secretsKey() {
   const configured = process.env.TENANT_SECRETS_KEY;
@@ -209,6 +261,25 @@ db.exec(`
     mac TEXT NOT NULL,
     PRIMARY KEY(business_id, month, mac)
   );
+
+  -- A hostname belongs to exactly one location. Old hostnames remain as
+  -- aliases when a business changes its public address, so an already paired
+  -- router does not strand customers at a dead captive portal.
+  CREATE TABLE IF NOT EXISTS tenant_portal_domains (
+    hostname    TEXT PRIMARY KEY COLLATE NOCASE,
+    location_id TEXT NOT NULL REFERENCES locations(id),
+    kind        TEXT NOT NULL DEFAULT 'managed',
+    status      TEXT NOT NULL DEFAULT 'active',
+    is_primary  INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(kind IN ('managed', 'custom')),
+    CHECK(status IN ('pending', 'active', 'disabled')),
+    CHECK(is_primary IN (0, 1))
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_portal_domains_location
+    ON tenant_portal_domains(location_id, status, is_primary);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_portal_domains_primary
+    ON tenant_portal_domains(location_id) WHERE is_primary=1 AND status='active';
 `);
 
 for (const statement of [
@@ -261,6 +332,77 @@ for (const location of unhashedLocations.all()) {
   replaceLegacyToken.run(`hash:${hash}`, location.id);
 }
 
+const addPortalDomain = db.prepare(`
+  INSERT INTO tenant_portal_domains (hostname, location_id, kind, status, is_primary)
+  VALUES (@hostname, @locationId, @kind, @status, @isPrimary)
+`);
+const primaryPortalDomain = db.prepare(`
+  SELECT hostname, location_id, kind, status, is_primary, created_at
+    FROM tenant_portal_domains
+   WHERE location_id=? AND status='active' AND is_primary=1
+   ORDER BY created_at DESC LIMIT 1
+`);
+const portalDomainByHostname = db.prepare(`
+  SELECT hostname, location_id, kind, status, is_primary, created_at
+    FROM tenant_portal_domains
+   WHERE hostname=? AND status='active'
+   LIMIT 1
+`);
+const portalDomainByHostnameAnyStatus = db.prepare(`
+  SELECT hostname, location_id, kind, status, is_primary, created_at
+    FROM tenant_portal_domains
+   WHERE hostname=?
+   LIMIT 1
+`);
+const portalDomainForLocationHostname = db.prepare(`
+  SELECT hostname, location_id, kind, status, is_primary, created_at
+    FROM tenant_portal_domains
+   WHERE hostname=? AND location_id=? AND status='active'
+   LIMIT 1
+`);
+const deactivatePrimaryPortalDomains = db.prepare(`
+  UPDATE tenant_portal_domains SET is_primary=0
+   WHERE location_id=? AND status='active' AND is_primary=1
+`);
+const activatePortalDomain = db.prepare(`
+  UPDATE tenant_portal_domains SET status='active', is_primary=1
+   WHERE hostname=? AND location_id=?
+`);
+const portalDomainsForLocation = db.prepare(`
+  SELECT hostname, kind, status, is_primary, created_at
+    FROM tenant_portal_domains WHERE location_id=? ORDER BY is_primary DESC, created_at DESC
+`);
+const activePortalDomainCountForLocation = db.prepare(`
+  SELECT COUNT(*) AS count FROM tenant_portal_domains
+   WHERE location_id=? AND status='active'
+`);
+const MAX_ACTIVE_PORTAL_DOMAINS_PER_LOCATION = 3;
+
+// Enabling the Worker later should not require a manual data migration. This
+// only runs when both its public zone and private edge credential are present;
+// before then every existing location keeps its cloud URL untouched.
+if (config.domains.portalGatewayEnabled) {
+  const locationsWithoutPortal = db.prepare(`
+    SELECT l.id, l.name FROM locations l
+     WHERE NOT EXISTS (
+       SELECT 1 FROM tenant_portal_domains d
+        WHERE d.location_id=l.id AND d.status='active' AND d.is_primary=1
+     )
+  `);
+  for (const location of locationsWithoutPortal.all()) {
+    const hostname = managedPortalHostname(location.name, location.id);
+    if (!hostname) continue;
+    try {
+      addPortalDomain.run({ hostname, locationId: location.id, kind: 'managed', status: 'active', isPrimary: 1 });
+    } catch (error) {
+      // Location IDs make a collision practically impossible. If a legacy
+      // database has an unexpected duplicate, leave its cloud URL in place
+      // rather than taking a live portal offline at startup.
+      if (!/UNIQUE constraint failed/i.test(String(error && error.message))) throw error;
+    }
+  }
+}
+
 const createLocationRow = db.prepare(`
   INSERT INTO locations
     (id, business_id, name, router_token, router_token_hash, router_auth_mode, router_name,
@@ -275,7 +417,8 @@ const locationById = db.prepare(`
   SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_auth_mode, l.router_status, l.last_seen_at,
          l.setup_mode, l.router_model, l.routeros_version, l.wifi_stack, l.customer_bridge, l.wan_interface, l.wifi_interface, l.wifi_ssid, l.customer_ports, l.hotspot_subnet,
          b.name AS business_name, b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message, b.collection_mode, b.plan AS business_plan,
-         b.billing_status, b.billing_expires_at
+         b.billing_status, b.billing_expires_at,
+         (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=l.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
     FROM locations l JOIN businesses b ON b.id = l.business_id
    WHERE l.id = ?
 `);
@@ -284,7 +427,8 @@ const locationsForBusiness = db.prepare(`
          wifi_stack, customer_bridge, wan_interface, wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
          CASE WHEN router_status='online' AND (last_seen_at IS NULL OR last_seen_at <= datetime('now','-90 seconds'))
               THEN 'offline' ELSE router_status END AS router_status,
-         last_seen_at, created_at
+         last_seen_at, created_at,
+         (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
     FROM locations WHERE business_id = ? ORDER BY created_at
 `);
 const touchRouter = db.prepare(`
@@ -306,7 +450,8 @@ const promotePendingLocationToken = db.prepare(`
 const locationForBusiness = db.prepare(`
   SELECT id, business_id, name, router_name, router_status, last_seen_at, hotspot_server,
          setup_mode, router_model, routeros_version, wifi_stack, customer_bridge, wan_interface,
-         wifi_interface, wifi_ssid, customer_ports, hotspot_subnet
+         wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
+         (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
     FROM locations WHERE id=? AND business_id=?
 `);
 const updateLocation = db.prepare(`
@@ -609,9 +754,64 @@ function setupFromLocation(location) {
 function createLocation({ id, businessId, name, routerName, setup }) {
   const routerToken = crypto.randomBytes(24).toString('base64url');
   const saved = savedSetup(setup);
-  createLocationRow.run({ id, businessId, name, routerName: routerName || null,
-    routerTokenHash: tokenHash(routerToken), routerTokenMarker: tokenMarker(routerToken), ...saved });
-  return { id, businessId, name, routerName: routerName || null, routerToken, ...savedSetup(setup) };
+  let portalHostname = null;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    createLocationRow.run({ id, businessId, name, routerName: routerName || null,
+      routerTokenHash: tokenHash(routerToken), routerTokenMarker: tokenMarker(routerToken), ...saved });
+    if (config.domains.portalGatewayEnabled) {
+      portalHostname = managedPortalHostname(name, id);
+      if (portalHostname) {
+        addPortalDomain.run({ hostname: portalHostname, locationId: id, kind: 'managed', status: 'active', isPrimary: 1 });
+      }
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+  return { id, businessId, name, routerName: routerName || null, routerToken, portalHostname, ...savedSetup(setup) };
+}
+
+function setManagedPortalHostname({ locationId, businessId, slug }) {
+  if (!config.domains.portalGatewayEnabled) {
+    const error = new Error('Tenant portal addresses will be available after WiFi Fiti finishes the Cloudflare gateway setup.');
+    error.status = 503;
+    throw error;
+  }
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  const hostname = managedPortalHostnameFromSlug(slug);
+  if (!hostname) {
+    const error = new Error('Use 1–63 lowercase letters, numbers, or hyphens for the portal address.');
+    error.status = 400;
+    throw error;
+  }
+
+  const existing = portalDomainByHostnameAnyStatus.get(hostname);
+  if (existing && existing.location_id !== locationId) {
+    const error = new Error('That customer portal address is already in use.');
+    error.status = 409;
+    throw error;
+  }
+  const wouldAddActiveAddress = !existing || existing.status !== 'active';
+  if (wouldAddActiveAddress && activePortalDomainCountForLocation.get(locationId).count >= MAX_ACTIVE_PORTAL_DOMAINS_PER_LOCATION) {
+    const error = new Error('This location already has three active portal addresses. Contact WiFi Fiti support to retire an older address.');
+    error.status = 409;
+    throw error;
+  }
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (!existing) addPortalDomain.run({ hostname, locationId, kind: 'managed', status: 'active', isPrimary: 0 });
+    deactivatePrimaryPortalDomains.run(locationId);
+    activatePortalDomain.run(hostname, locationId);
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+  return { ...locationForBusiness.get(locationId, businessId), portalDomains: portalDomainsForLocation.all(locationId) };
 }
 
 function rotateLocationToken({ locationId, businessId }) {
@@ -906,7 +1106,8 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, authenticateRouter, locationById, locationForBusiness, locationsForBusiness,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, setManagedPortalHostname, authenticateRouter,
+  locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
   packageForLocation, packagesForLocation, insertTransaction, getTransaction,
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, setSubscriptionMac,

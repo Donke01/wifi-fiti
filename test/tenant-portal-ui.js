@@ -93,7 +93,7 @@ function createPage(options = {}) {
     return id;
   }
   const location = {
-    pathname: '/p/' + site,
+    pathname: options.pathname || '/p/' + site,
     search: '?' + new URLSearchParams({ mac, ip: '10.5.50.123' }),
     assign(value) { navigations.push(['assign', value]); },
     replace(value) { navigations.push(['replace', value]); },
@@ -102,6 +102,7 @@ function createPage(options = {}) {
   Object.defineProperty(location, 'href', { set(value) { navigations.push(['href', value]); } });
   const context = {
     console, Date: ClockDate, URLSearchParams, location,
+    __WIFI_FITI_LOCATION_ID__: options.injectedSite || undefined,
     navigator: { clipboard: { writeText: async () => {} } },
     localStorage: storage(localData, options.blockLocalStorage),
     sessionStorage: storage(sessionData),
@@ -198,6 +199,13 @@ async function test(name, callback) {
     assert.equal(page.cssVariables.get('--blue'), '#19A974');
     assert.equal(page.cssVariables.get('--aqua'), '#19A974');
     assert.match(page.element('support').textContent, /254712345678/);
+  });
+
+  await test('a Worker-injected location id supports a clean tenant root address', async () => {
+    const page = createPage({ pathname: '/', injectedSite: site });
+    await page.flush();
+    assert.equal(page.count('/config'), 1);
+    assert.equal(page.element('brand').textContent, 'Test WiFi');
   });
 
   await test('saved payment resumes across refresh and remains on the waiting page beyond five seconds', async () => {
