@@ -89,6 +89,124 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   const paired = tenant.locationById.get(alpha.id);
   assert.strictEqual(paired.router_status, 'online');
   assert.ok(paired.last_seen_at, 'successful pairing should record router health');
+  assert.strictEqual(paired.last_successful_sync_at, null,
+    'generic router authentication must not be mistaken for a completed control-plane sync');
+
+  // Remote support is intentionally a second, owner-consented onboarding
+  // stage. It is unavailable before the first authenticated router poll,
+  // stores no VPN credential, and remains fully scoped to the owner.
+  const beforeRemoteAccess = tenant.remoteAccessForBusiness({ locationId: alpha.id, businessId: 'business-a' });
+  assert.strictEqual(beforeRemoteAccess.status, 'not_requested');
+  assert.strictEqual(beforeRemoteAccess.canRequest, false,
+    'a router login, jobs request, or other authenticated endpoint must not unlock remote support');
+  assert.strictEqual(tenant.remoteAccessForBusiness({ locationId: alpha.id, businessId: 'business-b' }), null,
+    'one business cannot inspect another business remote-support lifecycle');
+  assert.throws(
+    () => tenant.requestRemoteAccess({ locationId: alpha.id, businessId: 'business-a' }),
+    (error) => error && error.status === 409 && /authenticated WiFi Fiti poll/.test(error.message),
+    'owner consent requires a successful sync rather than a generic authenticated router request'
+  );
+  assert.throws(
+    () => tenant.requestRemoteAccess({ locationId: bravo.id, businessId: 'business-b' }),
+    (error) => error && error.status === 409 && /authenticated WiFi Fiti poll/.test(error.message),
+    'a router must pair before its owner can request remote support'
+  );
+  tenant.recordSuccessfulRouterSync(alpha.id);
+  const synchronized = tenant.locationById.get(alpha.id);
+  assert.ok(synchronized.last_successful_sync_at,
+    'the dedicated completed-sync timestamp is durable once the sync handler records success');
+  assert.strictEqual(tenant.remoteAccessForBusiness({ locationId: alpha.id, businessId: 'business-a' }).canRequest, true);
+  const requestedRemoteAccess = tenant.requestRemoteAccess({ locationId: alpha.id, businessId: 'business-a' });
+  assert.strictEqual(requestedRemoteAccess.status, 'requested');
+  assert.strictEqual(requestedRemoteAccess.canRevoke, true);
+  assert.strictEqual(tenant.requestRemoteAccess({ locationId: alpha.id, businessId: 'business-a' }).status, 'requested',
+    'repeating the owner request is idempotent');
+  assert.strictEqual(legacy.db.prepare('SELECT COUNT(*) AS n FROM tenant_remote_access_events WHERE location_id=? AND action=\'requested\'')
+    .get(alpha.id).n, 1, 'idempotent requests produce one consent event');
+  const supportPublicKey = Buffer.alloc(32, 7).toString('base64');
+  assert.throws(
+    () => tenant.recordRemoteAccessEnrollment({ locationId: alpha.id, publicKey: supportPublicKey }),
+    (error) => error && error.status === 409 && /platform approval/.test(error.message),
+    'a router cannot record remote-support identity before the platform approves owner consent'
+  );
+  const remoteColumns = legacy.db.prepare('PRAGMA table_info(tenant_remote_access)').all().map((column) => column.name);
+  assert.ok(remoteColumns.includes('router_public_key') && remoteColumns.includes('enrolled_at'),
+    'the control plane records a non-secret router public identifier and report time');
+  assert.ok(!remoteColumns.some((name) => /private.*key|password|secret/i.test(name)),
+    'the billing database must never store private keys or router credentials');
+  assert.strictEqual(tenant.manageRemoteAccess({ locationId: alpha.id, action: 'approve' }).status, 'approved');
+  assert.throws(
+    () => tenant.manageRemoteAccess({ locationId: alpha.id, action: 'configure', managementAddress: '192.168.1.2', hubName: 'Nairobi hub' }),
+    (error) => error && error.status === 400,
+    'hub inventory only accepts the dedicated 10.x management range'
+  );
+  const configuredRemoteAccess = tenant.manageRemoteAccess({
+    locationId: alpha.id, action: 'configure', managementAddress: '10.251.0.21', hubName: 'Nairobi hub',
+  });
+  assert.strictEqual(configuredRemoteAccess.status, 'configured');
+  assert.strictEqual(configuredRemoteAccess.managementAddress, '10.251.0.21');
+  assert.strictEqual(configuredRemoteAccess.lastHandshakeAt, null,
+    'configured inventory must not claim a live tunnel before hub telemetry exists');
+  const enrolledRemoteAccess = tenant.recordRemoteAccessEnrollment({ locationId: alpha.id, publicKey: supportPublicKey });
+  assert.strictEqual(enrolledRemoteAccess.status, 'configured');
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(enrolledRemoteAccess, 'routerPublicKey'), false,
+    'router identity is not exposed in an owner-facing lifecycle payload');
+  const savedEnrollment = legacy.db.prepare(
+    'SELECT router_public_key, enrolled_at FROM tenant_remote_access WHERE location_id=?'
+  ).get(alpha.id);
+  assert.strictEqual(savedEnrollment.router_public_key, supportPublicKey);
+  assert.ok(savedEnrollment.enrolled_at, 'the public-key report time is durable');
+  const repeatedEnrollment = tenant.recordRemoteAccessEnrollment({ locationId: alpha.id, publicKey: supportPublicKey });
+  assert.strictEqual(repeatedEnrollment.status, 'configured', 'repeating the same public key is safe and idempotent');
+  assert.deepStrictEqual(legacy.db.prepare(
+    'SELECT router_public_key, enrolled_at FROM tenant_remote_access WHERE location_id=?'
+  ).get(alpha.id), savedEnrollment, 'an idempotent report must not replace or refresh the router identity binding');
+  const replacementSupportPublicKey = Buffer.alloc(32, 8).toString('base64');
+  assert.throws(
+    () => tenant.recordRemoteAccessEnrollment({ locationId: alpha.id, publicKey: replacementSupportPublicKey }),
+    (error) => error && error.status === 409 && /different router support identity/i.test(error.message),
+    'a different router identity cannot overwrite an enrolled router'
+  );
+  assert.deepStrictEqual(legacy.db.prepare(
+    'SELECT router_public_key, enrolled_at FROM tenant_remote_access WHERE location_id=?'
+  ).get(alpha.id), savedEnrollment, 'a rejected replacement report leaves the original identity intact');
+  assert.throws(
+    () => tenant.recordRemoteAccessEnrollment({ locationId: alpha.id, publicKey: 'not-a-wireguard-public-key' }),
+    (error) => error && error.status === 400,
+    'only a 32-byte WireGuard public key is accepted'
+  );
+  const revokedRemoteAccess = tenant.revokeRemoteAccessForBusiness({ locationId: alpha.id, businessId: 'business-a' });
+  assert.strictEqual(revokedRemoteAccess.status, 'revoked');
+  assert.strictEqual(revokedRemoteAccess.managementAddress, null,
+    'revocation removes non-secret hub inventory from the owner payload');
+  const revokeControl = tenant.pendingRemoteSupportControls.all(alpha.id).find((control) => control.action === 'revoke');
+  assert.ok(revokeControl, 'revocation queues a router cleanup command before another router can be enrolled');
+  assert.strictEqual(tenant.remoteAccessForBusiness({ locationId: alpha.id, businessId: 'business-a' }).canRequest, false,
+    'the owner cannot supersede remote-support cleanup with a new request');
+  assert.throws(
+    () => tenant.requestRemoteAccess({ locationId: alpha.id, businessId: 'business-a' }),
+    (error) => error && error.status === 409 && /cleanup.*acknowledge/i.test(error.message),
+    'a replacement router must wait for the previous router cleanup acknowledgement'
+  );
+  tenant.markRemoteSupportControlAcked.run(revokeControl.id, alpha.id);
+  assert.strictEqual(tenant.requestRemoteAccess({ locationId: alpha.id, businessId: 'business-a' }).status, 'requested',
+    'a revoked owner may make a fresh consent request after router cleanup, which requires re-approval');
+  assert.throws(
+    () => tenant.recordRemoteAccessEnrollment({ locationId: alpha.id, publicKey: supportPublicKey }),
+    (error) => error && error.status === 409,
+    'a new request must be approved again before a router can report an identity'
+  );
+  assert.strictEqual(tenant.manageRemoteAccess({ locationId: alpha.id, action: 'approve' }).status, 'approved',
+    'the re-request remains subject to a fresh platform approval');
+  assert.strictEqual(tenant.manageRemoteAccess({
+    locationId: alpha.id, action: 'configure', managementAddress: '10.251.0.21', hubName: 'Nairobi hub',
+  }).status, 'configured',
+  're-approval must be followed by fresh platform configuration');
+  assert.strictEqual(tenant.recordRemoteAccessEnrollment({ locationId: alpha.id, publicKey: replacementSupportPublicKey }).status, 'configured',
+    'only the explicit revoke, cleanup acknowledgement, re-request, approval, and configuration cycle permits a replacement router identity');
+  assert.strictEqual(legacy.db.prepare(
+    'SELECT router_public_key FROM tenant_remote_access WHERE location_id=?'
+  ).get(alpha.id).router_public_key, replacementSupportPublicKey);
 
   // The generated label retains enough of the ID to stay unique at scale, and
   // location/domain creation is atomic when a malformed legacy record happens

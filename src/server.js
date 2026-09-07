@@ -201,6 +201,10 @@ app.use((req, res, next) => {
 // value" and every sync 500s. This comes after host routing so rejected
 // hostnames never spend work parsing application-only requests.
 app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
+// Optional remote-support enrollment is also RouterOS plain text. Keep it
+// ahead of urlencoded(), which otherwise consumes RouterOS fetch payloads
+// before the exact versioned report can be validated.
+app.use('/api/router/support-enroll', express.text({ type: '*/*', limit: '2kb' }));
 // Brand logos are stored on the persistent volume and are deliberately kept
 // separate from the small JSON bodies used by payment and router endpoints.
 app.use('/api/business/branding/logo', express.json({ limit: '520kb' }));
@@ -410,7 +414,8 @@ app.post('/api/business/logout', (req, res) => {
 
 app.get('/api/business/me', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  const locations = tenant.locationsForBusiness.all(business.id);
+  const locations = tenant.locationsForBusiness.all(business.id)
+    .map((location) => ({ ...location, remoteAccess: tenant.remoteAccessForLocation(location) }));
   res.json({ business, plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
@@ -708,6 +713,48 @@ app.post('/api/business/locations', (req, res) => {
     portalUrl: portalUrlForLocation(location),
     coreUrl: config.domains.appUrl,
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* Optional remote-support onboarding                                  */
+/* ------------------------------------------------------------------ */
+
+/** This stage records explicit business consent only. It deliberately does
+ * not generate a VPN key, expose a router service, or modify the router.
+ * A later hub integration will consume approved/configured records. */
+app.get('/api/business/locations/:locationId/remote-access', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const remoteAccess = tenant.remoteAccessForBusiness({ locationId: String(req.params.locationId), businessId: business.id });
+  if (!remoteAccess) return res.status(404).json({ error: 'Location not found.' });
+  res.json({ remoteAccess });
+});
+
+app.post('/api/business/locations/:locationId/remote-access', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  if (!req.body || req.body.consent !== true) {
+    return res.status(400).json({ error: 'Confirm that WiFi Fiti may prepare remote support for this router.' });
+  }
+  try {
+    const remoteAccess = tenant.requestRemoteAccess({ locationId: String(req.params.locationId), businessId: business.id });
+    if (!remoteAccess) return res.status(404).json({ error: 'Location not found.' });
+    res.json({ remoteAccess });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not request remote access.' });
+  }
+});
+
+app.patch('/api/business/locations/:locationId/remote-access', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  if (String(req.body && req.body.action || '') !== 'revoke') {
+    return res.status(400).json({ error: 'Choose the revoke action.' });
+  }
+  try {
+    const remoteAccess = tenant.revokeRemoteAccessForBusiness({ locationId: String(req.params.locationId), businessId: business.id });
+    if (!remoteAccess) return res.status(404).json({ error: 'Location not found.' });
+    res.json({ remoteAccess });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not revoke remote access.' });
+  }
 });
 
 /** A replacement credential is shown once. It is staged for 24 hours, so the
@@ -2274,6 +2321,26 @@ function adminOk(req) {
   return expectedBytes.length === suppliedBytes.length && crypto.timingSafeEqual(expectedBytes, suppliedBytes);
 }
 
+/** Platform lifecycle for a business-owned remote-support request. This is
+ * intentionally an inventory/consent API: no key, endpoint credential or
+ * router command is accepted here. The VPN hub integration comes later. */
+app.patch('/api/admin/locations/:locationId/remote-access', (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const remoteAccess = tenant.manageRemoteAccess({
+      locationId: String(req.params.locationId),
+      action: req.body && req.body.action,
+      managementAddress: req.body && req.body.managementAddress,
+      hubName: req.body && req.body.hubName,
+      actorId: 'platform-admin',
+    });
+    if (!remoteAccess) return res.status(404).json({ error: 'Location not found.' });
+    res.json({ remoteAccess });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not update remote access.' });
+  }
+});
+
 app.get('/api/admin/ledger/:phone', (req, res) => {
   if (!adminOk(req)) return res.status(403).json({ error: 'forbidden' });
   const phone = mpesa.normalizePhone(req.params.phone);
@@ -2315,7 +2382,7 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* Router polling API                                                  */
 /* ------------------------------------------------------------------ */
 
-const { buildScript, buildExpiryScript } = require('./lib/rsc');
+const { buildScript, buildExpiryScript, buildRemoteSupportScript } = require('./lib/rsc');
 
 /** Constant-time compare so the token cannot be guessed by timing. */
 function tokenOk(supplied) {
@@ -2351,6 +2418,49 @@ function tenantRouterForRequest(req, res) {
   return location;
 }
 
+function invalidRemoteSupportEnrollment() {
+  const error = new Error('Invalid remote-support enrollment report.');
+  error.status = 400;
+  return error;
+}
+
+/**
+ * This is intentionally a tiny, exact protocol rather than generic JSON:
+ * RouterOS sends this raw text through /tool fetch, and strict field order
+ * prevents a future option from being silently accepted. The report carries
+ * no private key and the successful response carries no VPN configuration.
+ */
+function parseRemoteSupportEnrollment(rawBody, expectedLocationId) {
+  if (typeof rawBody !== 'string') throw invalidRemoteSupportEnrollment();
+  const match = /^version=1\nsite=([^\n]+)\ninterface=fiti-support-wg\npublic-key=([A-Za-z0-9+/]{43}=)\n$/.exec(rawBody);
+  if (!match || match[1] !== expectedLocationId || Buffer.from(match[2], 'base64').length !== 32) {
+    throw invalidRemoteSupportEnrollment();
+  }
+  return { publicKey: match[2] };
+}
+
+/**
+ * The router reports its public WireGuard identifier after a future opt-in
+ * job creates a disabled interface. Pairing is header-only here: accepting a
+ * URL token would leak a router credential through request logs. The handler
+ * is deliberately inert: it records nothing until platform approval and
+ * returns 204, never a peer, endpoint, route, or activation instruction.
+ */
+app.post('/api/router/support-enroll', (req, res) => {
+  const locationId = String(req.query.site || '');
+  const location = tenant.authenticateRouter(locationId, req.get('X-WiFi-Fiti-Router'), 'header');
+  if (!location) return res.status(403).type('text/plain').send('forbidden');
+  try {
+    const { publicKey } = parseRemoteSupportEnrollment(req.body, location.id);
+    tenant.recordRemoteAccessEnrollment({ locationId: location.id, publicKey });
+    return res.status(204).end();
+  } catch (error) {
+    return res.status(error.status || 500).type('text/plain').send(
+      error.status ? error.message : 'Could not record remote-support enrollment.'
+    );
+  }
+});
+
 function routerAckIds(value) {
   return String(value || '')
     .split(',')
@@ -2362,7 +2472,24 @@ function routerAckIds(value) {
 function tenantRouterScript(location) {
   tenant.queueExpiredSubscriptions(location.id);
   const jobs = tenant.pendingJobs.all(location.id);
-  if (!jobs.length) return { script: '', emitted: [], rejected: [] };
+  const controls = tenant.pendingRemoteSupportControls.all(location.id);
+  if (!jobs.length && !controls.length) return { script: '', emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
+
+  // Support controls always use their own queue and ACK global. They are
+  // emitted before customer provisioning so a requested cleanup cannot be
+  // held behind a large batch of ordinary HotSpot work.
+  const support = buildRemoteSupportScript({ controls });
+  for (const id of support.emitted) tenant.markRemoteSupportControlDelivered.run(id);
+  if (support.rejected.length) {
+    console.error(`[tenant router] ${location.id} refused malformed support control(s): ${support.rejected.join(', ')}`);
+  }
+  if (support.emitted.length) {
+    console.log(`[tenant router] ${location.id} collected support control(s) ${support.emitted.join(', ')}`);
+  }
+
+  if (!jobs.length) {
+    return { script: support.script, emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
+  }
 
   const { script, emitted, rejected } = buildScript({
     jobs,
@@ -2373,13 +2500,26 @@ function tenantRouterScript(location) {
     console.error(`[tenant router] ${location.id} refused malformed jobs: ${rejected.join(', ')}`);
   }
   if (emitted.length) console.log(`[tenant router] ${location.id} collected job(s) ${emitted.join(', ')}`);
-  return { script, emitted, rejected };
+  return {
+    script: [support.script, script].filter(Boolean).join('\n'),
+    emitted,
+    rejected,
+    supportEmitted: support.emitted,
+    supportRejected: support.rejected,
+  };
 }
 
 function acknowledgeTenantRouterJobs(location, value) {
   const ids = routerAckIds(value);
   for (const id of ids) tenant.markAcked.run(id, location.id);
   if (ids.length) console.log(`[tenant router] ${location.id} acked ${ids.join(', ')}`);
+  return ids;
+}
+
+function acknowledgeTenantRemoteSupportControls(location, value) {
+  const ids = routerAckIds(value);
+  for (const id of ids) tenant.markRemoteSupportControlAcked.run(id, location.id);
+  if (ids.length) console.log(`[tenant router] ${location.id} acked support control(s) ${ids.join(', ')}`);
   return ids;
 }
 
@@ -2448,8 +2588,15 @@ app.post('/api/router/sync', (req, res) => {
   if (location === false) return;
   if (location) {
     acknowledgeTenantRouterJobs(location, req.query.ack);
+    acknowledgeTenantRemoteSupportControls(location, req.query.supportAck);
     ingestTenantUsage(location, req.body);
-    return res.type('text/plain').send(tenantRouterScript(location).script);
+    // Build the full response before recording the stronger onboarding
+    // signal. Authentication alone updates ordinary router health, but only
+    // a successful tenant sync round-trip may unlock owner remote-support
+    // consent.
+    const response = tenantRouterScript(location).script;
+    tenant.recordSuccessfulRouterSync(location.id);
+    return res.type('text/plain').send(response);
   }
 
   const site = authSite(req, res);
@@ -2531,6 +2678,7 @@ app.get('/api/router/ack', (req, res) => {
   if (location === false) return;
   if (location) {
     acknowledgeTenantRouterJobs(location, req.query.ids);
+    acknowledgeTenantRemoteSupportControls(location, req.query.supportIds || req.query.supportAck);
     return res.type('text/plain').send('# ok\n');
   }
 

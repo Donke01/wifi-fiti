@@ -196,6 +196,49 @@ in screenshots, tickets or chat groups.
 
 ---
 
+## Two-stage router onboarding
+
+WiFi Fiti intentionally separates **getting a router online** from optional
+remote support:
+
+1. The owner connects a new or existing router to the internet and imports its
+   one-time pairing kit locally. This first physical step is unavoidable: an
+   unconfigured router has no safe path for us to reach it remotely.
+2. The router completes an authenticated outbound HTTPS poll. Billing,
+   provisioning and customer service now work without exposing a management
+   service to the public internet.
+3. The owner can explicitly request managed remote setup from the location
+   card. The platform records consent, approval, allocation and revocation as
+   separate audited states. After platform configuration, the router receives
+   a narrowly-scoped prepare command through its normal poll: it creates a
+   **disabled** native WireGuard interface and reports only its public key.
+   The owner can withdraw consent at any time; the router must acknowledge the
+   matching cleanup command before a replacement support identity can be used.
+
+The polling path remains the product's source of truth. A support connection
+must never carry customer browsing traffic or be required for payment
+fulfilment. A router with no remote-support consent continues working normally.
+
+The generated RouterOS kit includes a dormant native WireGuard support
+bootstrap. It is disabled by default, stores no private VPN material in the
+WiFi Fiti database, and never opens WinBox, SSH, API, a route, a peer, or a WAN
+port. Its separate control queue cannot acknowledge, delay or modify customer
+HotSpot jobs. Revocation disables the tagged retry schedule and removes only
+the tagged support interface; it never changes billing, the Hotspot, firewall
+or normal WiFi Fiti polling. When a dedicated management gateway is later
+provisioned, the approved router can report only its generated public key over
+the existing authenticated
+HTTPS connection. The gateway then has to allocate a unique `/32` management
+address and enforce one-router-per-peer isolation.
+
+Do not claim that the `configured` dashboard state means a VPN is live: until a
+separate UDP WireGuard gateway reports a handshake, it means only that secure
+support inventory has been prepared. Railway remains the web, M-Pesa and router
+polling host; run the future WireGuard gateway on a separate VPS or MikroTik
+CHR with a stable public UDP endpoint.
+
+---
+
 ## Public domains: root landing page and live cloud
 
 WiFi Fiti uses two hostnames with deliberately different jobs:

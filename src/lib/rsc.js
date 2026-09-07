@@ -175,6 +175,97 @@ function buildScript({ jobs, hotspotServer }) {
   return { script: blocks.join('\n') + '\n' + ack + '\n', emitted, rejected };
 }
 
+/*
+ * Optional remote-support controls use a different queue and acknowledgement
+ * from tenant HotSpot jobs. Keep the emitted language intentionally tiny:
+ * `prepare` may run the already-installed bootstrap helper, while `revoke`
+ * can only turn off the managed scheduler and delete the managed, disabled
+ * WireGuard interface. Neither action is allowed to touch a HotSpot user,
+ * billing poll, peer, address, route, firewall rule, service, or WAN port.
+ */
+function remoteSupportControlToScript(control) {
+  const id = Number(control && control.id);
+  if (!Number.isInteger(id) || id < 1) return null;
+
+  if (control.action === 'prepare') {
+    return [
+      ':global fitiSupportEnabled "yes"',
+      ':local fitiSupportBootstrap [/system script find where name="fiti-support-bootstrap"]',
+      ':local fitiSupportPrepared false',
+      ':if ([:len $fitiSupportBootstrap] = 1) do={',
+      '  :do {',
+      '    /system script run $fitiSupportBootstrap',
+      '    :set fitiSupportPrepared true',
+      '  } on-error={',
+      '    :log warning "fiti support: bootstrap failed; support preparation will retry"',
+      '  }',
+      '} else={',
+      '  :log warning "fiti support: bootstrap helper is not installed; support preparation will retry"',
+      '}',
+      `:if ($fitiSupportPrepared) do={ :global fitiSupportAck "${id}" }`,
+    ].join('\n');
+  }
+
+  if (control.action === 'revoke') {
+    return [
+      ':global fitiSupportEnabled "no"',
+      ':global fitiSupportInterface',
+      ':local fitiSupportCleanupOk true',
+      ':local fitiSupportSchedulers [/system scheduler find where name="fiti-support-enroll"]',
+      ':foreach fitiSupportScheduler in=$fitiSupportSchedulers do={',
+      '  :local fitiSupportSchedulerComment [/system scheduler get $fitiSupportScheduler comment]',
+      '  :if ([:typeof [:find $fitiSupportSchedulerComment "WiFi Fiti: optional remote-support public-key enrollment"]] != "nil") do={',
+      '    :do { /system scheduler disable $fitiSupportScheduler } on-error={',
+      '      :set fitiSupportCleanupOk false',
+      '      :log warning "fiti support: could not disable the managed scheduler"',
+      '    }',
+      '  } else={',
+      '    :set fitiSupportCleanupOk false',
+      '    :log warning "fiti support: scheduler name belongs to a non-WiFi-Fiti task; leaving it untouched"',
+      '  }',
+      '}',
+      ':local fitiSupportWireguards [/interface wireguard find where name=$fitiSupportInterface]',
+      ':foreach fitiSupportWireguard in=$fitiSupportWireguards do={',
+      '  :local fitiSupportWireguardComment [/interface wireguard get $fitiSupportWireguard comment]',
+      '  :if ([:typeof [:find $fitiSupportWireguardComment "WiFi Fiti support:"]] != "nil") do={',
+      '    :do { /interface wireguard disable $fitiSupportWireguard } on-error={',
+      '      :set fitiSupportCleanupOk false',
+      '      :log warning "fiti support: could not disable the managed interface"',
+      '    }',
+      '    :if ($fitiSupportCleanupOk) do={',
+      '      :do { /interface wireguard remove $fitiSupportWireguard } on-error={',
+      '        :set fitiSupportCleanupOk false',
+      '        :log warning "fiti support: could not remove the managed interface"',
+      '      }',
+      '    }',
+      '  } else={',
+      '    :set fitiSupportCleanupOk false',
+      '    :log warning "fiti support: interface name belongs to a non-WiFi-Fiti tunnel; leaving it untouched"',
+      '  }',
+      '}',
+      `:if ($fitiSupportCleanupOk) do={ :global fitiSupportAck "${id}" } else={ :log warning "fiti support: cleanup incomplete; revoke will retry" }`,
+    ].join('\n');
+  }
+
+  return null;
+}
+
+function buildRemoteSupportScript({ controls }) {
+  const blocks = [];
+  const emitted = [];
+  const rejected = [];
+  for (const control of controls || []) {
+    const block = remoteSupportControlToScript(control);
+    if (block) {
+      blocks.push(block);
+      emitted.push(control.id);
+    } else {
+      rejected.push(control && control.id);
+    }
+  }
+  return { script: blocks.join('\n') + (blocks.length ? '\n' : ''), emitted, rejected };
+}
+
 /** Disable subscriptions whose wall-clock expiry has passed. The router
  * polls every five seconds, so an expired customer is disconnected even if
  * their browser is closed and their RouterOS uptime allowance is unused. */
@@ -199,4 +290,7 @@ function buildExpiryScript(accounts) {
   return blocks.join('\n');
 }
 
-module.exports = { buildScript, buildExpiryScript, jobToScript, rateProfileName, safe, safeSeconds };
+module.exports = {
+  buildScript, buildExpiryScript, jobToScript, rateProfileName, safe, safeSeconds,
+  remoteSupportControlToScript, buildRemoteSupportScript,
+};

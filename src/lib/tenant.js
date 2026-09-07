@@ -168,6 +168,79 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tenant_jobs_latest
     ON tenant_jobs(location_id, username, id);
 
+  -- Remote support is a consent and lifecycle record only.  In particular,
+  -- it must never become a convenient place to persist a WireGuard private
+  -- key, a router password, or a generated VPN configuration.  Those remain
+  -- outside the billing database until a dedicated hub integration exists.
+  -- A location does not receive a row until its owner explicitly requests
+  -- the optional service after pairing.
+  CREATE TABLE IF NOT EXISTS tenant_remote_access (
+    location_id         TEXT PRIMARY KEY,
+    status              TEXT NOT NULL DEFAULT 'requested',
+    requested_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    approved_at         TEXT,
+    configured_at       TEXT,
+    revoked_at          TEXT,
+    management_address  TEXT,
+    hub_name            TEXT,
+    last_handshake_at   TEXT,
+    -- This is the router's WireGuard *public* identifier only. It is not
+    -- sufficient to connect to the router and must never be confused with
+    -- a private key, peer configuration, or a support credential.
+    router_public_key   TEXT,
+    enrolled_at         TEXT,
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(status IN ('requested', 'approved', 'configured', 'revoked'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_remote_access_status
+    ON tenant_remote_access(status, updated_at);
+  -- A management address is an inventory assignment, not a shared tenant
+  -- network.  Keeping it unique prevents two routers being handed the same
+  -- future VPN address during concurrent support work.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_remote_access_management_address
+    ON tenant_remote_access(management_address)
+    WHERE management_address IS NOT NULL AND status='configured';
+
+  -- Keep a durable, append-only audit record of owner consent and platform
+  -- lifecycle actions.  It intentionally contains no free-form secret or
+  -- key material.
+  CREATE TABLE IF NOT EXISTS tenant_remote_access_events (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id       TEXT NOT NULL,
+    actor_type        TEXT NOT NULL,
+    actor_id          TEXT NOT NULL,
+    action            TEXT NOT NULL,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(actor_type IN ('business', 'admin', 'system')),
+    CHECK(action IN ('requested', 'approved', 'configured', 'revoked'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_remote_access_events_location
+    ON tenant_remote_access_events(location_id, id DESC);
+
+  -- Router support controls deliberately have their own queue and their own
+  -- acknowledgement channel.  They must never share IDs with HotSpot
+  -- provisioning jobs: a support revoke can then be retried independently
+  -- without risking a customer-account action being acknowledged by mistake.
+  -- The only supported actions are deliberately narrow and contain no
+  -- endpoint, peer, route, address, firewall rule, service rule, or secret.
+  CREATE TABLE IF NOT EXISTS tenant_remote_support_controls (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id   TEXT NOT NULL,
+    action        TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    delivered_at  TEXT,
+    acked_at      TEXT,
+    cancelled_at  TEXT,
+    CHECK(action IN ('prepare', 'revoke'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_remote_support_controls_pending
+    ON tenant_remote_support_controls(location_id, acked_at, cancelled_at, id);
+  -- At most one outstanding command of a given kind is useful.  A newer
+  -- control cancels every older unacknowledged one for this location below.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_remote_support_controls_one_pending
+    ON tenant_remote_support_controls(location_id, action)
+    WHERE acked_at IS NULL AND cancelled_at IS NULL;
+
   -- A paid checkout may be observed by the customer polling endpoint,
   -- Daraja's callback and the background reconciliation task. This tiny
   -- ledger is the idempotency lock: only one of them can ever credit it.
@@ -291,6 +364,11 @@ for (const statement of [
   `ALTER TABLE locations ADD COLUMN router_auth_mode TEXT NOT NULL DEFAULT 'query'`,
   `ALTER TABLE locations ADD COLUMN router_status TEXT NOT NULL DEFAULT 'waiting'`,
   `ALTER TABLE locations ADD COLUMN last_seen_at TEXT`,
+  // `last_seen_at` is router-health telemetry: any authenticated router
+  // endpoint may update it. Remote-support consent has a stronger
+  // prerequisite, so it is deliberately tied to a completed /router/sync
+  // round-trip instead of generic authentication activity.
+  `ALTER TABLE locations ADD COLUMN last_successful_sync_at TEXT`,
   `ALTER TABLE locations ADD COLUMN hotspot_server TEXT`,
   `ALTER TABLE locations ADD COLUMN setup_mode TEXT`,
   `ALTER TABLE locations ADD COLUMN router_model TEXT`,
@@ -313,6 +391,11 @@ for (const statement of [
   `ALTER TABLE tenant_subscriptions ADD COLUMN rate_limit TEXT`,
   `ALTER TABLE tenant_jobs ADD COLUMN rate_limit TEXT`,
   `ALTER TABLE tenant_vouchers ADD COLUMN rate_limit TEXT`,
+  // An earlier version of the optional-support lifecycle did not retain the
+  // router's non-secret public identifier. Keep this migration additive so
+  // existing customer databases receive it without a table rebuild.
+  `ALTER TABLE tenant_remote_access ADD COLUMN router_public_key TEXT`,
+  `ALTER TABLE tenant_remote_access ADD COLUMN enrolled_at TEXT`,
 ]) {
   try { db.exec(statement); } catch { /* existing deployment */ }
 }
@@ -414,7 +497,7 @@ const createLocationRow = db.prepare(`
      @wanInterface, @wifiInterface, @wifiSsid, @customerPorts, @hotspotSubnet)
 `);
 const locationById = db.prepare(`
-  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_auth_mode, l.router_status, l.last_seen_at,
+  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_auth_mode, l.router_status, l.last_seen_at, l.last_successful_sync_at,
          l.setup_mode, l.router_model, l.routeros_version, l.wifi_stack, l.customer_bridge, l.wan_interface, l.wifi_interface, l.wifi_ssid, l.customer_ports, l.hotspot_subnet,
          b.name AS business_name, b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message, b.collection_mode, b.plan AS business_plan,
          b.billing_status, b.billing_expires_at,
@@ -427,12 +510,23 @@ const locationsForBusiness = db.prepare(`
          wifi_stack, customer_bridge, wan_interface, wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
          CASE WHEN router_status='online' AND (last_seen_at IS NULL OR last_seen_at <= datetime('now','-90 seconds'))
               THEN 'offline' ELSE router_status END AS router_status,
-         last_seen_at, created_at,
-         (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
+         last_seen_at, last_successful_sync_at, created_at,
+         (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname,
+         COALESCE((SELECT r.status FROM tenant_remote_access r WHERE r.location_id=locations.id), 'not_requested') AS remote_access_status
     FROM locations WHERE business_id = ? ORDER BY created_at
 `);
 const touchRouter = db.prepare(`
   UPDATE locations SET router_status = 'online', last_seen_at = datetime('now') WHERE id = ?
+`);
+// Only the successful tenant /api/router/sync handler calls this statement.
+// Other authenticated routes (login redirect, job polling, acknowledgements,
+// support enrollment) are useful health signals, but must never unlock a
+// business owner's remote-support consent.
+const markSuccessfulRouterSync = db.prepare(`
+  UPDATE locations
+     SET router_status = 'online', last_seen_at = datetime('now'),
+         last_successful_sync_at = datetime('now')
+   WHERE id = ?
 `);
 const stageLocationToken = db.prepare(`
   UPDATE locations
@@ -448,7 +542,7 @@ const promotePendingLocationToken = db.prepare(`
      AND router_pending_token_expires_at > datetime('now')
 `);
 const locationForBusiness = db.prepare(`
-  SELECT id, business_id, name, router_name, router_status, last_seen_at, hotspot_server,
+  SELECT id, business_id, name, router_name, router_status, last_seen_at, last_successful_sync_at, hotspot_server,
          setup_mode, router_model, routeros_version, wifi_stack, customer_bridge, wan_interface,
          wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
          (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
@@ -461,6 +555,91 @@ const updateLocation = db.prepare(`
     wifi_interface=@wifiInterface, wifi_ssid=@wifiSsid, customer_ports=@customerPorts,
     hotspot_subnet=@hotspotSubnet
    WHERE id=@id AND business_id=@businessId
+`);
+
+const remoteAccessByLocation = db.prepare(`
+  SELECT location_id, status, requested_at, approved_at, configured_at, revoked_at,
+         management_address, hub_name, last_handshake_at, router_public_key,
+         enrolled_at, updated_at
+    FROM tenant_remote_access WHERE location_id=?
+`);
+const remoteAccessByManagementAddress = db.prepare(`
+  SELECT location_id FROM tenant_remote_access
+   WHERE management_address=? AND status='configured' LIMIT 1
+`);
+const remoteAccessEventsByLocation = db.prepare(`
+  SELECT id, actor_type, actor_id, action, created_at
+    FROM tenant_remote_access_events WHERE location_id=? ORDER BY id DESC LIMIT ?
+`);
+const insertRemoteAccess = db.prepare(`
+  INSERT INTO tenant_remote_access (location_id, status, requested_at, updated_at)
+  VALUES (?, 'requested', datetime('now'), datetime('now'))
+`);
+const reRequestRemoteAccess = db.prepare(`
+  UPDATE tenant_remote_access
+     SET status='requested', requested_at=datetime('now'), approved_at=NULL,
+         configured_at=NULL, revoked_at=NULL, management_address=NULL, hub_name=NULL,
+         last_handshake_at=NULL, updated_at=datetime('now')
+   WHERE location_id=? AND status='revoked'
+`);
+const approveRemoteAccess = db.prepare(`
+  UPDATE tenant_remote_access
+     SET status='approved', approved_at=datetime('now'), revoked_at=NULL, updated_at=datetime('now')
+   WHERE location_id=? AND status='requested'
+`);
+const configureRemoteAccess = db.prepare(`
+  UPDATE tenant_remote_access
+     SET status='configured', configured_at=datetime('now'), management_address=@managementAddress,
+         hub_name=@hubName, revoked_at=NULL, updated_at=datetime('now')
+   WHERE location_id=@locationId AND status='approved'
+`);
+const revokeRemoteAccess = db.prepare(`
+  UPDATE tenant_remote_access
+     SET status='revoked', revoked_at=datetime('now'), management_address=NULL,
+         hub_name=NULL, last_handshake_at=NULL, router_public_key=NULL,
+         enrolled_at=NULL, updated_at=datetime('now')
+   WHERE location_id=? AND status IN ('requested', 'approved', 'configured')
+`);
+const saveRemoteAccessEnrollment = db.prepare(`
+  UPDATE tenant_remote_access
+     SET router_public_key=@routerPublicKey, enrolled_at=datetime('now'), updated_at=datetime('now')
+   WHERE location_id=@locationId AND status IN ('approved', 'configured')
+`);
+const insertRemoteAccessEvent = db.prepare(`
+  INSERT INTO tenant_remote_access_events (location_id, actor_type, actor_id, action)
+  VALUES (@locationId, @actorType, @actorId, @action)
+`);
+const cancelPendingRemoteSupportControls = db.prepare(`
+  UPDATE tenant_remote_support_controls
+     SET cancelled_at=datetime('now')
+   WHERE location_id=? AND acked_at IS NULL AND cancelled_at IS NULL
+`);
+const insertRemoteSupportControl = db.prepare(`
+  INSERT INTO tenant_remote_support_controls (location_id, action)
+  VALUES (?, ?)
+`);
+const pendingRemoteSupportControls = db.prepare(`
+  SELECT id, location_id, action, created_at
+    FROM tenant_remote_support_controls
+   WHERE location_id=? AND acked_at IS NULL AND cancelled_at IS NULL
+     AND (delivered_at IS NULL OR delivered_at <= datetime('now','-60 seconds'))
+   ORDER BY id
+   LIMIT 1
+`);
+const markRemoteSupportControlDelivered = db.prepare(`
+  UPDATE tenant_remote_support_controls
+     SET delivered_at=datetime('now')
+   WHERE id=? AND cancelled_at IS NULL
+`);
+const markRemoteSupportControlAcked = db.prepare(`
+  UPDATE tenant_remote_support_controls
+     SET acked_at=datetime('now')
+   WHERE id=? AND location_id=? AND cancelled_at IS NULL
+`);
+const pendingRemoteSupportRevoke = db.prepare(`
+  SELECT id FROM tenant_remote_support_controls
+   WHERE location_id=? AND action='revoke' AND acked_at IS NULL AND cancelled_at IS NULL
+   LIMIT 1
 `);
 
 const packageForLocation = db.prepare(`
@@ -771,6 +950,248 @@ function createLocation({ id, businessId, name, routerName, setup }) {
     throw error;
   }
   return { id, businessId, name, routerName: routerName || null, routerToken, portalHostname, ...savedSetup(setup) };
+}
+
+const REMOTE_ACCESS_ACTIVE_STATES = new Set(['requested', 'approved', 'configured']);
+const REMOTE_SUPPORT_CONTROL_ACTIONS = new Set(['prepare', 'revoke']);
+
+function remoteAccessError(message, status) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+/**
+ * Support controls travel independently from customer provisioning. A newer
+ * command cancels an older unacknowledged one, so a revoke cannot be followed
+ * by a stale redelivered prepare command. Call only inside the lifecycle
+ * transaction below.
+ */
+function queueRemoteSupportControl(locationId, action) {
+  if (!REMOTE_SUPPORT_CONTROL_ACTIONS.has(action)) {
+    throw new Error('Unsupported remote-support control action.');
+  }
+  cancelPendingRemoteSupportControls.run(locationId);
+  return Number(insertRemoteSupportControl.run(locationId, action).lastInsertRowid);
+}
+
+function remoteSupportRevokeIsPending(locationId) {
+  return Boolean(pendingRemoteSupportRevoke.get(locationId));
+}
+
+function remoteAccessPayload(location, record) {
+  const status = record ? record.status : 'not_requested';
+  // Do not substitute `last_seen_at` here. Authentication is intentionally
+  // shared by several safe router endpoints; only a completed sync proves
+  // that the paired control-plane poll is working.
+  const hasSuccessfulRouterSync = Boolean(location && location.last_successful_sync_at);
+  // A database-only revoke cannot remove a persisted RouterOS interface. Do
+  // not allow a fresh consent request to supersede the queued cleanup.
+  const revokePending = status === 'revoked' && remoteSupportRevokeIsPending(location.id);
+  return {
+    locationId: location.id,
+    status,
+    requestedAt: record?.requested_at || null,
+    approvedAt: record?.approved_at || null,
+    configuredAt: record?.configured_at || null,
+    revokedAt: record?.revoked_at || null,
+    managementAddress: record?.management_address || null,
+    hubName: record?.hub_name || null,
+    lastHandshakeAt: record?.last_handshake_at || null,
+    cleanupPending: revokePending,
+    canRequest: hasSuccessfulRouterSync && !revokePending && (status === 'not_requested' || status === 'revoked'),
+    canRevoke: REMOTE_ACCESS_ACTIVE_STATES.has(status),
+  };
+}
+
+function remoteAccessForLocation(location) {
+  if (!location) return null;
+  return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
+}
+
+function remoteAccessForBusiness({ locationId, businessId }) {
+  const location = locationForBusiness.get(locationId, businessId);
+  return remoteAccessForLocation(location);
+}
+
+function withRemoteAccessTransaction(work) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = work();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+}
+
+/**
+ * Stage two of router onboarding.  A business can ask for optional remote
+ * support only after its router has completed its first authenticated poll.
+ * This records consent; it neither issues VPN keys nor changes the router.
+ */
+function requestRemoteAccess({ locationId, businessId }) {
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  if (!location.last_successful_sync_at) {
+    throw remoteAccessError(
+      'Pair the router first. It must complete one authenticated WiFi Fiti poll before remote access can be requested.',
+      409
+    );
+  }
+
+  return withRemoteAccessTransaction(() => {
+    const existing = remoteAccessByLocation.get(location.id);
+    if (existing && existing.status !== 'revoked') return remoteAccessPayload(location, existing);
+    if (existing && remoteSupportRevokeIsPending(location.id)) {
+      throw remoteAccessError(
+        'Remote-support cleanup is still waiting for this router to acknowledge the revoke command. Keep it paired and online, then try again.',
+        409
+      );
+    }
+    if (existing) reRequestRemoteAccess.run(location.id);
+    else insertRemoteAccess.run(location.id);
+    insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'business', actorId: businessId, action: 'requested' });
+    return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
+  });
+}
+
+/** The owner can withdraw consent at any time.  A future VPN-hub worker
+ * must treat this durable state as an immediate peer-revocation signal. */
+function revokeRemoteAccessForBusiness({ locationId, businessId }) {
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  return withRemoteAccessTransaction(() => {
+    const existing = remoteAccessByLocation.get(location.id);
+    if (!existing || existing.status === 'revoked') return remoteAccessPayload(location, existing);
+    revokeRemoteAccess.run(location.id);
+    queueRemoteSupportControl(location.id, 'revoke');
+    insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'business', actorId: businessId, action: 'revoked' });
+    return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
+  });
+}
+
+function managementAddress(value) {
+  const raw = String(value || '').trim();
+  const parts = raw.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255) || Number(parts[0]) !== 10) {
+    throw remoteAccessError('Use a private 10.x.x.x management address.', 400);
+  }
+  if (Number(parts[3]) === 0 || Number(parts[3]) === 255) {
+    throw remoteAccessError('Use a usable private 10.x.x.x management address.', 400);
+  }
+  return parts.map(Number).join('.');
+}
+
+function hubName(value) {
+  const raw = String(value || '').trim();
+  if (!/^[A-Za-z0-9 ._-]{1,80}$/.test(raw)) {
+    throw remoteAccessError('Enter a hub name using letters, numbers, spaces, dots, hyphens, or underscores.', 400);
+  }
+  return raw;
+}
+
+/** Platform-only lifecycle. `configured` means inventory has been allocated;
+ * it deliberately does not assert that a tunnel is live. */
+function manageRemoteAccess({ locationId, action, managementAddress: requestedAddress, hubName: requestedHubName, actorId = 'platform' }) {
+  const location = locationById.get(locationId);
+  if (!location) return null;
+  const operation = String(action || '').trim();
+
+  return withRemoteAccessTransaction(() => {
+    const existing = remoteAccessByLocation.get(location.id);
+    if (operation === 'revoke') {
+      if (!existing || existing.status === 'revoked') return remoteAccessPayload(location, existing);
+      revokeRemoteAccess.run(location.id);
+      queueRemoteSupportControl(location.id, 'revoke');
+      insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'admin', actorId, action: 'revoked' });
+      return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
+    }
+    if (!existing) throw remoteAccessError('The business has not requested remote access for this router.', 409);
+    if (operation === 'approve') {
+      if (existing.status !== 'requested') throw remoteAccessError('Remote access can only be approved after an owner request.', 409);
+      approveRemoteAccess.run(location.id);
+      insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'admin', actorId, action: 'approved' });
+      return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
+    }
+    if (operation === 'configure') {
+      if (existing.status !== 'approved') throw remoteAccessError('Approve the owner request before recording hub allocation.', 409);
+      const address = managementAddress(requestedAddress);
+      const hub = hubName(requestedHubName);
+      const assigned = remoteAccessByManagementAddress.get(address);
+      if (assigned && assigned.location_id !== location.id) {
+        throw remoteAccessError('That management address is already assigned to another router.', 409);
+      }
+      configureRemoteAccess.run({ locationId: location.id, managementAddress: address, hubName: hub });
+      // This is not a VPN-connection command. It only creates a disabled
+      // native WireGuard interface and reports its public identifier through
+      // the already-paired HTTPS channel.
+      queueRemoteSupportControl(location.id, 'prepare');
+      insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'admin', actorId, action: 'configured' });
+      return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
+    }
+    throw remoteAccessError('Choose approve, configure, or revoke.', 400);
+  });
+}
+
+function wireGuardPublicKey(value) {
+  const raw = String(value || '').trim();
+  // A Curve25519 WireGuard public key is exactly 32 bytes, encoded as 44
+  // standard-base64 characters. Accept neither a private key format nor
+  // arbitrary router text that could later be mistaken for a key.
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(raw) || Buffer.from(raw, 'base64').length !== 32) {
+    throw remoteAccessError('The router support report contains an invalid public key.', 400);
+  }
+  return raw;
+}
+
+/**
+ * A router may report its non-secret WireGuard public identifier only after
+ * the platform has configured the business's explicit request. This records
+ * inventory/audit data and deliberately does not create a peer, enable an
+ * interface, issue a route, or return any connection configuration.
+ */
+function recordRemoteAccessEnrollment({ locationId, publicKey }) {
+  const location = locationById.get(locationId);
+  if (!location) return null;
+  return withRemoteAccessTransaction(() => {
+    const existing = remoteAccessByLocation.get(location.id);
+    if (!existing || existing.status !== 'configured') {
+      throw remoteAccessError('Remote support enrollment is waiting for platform approval and configuration.', 409);
+    }
+    const normalizedPublicKey = wireGuardPublicKey(publicKey);
+    // A router support identity is a durable binding, not a value that a
+    // later request may silently replace. Retrying the same report is safe;
+    // a replacement router requires the owner to revoke and explicitly
+    // request access again, after which it must receive platform approval.
+    if (existing.router_public_key) {
+      if (existing.router_public_key === normalizedPublicKey) {
+        return remoteAccessPayload(location, existing);
+      }
+      throw remoteAccessError(
+        'A different router support identity is already enrolled. Revoke remote access and request it again before enrolling a replacement router.',
+        409
+      );
+    }
+    saveRemoteAccessEnrollment.run({ locationId: location.id, routerPublicKey: normalizedPublicKey });
+    // `remoteAccessPayload` intentionally omits the public key. Even though
+    // it is non-secret, router identity is control-plane inventory rather
+    // than a business-dashboard or portal API field.
+    return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
+  });
+}
+
+/**
+ * Mark a router as having completed the one poll required before its owner
+ * can request optional remote support. Keep this separate from
+ * `authenticateRouter`: generic authenticated requests only update router
+ * health, while the server's successful /api/router/sync route owns this
+ * stronger onboarding proof.
+ */
+function recordSuccessfulRouterSync(locationId) {
+  markSuccessfulRouterSync.run(locationId);
+  return locationById.get(locationId);
 }
 
 function setManagedPortalHostname({ locationId, businessId, slug }) {
@@ -1106,8 +1527,10 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, setManagedPortalHostname, authenticateRouter,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, setManagedPortalHostname, authenticateRouter, recordSuccessfulRouterSync,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
+  remoteAccessForLocation, remoteAccessForBusiness, requestRemoteAccess, revokeRemoteAccessForBusiness, manageRemoteAccess, recordRemoteAccessEnrollment,
+  pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,
   packageForLocation, packagesForLocation, insertTransaction, getTransaction,
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, setSubscriptionMac,

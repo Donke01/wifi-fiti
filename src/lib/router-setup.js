@@ -173,6 +173,13 @@ function setupPrefix({ location, token, appUrl, portalUrl, config }) {
     ':global fitiToken ' + ros(token),
     ':global fitiBridge ' + ros(config.customerBridge),
     ':global fitiHotspotServer ' + ros(config.hotspotServer),
+    // Remote support is intentionally dormant in every generated kit. The
+    // router-side helper can create a *disabled* native WireGuard interface
+    // and report only its public key once an owner-consent job turns this on.
+    // No gateway endpoint, peer, route or firewall rule is generated here.
+    ':global fitiSupportEnabled "no"',
+    ':global fitiSupportEnrollUrl ' + ros(origin + '/api/router/support-enroll'),
+    ':global fitiSupportInterface "fiti-support-wg"',
     ':local fitiHost ' + ros(host),
   ];
 }
