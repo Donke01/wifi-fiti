@@ -418,6 +418,14 @@ app.get('/api/business/me', (req, res) => {
     .map((location) => ({ ...location, remoteAccess: tenant.remoteAccessForLocation(location) }));
   res.json({ business, plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
+    // This is deliberately a public capability rather than configuration:
+    // owners need to know whether a managed customer address can be chosen,
+    // but the edge credential must never leave the server.
+    portalAddressing: {
+      enabled: config.domains.portalGatewayEnabled,
+      rootDomain: config.domains.portalRootDomain || null,
+      kind: 'managed-subdomain',
+    },
     note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
 });
 

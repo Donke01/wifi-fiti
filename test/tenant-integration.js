@@ -237,6 +237,7 @@ async function main() {
     assert.equal(marketing.status, 200);
     assert.match(marketing.text, /Run your Wi‑Fi business/);
     assert.match(marketing.text, /cloud\.wififiti\.co\.ke\/business\.html/);
+    assert.match(marketing.text, /Branded portal address/, 'the public product preview explains the managed customer-address capability');
     assert.match(marketing.text, /canonical" href="https:\/\/wififiti\.co\.ke\//);
     assert.equal(marketing.headers.get('x-robots-tag'), null, 'the public landing must be indexable');
     const appLink = await api('/business.html?do-not-forward=this', { host: root, redirect: 'manual' });
@@ -291,6 +292,11 @@ async function main() {
     assert.match(alpha.location.portalHostname, /\.wififiti\.co\.ke$/);
     const mine = await api('/api/business/me', { token: alpha.token });
     assert.deepEqual(mine.body.locations.map((item) => item.id), [alpha.location.id]);
+    assert.deepEqual(mine.body.portalAddressing, {
+      enabled: true,
+      rootDomain: 'wififiti.co.ke',
+      kind: 'managed-subdomain',
+    }, 'the authenticated workspace receives only the public managed-address capability');
     assert.equal(mine.body.locations[0].routerToken, undefined, 'pairing secret is shown only once');
     assert.equal(mine.body.locations[0].router_token, undefined);
     const publicConfig = await api(endpoint(alpha.location, 'config'));
