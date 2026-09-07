@@ -142,6 +142,30 @@ function upstream(calls, options = {}) {
     assert.equal(calls.length, 0);
   }
 
+  {
+    // Cloudflare invokes the default module export with a third execution
+    // context argument. That context is not a fetch runtime; the gateway must
+    // ignore it and use the Worker global fetch implementation instead.
+    worker.clearPortalMappingCacheForTests();
+    const calls = [];
+    const originalFetch = global.fetch;
+    global.fetch = upstream(calls);
+    try {
+      const executionContext = Object.freeze({
+        waitUntil() {
+          throw new Error('the gateway must not treat the execution context as a runtime');
+        },
+      });
+      const result = await worker.default.fetch(new Request(`https://${host}/`), env, executionContext);
+      assert.equal(result.status, 200, 'the default Worker export must ignore Cloudflare\'s execution context argument');
+      assert.equal(calls.length, 2, 'the default Worker export must use global fetch for resolution and portal delivery');
+      assert.equal(calls[0].url.pathname, '/api/edge/portal/resolve');
+      assert.equal(calls[1].url.pathname, `/p/${mapping.locationId}`);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  }
+
   console.log('Cloudflare tenant portal gateway: request isolation passed.');
 })().catch((error) => {
   console.error(error.stack || error);

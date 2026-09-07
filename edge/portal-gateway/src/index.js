@@ -182,7 +182,10 @@ function tenantApiPath(pathname, locationId) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-export async function handleRequest(request, env, runtime = { fetch }) {
+// Use the Worker global object by default so its native fetch implementation
+// keeps the receiver Cloudflare expects. Tests can still inject a small fetch
+// runtime explicitly.
+export async function handleRequest(request, env, runtime = globalThis) {
   const url = new URL(request.url);
   const host = hostname(url.hostname);
   const origin = coreOrigin(env);
@@ -239,4 +242,11 @@ export async function handleRequest(request, env, runtime = { fetch }) {
   return response(404, 'Customer portal not found.');
 }
 
-export default { fetch: handleRequest };
+// Cloudflare invokes module workers as fetch(request, env, executionContext).
+// Keep the injectable runtime reserved for direct tests and call the handler
+// with only the Worker request and bindings in production.
+export default {
+  fetch(request, env) {
+    return handleRequest(request, env);
+  },
+};
