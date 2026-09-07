@@ -514,6 +514,10 @@ const locationsForBusinessQuery = db.prepare(`
          CASE WHEN router_pending_token_hash IS NOT NULL
                     AND router_pending_token_expires_at > datetime('now')
               THEN 1 ELSE 0 END AS router_pairing_pending,
+         CASE WHEN (router_pending_token_hash IS NULL
+                    OR router_pending_token_expires_at <= datetime('now'))
+                    AND last_successful_sync_at > datetime('now','-90 seconds')
+              THEN 1 ELSE 0 END AS router_sync_healthy,
          (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname,
          COALESCE((SELECT r.status FROM tenant_remote_access r WHERE r.location_id=locations.id), 'not_requested') AS remote_access_status
     FROM locations WHERE business_id = ? ORDER BY created_at
@@ -526,6 +530,7 @@ const locationsForBusiness = {
     return locationsForBusinessQuery.all(businessId).map((location) => ({
       ...location,
       router_pairing_pending: Boolean(location.router_pairing_pending),
+      router_sync_healthy: Boolean(location.router_sync_healthy),
     }));
   },
 };

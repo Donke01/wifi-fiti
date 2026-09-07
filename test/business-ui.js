@@ -39,36 +39,47 @@ assert.match(html, /confirm:\s*'DELETE'/,
 assert.doesNotMatch(html, /\/system\s+reset-configuration/,
   'the dashboard must not offer a remote RouterOS factory reset');
 
-// First-time owners should land in a real setup journey rather than a long
-// dashboard of unrelated forms. Router readiness is based on a completed
-// authenticated sync—not a transient online indication—and the small status
-// watcher must be explicit, scoped, and safe to stop.
+// First-time owners should see one safe setup stage at a time. A current,
+// completed router sync—not a generic router request—must unlock the final
+// commercial stage.
 assert.match(html, /id="onboarding-section"/,
   'the business workspace includes a dedicated guided setup surface');
-assert.match(html, /Set up your first Wi-Fi location with confidence/,
-  'the onboarding journey has a focused first-location heading');
-assert.match(html, /Workspace.*Connect router.*Customer portal.*Package.*Go live/s,
-  'the journey presents the complete workspace-to-live sequence');
+assert.match(html, /SELF-ONBOARDING/,
+  'the onboarding journey has a focused self-onboarding heading');
+assert.match(html, /Add router.*Setup & connect.*Go live/s,
+  'the journey presents the requested three-stage sequence');
+assert.match(html, /sequential-onboarding[\s\S]*section:not\(#onboarding-section\)/,
+  'unrelated dashboard pages are hidden while the sequential flow is active');
+assert.match(html, /unlocked:\s*unlocked/,
+  'the journey remembers which explicit Next action has unlocked each stage');
+assert.match(html, /number <= flow\.unlocked/,
+  'future stages remain locked until the owner explicitly advances to them');
 assert.match(html, /last_successful_sync_at/,
   'router pairing is derived from a completed secure sync');
 assert.match(html, /router_pairing_pending/,
   'a staged replacement router cannot inherit the old router pairing state');
+assert.match(html, /router_sync_healthy/,
+  'go-live progression requires a fresh successful router sync');
 assert.match(html, /onboardingStatusFingerprint/,
   'unchanged router-status checks can avoid rebuilding the guided setup UI');
-assert.match(html, /Checking this router automatically every 5 seconds/,
+assert.match(html, /checks this router automatically every 5 seconds/,
   'an awaiting router receives a clear, live connection status');
+assert.match(html, /confirmFreshOnboardingRouter/,
+  'continuing and finishing revalidate a fresh secure router sync');
+assert.match(html, /model\.needsRouterCheck \? 5000 : 30000/,
+  'a verified router is still rechecked while its setup flow remains open');
 assert.match(html, /document\.visibilityState === 'hidden'/,
   'automatic status checks pause while the dashboard is not visible');
-assert.match(html, /ROUTER OFFLINE/,
+assert.match(html, /Router needs to reconnect/,
   'a historically paired but offline router is never presented as ready for customers');
 assert.match(html, /Review or delete unused setup/,
   'the guided setup exposes the safe recovery route for a pristine draft');
 assert.match(html, /openOnboardingPortal/,
   'the customer-portal step leads owners to their managed portal address settings');
-assert.match(html, /@media\(max-width:900px\)\{\.onboarding-progress\{grid-template-columns:1fr/,
-  'the five setup stages stay readable in one connected mobile/tablet sequence');
-assert.match(html, /Chat with setup support/,
-  'contextual setup support is available at the point of need');
+assert.match(html, /@media\(max-width:900px\)\{\.onboarding-flow-head[\s\S]*\.setup-rail\{grid-template-columns:1fr/,
+  'the three setup stages stay readable in one connected mobile/tablet sequence');
+assert.match(html, /Initial preparation \(optional\)/,
+  'safe optional preparation guidance is available in the connection stage');
 assert.match(html, /WiFi Fiti never factory-resets a router remotely/,
   'the new onboarding language keeps router resets explicitly owner-controlled');
 

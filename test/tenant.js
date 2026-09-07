@@ -171,6 +171,8 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   const synchronized = tenant.locationById.get(alpha.id);
   assert.ok(synchronized.last_successful_sync_at,
     'the dedicated completed-sync timestamp is durable once the sync handler records success');
+  assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_sync_healthy, true,
+    'a current router with a fresh successful sync is reported healthy');
   assert.strictEqual(tenant.remoteAccessForBusiness({ locationId: alpha.id, businessId: 'business-a' }).canRequest, true);
   const requestedRemoteAccess = tenant.requestRemoteAccess({ locationId: alpha.id, businessId: 'business-a' });
   assert.strictEqual(requestedRemoteAccess.status, 'requested');
@@ -287,6 +289,8 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   assert.ok(staged.routerToken, 'replacement kit receives a one-time staged credential');
   assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_pairing_pending, true,
     'the owner workspace reports a replacement-router pairing only while its staged token is valid');
+  assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_sync_healthy, false,
+    'a prior router sync is not presented as healthy while a replacement router is still pending');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken).business_id, 'business-a',
     'the live router stays online until the replacement kit checks in');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, staged.routerToken).business_id, 'business-a');
@@ -304,6 +308,9 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'an expired replacement token is never presented as a pending router pairing');
   assert.strictEqual(tenant.authenticateRouter(bravo.id, expiring.routerToken), null,
     'an expired replacement token cannot promote itself');
+  legacy.db.prepare(`UPDATE locations SET last_successful_sync_at=datetime('now','-91 seconds') WHERE id=?`).run(alpha.id);
+  assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_sync_healthy, false,
+    'a historical successful sync older than ninety seconds is never reported healthy');
 
   const alphaPackageId = legacy.addBusinessPackage.run({
     businessId: 'business-a', name: 'Ten minutes', price: 10, seconds: 600, rateLimit: '2M/5M',
