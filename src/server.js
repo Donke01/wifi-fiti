@@ -151,7 +151,11 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     '      ":global fitiSupportEnrollUrl \\"" . $fitiSupportEnrollUrl . "\\"\\r\\n" .',
     '      ":global fitiSupportInterface \\"" . $fitiSupportInterface . "\\"\\r\\n" .',
     '      ":local fitiSupportScheduler [/system scheduler find where name=\\"fiti-support-enroll\\"]\\r\\n" .',
-    '      ":if ([:len $fitiSupportScheduler] = 1) do={ /system scheduler disable $fitiSupportScheduler }\\r\\n" .',
+    // This line is written into fiti-boot, so its variable must remain
+    // literal while the current poll response is parsed.  RouterOS expands
+    // unescaped $variables inside strings immediately; that local does not
+    // exist until a later reboot.
+    '      ":if ([:len \\$fitiSupportScheduler] = 1) do={ /system scheduler disable \\$fitiSupportScheduler }\\r\\n" .',
     '      ":global fitiAck \\\"\\\"\\r\\n" .',
     '      ":global fitiSupportAck \\\"\\\"\\r\\n" .',
     '      ":global fitiSetupAck \\\"\\\"\\r\\n" .',

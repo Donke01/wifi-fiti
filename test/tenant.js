@@ -296,12 +296,14 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'the live router stays online until the replacement kit checks in');
   const pendingRouter = tenant.authenticateRouter(alpha.id, staged.routerToken);
   assert.strictEqual(pendingRouter.business_id, 'business-a');
-  const challenge = tenant.processRouterSetupReceipt(pendingRouter, { protocol: '2', health: 'ready' });
+  const challenge = tenant.processRouterSetupReceipt(pendingRouter, { protocol: '2', health: 'portal-missing' });
   assert.ok(challenge.challenge, 'a replacement router receives a receipt challenge before promotion');
   const promoted = tenant.processRouterSetupReceipt(tenant.authenticateRouter(alpha.id, staged.routerToken), {
-    protocol: '2', ack: challenge.challenge, health: 'ready',
+    protocol: '2', ack: challenge.challenge, health: 'portal-missing',
   });
   assert.strictEqual(promoted.promoted, true, 'the replacement promotes only after echoing the receipt');
+  assert.strictEqual(promoted.location.router_setup_health, 'portal-missing',
+    'a replacement may pair before its branded login page is installed');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken), null,
     'the old router is retired only after the staged credential checks in');
   assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_pairing_pending, false,

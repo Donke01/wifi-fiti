@@ -140,7 +140,10 @@ async function routerSync(location, {
   if (handshake && protocol === '2' && response.status === 200 && challenge) {
     return routerSync(location, {
       ack, report, token, transport, portal, portalApplied, protocol,
-      setupAck: challenge[1], health: 'ready', handshake: false,
+      // A real poller remains portal-missing until the response that follows
+      // this receipt has installed its login page. Preserve its reported
+      // health rather than pretending it became ready between requests.
+      setupAck: challenge[1], health, handshake: false,
     });
   }
   return { status: response.status, script, ids: match ? match[1].split(',').map(Number) : [], challenge: challenge && challenge[1] };
@@ -366,7 +369,9 @@ async function main() {
     assert.equal(beforeSyncAddress.status, 409, JSON.stringify(beforeSyncAddress.body));
     assert.match(beforeSyncAddress.body.error, /Finish router setup/,
       'the address cannot be chosen until the router has completed a sync');
-    assert.equal((await routerSync(alpha.location, { portal: 'cloud.wififiti.co.ke' })).status, 200,
+    assert.equal((await routerSync(alpha.location, {
+      portal: 'cloud.wififiti.co.ke', health: 'portal-missing',
+    })).status, 200,
       'the real router sync unlocks the customer-page step');
     const automaticallyCompleted = (await api('/api/business/me', { token: alpha.token })).body.locations
       .find((item) => item.id === alpha.location.id);
@@ -394,6 +399,9 @@ async function main() {
       'the exact customer hostname is added to the walled garden');
     assert.match(portalRefresh.script, /\/system script set \$fitiBoot source=\$fitiBootSource/,
       'the router keeps the new customer hostname after reboot');
+    assert.match(portalRefresh.script,
+      /:if \(\[:len \\\$fitiSupportScheduler\] = 1\) do=\{ \/system scheduler disable \\\$fitiSupportScheduler \}/,
+      'the rebuilt boot script retains its future scheduler variable literally instead of expanding it during portal refresh');
     assert.match(portalRefresh.script,
       /:set fitiPortalRefreshOk true\n    \} on-error=\{[^\n]+\}\n  :if \(\$fitiPortalRefreshOk\) do=\{/,
       'the portal refresh persists the new host only after the login page fetch succeeds');

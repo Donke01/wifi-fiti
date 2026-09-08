@@ -555,7 +555,7 @@ const promotePendingLocationToken = db.prepare(`
          router_pending_token_hash=NULL, router_pending_token_expires_at=NULL,
          router_pending_setup_nonce=NULL, router_pending_setup_json=NULL,
          router_setup_nonce=NULL, router_setup_verified_at=datetime('now'),
-         router_setup_health='ready', router_setup_checked_at=datetime('now'),
+         router_setup_health=@health, router_setup_checked_at=datetime('now'),
          router_status='online', last_router_contact_at=datetime('now'), last_seen_at=datetime('now'),
          last_successful_sync_at=datetime('now')
    WHERE id=@locationId AND router_pending_token_hash=@routerTokenHash
@@ -1369,12 +1369,20 @@ function processRouterSetupReceipt(location, { protocol, ack, health } = {}) {
     return { verified: false, challenge: issueSetupChallenge(location, pairing, reportedHealth), location: locationById.get(location.id) };
   }
 
-  if (reportedHealth !== 'ready' || !currentNonce || String(ack || '') !== currentNonce) {
+  // A new kit deliberately reports `portal-missing` until the cloud has
+  // delivered its branded login page.  Requiring the page before accepting
+  // the receipt creates a deadlock: the cloud withholds the page until the
+  // receipt proves the router can execute a response, while the router keeps
+  // asking for another receipt because its page is still missing.  The other
+  // control-plane checks are already present in the poller, so this state is
+  // safe to accept only after the nonce is echoed back.
+  const receiptHealthOk = reportedHealth === 'ready' || reportedHealth === 'portal-missing';
+  if (!receiptHealthOk || !currentNonce || String(ack || '') !== currentNonce) {
     return { verified: false, challenge: issueSetupChallenge(location, pairing, reportedHealth), location: locationById.get(location.id) };
   }
 
   if (pairing === 'active') {
-    verifyActiveRouterSetup.run({ locationId: location.id, health: 'ready' });
+    verifyActiveRouterSetup.run({ locationId: location.id, health: reportedHealth });
     return { verified: true, challenge: null, location: locationById.get(location.id) };
   }
 
@@ -1383,6 +1391,7 @@ function processRouterSetupReceipt(location, { protocol, ack, health } = {}) {
     ...next,
     locationId: location.id,
     routerTokenHash: location.router_pending_token_hash,
+    health: reportedHealth,
     // `router_token` is only a non-secret uniqueness marker retained for old
     // SQLite schemas. The pending hash is already unique and does not reveal
     // the usable credential, so it is a safe marker once promotion succeeds.
