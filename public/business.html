@@ -163,6 +163,13 @@
       'use strict';
       var token = localStorage.getItem('fiti_business_token');
       var setupStorePrefix = 'fiti_location_setup_secrets_v3:';
+      // A RouterOS kit is executable configuration, not just display text.
+      // Keep a revision with every browser-held kit so a safety fix cannot
+      // leave a previously cached command available for another paste.
+      // Older stored entries have no revision and are deliberately treated as
+      // stale; their server-side pending token is left untouched until the
+      // owner explicitly creates a replacement kit.
+      var routerKitRevision = 'bootstrap-retry-v2';
       var salesPeriod = '30d';
       var state = { workspace: null, dashboard: null, vouchers: [], payment: null, issuedCodes: [], billing: null };
       var billingPollTimer = null;
@@ -203,6 +210,9 @@
       function getSetups() { try { var key = setupStoreKey(); var setups = key ? JSON.parse(sessionStorage.getItem(key) || '{}') : {}; return setups && typeof setups === 'object' ? setups : {}; } catch (_) { return {}; } }
       function saveSetups(setups) { try { var key = setupStoreKey(); if (key) sessionStorage.setItem(key, JSON.stringify(setups)); } catch (_) { /* session storage is optional */ } }
       function forgetSetup(locationId) { var setups = getSetups(); delete setups[String(locationId)]; saveSetups(setups); }
+      function storedRouterKitHasScript(setup) { return Boolean(setup && setup.setup && typeof setup.setup.script === 'string' && setup.setup.script.length > 0); }
+      function storedRouterKitIsCurrent(setup) { return Boolean(storedRouterKitHasScript(setup) && setup.kitRevision === routerKitRevision); }
+      function storedRouterKitIsStale(setup) { return Boolean(storedRouterKitHasScript(setup) && !storedRouterKitIsCurrent(setup)); }
       function clearPairingSecrets() { try { Object.keys(sessionStorage).filter(function (key) { return key.indexOf('fiti_location_setup_secrets_') === 0; }).forEach(function (key) { sessionStorage.removeItem(key); }); } catch (_) {} clear($('setup-list')); $('location-setup-section').classList.add('hidden'); }
       function clearSession() { clearBillingPolling(); clearOnboardingPolling(); clearPairingSecrets(); localStorage.removeItem('fiti_business_token'); token = null; billingRecoveryPending = false; onboardingPanel = ''; routerDraftModalOpen = false; state = { workspace: null, dashboard: null, vouchers: [], payment: null, issuedCodes: [], billing: null }; $('billing-phone').value = ''; $('payment-form').reset(); $('login').reset(); $('register').reset(); $('organisation-form').reset(); $('router-draft-form').reset(); showWelcome(); }
       function portalAddressing() { var details = state.workspace && state.workspace.portalAddressing; return details && typeof details === 'object' ? details : { enabled: false, rootDomain: '', kind: 'managed-subdomain' }; }
@@ -220,7 +230,8 @@
         var secret = String(location && (location.routerToken || location.router_token) || '');
         if (!secret || !location || !location.id) return;
         var setups = getSetups();
-        setups[String(location.id)] = { id: String(location.id), name: String(location.name || 'New location'), routerName: String(location.routerName || location.router_name || ''), token: secret, portalUrl: String(portalUrl || publicPortal(location)), customerBridge: String(location.customerBridge || location.customer_bridge || ''), hotspotServer: String(location.hotspotServer || location.hotspot_server || ''), setup: generated && generated.script ? { mode: generated.mode, summary: generated.summary, warnings: generated.warnings || [], script: generated.script } : null };
+        var hasGeneratedScript = Boolean(generated && generated.script);
+        setups[String(location.id)] = { id: String(location.id), name: String(location.name || 'New location'), routerName: String(location.routerName || location.router_name || ''), token: secret, portalUrl: String(portalUrl || publicPortal(location)), customerBridge: String(location.customerBridge || location.customer_bridge || ''), hotspotServer: String(location.hotspotServer || location.hotspot_server || ''), kitRevision: hasGeneratedScript ? routerKitRevision : '', setup: hasGeneratedScript ? { mode: generated.mode, summary: generated.summary, warnings: generated.warnings || [], script: generated.script } : null };
         saveSetups(setups);
       }
       function rosQuote(value) { return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
@@ -707,7 +718,7 @@
       function appendSimpleRouterSetup(body, model) {
         var location = model.location; if (!location) return;
         var saved = getSetups()[String(location.id)]; var box = el('section', 'simple-router');
-        if (saved && saved.token && saved.setup && saved.setup.script) {
+        if (saved && saved.token && storedRouterKitIsCurrent(saved)) {
           add(box, 'h4', '', 'Copy the connection kit');
           add(box, 'p', '', 'Copy the complete kit and paste it into a WinBox terminal once. Leave this page open; WiFi Fiti checks the connection automatically.');
           var script = routerCommands(saved); var scriptDetails = el('details', 'simple-advanced'); add(scriptDetails, 'summary', '', 'Show RouterOS connection kit'); var scriptInner = el('div', 'simple-advanced-inner'); add(scriptInner, 'pre', 'kit-script', script); scriptDetails.appendChild(scriptInner); box.appendChild(scriptDetails);
@@ -715,7 +726,11 @@
         }
 
         add(box, 'h4', '', 'Create the connection kit');
-        add(box, 'p', '', 'Import one automatic kit. WiFi Fiti detects whether this is an existing Hotspot router or a blank reset router, then keeps or creates only what that path requires.');
+        if (storedRouterKitIsStale(saved)) {
+          add(box, 'p', 'kit-refresh-note', 'This saved connection kit is out of date and cannot be copied. Generate one fresh kit before configuring the router. Your router has not been changed by this notice.');
+        } else {
+          add(box, 'p', '', 'Import one automatic kit. WiFi Fiti detects whether this is an existing Hotspot router or a blank reset router, then keeps or creates only what that path requires.');
+        }
         var form = el('form'); form.noValidate = true;
         var modes = el('div', 'simple-kit'); add(modes, 'h4', '', 'Automatic router detection'); add(modes, 'p', '', 'The kit checks RouterOS, board, Wi-Fi stack, WAN port, bridge, Hotspot and Ethernet ports on the router. It then chooses the safe existing-router or fresh-router path for you.'); var autoMode = document.createElement('input'); autoMode.type = 'hidden'; autoMode.name = 'mode'; autoMode.value = 'auto'; form.appendChild(autoMode); form.appendChild(modes);
         var fields = el('div', 'fields');
@@ -829,7 +844,7 @@
 
       function renderPairingKits() {
         var list = $('setup-list'); var section = $('location-setup-section'); var setups = getSetups(); var locations = new Map(((state.workspace && state.workspace.locations) || []).map(function (location) { return [String(location.id), location]; }));
-        var items = Object.keys(setups).filter(function (id) { return locations.has(id); }).map(function (id) { var item = setups[id]; var location = locations.get(id); return Object.assign({}, item, { name: location.name, routerName: location.router_name || item.routerName }); }).filter(function (item) { return item && item.token; });
+        var items = Object.keys(setups).filter(function (id) { return locations.has(id); }).map(function (id) { var item = setups[id]; var location = locations.get(id); return Object.assign({}, item, { name: location.name, routerName: location.router_name || item.routerName }); }).filter(function (item) { return item && item.token && storedRouterKitIsCurrent(item); });
         clear(list); if (!items.length) { section.classList.add('hidden'); return; }
         items.forEach(function (item) {
           var card = el('article', 'setup-card'); add(card, 'strong', '', item.name + (item.routerName ? ' · ' + item.routerName : ''));

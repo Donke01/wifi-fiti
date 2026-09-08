@@ -67,6 +67,26 @@
 :if ([:len $fitiSupportEnrollUrl] = 0) do={ :set fitiSupportEnrollUrl ($fitiUrl . "/api/router/support-enroll") }
 :if ([:len $fitiSupportInterface] = 0) do={ :set fitiSupportInterface "fiti-support-wg" }
 
+# Device-mode restrictions otherwise allow a partial portal update and only
+# fail later when the poll scheduler is created. Stop before touching the
+# Hotspot if any mandatory WiFi Fiti feature is blocked. We intentionally
+# request only the three required flags; the owner must confirm the change
+# physically and re-import rather than the installer changing it silently.
+:local fitiDeviceFetch true
+:local fitiDeviceScheduler true
+:local fitiDeviceHotspot true
+:local fitiDeviceFlagged false
+:do { :set fitiDeviceFetch [/system device-mode get fetch] } on-error={}
+:do { :set fitiDeviceScheduler [/system device-mode get scheduler] } on-error={}
+:do { :set fitiDeviceHotspot [/system device-mode get hotspot] } on-error={}
+:do { :set fitiDeviceFlagged [/system device-mode get flagged] } on-error={}
+:if (($fitiDeviceFetch != true) || ($fitiDeviceScheduler != true) || ($fitiDeviceHotspot != true)) do={
+  :error "RouterOS device mode blocks a required WiFi Fiti feature. Run /system device-mode update fetch=yes scheduler=yes hotspot=yes, confirm it physically, then import this kit again."
+}
+:if ($fitiDeviceFlagged = true) do={
+  :error "RouterOS has flagged this configuration. Audit it, then run /system device-mode update flagged=no and confirm it physically before importing this kit."
+}
+
 
 :global fitiHotspotServer
 :if ([:len $fitiHotspotServer] = 0) do={ :set fitiHotspotServer "hotspot1" }
@@ -295,7 +315,10 @@
   policy=read,write,ftp,test,policy on-event="/system script run fiti-boot" \
   comment="WiFi Fiti: restore settings after reboot"
 
-/system scheduler add name=fiti-poll interval=5s disabled=no \
+# A repeating task with start-time=startup does not run on reboot in RouterOS.
+# Anchor it at the epoch instead, so it becomes due within five seconds even
+# on a freshly reset router whose clock is not trustworthy yet.
+/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=5s disabled=no \
   policy=read,write,ftp,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 

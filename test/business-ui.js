@@ -167,6 +167,27 @@ assert.match(html, /downloadRouterScript\(script\)/,
 assert.match(html, /\/api\/business\/onboarding\/customer-portal/,
   'customer-page details use the post-connection endpoint');
 
+// A RouterOS kit is executable configuration. A browser session must never
+// keep offering an older saved kit after its bootstrap behavior changes. The
+// owner has to deliberately generate a current replacement; merely loading
+// the dashboard does not rotate the still-pending server-side credential.
+assert.match(html, /var routerKitRevision = 'bootstrap-retry-v2';/,
+  'stored connection kits carry an explicit bootstrap revision');
+assert.match(html, /function storedRouterKitIsCurrent\(setup\) \{ return Boolean\(storedRouterKitHasScript\(setup\) && setup\.kitRevision === routerKitRevision\); \}/,
+  'only a script saved with the current bootstrap revision is eligible for copying');
+assert.match(html, /kitRevision: hasGeneratedScript \? routerKitRevision : ''/,
+  'only freshly generated full scripts are marked current in session storage');
+const compactKitUi = html.match(/function appendSimpleRouterSetup\(body, model\) \{[\s\S]*?\n\s*function selectedMode\(\)/);
+assert.ok(compactKitUi, 'the compact connection-kit UI is present');
+assert.match(compactKitUi[0], /saved && saved\.token && storedRouterKitIsCurrent\(saved\)/,
+  'the copy controls are gated on the current stored kit revision');
+assert.match(compactKitUi[0], /storedRouterKitIsStale\(saved\)/,
+  'an older cached script is detected instead of silently reused');
+assert.match(compactKitUi[0], /This saved connection kit is out of date and cannot be copied\./,
+  'owners receive a direct fresh-kit instruction before a stale RouterOS command can be copied');
+assert.match(html, /item && item\.token && storedRouterKitIsCurrent\(item\)/,
+  'the legacy pairing-kit list also refuses to surface a stale cached command');
+
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
 console.log('Business UI: focused onboarding, post-connection customer pages, and client-script safety passed.');

@@ -195,12 +195,22 @@ function wrapRouterScript(lines) {
 // `device-mode update` requires an owner at the router to confirm the
 // physical button prompt. Check it before writing *any* fiti globals: on an
 // already-running router, a blocked mode must never temporarily replace the
-// active polling credentials with a staged router token.
+// active polling credentials with a staged router token. Do not require the
+// broad `advanced` preset: RouterOS permits precisely the three features we
+// need to be enabled individually, which preserves an owner's other
+// device-mode choices.
 function deviceModePreflightLines() {
   return [
-    ':local fitiDeviceMode ""',
-    ':do { :set fitiDeviceMode [/system device-mode get mode] } on-error={}',
-    ':if ([:len $fitiDeviceMode] > 0) do={ :if ($fitiDeviceMode != "advanced") do={ :error "RouterOS device mode blocks cloud fetch. Run /system device-mode update mode=advanced, confirm it physically, then import this kit again." } }',
+    ':local fitiDeviceFetch true',
+    ':local fitiDeviceScheduler true',
+    ':local fitiDeviceHotspot true',
+    ':local fitiDeviceFlagged false',
+    ':do { :set fitiDeviceFetch [/system device-mode get fetch] } on-error={}',
+    ':do { :set fitiDeviceScheduler [/system device-mode get scheduler] } on-error={}',
+    ':do { :set fitiDeviceHotspot [/system device-mode get hotspot] } on-error={}',
+    ':do { :set fitiDeviceFlagged [/system device-mode get flagged] } on-error={}',
+    ':if (($fitiDeviceFetch != true) || ($fitiDeviceScheduler != true) || ($fitiDeviceHotspot != true)) do={ :error "RouterOS device mode blocks a required WiFi Fiti feature. Run /system device-mode update fetch=yes scheduler=yes hotspot=yes, confirm it physically, then import this kit again." }',
+    ':if ($fitiDeviceFlagged = true) do={ :error "RouterOS has flagged this configuration. Audit it, then run /system device-mode update flagged=no and confirm it physically before importing this kit." }',
   ];
 }
 
@@ -282,7 +292,11 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     // into a permanent onboarding failure.
     '/system scheduler remove [find where name="fiti-first-install"]',
     '/system script remove [find where name="fiti-first-install"]',
-    '/system scheduler add name="fiti-first-install" interval=15s policy=read,write,ftp,policy,test on-event={',
+    // A repeating RouterOS scheduler must not use start-time=startup: RouterOS
+    // runs that special start time only when interval=0. An epoch base makes
+    // this retry due immediately (or within one interval) after a reboot,
+    // including when a reset board has not yet obtained accurate time.
+    '/system scheduler add name="fiti-first-install" start-date=1970-01-01 start-time=00:00:00 interval=15s policy=read,write,ftp,policy,test on-event={',
     ...bootstrap,
     '} comment="WiFi Fiti: retry cloud installer until paired"',
     // Run the scheduler once now. It uses the same self-contained event as
