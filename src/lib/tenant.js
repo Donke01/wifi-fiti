@@ -599,6 +599,9 @@ const locationForBusiness = db.prepare(`
          portal_setup_completed_at, router_portal_update_sent_host, router_portal_applied_host, hotspot_server,
          setup_mode, router_model, routeros_version, wifi_stack, customer_bridge, wan_interface,
          wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
+         CASE WHEN router_pending_token_hash IS NOT NULL
+                    AND router_pending_token_expires_at > datetime('now')
+              THEN 1 ELSE 0 END AS router_pairing_pending,
          (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
     FROM locations WHERE id=? AND business_id=?
 `);
@@ -1292,6 +1295,17 @@ function setupNonce() {
   return crypto.randomBytes(18).toString('base64url');
 }
 
+// A staged credential is deliberately separate from the active router so a
+// customer connection keeps working while an owner prepares a replacement.
+// Any owner-facing action that claims the *current* setup is complete must
+// nevertheless treat this as unverified until the staged router echoes its
+// own receipt challenge.
+function hasLivePendingRouterPairing(location) {
+  if (!location || !location.router_pending_token_hash) return false;
+  const expiresAt = Date.parse(String(location.router_pending_token_expires_at || '').replace(' ', 'T') + 'Z');
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
 function pendingSetupSnapshot(location) {
   let pending = null;
   try { pending = location.router_pending_setup_json ? JSON.parse(location.router_pending_setup_json) : null; } catch (_) { /* use live settings */ }
@@ -1446,7 +1460,8 @@ function setManagedPortalHostname({ locationId, businessId, slug }) {
   // the router has proved that its WiFi Fiti connection works at least once.
   // It may be offline later; the polling script will apply the saved address
   // on its next check-in.
-  if (!location.last_successful_sync_at) {
+  const control = locationById.get(location.id);
+  if (!location.last_successful_sync_at || hasLivePendingRouterPairing(control)) {
     const error = new Error('Finish router setup before choosing the customer portal address.');
     error.status = 409;
     throw error;

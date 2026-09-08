@@ -21,10 +21,12 @@ const locationEditor = html.match(/function renderLocationEditor\(location, card
 assert.ok(locationEditor, 'the location editor remains a distinct dashboard surface');
 assert.match(locationEditor[0], /field\('Customer portal address',\s*'portalSlug'/,
   'the location editor has a managed portal-address field for connected routers');
-assert.match(locationEditor[0], /var routerConnected = Boolean\(location\.last_successful_sync_at\)/,
-  'the location editor derives availability from the completed router sync');
+assert.match(locationEditor[0], /var routerPending = routerPairingPending\(location\); var routerConnected = Boolean\(location\.last_successful_sync_at && !routerPending\)/,
+  'the location editor treats a staged replacement as unverified even when the old router has a sync timestamp');
 assert.match(locationEditor[0], /Connect this router first/,
   'an unconnected router receives a direct explanation instead of an unusable field');
+assert.match(locationEditor[0], /A replacement router is waiting for its secure check-in/,
+  'the location editor explains why a pending replacement cannot change the customer address');
 
 // Starting over must be safe for a live business: the dashboard can clear
 // unsaved wizard choices or stage a replacement kit, while deletion stays
@@ -73,6 +75,24 @@ assert.match(html, /router_pairing_pending/,
   'a staged replacement router cannot inherit the old router pairing state');
 assert.match(html, /router_sync_healthy/,
   'go-live progression requires a fresh successful router sync');
+assert.match(html, /function beginFreshRouterPairing\(model\)/,
+  'returning to onboarding explicitly starts a fresh pairing rather than trusting a prior sync');
+assert.match(html, /function startRouterSetupAgain\(location\) \{[\s\S]*?requireFreshRouterSetup\(location\);[\s\S]*?forgetSetup\(location\.id\)/,
+  'the visible Start router setup again action suppresses a prior verified state before the new kit is issued');
+assert.match(html, /var freshKitRequired = Boolean\(location && !routerPairingPending\(location\) && freshRouterSetupRequired\(location\)\)/,
+  'a requested re-pairing cannot inherit a previous router verification');
+assert.match(html, /!freshKitRequired && routerSuccessfullyPaired\(location\)/,
+  'the old secure sync remains blocked until a new kit is issued and succeeds');
+assert.match(html, /The next page asks for the customer Wi-Fi name and password, then creates one visible kit/,
+  'a re-pairing preserves the explicit SSID and password screen instead of silently creating a random kit');
+assert.match(html, /Create a fresh connection kit/,
+  'a requested re-pairing clearly explains why the old router is no longer verified');
+assert.match(html, /clearFreshRouterSetup\(location\); saveSetup\(result\.location, result\.portalUrl, result\.setup\)/,
+  'the browser-only restart marker is cleared only after the owner issues a new kit');
+assert.doesNotMatch(html, /startFreshRouterConnection/,
+  'the focused journey does not call the removed background kit generator');
+assert.match(html, /Waiting for router/,
+  'a staged replacement is clearly presented as awaiting its own secure sync');
 assert.match(html, /onboardingStatusFingerprint/,
   'unchanged router-status checks can avoid rebuilding the guided setup UI');
 assert.match(html, /checks this router automatically every 5 seconds/,
@@ -87,6 +107,8 @@ assert.match(html, /Router needs to reconnect/,
   'a historically paired but offline router is never presented as ready for customers');
 assert.match(html, /Create a different kit/,
   'the guided setup offers a single clear recovery action for its connection kit');
+assert.match(html, /Copy connection kit/,
+  'the normal onboarding route lets an owner copy the complete RouterOS kit directly');
 assert.match(html, /appendCustomerPortalSetup/,
   'the customer-page step is rendered directly after router connection');
 assert.match(html, /!model\.portalReady/,

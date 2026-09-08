@@ -192,6 +192,18 @@ function wrapRouterScript(lines) {
   ].join('\n') + '\n';
 }
 
+// `device-mode update` requires an owner at the router to confirm the
+// physical button prompt. Check it before writing *any* fiti globals: on an
+// already-running router, a blocked mode must never temporarily replace the
+// active polling credentials with a staged router token.
+function deviceModePreflightLines() {
+  return [
+    ':local fitiDeviceMode ""',
+    ':do { :set fitiDeviceMode [/system device-mode get mode] } on-error={}',
+    ':if ([:len $fitiDeviceMode] > 0) do={ :if ($fitiDeviceMode != "advanced") do={ :error "RouterOS device mode blocks cloud fetch. Run /system device-mode update mode=advanced, confirm it physically, then import this kit again." } }',
+  ];
+}
+
 function setupPrefix({ location, token, appUrl, portalUrl, config }) {
   const origin = new URL(appUrl).origin;
   const host = new URL(origin).hostname;
@@ -246,23 +258,38 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     ':local fitiPortalHost ' + ros(portalHost),
     ':if ([:len [/ip hotspot walled-garden find where dst-host=$fitiHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiHost comment="WiFi Fiti cloud API" }',
     ':if ($fitiPortalHost != $fitiHost) do={ :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiPortalHost comment="WiFi Fiti customer portal" } }',
-    ':do {',
+    // A no-defaults reset deliberately leaves files behind. Never allow a
+    // failed fetch to import an older WiFi Fiti installer from that storage:
+    // it could contain a different router credential or an obsolete agent.
+    ':do { /file remove [find where name="fiti-tenant-install.rsc"] } on-error={}',
+    ':onerror fitiBootstrapError in={',
     '  /tool fetch url=' + ros(origin + '/tenant-router-install.rsc') + fetchTlsOption(origin) + ' dst-path="fiti-tenant-install.rsc"',
+    '  :if ([:len [/file find where name="fiti-tenant-install.rsc"]] != 1) do={ :error "Fresh WiFi Fiti cloud installer was not downloaded" }',
     '  /import file-name="fiti-tenant-install.rsc"',
-    '  /system scheduler disable [find where name="fiti-first-install"]',
-    '  :log info "fiti: cloud installer completed"',
-    '} on-error={',
-    '  :log warning "fiti: waiting for WAN/DNS before cloud pairing"',
+    '  :do { /file remove [find where name="fiti-tenant-install.rsc"] } on-error={}',
+    '  :log info "fiti: cloud installer imported; waiting for first secure sync"',
+    '} do={',
+    '  :log warning ("fiti: cloud pairing retry: " . $fitiBootstrapError)',
     '}',
   ];
   return [
-    '/system script remove [find where name="fiti-first-install"]',
+    // The retry work deliberately lives *inside* the scheduler event rather
+    // than a second, named RouterOS script. A no-defaults reset retains old
+    // files and a failed/partial import can otherwise leave a scheduler that
+    // only says "no such item" because its helper script is gone. Keeping the
+    // bootstrap source on the scheduler makes every 15-second retry
+    // self-contained; no missing script can turn a recoverable WAN/DNS delay
+    // into a permanent onboarding failure.
     '/system scheduler remove [find where name="fiti-first-install"]',
-    '/system script add name="fiti-first-install" policy=read,write,ftp,policy,test source={',
+    '/system script remove [find where name="fiti-first-install"]',
+    '/system scheduler add name="fiti-first-install" interval=15s policy=read,write,ftp,policy,test on-event={',
     ...bootstrap,
-    '}',
-    '/system scheduler add name="fiti-first-install" interval=15s policy=read,write,ftp,policy,test on-event="/system script run fiti-first-install" comment="WiFi Fiti: retry cloud installer until paired"',
-    '/system script run fiti-first-install',
+    '} comment="WiFi Fiti: retry cloud installer until paired"',
+    // Run the scheduler once now. It uses the same self-contained event as
+    // future retries and therefore validates the actual scheduled path. The
+    // guarded fallback is harmless on RouterOS builds that lack this manual
+    // scheduler action: the normal 15-second event still remains enabled.
+    ':do { /system scheduler run [find where name="fiti-first-install"] } on-error={ :log info "fiti: first cloud pairing queued; scheduler will retry shortly" }',
     ':put "WiFi Fiti setup started. It will retry cloud pairing every 15 seconds until the router checks in."',
   ];
 }
@@ -288,6 +315,7 @@ function buildExistingRouterKit({ location, token, appUrl, portalUrl, config }) 
     // Do all read-only checks before creating globals or a retry scheduler.
     // A wrong bridge/Hotspot name therefore leaves an existing live router
     // completely untouched.
+    ...deviceModePreflightLines(),
     ...assertExistingHotspotLines(config),
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ...pairingSuffix({ appUrl, portalUrl, location, token, config }),
@@ -394,12 +422,15 @@ function automaticRouterDetectionLines() {
     '  :foreach fitiDhcp in=[/ip dhcp-client find] do={ :if ([/ip dhcp-client get $fitiDhcp interface] != $fitiWanInterface) do={ :error "A DHCP client already exists on another interface. Use advanced setup instead." } }',
     '  :local fitiWifiId ""',
     '  :local fitiWifiIds ""',
-    '  :do { :set fitiWifiIds [/interface wireless find where disabled=no] } on-error={}',
+    // A no-defaults reset leaves a physical radio disabled. Discover it
+    // anyway; the fresh-router branch explicitly enables it after setting
+    // its security profile and SSID.
+    '  :do { :set fitiWifiIds [/interface wireless find] } on-error={}',
     '  :if ([:len $fitiWifiIds] > 0) do={ :set fitiWifiId [:pick $fitiWifiIds 0]; :set fitiWifiInterface [/interface wireless get $fitiWifiId name]; :set fitiWifiStack "wireless" } else={',
-    '    :do { :set fitiWifiIds [/interface wifi find where disabled=no] } on-error={}',
+    '    :do { :set fitiWifiIds [/interface wifi find] } on-error={}',
     '    :if ([:len $fitiWifiIds] > 0) do={ :set fitiWifiId [:pick $fitiWifiIds 0]; :set fitiWifiInterface [/interface wifi get $fitiWifiId name]; :set fitiWifiStack "wifi" }',
     '  }',
-    '  :if ([:len $fitiWifiStack] = 0) do={ :error "No enabled wireless or WiFi interface was found. Check the installed RouterOS Wi-Fi package." }',
+    '  :if ([:len $fitiWifiStack] = 0) do={ :error "No wireless or WiFi interface was found. Check the installed RouterOS Wi-Fi package." }',
     '  :put ("WiFi Fiti detected fresh board " . [/system resource get board-name] . "; WAN " . $fitiWanInterface . "; WiFi " . $fitiWifiInterface . " (" . $fitiWifiStack . ")")',
     '}',
   ];
@@ -410,6 +441,7 @@ function buildAutomaticRouterKit({ location, token, appUrl, portalUrl, config })
     '# WiFi Fiti — automatic RouterOS 7 setup kit',
     '# The kit detects an existing Hotspot or a blank no-defaults router before changing anything.',
     '# It never resets the router and never changes administrator credentials.',
+    ...deviceModePreflightLines(),
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ':local fitiWanInterface ""',
     ':local fitiWifiInterface ""',
@@ -452,7 +484,7 @@ function newRouterEthernetBridgeLines() {
 function newRouterWanLines(config) {
   if (config.wanMode === 'pppoe') {
     return [
-      '/interface pppoe-client add name="fiti-wan" interface=$fitiWanInterface user=' + ros(config.pppoeUser) + ' password=' + ros(config.pppoePassword) + ' add-default-route=yes use-peer-dns=no disabled=no comment="WiFi Fiti WAN"',
+      '/interface pppoe-client add name="fiti-wan" interface=$fitiWanInterface user=' + ros(config.pppoeUser) + ' password=' + ros(config.pppoePassword) + ' add-default-route=yes use-peer-dns=yes disabled=no comment="WiFi Fiti WAN"',
       ':local fitiWanOut "fiti-wan"',
     ];
   }
@@ -469,17 +501,20 @@ function newRouterWanLines(config) {
     // interface, so adopt that client instead of failing the whole import.
     ':local fitiWanDhcp [/ip dhcp-client find where interface=$fitiWanInterface]',
     ':if ([:len $fitiWanDhcp] = 0) do={',
-    '  /ip dhcp-client add interface=$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"',
+    '  /ip dhcp-client add interface=$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=yes comment="WiFi Fiti WAN"',
     '} else={',
-    '  /ip dhcp-client set $fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"',
+    '  /ip dhcp-client set $fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=yes comment="WiFi Fiti WAN"',
     '}',
     ':local fitiWanOut $fitiWanInterface',
   ];
 }
 
 function routerDnsLine(config) {
-  const servers = config.wanMode === 'static' ? config.wan.dns : '1.1.1.1,8.8.8.8';
-  return '/ip dns set allow-remote-requests=yes servers=' + servers;
+  // DHCP/PPPoE DNS can be an ISP resolver that is reachable even where
+  // public DNS is blocked. Honour it for automatic onboarding; static WAN
+  // still uses the explicit owner-provided resolver list.
+  if (config.wanMode === 'static') return '/ip dns set allow-remote-requests=yes servers=' + config.wan.dns;
+  return '/ip dns set allow-remote-requests=yes';
 }
 
 function newRouterSecurityLines() {
@@ -521,6 +556,7 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     ':if ([:len [/ip hotspot find where name=' + ros(config.hotspotServer) + ']] > 0) do={ :error "Hotspot server already exists. Use the existing-router path instead." }',
     ...checks,
     ':if ([:len [/user find where name="admin"]] != 1) do={ :error "Default admin account was not found. Stop and use the existing-router path." }',
+    ...deviceModePreflightLines(),
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ':local fitiWanInterface ' + ros(config.wanInterface),
     ':local fitiWifiInterface ' + ros(config.wifiInterface),

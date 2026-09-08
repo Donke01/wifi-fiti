@@ -653,7 +653,7 @@ app.post('/api/business/onboarding/customer-portal', (req, res) => {
     const locationId = String(body.locationId || '').trim();
     const currentLocation = tenant.locationForBusiness.get(locationId, business.id);
     if (!currentLocation) return res.status(404).json({ error: 'Router location not found.' });
-    if (!currentLocation.last_successful_sync_at) {
+    if (!currentLocation.last_successful_sync_at || currentLocation.router_pairing_pending) {
       return res.status(409).json({ error: 'Finish router setup before choosing the customer portal address.' });
     }
     const portalName = portalText(body.portalName === undefined ? (business.portal_name || business.name) : body.portalName,

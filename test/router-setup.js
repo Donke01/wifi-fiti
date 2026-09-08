@@ -48,6 +48,10 @@ assert.match(existingKit.script, /builtin-trust-anchors=trusted/,
   'older RouterOS 7 releases receive the legacy trust-store fallback');
 assert.doesNotMatch(existingKit.script, /:global fitiSupportEnabled "yes"/);
 assert.match(existingKit.script, /tenant-router-install\.rsc/);
+assert.match(existingKit.script, /\/system scheduler add name="fiti-first-install" interval=15s[\s\S]*on-event=\{/,
+  'existing-router pairing also uses the scheduler-owned retry bootstrap');
+assert.doesNotMatch(existingKit.script, /\/system script add name="fiti-first-install"/,
+  'existing-router retries do not depend on a helper script that may disappear');
 assert.match(existingKit.script, /selected Hotspot server is not on the selected customer bridge/);
 assert.doesNotMatch(existingKit.script, /\/ip address add|\/system reset-configuration|\/ip service/);
 const installer = fs.readFileSync(path.join(__dirname, '../public/tenant-router-install.rsc'), 'utf8');
@@ -104,6 +108,30 @@ assert.match(pollSource, /:global fitiPortalHost/,
 assert.match(pollSource, /&portal=\\\" \. \\\$/,
   'each sync reports the customer portal host so the cloud can safely refresh it');
 assert.doesNotMatch(pollSource, /fitiSupportEnabled|support-enroll|wireguard|fiti-support/);
+assert.match(pollSource, /:onerror fitiSyncError in=\{/,
+  'a failed cloud fetch retains RouterOS’s exact error instead of collapsing it to “unreachable”');
+assert.match(pollSource, /fiti: cloud sync failed: /,
+  'the sync error is emitted without exposing the router credential');
+assert.doesNotMatch(pollSource, /fiti: server unreachable/,
+  'the generic fetch error is replaced by the captured RouterOS error');
+assert.ok(pollSource.includes('status\\") = \\"finished'),
+  'the watchdog accepts the documented successful Fetch result');
+assert.doesNotMatch(pollSource, /fitiSyncCode|\$reply->\\\"code\\\"/,
+  'RouterOS exposes HTTP codes through its fetch-error path, not a successful as-value result');
+assert.match(pollSource, /:local fitiFirstInstallScheduler/,
+  'the installed poller owns completion of the bootstrap watchdog');
+assert.match(pollSource, /fitiFirstInstallComment/,
+  'only the WiFi Fiti-owned bootstrap scheduler is eligible for modification');
+assert.match(pollSource, /WiFi Fiti: retry cloud installer/,
+  'the watchdog guard matches the scheduler created by the generated kit');
+assert.match(pollSource, /\/system scheduler disable \\\$fitiFirstInstallScheduler/,
+  'only the named first-install scheduler is disabled after a verified poll');
+assert.match(pollSource, /fiti: cloud sync verified; first-install retry disabled/,
+  'the router log makes the successful handoff observable');
+assert.ok(
+  pollSource.indexOf(':if (\\$ok) do={') < pollSource.indexOf('fitiFirstInstallScheduler'),
+  'the bootstrap watchdog cannot be disabled before a successful cloud sync'
+);
 
 const prepareSupport = remoteSupportControlToScript({ id: 91, action: 'prepare' });
 assert.match(prepareSupport, /:global fitiSupportEnabled "yes"/);
@@ -168,8 +196,14 @@ assert.doesNotMatch(newKit.script, /interface="ether5"/,
   'the hAP lite profile never receives a non-existent ether5 port');
 assert.match(newKit.script, /:local fitiWanDhcp \[\/ip dhcp-client find where interface=\$fitiWanInterface\]/,
   'the kit detects a DHCP client created during optional WAN preparation');
-assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n\s+\/ip dhcp-client add interface=\$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\s+\} else=\{\n\s+\/ip dhcp-client set \$fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\s+\}/,
-  'the kit creates or adopts the WAN DHCP client without a duplicate-client failure');
+assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n\s+\/ip dhcp-client add interface=\$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=yes comment="WiFi Fiti WAN"\n\s+\} else=\{\n\s+\/ip dhcp-client set \$fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=yes comment="WiFi Fiti WAN"\n\s+\}/,
+  'the kit creates or adopts the WAN DHCP client and honours reachable ISP DNS');
+assert.match(newKit.script, /RouterOS device mode blocks cloud fetch/,
+  'a blocked device mode stops before a router can be half-configured');
+assert.ok(newKit.script.indexOf(':local fitiDeviceMode') < newKit.script.indexOf(':global fitiUrl'),
+  'the device-mode preflight runs before staged router globals can affect an existing poller');
+assert.doesNotMatch(newKit.script, /servers=1\.1\.1\.1,8\.8\.8\.8/,
+  'DHCP onboarding does not force public resolvers that an upstream may block');
 assert.doesNotMatch(newKit.script, /XenFi WAN/,
   'generated router configuration remains WiFi Fiti-branded after WAN preparation');
 
@@ -178,8 +212,14 @@ assert.equal(automaticKit.config.mode, 'auto');
 assert.match(automaticKit.script, /automatic RouterOS 7 setup kit/);
 assert.match(automaticKit.script, /Multiple Hotspot servers found/);
 assert.match(automaticKit.script, /A bridge exists but no Hotspot server was found/);
-assert.match(automaticKit.script, /\[\/interface wireless find where disabled=no\]/);
-assert.match(automaticKit.script, /\[\/interface wifi find where disabled=no\]/);
+assert.ok(automaticKit.script.indexOf(':local fitiDeviceMode') < automaticKit.script.indexOf(':global fitiUrl'),
+  'automatic setup checks device mode before recording any new pairing credential');
+assert.match(automaticKit.script, /\[\/interface wireless find\]/,
+  'automatic setup discovers a reset radio even while RouterOS leaves it disabled');
+assert.match(automaticKit.script, /\[\/interface wifi find\]/,
+  'automatic setup discovers a reset modern WiFi radio even while it is disabled');
+assert.doesNotMatch(automaticKit.script, /find where disabled=no/,
+  'a no-defaults reset must not be rejected just because its WiFi interface starts disabled');
 assert.match(automaticKit.script, /customer Ethernet ports:/);
 assert.match(automaticKit.script, /existing DHCP-server or NAT configuration/);
 assert.match(automaticKit.script, /existing non-DHCP IP configuration/);
@@ -189,9 +229,32 @@ assert.match(automaticKit.config.mode === 'auto' ? automaticKit.summary : '', /s
   'automatic setup explains the detection decision');
 assert.match(newKit.script, /block WAN management/);
 assert.match(newKit.script, /\/system scheduler add name="fiti-first-install" interval=15s/);
-assert.match(newKit.script, /fiti: waiting for WAN\/DNS before cloud pairing/);
-assert.ok(newKit.script.indexOf('/system script run fiti-first-install') < newKit.script.indexOf('/tool mac-server set'),
-  'MAC management restrictions run only after the critical pairing script is installed');
+assert.match(newKit.script, /on-event=\{\n\s*:do \{\n\s*\/certificate settings set builtin-trust-store=all/,
+  'the first-install scheduler contains the bootstrap source instead of depending on a second RouterOS script');
+assert.doesNotMatch(newKit.script, /\/system script add name="fiti-first-install"/,
+  'there is no transient helper script for the scheduler to lose after a partial import');
+assert.doesNotMatch(newKit.script, /on-event="\/system script run fiti-first-install"/,
+  'the retry scheduler cannot become an orphan that repeatedly calls a missing script');
+assert.match(newKit.script, /\/system scheduler run \[find where name="fiti-first-install"\]/,
+  'the initial pairing attempt exercises the same self-contained scheduler event used by retries');
+assert.ok(
+  newKit.script.indexOf('/system scheduler remove [find where name="fiti-first-install"]') < newKit.script.indexOf('/system script remove [find where name="fiti-first-install"]'),
+  'an older retry scheduler is removed before its legacy helper script, avoiding one last orphaned execution race'
+);
+assert.match(newKit.script, /fiti: cloud pairing retry:/,
+  'bootstrap failures retain the RouterOS error instead of being mislabelled as DNS');
+assert.match(newKit.script, /cloud installer imported; waiting for first secure sync/,
+  'the installer watchdog remains active until the polling agent proves cloud reachability');
+assert.match(newKit.script, /\/file remove \[find where name="fiti-tenant-install\.rsc"\] } on-error=\{\}/,
+  'a retry removes any retained installer file before downloading a fresh cloud agent');
+assert.match(newKit.script, /Fresh WiFi Fiti cloud installer was not downloaded/,
+  'a failed download is diagnosed instead of importing an obsolete retained file');
+assert.ok(newKit.script.indexOf('/file remove [find where name="fiti-tenant-install.rsc"] } on-error={}') < newKit.script.indexOf('/tool fetch url='),
+  'retained installer cleanup happens before the first cloud fetch');
+assert.ok(newKit.script.indexOf('Fresh WiFi Fiti cloud installer was not downloaded') < newKit.script.indexOf('/import file-name="fiti-tenant-install.rsc"'),
+  'the retry verifies that a fresh file exists before it imports anything');
+assert.ok(newKit.script.indexOf('/system scheduler run [find where name="fiti-first-install"]') < newKit.script.indexOf('/tool mac-server set'),
+  'MAC management restrictions run only after the critical pairing scheduler is installed and started');
 assert.doesNotMatch(newKit.script, /\/system reset-configuration|\/ip service|\/user add/);
 
 const modernKit = kit({ ...newRouter, modelProfile: 'modern-wifi', routerModel: 'Modern WiFi router', wifiInterface: 'wifi1' });

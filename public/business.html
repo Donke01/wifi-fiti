@@ -255,6 +255,19 @@
         if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(copied).catch(fallback); else fallback();
       }
       function generatedWifiPassword() { var alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'; var output = ''; if (window.crypto && window.crypto.getRandomValues) { var bytes = new Uint8Array(12); window.crypto.getRandomValues(bytes); for (var i = 0; i < bytes.length; i += 1) output += alphabet[bytes[i] % alphabet.length]; } else { output = 'Fiti' + Math.random().toString(36).slice(2, 10) + '9'; } return output; }
+      function freshRouterSetupKey(location) { return location && location.id ? 'fiti_fresh_router_setup_v1:' + location.id : ''; }
+      function freshRouterSetupRequired(location) { try { var key = freshRouterSetupKey(location); return Boolean(key && sessionStorage.getItem(key) === '1'); } catch (_) { return false; } }
+      function requireFreshRouterSetup(location) { try { var key = freshRouterSetupKey(location); if (key) sessionStorage.setItem(key, '1'); } catch (_) {} }
+      function clearFreshRouterSetup(location) { try { var key = freshRouterSetupKey(location); if (key) sessionStorage.removeItem(key); } catch (_) {} }
+      // A restart deliberately begins in the browser first.  The owner must
+      // see and submit the SSID/password form before the server issues a new
+      // one-time router secret; never create a hidden replacement kit here.
+      function beginFreshRouterPairing(model) {
+        var location = model && model.location; if (!location) return;
+        if (routerPairingPending(location)) { advanceOnboardingStage(model, 2, 'connect'); return; }
+        requireFreshRouterSetup(location); forgetSetup(location.id);
+        advanceOnboardingStage(model, 2, 'connect');
+      }
       function setBusy(button, busy, label) { if (!button.dataset.label) button.dataset.label = button.textContent; button.disabled = busy; button.textContent = busy ? (label || 'Saving…') : button.dataset.label; }
       function closeRouterDraftModal() { routerDraftModalOpen = false; $('router-draft-modal').classList.add('hidden'); }
       function showWelcome() { closeRouterDraftModal(); $('organisation-setup').classList.add('hidden'); $('dashboard').classList.add('hidden'); $('welcome').classList.remove('hidden'); }
@@ -464,9 +477,14 @@
       function startRouterSetupAgain(location) {
         if (state.workspace) {
           rememberOnboardingLocation(state.workspace.business || {}, location);
-          clearRouterSetupForm(location);
+          // Do not retain a completed sync while the owner is deliberately
+          // replacing or re-pairing a router.  The next page still asks for
+          // the visible customer Wi-Fi name and password before any kit is
+          // issued to the server.
+          requireFreshRouterSetup(location);
+          forgetSetup(location.id);
           startNewOnboardingFlow(state.workspace.business || {}, 'router');
-          setTimeout(function () { moveToSetupSection('onboarding-section', '#router-setup-form [name="name"]'); }, 0);
+          setTimeout(function () { moveToSetupSection('onboarding-section'); }, 0);
           return;
         }
         clearRouterSetupForm(location);
@@ -523,8 +541,13 @@
         var savedLocationId = selectedOnboardingLocationId(business);
         var location = locations.find(function (item) { return String(item.id) === savedLocationId; }) || locations.find(function (item) { return !routerSuccessfullyPaired(item); }) || locations.find(function (item) { return !routerSyncHealthy(item); }) || locations[0] || null;
         if (location) rememberOnboardingLocation(business, location);
-        var configured = Boolean(location); var paired = routerSuccessfullyPaired(location); var syncHealthy = paired && routerSyncHealthy(location); var addressing = portalAddressing(); var managedAddress = Boolean(addressing.enabled && portalHostname(location)); var portalReady = Boolean(location && (location.portal_setup_completed_at || syncHealthy)); var packageReady = packages.length > 0; var collectionReady = businessCollectionReady(business); var sellable = businessCanSell(business); var live = syncHealthy && portalReady && packageReady && collectionReady && sellable;
-        return { business: business, locations: locations, packages: packages, location: location, configured: configured, paired: paired, syncHealthy: syncHealthy, needsRouterCheck: configured && !syncHealthy, portalReady: portalReady, managedAddress: managedAddress, packageReady: packageReady, collectionReady: collectionReady, sellable: sellable, live: live };
+        // Starting setup again is explicit. Until the owner issues the
+        // visible fresh kit, an old completed sync must not unlock Go live.
+        // Once the API stages that kit, its durable pending-pairing flag takes
+        // over and the browser marker can be discarded.
+        if (location && routerPairingPending(location)) clearFreshRouterSetup(location);
+        var configured = Boolean(location); var freshKitRequired = Boolean(location && !routerPairingPending(location) && freshRouterSetupRequired(location)); var paired = !freshKitRequired && routerSuccessfullyPaired(location); var syncHealthy = paired && routerSyncHealthy(location); var addressing = portalAddressing(); var managedAddress = Boolean(addressing.enabled && portalHostname(location)); var portalReady = Boolean(location && (location.portal_setup_completed_at || syncHealthy)); var packageReady = packages.length > 0; var collectionReady = businessCollectionReady(business); var sellable = businessCanSell(business); var live = syncHealthy && portalReady && packageReady && collectionReady && sellable;
+        return { business: business, locations: locations, packages: packages, location: location, configured: configured, freshKitRequired: freshKitRequired, paired: paired, syncHealthy: syncHealthy, needsRouterCheck: configured && !syncHealthy && !freshKitRequired, portalReady: portalReady, managedAddress: managedAddress, packageReady: packageReady, collectionReady: collectionReady, sellable: sellable, live: live };
       }
       function onboardingMaximumStage(model) { return !model.configured ? 1 : !model.syncHealthy ? 2 : 3; }
       function onboardingFlowState(model) {
@@ -597,7 +620,7 @@
       function setOnboardingError(message) { var notice = $('onboarding') && $('onboarding').querySelector('.onboarding-error'); if (notice) notice.textContent = message || ''; }
       function onboardingStatusFingerprint(model) {
         var location = model && model.location || {};
-        return [location.id || '', routerPairingPending(location) ? 'pending-replacement' : routerSuccessfullyPaired(location) ? 'paired' : 'awaiting-pair', routerSyncHealthy(location) ? 'sync-healthy' : 'sync-stale', location.router_status || '', location.last_seen_at ? 'seen' : 'not-seen', location.last_successful_sync_at ? 'synced' : 'not-synced'].join('|');
+        return [location.id || '', freshRouterSetupRequired(location) ? 'fresh-kit-required' : routerPairingPending(location) ? 'pending-replacement' : routerSuccessfullyPaired(location) ? 'paired' : 'awaiting-pair', routerSyncHealthy(location) ? 'sync-healthy' : 'sync-stale', location.router_status || '', location.last_seen_at ? 'seen' : 'not-seen', location.last_successful_sync_at ? 'synced' : 'not-synced'].join('|');
       }
       function clearOnboardingPolling() { onboardingPollVersion += 1; if (onboardingPollTimer) { clearTimeout(onboardingPollTimer); onboardingPollTimer = null; } }
       function scheduleOnboardingPolling(model) {
@@ -686,9 +709,9 @@
         var saved = getSetups()[String(location.id)]; var box = el('section', 'simple-router');
         if (saved && saved.token && saved.setup && saved.setup.script) {
           add(box, 'h4', '', 'Copy the connection kit');
-          add(box, 'p', '', 'Download the .rsc file, upload it in WinBox under Files, and import it once. Leave this page open; WiFi Fiti checks the connection automatically.');
+          add(box, 'p', '', 'Copy the complete kit and paste it into a WinBox terminal once. Leave this page open; WiFi Fiti checks the connection automatically.');
           var script = routerCommands(saved); var scriptDetails = el('details', 'simple-advanced'); add(scriptDetails, 'summary', '', 'Show RouterOS connection kit'); var scriptInner = el('div', 'simple-advanced-inner'); add(scriptInner, 'pre', 'kit-script', script); scriptDetails.appendChild(scriptInner); box.appendChild(scriptDetails);
-          var kitActions = el('div', 'buttons'); setupAction(kitActions, 'Download .rsc', 'secondary', function () { downloadRouterScript(script); }); var copy = setupAction(kitActions, 'Copy kit (advanced)', '', function () { copyText(script, copy); }); setupAction(kitActions, 'Generate a new kit', 'secondary', function () { forgetSetup(location.id); renderOnboarding(); }); box.appendChild(kitActions); body.appendChild(box); return;
+          var kitActions = el('div', 'buttons'); var copy = setupAction(kitActions, 'Copy connection kit', '', function () { copyText(script, copy); }); setupAction(kitActions, 'Download .rsc', 'secondary', function () { downloadRouterScript(script); }); setupAction(kitActions, 'Generate a new kit', 'secondary', function () { forgetSetup(location.id); renderOnboarding(); }); box.appendChild(kitActions); body.appendChild(box); return;
         }
 
         add(box, 'h4', '', 'Create the connection kit');
@@ -718,7 +741,7 @@
           if (mode === 'auto' && location.last_successful_sync_at && !window.confirm('Prepare an automatic replacement kit? The current router stays online until the replacement checks in, then it is retired.')) return;
           if (mode === 'auto' && location.last_successful_sync_at) payload.replaceRouter = 'yes';
           payload.modelProfile = 'auto'; payload.routerModel = ''; payload.wifiInterface = ''; payload.customerPorts = '';
-          setBusy(submit, true, 'Creating…'); api('/api/business/locations/' + encodeURIComponent(location.id) + '/router-setup', { method: 'POST', body: JSON.stringify(payload) }).then(function (result) { saveSetup(result.location, result.portalUrl, result.setup); mergeLocation(result.location); rememberOnboardingLocation((state.workspace && state.workspace.business) || {}, result.location); return load(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(submit, false); });
+          setBusy(submit, true, 'Creating…'); api('/api/business/locations/' + encodeURIComponent(location.id) + '/router-setup', { method: 'POST', body: JSON.stringify(payload) }).then(function (result) { clearFreshRouterSetup(location); saveSetup(result.location, result.portalUrl, result.setup); mergeLocation(result.location); rememberOnboardingLocation((state.workspace && state.workspace.business) || {}, result.location); return load(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(submit, false); });
         });
       }
       function appendCustomerPortalSetup(body, model) {
@@ -732,20 +755,26 @@
       }
       function appendConnectionMethods(body, model) {
         var methods = el('div', 'connection-methods');
-        var remote = el('section', 'connection-method active'); add(remote, 'p', 'method-kicker', 'AUTOMATIC'); add(remote, 'div', 'method-status', 'Waiting for router'); add(remote, 'h4', '', 'Secure outbound connection'); add(remote, 'p', '', 'Paste the connection kit once. The router makes an outbound HTTPS check to WiFi Fiti; WinBox, API and SSH are never opened to the internet. WiFi Fiti verifies the reply automatically.'); methods.appendChild(remote);
+        var status = model.syncHealthy ? 'Connection verified' : model.freshKitRequired ? 'Create connection kit' : routerPairingPending(model.location) ? 'Waiting for router' : 'Connection required';
+        var remote = el('section', 'connection-method active'); add(remote, 'p', 'method-kicker', 'AUTOMATIC'); add(remote, 'div', 'method-status', status); add(remote, 'h4', '', 'Secure outbound connection'); add(remote, 'p', '', 'Paste the connection kit once. The router makes an outbound HTTPS check to WiFi Fiti; WinBox, API and SSH are never opened to the internet. WiFi Fiti verifies the reply automatically.'); methods.appendChild(remote);
         body.appendChild(methods);
       }
       function appendConnectionState(body, model) {
         var state = el('div', 'connection-state ' + (!model.paired ? 'waiting' : model.syncHealthy ? '' : 'offline')); var icon = add(state, 'div', 'connection-state-icon', model.syncHealthy ? '✓' : model.paired ? '!' : '◌'); var copy = el('div');
         if (model.syncHealthy) { add(copy, 'h4', '', 'Router verified'); add(copy, 'p', '', 'The router completed a secure sync. WiFi Fiti created the customer portal automatically.'); if (model.location) add(copy, 'p', 'setup-portal-link', 'Customer portal: ' + publicPortal(model.location)); }
-        else if (routerPairingPending(model.location)) { add(copy, 'h4', '', 'Replacement router is waiting'); add(copy, 'p', '', 'The old router cannot complete this stage. Import the newly generated kit on the replacement, then wait for its secure sync.'); }
+        else if (model.freshKitRequired) { add(copy, 'h4', '', 'Create a fresh connection kit'); add(copy, 'p', '', 'Previous verification is paused. Choose the customer Wi-Fi name and password above, then create and copy a new one-time kit.'); }
+        else if (routerPairingPending(model.location)) { add(copy, 'h4', '', 'Waiting for router'); add(copy, 'p', '', 'A fresh one-time connection kit is active. Paste that kit on this router, then wait for its secure sync.'); }
         else if (model.paired && routerHealthLabel(model.location)) { add(copy, 'h4', '', 'Router setup needs attention'); add(copy, 'p', '', routerHealthLabel(model.location) + '. Correct the router setting, then leave the kit running; WiFi Fiti will verify the next secure sync automatically.'); }
         else if (model.paired) { add(copy, 'h4', '', 'Router needs to reconnect'); add(copy, 'p', '', 'This router paired before, but no recent secure sync is reaching WiFi Fiti. Restore WAN access and keep the polling script enabled.'); }
         else { add(copy, 'h4', '', 'Waiting for the router'); add(copy, 'p', '', 'Create a kit, paste it into RouterOS, then leave this page open. WiFi Fiti checks the first connection automatically.'); }
         var actions = el('div', 'buttons');
         if (model.syncHealthy) { var next = setupAction(actions, 'Next: Go live', '', function () { confirmFreshOnboardingRouter(next, function (current) { advanceOnboardingStage(current, 3, ''); }); }); }
+        else if (model.freshKitRequired) {
+          setupAction(actions, 'Create connection kit', '', function () { var field = body.querySelector('.simple-router [name="wifiSsid"]'); if (field) { field.scrollIntoView({ behavior: 'smooth', block: 'center' }); field.focus({ preventScroll: true }); } });
+          setupAction(actions, 'Use current router', 'secondary', function () { clearFreshRouterSetup(model.location); setOnboardingStage(onboardingModel(), 1, 'router'); });
+        }
         else { var check = setupAction(actions, 'Check connection now', '', function () { refreshOnboardingStatus(check).then(function () { var current = onboardingModel(); if (current.location && !current.syncHealthy) { recordConnectionAttempt(current.location); renderOnboarding(); } }); }); setupAction(actions, 'Create a different kit', 'secondary', function () { forgetSetup(model.location.id); renderOnboarding(); }); }
-        if (!model.syncHealthy) add(copy, 'p', 'setup-check-note', 'WiFi Fiti checks this router automatically every 5 seconds while this page is open.');
+        if (!model.syncHealthy && !model.freshKitRequired && (routerPairingPending(model.location) || model.paired)) add(copy, 'p', 'setup-check-note', 'WiFi Fiti checks this router automatically every 5 seconds while this page is open.');
         var error = add(copy, 'div', 'onboarding-error', ''); error.setAttribute('aria-live', 'polite');
         copy.appendChild(actions); state.appendChild(icon); state.appendChild(copy); body.appendChild(state);
       }
@@ -765,11 +794,15 @@
         var rail = el('div', 'setup-rail'); appendSetupStage(rail, model, flow, 1, 'Add router', 'Register your MikroTik device', model.configured); appendSetupStage(rail, model, flow, 2, 'Setup & connect', 'Install the secure router kit', model.syncHealthy); appendSetupStage(rail, model, flow, 3, 'Go live', 'Prepare your customer service', model.live); flowShell.appendChild(rail); var flowError = add(flowShell, 'div', 'onboarding-error onboarding-flow-error', ''); flowError.setAttribute('aria-live', 'polite'); root.appendChild(flowShell);
         if (flow.stage === 1) {
           var addingNewRouter = onboardingPanel === 'router-new'; var currentLocation = model.location && !addingNewRouter ? model.location : null;
-          var routerBody = setupPage(root, 1, currentLocation ? 'Router saved' : addingNewRouter ? 'Add another router' : 'Add your first router', currentLocation ? 'Your router name and location are saved. Continue to create one connection kit.' : 'Enter a router name and location. The connection page opens immediately after that.', currentLocation ? 'Ready for connection' : 'One router at a time');
-          var routerLead = el('div', 'setup-lead'); var routerLeadCopy = el('div'); add(routerLeadCopy, 'h4', '', currentLocation ? (currentLocation.router_name || 'MikroTik') + ' · ' + (currentLocation.name || 'Router location') : 'Start with the router you have'); add(routerLeadCopy, 'p', '', currentLocation ? 'No router settings have been changed yet.' : 'This only records the router and location.'); routerLead.appendChild(routerLeadCopy); var routerActions = el('div', 'buttons'); if (!currentLocation) setupAction(routerActions, 'Add router', '', openRouterDraftModal); else { setupAction(routerActions, 'Continue to connection', '', function () { advanceOnboardingStage(model, 2, 'connect'); }); setupAction(routerActions, 'Add another router', 'secondary', startAdditionalRouter); } routerLead.appendChild(routerActions); routerBody.appendChild(routerLead);
+          var waitingForRouter = Boolean(currentLocation && routerPairingPending(currentLocation)); var restartRequested = Boolean(currentLocation && freshRouterSetupRequired(currentLocation)); var priorRouterVerified = Boolean(currentLocation && routerSuccessfullyPaired(currentLocation));
+          var routerDescription = !currentLocation ? 'Enter a router name and location. The connection page opens immediately after that.' : waitingForRouter ? 'A fresh connection kit is already waiting for this router.' : restartRequested ? 'Previous verification is paused until you create a new connection kit.' : priorRouterVerified ? 'Start a new one-time pairing before this router can be verified again.' : 'Create the first connection kit for this router.';
+          var routerBadge = !currentLocation ? 'One router at a time' : waitingForRouter ? 'Connection waiting' : restartRequested ? 'New kit required' : 'Ready to create kit';
+          var routerBody = setupPage(root, 1, currentLocation ? 'Router saved' : addingNewRouter ? 'Add another router' : 'Add your first router', routerDescription, routerBadge);
+          var routerLead = el('div', 'setup-lead'); var routerLeadCopy = el('div'); add(routerLeadCopy, 'h4', '', currentLocation ? (currentLocation.router_name || 'MikroTik') + ' · ' + (currentLocation.name || 'Router location') : 'Start with the router you have'); add(routerLeadCopy, 'p', '', currentLocation ? waitingForRouter ? 'Use the already-created connection kit. WiFi Fiti waits for its secure check-in.' : 'The next page asks for the customer Wi-Fi name and password, then creates one visible kit. Prior verification cannot be reused.' : 'This only records the router and location.'); routerLead.appendChild(routerLeadCopy); var routerActions = el('div', 'buttons'); if (!currentLocation) setupAction(routerActions, 'Add router', '', openRouterDraftModal); else { setupAction(routerActions, waitingForRouter ? 'View connection kit' : 'Continue to connection kit', '', function () { beginFreshRouterPairing(model); }); setupAction(routerActions, 'Add another router', 'secondary', startAdditionalRouter); } routerLead.appendChild(routerActions); routerBody.appendChild(routerLead);
           if (!currentLocation && $('router-setup-form').dataset.locationId) clearRouterSetupForm(null);
         } else if (flow.stage === 2) {
-          var connectBody = setupPage(root, 2, 'Connect your router', 'Choose one setup type, paste one kit, then wait for the automatic connection check. No public router-management service is opened.', model.syncHealthy ? 'Connection verified' : 'Connection required'); appendPreparation(connectBody, keepPreparationOpen); appendDeviceModeNote(connectBody); appendConnectionMethods(connectBody, model); appendSimpleRouterSetup(connectBody, model); appendConnectionState(connectBody, model);
+          var connectBadge = model.syncHealthy ? 'Connection verified' : model.freshKitRequired ? 'Create connection kit' : routerPairingPending(model.location) ? 'Waiting for router' : 'Connection required';
+          var connectBody = setupPage(root, 2, 'Connect your router', 'Choose one setup type, paste one kit, then wait for the automatic connection check. No public router-management service is opened.', connectBadge); appendPreparation(connectBody, keepPreparationOpen); appendDeviceModeNote(connectBody); appendConnectionMethods(connectBody, model); appendSimpleRouterSetup(connectBody, model); appendConnectionState(connectBody, model);
         } else {
           if (!model.portalReady) {
             var portalBody = setupPage(root, 3, 'Set up your customer page', 'Your router is connected. Choose the name and address customers will see before packages and payments.', 'Customer page'); appendCustomerPortalSetup(portalBody, model);
@@ -820,10 +853,12 @@
         var fields = el('div', 'fields');
         function field(label, name, value, placeholder) { var wrapper = el('label'); add(wrapper, 'span', '', label); var input = el('input'); input.name = name; input.value = value || ''; input.placeholder = placeholder || ''; wrapper.appendChild(input); fields.appendChild(wrapper); return input; }
         field('Location name', 'name', location.name, 'Kitale Main Branch'); field('Router name', 'routerName', location.router_name, 'RB951Ui'); field('Hotspot server', 'hotspotServer', location.hotspot_server, 'hotspot1');
-        var portalInput = null; var routerConnected = Boolean(location.last_successful_sync_at);
+        var portalInput = null; var routerPending = routerPairingPending(location); var routerConnected = Boolean(location.last_successful_sync_at && !routerPending);
         if (routerConnected) { portalInput = field('Customer portal address', 'portalSlug', currentPortalSlug, 'my-wifi'); portalInput.autocomplete = 'off'; }
         form.appendChild(fields);
-        if (!routerConnected) {
+        if (routerPending) {
+          add(form, 'p', 'form-note', 'A replacement router is waiting for its secure check-in. Finish router setup before changing the customer page or subdomain.');
+        } else if (!routerConnected) {
           add(form, 'p', 'form-note', 'Connect this router first. The customer page and subdomain are chosen after its first successful WiFi Fiti sync.');
         } else if (addressing.enabled && addressing.rootDomain) {
           add(form, 'p', 'form-note', 'Free managed address: ' + (currentPortalSlug ? currentPortalSlug + '.' : 'your-name.') + addressing.rootDomain + '. Customers see your branded portal. Changing it keeps the former address working for paired routers.');
@@ -1079,7 +1114,7 @@
         var endpoint = locationId ? '/api/business/locations/' + encodeURIComponent(locationId) + '/router-setup' : '/api/business/router-setup';
         var payload = values(form); if (freshRouter) payload.freshRouterConfirmed = 'yes'; if (replacement) payload.replaceRouter = 'yes';
         api(endpoint, { method: 'POST', body: JSON.stringify(payload) }).then(function (result) {
-          saveSetup(result.location, result.portalUrl, result.setup); resetRouterSetupTarget();
+          clearFreshRouterSetup(result.location); saveSetup(result.location, result.portalUrl, result.setup); resetRouterSetupTarget();
           return load().then(function () { showRouterSetup(result); moveToSetupSection('onboarding-section'); });
         }).catch(function (error) { $('router-setup-error').textContent = error.message; }).finally(function () { setBusy(button, false); });
       });

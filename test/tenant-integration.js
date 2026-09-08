@@ -511,6 +511,12 @@ async function main() {
       modelProfile: 'hap-lite', customerBridge: 'bridge-hs', hotspotServer: 'hotspot1',
     } });
     assert.equal(staged.status, 200, JSON.stringify(staged.body));
+    const pendingCustomerPage = await api('/api/business/onboarding/customer-portal', {
+      method: 'POST', token: alpha.token, body: { locationId: created.body.location.id },
+    });
+    assert.equal(pendingCustomerPage.status, 409, JSON.stringify(pendingCustomerPage.body));
+    assert.match(pendingCustomerPage.body.error, /Finish router setup/,
+      'a staged replacement cannot complete customer-page setup from the old router’s sync');
     assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 200,
       'the active router stays connected while a re-pairing kit waits to be pasted');
     assert.equal((await routerSync(created.body.location, { token: staged.body.location.routerToken })).status, 200,

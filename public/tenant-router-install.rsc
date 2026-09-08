@@ -162,16 +162,26 @@
 \n  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite . \"&ack=\" . \$sending . \"&setupAck=\" . \$sendingSetup . \"&supportAck=\" . \$sendingSupport . \"&protocol=\" . \$fitiSetupProtocol . \"&health=\" . \$fitiHealth . \"&portal=\" . \$fitiPortalHost . \"&portalApplied=\" . \$fitiPortalAppliedHost . \"&hotspot=\" . \$fitiHotspotServer . \"&bridge=\" . \$fitiBridge)\r\
 \n  :local reply \"\"\r\
 \n  :local ok false\r\
-\n  :do {\r\
+\n  :onerror fitiSyncError in={\r\
 \n    :set reply [/tool fetch url=\$url check-certificate=yes http-header-field=(\"X-WiFi-Fiti-Router: \" . \$fitiToken) http-method=post http-data=\$report output=user as-value]\r\
 \n    :if ([:typeof \$reply] = \"array\") do={ :if ((\$reply->\"status\") = \"finished\") do={ :set ok true } else={ :log warning \"fiti: cloud sync did not finish\" } } else={ :log warning \"fiti: cloud sync returned no status\" }\r\
-\n  } on-error={\r\
-\n    :log warning \"fiti: server unreachable\"\r\
+\n  } do={\r\
+\n    :log warning (\"fiti: cloud sync failed: \" . \$fitiSyncError)\r\
 \n  }\r\
 \n  :if (\$ok) do={\r\
 \n    :if (\$fitiAck = \$sending) do={ :set fitiAck \"\" }\r\
 \n    :if (\$fitiSetupAck = \$sendingSetup) do={ :set fitiSetupAck \"\" }\r\
 \n    :if (\$fitiSupportAck = \$sendingSupport) do={ :set fitiSupportAck \"\" }\r\
+\n    :local fitiFirstInstallScheduler [/system scheduler find where name=\"fiti-first-install\"]\r\
+\n    :if ([:len \$fitiFirstInstallScheduler] = 1) do={\r\
+\n      :local fitiFirstInstallComment [/system scheduler get \$fitiFirstInstallScheduler comment]\r\
+\n      :if ([:typeof [:find \$fitiFirstInstallComment \"WiFi Fiti: retry cloud installer\"]] != \"nil\") do={\r\
+\n        :if ([/system scheduler get \$fitiFirstInstallScheduler disabled] = false) do={\r\
+\n          /system scheduler disable \$fitiFirstInstallScheduler\r\
+\n          :log info \"fiti: cloud sync verified; first-install retry disabled\"\r\
+\n        }\r\
+\n      }\r\
+\n    }\r\
 \n    :if ([:typeof \$reply] = \"array\") do={\r\
 \n      :local body (\$reply->\"data\")\r\
 \n      :if ([:len \$body] > 4) do={\r\
