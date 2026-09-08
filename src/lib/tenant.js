@@ -1348,6 +1348,16 @@ function processRouterSetupReceipt(location, { protocol, ack, health } = {}) {
   const reportedHealth = setupHealth(health);
   const currentNonce = pairing === 'pending' ? location.router_pending_setup_nonce : location.router_setup_nonce;
 
+  // A router that was already verified can temporarily report portal-missing
+  // after its branded login file is changed or lost. Treat that as a repair
+  // request, not as a failed pairing: the sync response must be allowed to
+  // deliver the portal-refresh script. Pending replacement routers still
+  // require a fully ready receipt before they can be promoted.
+  if (pairing === 'active' && location.router_setup_verified_at && reportedHealth === 'portal-missing') {
+    verifyActiveRouterSetup.run({ locationId: location.id, health: reportedHealth });
+    return { verified: true, portalRepair: true, challenge: null, location: locationById.get(location.id) };
+  }
+
   // Existing field deployments did not send the receipt fields. Preserve
   // their active connection, but never use that compatibility path to switch
   // a staged credential to a new router.

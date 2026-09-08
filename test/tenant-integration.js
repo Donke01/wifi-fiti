@@ -383,7 +383,9 @@ async function main() {
     assert.ok(customerPage.body.location.portal_setup_completed_at,
       'the selected router records completion of its own customer-page step');
     alpha.location = { ...alpha.location, ...customerPage.body.location, portalHostname: customerPage.body.location.portal_hostname };
-    const portalRefresh = await routerSync(alpha.location, { portal: 'cloud.wififiti.co.ke' });
+    const portalRefresh = await routerSync(alpha.location, {
+      portal: 'cloud.wififiti.co.ke', portalApplied: 'cloud.wififiti.co.ke', health: 'portal-missing',
+    });
     assert.match(portalRefresh.script, /:local fitiDesiredPortalHost "alpha-guests\.wififiti\.co\.ke"/,
       'the next router check receives the new customer hostname');
     assert.match(portalRefresh.script, /:global fitiBridge/,
