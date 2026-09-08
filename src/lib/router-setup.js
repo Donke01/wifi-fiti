@@ -271,7 +271,15 @@ function newRouterWanLines(config) {
     ];
   }
   return [
-    '/ip dhcp-client add interface=$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"',
+    // A customer may have completed the optional WAN preparation command
+    // before importing this kit.  RouterOS permits only one DHCP client per
+    // interface, so adopt that client instead of failing the whole import.
+    ':local fitiWanDhcp [/ip dhcp-client find where interface=$fitiWanInterface]',
+    ':if ([:len $fitiWanDhcp] = 0) do={',
+    '  /ip dhcp-client add interface=$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"',
+    '} else={',
+    '  /ip dhcp-client set $fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"',
+    '}',
     ':local fitiWanOut $fitiWanInterface',
   ];
 }

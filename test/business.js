@@ -15,6 +15,7 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   await new Promise(r => setTimeout(r, 200));
   const created = await call('/api/business/register', {name:'North Star WiFi',ownerName:'Amina',phone:'0712345678',email:'amina@example.test',password:'securepass',plan:'starter',collectionMode:'own'});
   assert.strictEqual(created.status, 201); assert.ok(created.body.token);
+  assert.strictEqual(created.body.onboarding.organisationComplete, true);
   const token = created.body.token;
   const location = await call('/api/business/locations',{name:'Kitale One',routerName:'RB951Ui'},token);
   assert.strictEqual(location.status,201); assert.ok(location.body.location.routerToken);
@@ -24,6 +25,35 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   assert.strictEqual(plan.status,200); assert.strictEqual(plan.body.checkoutRequired,true); assert.strictEqual(plan.body.amount,3500);
   const login = await call('/api/business/login',{email:'amina@example.test',password:'securepass'});
   assert.strictEqual(login.status,200); assert.ok(login.body.token);
+
+  // A new trial account may now be created with account credentials only.
+  // It is intentionally prevented from issuing a router token until the
+  // owner completes the small, authenticated organisation form.
+  const trial = await call('/api/business/register', {
+    email:'trial@example.test', password:'another-secure-password',
+  });
+  assert.strictEqual(trial.status, 201);
+  assert.strictEqual(trial.body.onboarding.organisationComplete, false);
+  assert.strictEqual(trial.body.onboarding.nextStep, 'organisation');
+  const trialToken = trial.body.token;
+  const blocked = await call('/api/business/locations', { location:'Trial location', routerName:'hAP lite' }, trialToken);
+  assert.strictEqual(blocked.status, 409, 'a pending account cannot mint router pairing credentials');
+  const organisation = await call('/api/business/organisation', {
+    organisationName:'Trial Connect', phone:'0712345679', hotspotName:'Trial Connect WiFi',
+  }, trialToken);
+  assert.strictEqual(organisation.status, 200);
+  assert.strictEqual(organisation.body.business.name, 'Trial Connect');
+  assert.strictEqual(organisation.body.business.owner_phone, '254712345679');
+  assert.strictEqual(organisation.body.business.hotspot_name, 'Trial Connect WiFi');
+  assert.strictEqual(organisation.body.onboarding.nextStep, 'router');
+  const routerDraft = await call('/api/business/locations', {
+    location:'Trial Main', routerName:'RB951Ui',
+  }, trialToken);
+  assert.strictEqual(routerDraft.status, 201);
+  assert.strictEqual(routerDraft.body.draft, true);
+  assert.strictEqual(routerDraft.body.location.name, 'Trial Main');
+  assert.strictEqual(routerDraft.body.location.routerName, 'RB951Ui');
+  assert.strictEqual(routerDraft.body.onboarding.nextStep, 'setup');
   console.log('business onboarding: ok');
   process.exit(0);
 })().catch(e=>{console.error(e);process.exit(1)});

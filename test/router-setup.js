@@ -121,6 +121,12 @@ assert.match(newKit.script, /\/ip hotspot add name=\$fitiHotspotServer/);
 assert.match(newKit.script, /\/ip firewall nat add chain=srcnat/);
 assert.match(newKit.script, /\/ip pool add name="fiti-pool"/);
 assert.match(newKit.script, /\/user set \[find where name="admin"\] password="AdminSetupPass9"/);
+assert.match(newKit.script, /:local fitiWanDhcp \[\/ip dhcp-client find where interface=\$fitiWanInterface\]/,
+  'the kit detects a DHCP client created during optional WAN preparation');
+assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n  \/ip dhcp-client add interface=\$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\} else=\{\n  \/ip dhcp-client set \$fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\}/,
+  'the kit creates or adopts the WAN DHCP client without a duplicate-client failure');
+assert.doesNotMatch(newKit.script, /XenFi WAN/,
+  'generated router configuration remains WiFi Fiti-branded after WAN preparation');
 assert.match(newKit.script, /block WAN management/);
 assert.match(newKit.script, /\/system scheduler add name="fiti-first-install" interval=15s/);
 assert.match(newKit.script, /fiti: waiting for WAN\/DNS before cloud pairing/);

@@ -113,6 +113,12 @@ db.exec(`
     owner_phone     TEXT NOT NULL,
     email           TEXT NOT NULL UNIQUE,
     password_hash   TEXT NOT NULL,
+    -- A trial account can exist before its owner has named the organisation.
+    -- Keeping this state on the existing business record makes the new
+    -- first-login flow backwards compatible with already-created accounts.
+    onboarding_state TEXT NOT NULL DEFAULT 'complete',
+    organisation_completed_at TEXT,
+    hotspot_name    TEXT,
     portal_name     TEXT,
     support_phone   TEXT,
     brand_primary_color TEXT,
@@ -187,6 +193,9 @@ for (const stmt of [
   `ALTER TABLE businesses ADD COLUMN brand_primary_color TEXT`,
   `ALTER TABLE businesses ADD COLUMN brand_logo_path TEXT`,
   `ALTER TABLE businesses ADD COLUMN portal_message TEXT`,
+  `ALTER TABLE businesses ADD COLUMN onboarding_state TEXT NOT NULL DEFAULT 'complete'`,
+  `ALTER TABLE businesses ADD COLUMN organisation_completed_at TEXT`,
+  `ALTER TABLE businesses ADD COLUMN hotspot_name TEXT`,
   `ALTER TABLE business_packages ADD COLUMN rate_limit TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
@@ -546,20 +555,38 @@ const reduceTotal = db.prepare(`
 
 /* Commercial business dashboard ------------------------------------ */
 const addBusiness = db.prepare(`
-  INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash, plan, collection_mode)
-  VALUES (@id, @name, @ownerName, @ownerPhone, @email, @passwordHash, @plan, @collectionMode)
+  INSERT INTO businesses
+    (id, name, owner_name, owner_phone, email, password_hash, plan, collection_mode,
+     onboarding_state, organisation_completed_at, hotspot_name)
+  VALUES
+    (@id, @name, @ownerName, @ownerPhone, @email, @passwordHash, @plan, @collectionMode,
+     COALESCE(@onboardingState, 'complete'), @organisationCompletedAt, @hotspotName)
 `);
 const businessByEmail = db.prepare(`SELECT * FROM businesses WHERE email = ?`);
-const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at, portal_name, support_phone, brand_primary_color, brand_logo_path, portal_message, created_at FROM businesses WHERE id = ?`);
+const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at,
+  onboarding_state, organisation_completed_at, hotspot_name,
+  portal_name, support_phone, brand_primary_color, brand_logo_path, portal_message, created_at
+  FROM businesses WHERE id = ?`);
 const addBusinessSession = db.prepare(`
   INSERT INTO business_sessions (token_hash, business_id, expires_at)
   VALUES (@tokenHash, @businessId, @expiresAt)
 `);
 const businessForSession = db.prepare(`
   SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode, b.billing_status, b.billing_expires_at,
+         b.onboarding_state, b.organisation_completed_at, b.hotspot_name,
          b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message
     FROM business_sessions s JOIN businesses b ON b.id = s.business_id
    WHERE s.token_hash = ? AND s.expires_at > datetime('now')
+`);
+const completeBusinessOrganisation = db.prepare(`
+  UPDATE businesses
+     SET name=@name,
+         owner_phone=@ownerPhone,
+         hotspot_name=@hotspotName,
+         portal_name=CASE WHEN portal_name IS NULL OR TRIM(portal_name)='' THEN @portalName ELSE portal_name END,
+         onboarding_state='complete',
+         organisation_completed_at=COALESCE(organisation_completed_at, datetime('now'))
+   WHERE id=@id
 `);
 const setBusinessPlan = db.prepare(`
   UPDATE businesses SET plan = @plan, collection_mode = @collectionMode WHERE id = @id
@@ -651,6 +678,7 @@ module.exports = {
   businessById,
   addBusinessSession,
   businessForSession,
+  completeBusinessOrganisation,
   setBusinessPlan,
   setBusinessTrial,
   updateBusinessBranding,

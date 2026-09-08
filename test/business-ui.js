@@ -26,8 +26,9 @@ assert.doesNotMatch(locationEditor[0], /if\s*\(\s*location\.portal_hostname\s*\)
 
 // Starting over must be safe for a live business: the dashboard can clear
 // unsaved wizard choices or stage a replacement kit, while deletion stays
-// limited to an explicitly confirmed, unused draft. It must never offer a
-// remote RouterOS factory reset.
+// limited to an explicitly confirmed, unused draft. The new-router reset
+// instruction is deliberately a copy-only, optional manual action; it is
+// never sent to a router by WiFi Fiti.
 assert.match(html, /Start router setup again/,
   'each location offers a safe way to begin its router setup again');
 assert.match(html, /Clear setup form/,
@@ -36,8 +37,14 @@ assert.match(html, /Delete unused setup/,
   'a pristine location exposes a clearly scoped discard action');
 assert.match(html, /confirm:\s*'DELETE'/,
   'the UI sends the explicit deletion confirmation required by the API');
-assert.doesNotMatch(html, /\/system\s+reset-configuration/,
-  'the dashboard must not offer a remote RouterOS factory reset');
+assert.match(html, /Initial Preparation \(Optional\)/,
+  'fresh-router preparation is explicitly optional');
+assert.match(html, /\/system reset-configuration no-defaults=yes skip-backup=yes/,
+  'the manual reset instruction uses valid RouterOS no-defaults syntax');
+assert.match(html, /WiFi Fiti never resets a router remotely/,
+  'the reset instruction makes its manual, owner-controlled scope explicit');
+assert.doesNotMatch(html, /no-default=yes/,
+  'the UI does not publish the invalid singular no-default reset property');
 
 // First-time owners should see one safe setup stage at a time. A current,
 // completed router sync—not a generic router request—must unlock the final
@@ -78,10 +85,48 @@ assert.match(html, /openOnboardingPortal/,
   'the customer-portal step leads owners to their managed portal address settings');
 assert.match(html, /@media\(max-width:900px\)\{\.onboarding-flow-head[\s\S]*\.setup-rail\{grid-template-columns:1fr/,
   'the three setup stages stay readable in one connected mobile/tablet sequence');
-assert.match(html, /Initial preparation \(optional\)/,
+assert.match(html, /Initial Preparation \(Optional\)/,
   'safe optional preparation guidance is available in the connection stage');
-assert.match(html, /WiFi Fiti never factory-resets a router remotely/,
+assert.match(html, /WiFi Fiti never resets a router remotely/,
   'the new onboarding language keeps router resets explicitly owner-controlled');
+
+// New business owners create a sign-in first, then complete only their
+// organisation profile. Router identity is collected in a small dialog so
+// the first connection guide does not begin with the large advanced form.
+assert.match(html, /id="organisation-setup"/,
+  'a signed-in trial account receives a dedicated organisation step');
+assert.match(html, /name="organisationName"[\s\S]*name="phone"[\s\S]*name="hotspotName"/,
+  'the organisation step asks only for organisation, phone and hotspot name');
+assert.match(html, /Create organisation/,
+  'the organisation step has one clear completion action');
+assert.match(html, /\/api\/business\/organisation/,
+  'the client saves the authenticated organisation profile');
+assert.match(html, /id="router-draft-modal"/,
+  'organisation completion opens the compact add-router dialog');
+assert.match(html, /name="routerName"[\s\S]*name="location"/,
+  'the add-router dialog captures router name and location');
+assert.match(html, /openRouterDraftModal\(\)/,
+  'the initial router route is launched from the short dialog');
+
+// Secure remote access is the selected presentation route, but it must not
+// pretend that the current outbound polling check is a VPN handshake. Two
+// manual unsuccessful checks expose the explicitly selectable polling path.
+assert.match(html, /Secure remote access/,
+  'the recommended secure remote route is visible first');
+assert.match(html, /WiFi Fiti polling/,
+  'the customer can select the polling fallback');
+assert.match(html, /connectionAttemptCount\(location\)/,
+  'fallback availability tracks connection checks per router');
+assert.match(html, /attempts < 2/,
+  'the fallback is deferred until two unsuccessful checks');
+assert.match(html, /recordConnectionAttempt\(current\.location\)/,
+  'manual unsuccessful checks are recorded before exposing fallback');
+assert.doesNotMatch(html, /VPN connected/i,
+  'the UI does not falsely claim a VPN handshake without a real gateway');
+assert.match(html, /\/system\/device-mode\/update mode=advanced/,
+  'device-mode guidance is directly copyable');
+assert.match(html, /physical confirmation and reboot/,
+  'device-mode guidance accurately requires local RouterOS confirmation');
 
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 

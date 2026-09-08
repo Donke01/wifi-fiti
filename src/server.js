@@ -368,26 +368,113 @@ function validBusinessPlan(plan, collectionMode) {
   return BUSINESS_PLANS[plan] && ['own', 'fiti'].includes(collectionMode);
 }
 
+function textField(value, label, max, required = false) {
+  const text = String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (required && !text) throw Object.assign(new Error(`Enter ${label}.`), { status: 400 });
+  if (text.length > max) throw Object.assign(new Error(`${label} is too long.`), { status: 400 });
+  return text;
+}
+
+function organisationIsComplete(business) {
+  return Boolean(
+    business &&
+    String(business.onboarding_state || 'complete') !== 'organisation' &&
+    String(business.name || '').trim() &&
+    mpesa.normalizePhone(business.owner_phone)
+  );
+}
+
+function onboardingState(business, locations = []) {
+  const organisationComplete = organisationIsComplete(business);
+  return {
+    organisationComplete,
+    hotspotName: business && business.hotspot_name || null,
+    nextStep: !organisationComplete ? 'organisation' : !locations.length ? 'router' : 'setup',
+  };
+}
+
+function requireOrganisation(business, res) {
+  if (organisationIsComplete(business)) return true;
+  res.status(409).json({ error: 'Create your organisation before adding a router.' });
+  return false;
+}
+
+function locationDraftInput(body, { routerNameRequired = false } = {}) {
+  const source = body || {};
+  const location = textField(source.location === undefined
+    ? (source.locationName === undefined ? source.name : source.locationName)
+    : source.location, 'a location', 80, true);
+  const routerName = textField(source.routerName === undefined ? source.router : source.routerName,
+    'a router name', 80, routerNameRequired);
+  return { location, routerName: routerName || null };
+}
+
+function canAddLocation(business, res) {
+  const plan = BUSINESS_PLANS[business.plan];
+  const existing = tenant.locationsForBusiness.all(business.id);
+  if (plan.routerLimit && existing.length >= plan.routerLimit) {
+    res.status(402).json({
+      error: `${plan.name} includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Choose a larger plan before adding another location.`,
+    });
+    return false;
+  }
+  return true;
+}
+
+function createLocationDraft(business, body, res, { routerNameRequired = false } = {}) {
+  const { location: name, routerName } = locationDraftInput(body, { routerNameRequired });
+  if (!canAddLocation(business, res)) return null;
+  const location = tenant.createLocation({ id: businessId('loc'), businessId: business.id, name, routerName });
+  return { location, portalUrl: portalUrlForLocation(location), coreUrl: config.domains.appUrl };
+}
+
 app.post('/api/business/register', (req, res) => {
-  const name = String(req.body && req.body.name || '').trim().slice(0, 80);
-  const ownerName = String(req.body && req.body.ownerName || '').trim().slice(0, 80);
+  const body = req.body || {};
+  const rawName = String(body.name || '').trim();
+  const rawOwnerName = String(body.ownerName || '').trim();
+  const rawPhone = String(body.phone || '').trim();
+  const rawHotspotName = String(body.hotspotName === undefined ? '' : body.hotspotName).trim();
+  const hasOrganisationFields = Boolean(rawName || rawOwnerName || rawPhone || rawHotspotName);
+  const name = rawName.slice(0, 80);
+  const ownerName = rawOwnerName.slice(0, 80);
   const email = String(req.body && req.body.email || '').trim().toLowerCase();
-  const ownerPhone = mpesa.normalizePhone(req.body && req.body.phone);
+  const ownerPhone = mpesa.normalizePhone(rawPhone);
   const password = String(req.body && req.body.password || '');
   const plan = String(req.body && req.body.plan || 'starter');
   const collectionMode = String(req.body && req.body.collectionMode || 'own');
-  if (!name || !ownerName || !/^\S+@\S+\.\S+$/.test(email) || !ownerPhone || password.length < 8) {
+  if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 8) {
+    return res.status(400).json({ error: 'Enter a valid email and an 8-character password.' });
+  }
+  if (hasOrganisationFields && (!name || !ownerName || !ownerPhone)) {
     return res.status(400).json({ error: 'Enter business details, a valid email and an 8-character password.' });
   }
   if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid WiFi Fiti plan.' });
   if (db.businessByEmail.get(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
   const id = businessId('biz');
+  const registrationIsComplete = hasOrganisationFields;
   try {
-    db.addBusiness.run({ id, name, ownerName, ownerPhone, email, passwordHash: hashPassword(password),
-      plan: plan === 'custom' ? 'starter' : plan, collectionMode });
+    db.addBusiness.run({
+      id,
+      // A blank, clearly marked record is safer than inventing a phone or
+      // organisation name. It cannot add a router until the owner completes
+      // the authenticated organisation step below.
+      name: registrationIsComplete ? name : '',
+      ownerName: registrationIsComplete ? ownerName : '',
+      ownerPhone: registrationIsComplete ? ownerPhone : '',
+      email,
+      passwordHash: hashPassword(password),
+      plan: plan === 'custom' ? 'starter' : plan,
+      collectionMode,
+      onboardingState: registrationIsComplete ? 'complete' : 'organisation',
+      organisationCompletedAt: registrationIsComplete
+        ? new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')
+        : null,
+      hotspotName: rawHotspotName ? textField(rawHotspotName, 'hotspot name', 80, true) : null,
+    });
     db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
     const token = issueBusinessSession(id);
-    res.status(201).json({ token, business: db.businessById.get(id), requestedCustom: plan === 'custom' });
+    const business = db.businessById.get(id);
+    res.status(201).json({ token, business, onboarding: onboardingState(business), requestedCustom: plan === 'custom' });
   } catch (err) {
     console.error('[business] registration failed:', err.message);
     res.status(500).json({ error: 'Could not create the business account.' });
@@ -401,7 +488,9 @@ app.post('/api/business/login', (req, res) => {
   if (!business || !passwordMatches(password, business.password_hash)) {
     return res.status(401).json({ error: 'Email or password is incorrect.' });
   }
-  res.json({ token: issueBusinessSession(business.id), business: db.businessById.get(business.id) });
+  const account = db.businessById.get(business.id);
+  res.json({ token: issueBusinessSession(business.id), business: account,
+    onboarding: onboardingState(account, tenant.locationsForBusiness.all(business.id)) });
 });
 
 app.post('/api/business/logout', (req, res) => {
@@ -416,7 +505,7 @@ app.get('/api/business/me', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const locations = tenant.locationsForBusiness.all(business.id)
     .map((location) => ({ ...location, remoteAccess: tenant.remoteAccessForLocation(location) }));
-  res.json({ business, plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -428,6 +517,32 @@ app.get('/api/business/me', (req, res) => {
     },
     note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
 });
+
+/** Complete the organisation profile immediately after a trial account is
+ * created. This intentionally happens before any router identity or setup
+ * secret is issued, so a user can correct these ordinary business details
+ * without a router replacement workflow. */
+function saveOrganisation(req, res) {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const body = req.body || {};
+    const name = textField(body.organisationName === undefined
+      ? (body.organizationName === undefined ? body.name : body.organizationName)
+      : body.organisationName, 'organisation name', 80, true);
+    const phone = mpesa.normalizePhone(body.phone === undefined ? body.ownerPhone : body.phone);
+    const hotspotName = textField(body.hotspotName === undefined ? body.hotspot_name : body.hotspotName,
+      'hotspot name', 80, true);
+    if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan phone number.' });
+    db.completeBusinessOrganisation.run({ id: business.id, name, ownerPhone: phone, hotspotName, portalName: name });
+    const updated = db.businessById.get(business.id);
+    res.json({ business: updated, onboarding: onboardingState(updated) });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save your organisation.' });
+  }
+}
+
+app.post('/api/business/organisation', saveOrganisation);
+app.patch('/api/business/organisation', saveOrganisation);
 
 // The Cloudflare Worker is intentionally stateless. It asks the Railway core
 // to resolve a hostname rather than maintaining a second, eventually stale
@@ -642,19 +757,14 @@ app.post('/api/business/payment-collection', async (req, res) => {
  * The token is returned only in this response, inside the script. */
 app.post('/api/business/router-setup', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
+  if (!requireOrganisation(business, res)) return;
   const body = req.body || {};
   const name = String(body.name || '').trim().slice(0, 80);
   const requestedRouterName = String(body.routerName || '').trim().slice(0, 80);
   if (!name) return res.status(400).json({ error: 'Give this location a name.' });
   try {
     const setup = validateRouterSetup(body);
-    const plan = BUSINESS_PLANS[business.plan];
-    const existing = tenant.locationsForBusiness.all(business.id);
-    if (plan.routerLimit && existing.length >= plan.routerLimit) {
-      return res.status(402).json({
-        error: `${plan.name} includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Choose a larger plan before adding another location.`,
-      });
-    }
+    if (!canAddLocation(business, res)) return;
     const location = tenant.createLocation({ id: businessId('loc'), businessId: business.id, name,
       routerName: requestedRouterName || setup.routerModel, setup });
     const portalUrl = portalUrlForLocation(location);
@@ -704,23 +814,18 @@ app.post('/api/business/locations/:locationId/router-setup', (req, res) => {
 
 app.post('/api/business/locations', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  const name = String(req.body && req.body.name || '').trim().slice(0, 80);
-  const routerName = String(req.body && req.body.routerName || '').trim().slice(0, 80);
-  if (!name) return res.status(400).json({ error: 'Give this location a name.' });
-  const plan = BUSINESS_PLANS[business.plan];
-  const existing = tenant.locationsForBusiness.all(business.id);
-  if (plan.routerLimit && existing.length >= plan.routerLimit) {
-    return res.status(402).json({
-      error: `${plan.name} includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Choose a larger plan before adding another location.`,
-    });
+  if (!requireOrganisation(business, res)) return;
+  try {
+    // The first-login router dialog calls this same durable location API.
+    // `location` is accepted as the plain-language field name while `name`
+    // remains supported for every existing dashboard integration.
+    const draft = createLocationDraft(business, req.body, res);
+    if (!draft) return;
+    const locations = tenant.locationsForBusiness.all(business.id);
+    res.status(201).json({ ...draft, draft: true, onboarding: onboardingState(business, locations) });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not add this router location.' });
   }
-  const location = tenant.createLocation({ id: businessId('loc'), businessId: business.id, name,
-    routerName: routerName || null });
-  res.status(201).json({
-    location,
-    portalUrl: portalUrlForLocation(location),
-    coreUrl: config.domains.appUrl,
-  });
 });
 
 /* ------------------------------------------------------------------ */
