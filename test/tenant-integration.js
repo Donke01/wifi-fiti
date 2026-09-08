@@ -118,8 +118,16 @@ async function api(endpoint, { method = 'GET', body, token, portalToken, session
   return { status: response.status, body: parsed, text: content, headers: response.headers };
 }
 
-async function routerSync(location, { ack = [], report = '', token = location.routerToken, transport = 'header' } = {}) {
+async function routerSync(location, {
+  ack = [], report = '', token = location.routerToken, transport = 'header', portal,
+  portalApplied, protocol = '2', setupAck, health = 'ready', handshake = true,
+} = {}) {
   const query = new URLSearchParams({ site: location.id, ack: ack.join(',') });
+  if (portal) query.set('portal', portal);
+  if (portalApplied) query.set('portalApplied', portalApplied);
+  if (protocol) query.set('protocol', protocol);
+  if (setupAck) query.set('setupAck', setupAck);
+  if (health) query.set('health', health);
   const headers = { 'Content-Type': 'text/plain' };
   if (transport === 'header') headers['X-WiFi-Fiti-Router'] = token;
   else query.set('token', token);
@@ -128,7 +136,14 @@ async function routerSync(location, { ack = [], report = '', token = location.ro
   });
   const script = await response.text();
   const match = script.match(/:global fitiAck "([\d,]+)"/);
-  return { status: response.status, script, ids: match ? match[1].split(',').map(Number) : [] };
+  const challenge = script.match(/:set fitiSetupAck "([^"]+)"/);
+  if (handshake && protocol === '2' && response.status === 200 && challenge) {
+    return routerSync(location, {
+      ack, report, token, transport, portal, portalApplied, protocol,
+      setupAck: challenge[1], health: 'ready', handshake: false,
+    });
+  }
+  return { status: response.status, script, ids: match ? match[1].split(',').map(Number) : [], challenge: challenge && challenge[1] };
 }
 
 function endpoint(location, suffix) {
@@ -298,9 +313,8 @@ async function main() {
     assert.equal(wrongConfirmation.status, 400, JSON.stringify(wrongConfirmation.body));
     assert.match(wrongConfirmation.body.error, /Type DELETE/,
       'the API requires the deliberate, exact confirmation before discarding a draft');
-    assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(draftLocation.portalHostname)}`, {
-      edgeSecret: 'integration-edge-gateway-secret-for-tests-only',
-    })).status, 200, 'a rejected discard leaves the unused portal address intact');
+    assert.equal(draftLocation.portalHostname, null,
+      'an unused draft does not reserve a customer hostname');
 
     const foreignDiscard = await api(discardPath, { method: 'DELETE', token: bravo.token,
       body: { confirm: 'DELETE' } });
@@ -312,9 +326,6 @@ async function main() {
     assert.deepEqual(discarded.body, { deleted: true, locationId: draftLocation.id });
     assert.equal((await routerSync(draftLocation)).status, 403,
       'the deleted draft\'s pairing credential cannot be used after deletion');
-    assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(draftLocation.portalHostname)}`, {
-      edgeSecret: 'integration-edge-gateway-secret-for-tests-only',
-    })).status, 404, 'discarding the draft also frees its managed portal address');
     assert.ok(!(await api('/api/business/me', { token: alpha.token })).body.locations
       .some((location) => location.id === draftLocation.id), 'discarded drafts disappear from the owner workspace');
 
@@ -330,8 +341,9 @@ async function main() {
 
   await test('business accounts, packages, location controls, and router secrets are isolated', async () => {
     assert.equal((await api('/api/business/me')).status, 401);
-    assert.equal(alpha.portalUrl, `https://${alpha.location.portalHostname}`);
-    assert.match(alpha.location.portalHostname, /\.wififiti\.co\.ke$/);
+    assert.equal(alpha.portalUrl, `https://cloud.wififiti.co.ke/p/${alpha.location.id}`);
+    assert.equal(alpha.location.portalHostname, null,
+      'a new router begins on the safe cloud URL without reserving a tenant hostname');
     const mine = await api('/api/business/me', { token: alpha.token });
     assert.deepEqual(mine.body.locations.map((item) => item.id), [alpha.location.id]);
     assert.deepEqual(mine.body.portalAddressing, {
@@ -348,6 +360,38 @@ async function main() {
     const routerLogin = await api(`/api/tenant/${alpha.location.id}/router-login`, { routerToken: alpha.location.routerToken });
     assert.equal(routerLogin.status, 200);
     assert.match(routerLogin.text, new RegExp(`https://cloud\\.wififiti\\.co\\.ke/p/${alpha.location.id}`));
+    const beforeSyncAddress = await api(`/api/business/locations/${alpha.location.id}/portal-address`, {
+      method: 'PATCH', token: alpha.token, body: { slug: 'alpha-guests' },
+    });
+    assert.equal(beforeSyncAddress.status, 409, JSON.stringify(beforeSyncAddress.body));
+    assert.match(beforeSyncAddress.body.error, /Finish router setup/,
+      'the address cannot be chosen until the router has completed a sync');
+    assert.equal((await routerSync(alpha.location, { portal: 'cloud.wififiti.co.ke' })).status, 200,
+      'the real router sync unlocks the customer-page step');
+    const automaticallyCompleted = (await api('/api/business/me', { token: alpha.token })).body.locations
+      .find((item) => item.id === alpha.location.id);
+    assert.match(automaticallyCompleted.portal_hostname, /\.wififiti\.co\.ke$/,
+      'a verified router receives a managed customer hostname automatically');
+    assert.ok(automaticallyCompleted.portal_setup_completed_at,
+      'the customer portal is completed without a second manual setup page');
+    const customerPage = await api('/api/business/onboarding/customer-portal', { method: 'POST', token: alpha.token, body: {
+      locationId: alpha.location.id, portalName: 'Alpha Guests', supportPhone: '0712000001', portalSlug: 'alpha-guests',
+    } });
+    assert.equal(customerPage.status, 200, JSON.stringify(customerPage.body));
+    assert.equal(customerPage.body.portalUrl, 'https://alpha-guests.wififiti.co.ke');
+    assert.equal(customerPage.body.location.portal_hostname, 'alpha-guests.wififiti.co.ke');
+    assert.ok(customerPage.body.location.portal_setup_completed_at,
+      'the selected router records completion of its own customer-page step');
+    alpha.location = { ...alpha.location, ...customerPage.body.location, portalHostname: customerPage.body.location.portal_hostname };
+    const portalRefresh = await routerSync(alpha.location, { portal: 'cloud.wififiti.co.ke' });
+    assert.match(portalRefresh.script, /:local fitiDesiredPortalHost "alpha-guests\.wififiti\.co\.ke"/,
+      'the next router check receives the new customer hostname');
+    assert.match(portalRefresh.script, /:global fitiBridge/,
+      'the refresh script restores every boot setting it reads, including the customer bridge');
+    assert.match(portalRefresh.script, /dst-host=\$fitiDesiredPortalHost/,
+      'the exact customer hostname is added to the walled garden');
+    assert.match(portalRefresh.script, /\/system script set \$fitiBoot source=\$fitiBootSource/,
+      'the router keeps the new customer hostname after reboot');
     const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
     assert.equal(whiteLabelRouterLogin.status, 200);
     assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));
@@ -360,14 +404,8 @@ async function main() {
     assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, {
       host: 'wififiti.co.ke', edgeSecret: 'integration-edge-gateway-secret-for-tests-only',
     })).status, 404, 'the Worker resolver is available only at the cloud app host');
-    const changedAddress = await api(`/api/business/locations/${alpha.location.id}/portal-address`, {
-      method: 'PATCH', token: alpha.token, body: { slug: 'alpha-guests' },
-    });
-    assert.equal(changedAddress.status, 200, JSON.stringify(changedAddress.body));
-    assert.equal(changedAddress.body.portalUrl, 'https://alpha-guests.wififiti.co.ke');
-    assert.equal(changedAddress.body.location.portal_hostname, 'alpha-guests.wififiti.co.ke');
-    const oldAddressStillWorks = await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' });
-    assert.equal(oldAddressStillWorks.body.locationId, alpha.location.id, 'old paired router hostname remains a live alias');
+    const selectedAddress = await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' });
+    assert.equal(selectedAddress.body.locationId, alpha.location.id, 'the selected hostname resolves to its router location');
     assert.equal((await api(`/api/business/locations/${alpha.location.id}/portal-address`, {
       method: 'PATCH', token: alpha.token, body: { slug: 'cloud' },
     })).status, 400, 'reserved Railway hostname cannot be claimed by a tenant');
@@ -409,7 +447,8 @@ async function main() {
     assert.ok(created.body.location.routerToken, 'a setup kit reveals its pairing secret only once');
     assert.match(created.body.setup.script, /Router administrator login: admin \/ /);
     assert.match(created.body.setup.script, /:global fitiUrl "https:\/\/cloud\.wififiti\.co\.ke"/);
-    assert.match(created.body.setup.script, new RegExp(`:global fitiPortalHost "${created.body.location.portalHostname.replace(/[.]/g, '\\.')}"`));
+    assert.match(created.body.setup.script, /:global fitiPortalHost "cloud\.wififiti\.co\.ke"/,
+      'a new router starts with the safe cloud customer URL');
     assert.match(created.body.setup.script, /fiti-first-install.*interval=15s/, 'fresh DHCP routers keep retrying WAN/DNS pairing');
     assert.match(created.body.setup.script, /block WAN management/);
     assert.doesNotMatch(created.body.setup.script, /\/system reset-configuration|\?token=/);
@@ -441,6 +480,14 @@ async function main() {
     const logo = await api(logoPath, { host: 'cloud.wififiti.co.ke' });
     assert.equal(logo.status, 200);
     assert.match(logo.headers.get('content-type'), /^image\/png/);
+    assert.equal((await routerSync(created.body.location, { portal: 'cloud.wififiti.co.ke' })).status, 200,
+      'the second router must also complete its own sync before a customer page is chosen');
+    const secondCustomerPage = await api('/api/business/onboarding/customer-portal', { method: 'POST', token: alpha.token, body: {
+      locationId: created.body.location.id, portalName: 'Alpha Connect', supportPhone: '0712000099', portalSlug: 'alpha-second',
+    } });
+    assert.equal(secondCustomerPage.status, 200, JSON.stringify(secondCustomerPage.body));
+    created.body.location = { ...created.body.location, ...secondCustomerPage.body.location,
+      portalHostname: secondCustomerPage.body.location.portal_hostname };
     const edgeConfig = await api(endpoint(created.body.location, 'config'), {
       host: 'cloud.wififiti.co.ke', edgeSecret: 'integration-edge-gateway-secret-for-tests-only', edgePortalHost: created.body.location.portalHostname,
     });
@@ -470,7 +517,7 @@ async function main() {
     assert.equal((await api(jobPath)).body.ready, false);
     assert.equal((await api(endpoint(bravo.location, `router-jobs/${granted.provisioningJobId}`))).status, 404);
     const foreignRouter = await routerSync(bravo.location, { ack: [granted.provisioningJobId] });
-    assert.equal(foreignRouter.script, '');
+    assert.deepEqual(foreignRouter.ids, [], 'a foreign router cannot receive or acknowledge this job');
     assert.equal((await api(jobPath)).body.ready, false, 'another router cannot acknowledge this job');
     const delivered = await routerSync(alpha.location);
     assert.ok(delivered.ids.includes(granted.provisioningJobId));
@@ -603,8 +650,9 @@ async function main() {
     database.prepare("UPDATE tenant_jobs SET delivered_at=datetime('now','-61 seconds') WHERE location_id=? AND acked_at IS NULL").run(alpha.location.id);
     const redelivered = await routerSync(alpha.location);
     assert.deepEqual(redelivered.ids, expired.ids, 'offline acknowledgement retries the same revoke jobs');
-    assert.equal((await routerSync(alpha.location, { ack: expired.ids })).script, '');
-    assert.equal((await routerSync(alpha.location)).script, '', 'acknowledged expiry is not emitted forever');
+    const acknowledgedExpiry = await routerSync(alpha.location, { ack: expired.ids });
+    assert.deepEqual(acknowledgedExpiry.ids, [], 'acknowledged expiry jobs are not redelivered');
+    assert.deepEqual((await routerSync(alpha.location)).ids, [], 'acknowledged expiry is not emitted forever');
   });
 
   await test('business plan payment requires verified settlement and activates the chosen plan exactly once', async () => {

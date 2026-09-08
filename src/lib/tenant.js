@@ -461,30 +461,10 @@ const activePortalDomainCountForLocation = db.prepare(`
 `);
 const MAX_ACTIVE_PORTAL_DOMAINS_PER_LOCATION = 3;
 
-// Enabling the Worker later should not require a manual data migration. This
-// only runs when both its public zone and private edge credential are present;
-// before then every existing location keeps its cloud URL untouched.
-if (config.domains.portalGatewayEnabled) {
-  const locationsWithoutPortal = db.prepare(`
-    SELECT l.id, l.name FROM locations l
-     WHERE NOT EXISTS (
-       SELECT 1 FROM tenant_portal_domains d
-        WHERE d.location_id=l.id AND d.status='active' AND d.is_primary=1
-     )
-  `);
-  for (const location of locationsWithoutPortal.all()) {
-    const hostname = managedPortalHostname(location.name, location.id);
-    if (!hostname) continue;
-    try {
-      addPortalDomain.run({ hostname, locationId: location.id, kind: 'managed', status: 'active', isPrimary: 1 });
-    } catch (error) {
-      // Location IDs make a collision practically impossible. If a legacy
-      // database has an unexpected duplicate, leave its cloud URL in place
-      // rather than taking a live portal offline at startup.
-      if (!/UNIQUE constraint failed/i.test(String(error && error.message))) throw error;
-    }
-  }
-}
+// Customer hostnames are never generated as a side effect of starting the
+// server. They are created only after the router has completed the
+// receipt-backed setup handshake; existing, already-saved portal domains
+// remain untouched.
 
 const createLocationRow = db.prepare(`
   INSERT INTO locations
@@ -497,7 +477,7 @@ const createLocationRow = db.prepare(`
      @wanInterface, @wifiInterface, @wifiSsid, @customerPorts, @hotspotSubnet)
 `);
 const locationById = db.prepare(`
-  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_auth_mode, l.router_status, l.last_seen_at, l.last_successful_sync_at,
+  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_pending_setup_json, l.router_auth_mode, l.router_status, l.last_seen_at, l.last_router_contact_at, l.last_successful_sync_at, l.router_setup_nonce, l.router_pending_setup_nonce, l.router_setup_verified_at, l.router_setup_health, l.router_setup_checked_at, l.portal_setup_completed_at, l.router_portal_update_sent_host, l.router_portal_applied_host,
          l.setup_mode, l.router_model, l.routeros_version, l.wifi_stack, l.customer_bridge, l.wan_interface, l.wifi_interface, l.wifi_ssid, l.customer_ports, l.hotspot_subnet,
          b.name AS business_name, b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message, b.collection_mode, b.plan AS business_plan,
          b.billing_status, b.billing_expires_at,
@@ -510,12 +490,15 @@ const locationsForBusinessQuery = db.prepare(`
          wifi_stack, customer_bridge, wan_interface, wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
          CASE WHEN router_status='online' AND (last_seen_at IS NULL OR last_seen_at <= datetime('now','-90 seconds'))
               THEN 'offline' ELSE router_status END AS router_status,
-         last_seen_at, last_successful_sync_at, created_at,
+         last_seen_at, last_router_contact_at, last_successful_sync_at,
+         router_setup_verified_at, router_setup_health, router_setup_checked_at,
+         portal_setup_completed_at, router_portal_update_sent_host, router_portal_applied_host, created_at,
          CASE WHEN router_pending_token_hash IS NOT NULL
                     AND router_pending_token_expires_at > datetime('now')
               THEN 1 ELSE 0 END AS router_pairing_pending,
          CASE WHEN (router_pending_token_hash IS NULL
                     OR router_pending_token_expires_at <= datetime('now'))
+                    AND router_setup_verified_at IS NOT NULL
                     AND last_successful_sync_at > datetime('now','-90 seconds')
               THEN 1 ELSE 0 END AS router_sync_healthy,
          (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname,
@@ -535,33 +518,85 @@ const locationsForBusiness = {
   },
 };
 const touchRouter = db.prepare(`
-  UPDATE locations SET router_status = 'online', last_seen_at = datetime('now') WHERE id = ?
+  UPDATE locations SET last_router_contact_at = datetime('now') WHERE id = ?
 `);
-// Only the successful tenant /api/router/sync handler calls this statement.
-// Other authenticated routes (login redirect, job polling, acknowledgements,
-// support enrollment) are useful health signals, but must never unlock a
-// business owner's remote-support consent.
+// Only a receipt-backed tenant /api/router/sync round trip calls this
+// statement. Other authenticated routes are useful contact telemetry, but
+// must never make a router live, unlock support, or promote a replacement.
 const markSuccessfulRouterSync = db.prepare(`
   UPDATE locations
      SET router_status = 'online', last_seen_at = datetime('now'),
+         last_router_contact_at = datetime('now'),
          last_successful_sync_at = datetime('now')
    WHERE id = ?
 `);
+const markRouterPortalUpdateSent = db.prepare(`
+  UPDATE locations SET router_portal_update_sent_host=? WHERE id=?
+`);
+const markRouterPortalApplied = db.prepare(`
+  UPDATE locations SET router_portal_applied_host=? WHERE id=?
+`);
 const stageLocationToken = db.prepare(`
   UPDATE locations
-     SET router_pending_token_hash=?, router_pending_token_expires_at=?
-   WHERE id=?
+     SET router_pending_token_hash=@tokenHash,
+         router_pending_token_expires_at=@expiresAt,
+         router_pending_setup_nonce=NULL,
+         router_pending_setup_json=@pendingSetupJson
+   WHERE id=@locationId
 `);
 const promotePendingLocationToken = db.prepare(`
   UPDATE locations
-     SET router_token=?, router_token_hash=?, router_auth_mode='header',
+     SET router_token=@routerTokenMarker, router_token_hash=@routerTokenHash, router_auth_mode='header',
+         name=@name, router_name=@routerName, hotspot_server=@hotspotServer,
+         setup_mode=@setupMode, router_model=@routerModel, routeros_version=@routerOsVersion,
+         wifi_stack=@wifiStack, customer_bridge=@customerBridge, wan_interface=@wanInterface,
+         wifi_interface=@wifiInterface, wifi_ssid=@wifiSsid, customer_ports=@customerPorts,
+         hotspot_subnet=@hotspotSubnet,
          router_pending_token_hash=NULL, router_pending_token_expires_at=NULL,
-         router_status='online', last_seen_at=datetime('now')
-   WHERE id=? AND router_pending_token_hash=?
+         router_pending_setup_nonce=NULL, router_pending_setup_json=NULL,
+         router_setup_nonce=NULL, router_setup_verified_at=datetime('now'),
+         router_setup_health='ready', router_setup_checked_at=datetime('now'),
+         router_status='online', last_router_contact_at=datetime('now'), last_seen_at=datetime('now'),
+         last_successful_sync_at=datetime('now')
+   WHERE id=@locationId AND router_pending_token_hash=@routerTokenHash
+     AND router_pending_setup_nonce=@nonce
      AND router_pending_token_expires_at > datetime('now')
 `);
+const setRouterSetupNonce = db.prepare(`
+  UPDATE locations
+     SET router_setup_nonce=@nonce, router_setup_health=@health,
+         router_setup_checked_at=datetime('now'), last_router_contact_at=datetime('now')
+   WHERE id=@locationId
+`);
+const setPendingRouterSetupNonce = db.prepare(`
+  UPDATE locations
+     SET router_pending_setup_nonce=@nonce, router_setup_health=@health,
+         router_setup_checked_at=datetime('now'), last_router_contact_at=datetime('now')
+   WHERE id=@locationId AND router_pending_token_hash=@routerTokenHash
+     AND router_pending_token_expires_at > datetime('now')
+`);
+const verifyActiveRouterSetup = db.prepare(`
+  UPDATE locations
+     SET router_setup_nonce=NULL, router_setup_verified_at=COALESCE(router_setup_verified_at, datetime('now')),
+         router_setup_health=@health, router_setup_checked_at=datetime('now'),
+         router_status='online', last_router_contact_at=datetime('now'), last_seen_at=datetime('now'),
+         last_successful_sync_at=datetime('now')
+   WHERE id=@locationId
+`);
+const completeTenantLocationPortalSetup = db.prepare(`
+  UPDATE locations
+     SET portal_setup_completed_at=COALESCE(portal_setup_completed_at, datetime('now'))
+   WHERE id=@locationId
+`);
+const completeTenantBusinessPortalSetup = db.prepare(`
+  UPDATE businesses
+     SET portal_setup_completed_at=COALESCE(portal_setup_completed_at, datetime('now'))
+   WHERE id=@businessId
+`);
 const locationForBusiness = db.prepare(`
-  SELECT id, business_id, name, router_name, router_status, last_seen_at, last_successful_sync_at, hotspot_server,
+  SELECT id, business_id, name, router_name, router_status, last_seen_at, last_router_contact_at, last_successful_sync_at,
+         router_setup_verified_at, router_setup_health, router_setup_checked_at,
+         portal_setup_completed_at, router_portal_update_sent_host, router_portal_applied_host, hotspot_server,
          setup_mode, router_model, routeros_version, wifi_stack, customer_bridge, wan_interface,
          wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
          (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=locations.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
@@ -581,7 +616,7 @@ const updateLocation = db.prepare(`
 // Keep the eligibility check explicit and conservative instead of risking an
 // orphaned paid checkout, subscription, voucher, job, or support lifecycle.
 const unusedLocationForDiscard = db.prepare(`
-  SELECT l.id, l.name, l.router_status, l.last_seen_at, l.last_successful_sync_at,
+  SELECT l.id, l.name, l.router_status, l.last_seen_at, l.last_router_contact_at, l.last_successful_sync_at,
          (SELECT COUNT(*) FROM tenant_transactions WHERE location_id=l.id) AS transaction_count,
          (SELECT COUNT(*) FROM tenant_subscriptions WHERE location_id=l.id) AS subscription_count,
          (SELECT COUNT(*) FROM tenant_jobs WHERE location_id=l.id) AS job_count,
@@ -973,23 +1008,19 @@ function setupFromLocation(location) {
 function createLocation({ id, businessId, name, routerName, setup }) {
   const routerToken = crypto.randomBytes(24).toString('base64url');
   const saved = savedSetup(setup);
-  let portalHostname = null;
   db.exec('BEGIN IMMEDIATE');
   try {
     createLocationRow.run({ id, businessId, name, routerName: routerName || null,
       routerTokenHash: tokenHash(routerToken), routerTokenMarker: tokenMarker(routerToken), ...saved });
-    if (config.domains.portalGatewayEnabled) {
-      portalHostname = managedPortalHostname(name, id);
-      if (portalHostname) {
-        addPortalDomain.run({ hostname: portalHostname, locationId: id, kind: 'managed', status: 'active', isPrimary: 1 });
-      }
-    }
     db.exec('COMMIT');
   } catch (error) {
     try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
     throw error;
   }
-  return { id, businessId, name, routerName: routerName || null, routerToken, portalHostname, ...savedSetup(setup) };
+  // A customer address is deliberately not reserved at draft time.  The
+  // router initially uses the safe cloud URL, then the owner chooses a
+  // branded subdomain after the first successful connection.
+  return { id, businessId, name, routerName: routerName || null, routerToken, portalHostname: null, ...savedSetup(setup) };
 }
 
 const REMOTE_ACCESS_ACTIVE_STATES = new Set(['requested', 'approved', 'configured']);
@@ -1223,15 +1254,164 @@ function recordRemoteAccessEnrollment({ locationId, publicKey }) {
 }
 
 /**
- * Mark a router as having completed the one poll required before its owner
- * can request optional remote support. Keep this separate from
- * `authenticateRouter`: generic authenticated requests only update router
- * health, while the server's successful /api/router/sync route owns this
- * stronger onboarding proof.
+ * Compatibility marker for an already-installed legacy poller. New generated
+ * kits use `processRouterSetupReceipt` below, which requires the router to
+ * echo a nonce from the previous cloud response before it can be considered
+ * ready. Keeping this narrowly named helper lets old, already-paired routers
+ * continue working without allowing a staged replacement to promote itself.
  */
 function recordSuccessfulRouterSync(locationId) {
-  markSuccessfulRouterSync.run(locationId);
+  verifyActiveRouterSetup.run({ locationId, health: 'legacy' });
   return locationById.get(locationId);
+}
+
+function recordRouterPortalUpdateSent(locationId, hostname) {
+  markRouterPortalUpdateSent.run(hostname || null, locationId);
+  return locationById.get(locationId);
+}
+
+function recordRouterPortalApplied(locationId, hostname) {
+  markRouterPortalApplied.run(hostname || null, locationId);
+  return locationById.get(locationId);
+}
+
+const ROUTER_SETUP_HEALTH = new Set([
+  'ready', 'bridge-missing', 'hotspot-missing', 'poller-missing',
+  'portal-missing', 'device-mode-blocked', 'unknown',
+]);
+
+function setupHealth(value) {
+  const health = String(value || '').trim().toLowerCase();
+  return ROUTER_SETUP_HEALTH.has(health) ? health : 'unknown';
+}
+
+function setupNonce() {
+  // This nonce is not a credential; it is an acknowledgement challenge. It
+  // is still high entropy so a stale or unrelated response cannot accidentally
+  // satisfy it.
+  return crypto.randomBytes(18).toString('base64url');
+}
+
+function pendingSetupSnapshot(location) {
+  let pending = null;
+  try { pending = location.router_pending_setup_json ? JSON.parse(location.router_pending_setup_json) : null; } catch (_) { /* use live settings */ }
+  const current = {
+    name: location.name,
+    routerName: location.router_name,
+    ...savedSetup(setupFromLocation(location)),
+  };
+  const value = pending && typeof pending === 'object' ? { ...current, ...pending } : current;
+  // Only fields originating in server-side setup validation are accepted at
+  // this boundary. A malformed historical JSON value can therefore never
+  // become RouterOS-related configuration.
+  return {
+    name: String(value.name || current.name).slice(0, 80),
+    routerName: value.routerName == null ? null : String(value.routerName).slice(0, 80),
+    hotspotServer: value.hotspotServer || current.hotspotServer,
+    setupMode: value.setupMode || current.setupMode,
+    routerModel: value.routerModel || current.routerModel,
+    routerOsVersion: value.routerOsVersion || current.routerOsVersion,
+    wifiStack: value.wifiStack || current.wifiStack,
+    customerBridge: value.customerBridge || current.customerBridge,
+    wanInterface: value.wanInterface || current.wanInterface,
+    wifiInterface: value.wifiInterface || current.wifiInterface,
+    wifiSsid: value.wifiSsid || current.wifiSsid,
+    customerPorts: value.customerPorts || current.customerPorts,
+    hotspotSubnet: value.hotspotSubnet || current.hotspotSubnet,
+  };
+}
+
+function issueSetupChallenge(location, pairing, health) {
+  const pending = pairing === 'pending';
+  const nonce = pending ? location.router_pending_setup_nonce : location.router_setup_nonce;
+  const challenge = nonce || setupNonce();
+  const statement = pending ? setPendingRouterSetupNonce : setRouterSetupNonce;
+  const result = pending
+    ? statement.run({ locationId: location.id, routerTokenHash: location.router_pending_token_hash, nonce: challenge, health })
+    : statement.run({ locationId: location.id, nonce: challenge, health });
+  // A staged credential may have expired between authentication and this
+  // update. In that case return no challenge; the caller will simply reject
+  // the next request rather than issuing a misleading receipt.
+  return result.changes ? challenge : null;
+}
+
+/**
+ * Process the second half of a setup round trip. A router first receives a
+ * random challenge in its script response, saves it as `fitiSetupAck`, then
+ * sends it back on the next poll along with a small local health report.
+ * That proves the response was parsed and executed; a request that was
+ * dropped before RouterOS saw its body cannot accidentally unlock service.
+ */
+function processRouterSetupReceipt(location, { protocol, ack, health } = {}) {
+  if (!location) return { verified: false, challenge: null, location: null };
+  const pairing = location.router_pairing_auth === 'pending' ? 'pending' : 'active';
+  const reportedHealth = setupHealth(health);
+  const currentNonce = pairing === 'pending' ? location.router_pending_setup_nonce : location.router_setup_nonce;
+
+  // Existing field deployments did not send the receipt fields. Preserve
+  // their active connection, but never use that compatibility path to switch
+  // a staged credential to a new router.
+  if (String(protocol || '') !== '2') {
+    if (pairing === 'active') {
+      verifyActiveRouterSetup.run({ locationId: location.id, health: 'legacy' });
+      return { verified: true, legacy: true, challenge: null, location: locationById.get(location.id) };
+    }
+    return { verified: false, challenge: issueSetupChallenge(location, pairing, reportedHealth), location: locationById.get(location.id) };
+  }
+
+  if (reportedHealth !== 'ready' || !currentNonce || String(ack || '') !== currentNonce) {
+    return { verified: false, challenge: issueSetupChallenge(location, pairing, reportedHealth), location: locationById.get(location.id) };
+  }
+
+  if (pairing === 'active') {
+    verifyActiveRouterSetup.run({ locationId: location.id, health: 'ready' });
+    return { verified: true, challenge: null, location: locationById.get(location.id) };
+  }
+
+  const next = pendingSetupSnapshot(location);
+  const promotion = promotePendingLocationToken.run({
+    ...next,
+    locationId: location.id,
+    routerTokenHash: location.router_pending_token_hash,
+    // `router_token` is only a non-secret uniqueness marker retained for old
+    // SQLite schemas. The pending hash is already unique and does not reveal
+    // the usable credential, so it is a safe marker once promotion succeeds.
+    routerTokenMarker: `hash:${location.router_pending_token_hash}`,
+    nonce: currentNonce,
+  });
+  if (promotion.changes) {
+    return { verified: true, promoted: true, challenge: null, location: locationById.get(location.id) };
+  }
+  return { verified: false, challenge: null, location: locationById.get(location.id) };
+}
+
+/** Finish the customer-facing side automatically once the router's setup is
+ * independently verified. With the gateway enabled this creates a unique
+ * managed subdomain; without it customers use the durable cloud portal URL.
+ */
+function autoCompleteCustomerPortal(locationId) {
+  const initial = locationById.get(locationId);
+  if (!initial || !initial.router_setup_verified_at) return initial || null;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    let location = locationById.get(locationId);
+    if (config.domains.portalGatewayEnabled && !location.portal_hostname) {
+      const hostname = managedPortalHostname(location.portal_name || location.business_name || location.name, location.id);
+      const existing = hostname && portalDomainByHostnameAnyStatus.get(hostname);
+      if (hostname && (!existing || existing.location_id === location.id)) {
+        if (!existing) addPortalDomain.run({ hostname, locationId: location.id, kind: 'managed', status: 'active', isPrimary: 0 });
+        deactivatePrimaryPortalDomains.run(location.id);
+        activatePortalDomain.run(hostname, location.id);
+      }
+    }
+    completeTenantLocationPortalSetup.run({ locationId: location.id });
+    completeTenantBusinessPortalSetup.run({ businessId: location.business_id });
+    db.exec('COMMIT');
+    return locationById.get(location.id);
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
 }
 
 function setManagedPortalHostname({ locationId, businessId, slug }) {
@@ -1242,6 +1422,16 @@ function setManagedPortalHostname({ locationId, businessId, slug }) {
   }
   const location = locationForBusiness.get(locationId, businessId);
   if (!location) return null;
+  // A branded public hostname changes what an unauthenticated phone opens.
+  // Do not let a draft reserve or expose that customer-facing step before
+  // the router has proved that its WiFi Fiti connection works at least once.
+  // It may be offline later; the polling script will apply the saved address
+  // on its next check-in.
+  if (!location.last_successful_sync_at) {
+    const error = new Error('Finish router setup before choosing the customer portal address.');
+    error.status = 409;
+    throw error;
+  }
   const hostname = managedPortalHostnameFromSlug(slug);
   if (!hostname) {
     const error = new Error('Use 1–63 lowercase letters, numbers, or hyphens for the portal address.');
@@ -1275,15 +1465,16 @@ function setManagedPortalHostname({ locationId, businessId, slug }) {
   return { ...locationForBusiness.get(locationId, businessId), portalDomains: portalDomainsForLocation.all(locationId) };
 }
 
-function rotateLocationToken({ locationId, businessId }) {
+function rotateLocationToken({ locationId, businessId, pendingSetup } = {}) {
   const location = locationForBusiness.get(locationId, businessId);
   if (!location) return null;
   const routerToken = crypto.randomBytes(24).toString('base64url');
   const hash = tokenHash(routerToken);
-  // Staging keeps the live router online until the replacement kit makes its
-  // first authenticated check-in. A pasted-but-never-imported kit therefore
-  // cannot interrupt paid customers.
-  stageLocationToken.run(hash, nowSql(Date.now() + 24 * 60 * 60 * 1000), locationId);
+  // Staging keeps the live router online until the replacement has completed
+  // a two-poll receipt handshake. A pasted-but-never-imported kit therefore
+  // cannot interrupt paid customers or alter their active configuration.
+  const pendingSetupJson = pendingSetup ? JSON.stringify(pendingSetup) : null;
+  stageLocationToken.run({ tokenHash: hash, expiresAt: nowSql(Date.now() + 24 * 60 * 60 * 1000), locationId, pendingSetupJson });
   return { ...location, routerToken };
 }
 
@@ -1297,6 +1488,29 @@ function updateLocationSettings({ locationId, businessId, name, routerName, hots
   updateLocation.run({ id: locationId, businessId, name: name || current.name,
     routerName: routerName === undefined ? current.router_name || null : routerName || null, ...saved });
   return locationForBusiness.get(locationId, businessId);
+}
+
+/** Stage a replacement kit and its future settings together. The active
+ * router keeps both its token and its Hotspot settings until the new router
+ * acknowledges the receipt challenge, at which point this snapshot promotes
+ * atomically with the credential. */
+function stageLocationReplacement({ locationId, businessId, name, routerName, hotspotServer, setup }) {
+  const current = locationForBusiness.get(locationId, businessId);
+  if (!current) return null;
+  const resolvedHotspotServer = hotspotServer === undefined
+    ? (setup?.hotspotServer === undefined ? current.hotspot_server : setup.hotspotServer)
+    : hotspotServer;
+  const saved = savedSetup({ ...setupFromLocation(current), ...(setup || {}), hotspotServer: resolvedHotspotServer });
+  const next = {
+    name: name || current.name,
+    routerName: routerName === undefined ? current.router_name || null : routerName || null,
+    ...saved,
+  };
+  const staged = rotateLocationToken({ locationId, businessId, pendingSetup: next });
+  if (!staged) return null;
+  // Reflect the owner's requested label in the one-time response without
+  // claiming that the live router already uses the staged configuration.
+  return { ...staged, name: next.name, router_name: next.routerName, routerToken: staged.routerToken, pending_setup: true };
 }
 
 /**
@@ -1329,7 +1543,7 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
       Number(location.job_count) || Number(location.device_count) || Number(location.voucher_count) ||
       Number(location.remote_access_count) || Number(location.remote_access_event_count) ||
       Number(location.remote_control_count) || supportTicketCount;
-    if (location.router_status !== 'waiting' || location.last_seen_at || location.last_successful_sync_at || hasHistory) {
+    if (location.router_status !== 'waiting' || location.last_seen_at || location.last_router_contact_at || location.last_successful_sync_at || hasHistory) {
       const error = new Error('This setup has already been paired or has customer, payment, voucher, router-job, support, or remote-setup history. Keep the location and generate a replacement router kit instead.');
       error.status = 409;
       throw error;
@@ -1359,11 +1573,12 @@ function authenticateRouter(locationId, rawToken, transport = 'header') {
   if (!location || !supplied.length) return null;
   if (matches(location.router_token_hash)) {
     touchRouter.run(locationId);
-    return location;
+    return { ...location, router_pairing_auth: 'active' };
   }
-  if (matches(location.router_pending_token_hash)) {
-    const promoted = promotePendingLocationToken.run(tokenMarker(rawToken), suppliedHash, locationId, suppliedHash);
-    if (promoted.changes) return locationById.get(locationId);
+  const pendingExpiry = Date.parse(String(location.router_pending_token_expires_at || '').replace(' ', 'T') + 'Z');
+  if (matches(location.router_pending_token_hash) && Number.isFinite(pendingExpiry) && pendingExpiry > Date.now()) {
+    touchRouter.run(locationId);
+    return { ...location, router_pairing_auth: 'pending' };
   }
   return null;
 }
@@ -1615,7 +1830,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, recordSuccessfulRouterSync,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
   remoteAccessForLocation, remoteAccessForBusiness, requestRemoteAccess, revokeRemoteAccessForBusiness, manageRemoteAccess, recordRemoteAccessEnrollment,
   pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,

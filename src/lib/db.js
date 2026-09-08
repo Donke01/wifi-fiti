@@ -120,6 +120,10 @@ db.exec(`
     organisation_completed_at TEXT,
     hotspot_name    TEXT,
     portal_name     TEXT,
+    -- This is intentionally separate from organisation completion. A
+    -- customer-facing address is chosen only after the first router has
+    -- successfully completed its WiFi Fiti connection.
+    portal_setup_completed_at TEXT,
     support_phone   TEXT,
     brand_primary_color TEXT,
     brand_logo_path TEXT,
@@ -153,6 +157,29 @@ db.exec(`
     wifi_ssid       TEXT,
     customer_ports  TEXT,
     hotspot_subnet  TEXT,
+    -- A customer page belongs to a router location, not to the whole
+    -- business.  Each additional router follows the same post-connection
+    -- customer-page step.
+    portal_setup_completed_at TEXT,
+    -- The cloud records a one-time update sent to legacy pollers that cannot
+    -- report their current portal host. A reporting router is still retried
+    -- whenever it declares a different host.
+    router_portal_update_sent_host TEXT,
+    -- A router is only ready after it proves it ran the cloud's reply on
+    -- the following poll. These values make an interrupted fetch harmless:
+    -- a request alone can never turn a router live or replace an active one.
+    last_router_contact_at TEXT,
+    router_setup_nonce TEXT,
+    router_pending_setup_nonce TEXT,
+    router_setup_verified_at TEXT,
+    router_setup_health TEXT,
+    router_setup_checked_at TEXT,
+    -- Replacement settings stay isolated from the live router until its
+    -- new one-time credential completes the receipt-backed handshake.
+    router_pending_setup_json TEXT,
+    -- Updated only after the router has fetched the new login page, not
+    -- merely after the cloud asked it to do so.
+    router_portal_applied_host TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -196,6 +223,17 @@ for (const stmt of [
   `ALTER TABLE businesses ADD COLUMN onboarding_state TEXT NOT NULL DEFAULT 'complete'`,
   `ALTER TABLE businesses ADD COLUMN organisation_completed_at TEXT`,
   `ALTER TABLE businesses ADD COLUMN hotspot_name TEXT`,
+  `ALTER TABLE businesses ADD COLUMN portal_setup_completed_at TEXT`,
+  `ALTER TABLE locations ADD COLUMN portal_setup_completed_at TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_portal_update_sent_host TEXT`,
+  `ALTER TABLE locations ADD COLUMN last_router_contact_at TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_setup_nonce TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_pending_setup_nonce TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_setup_verified_at TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_setup_health TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_setup_checked_at TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_pending_setup_json TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_portal_applied_host TEXT`,
   `ALTER TABLE business_packages ADD COLUMN rate_limit TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
@@ -565,7 +603,7 @@ const addBusiness = db.prepare(`
 const businessByEmail = db.prepare(`SELECT * FROM businesses WHERE email = ?`);
 const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at,
   onboarding_state, organisation_completed_at, hotspot_name,
-  portal_name, support_phone, brand_primary_color, brand_logo_path, portal_message, created_at
+  portal_name, portal_setup_completed_at, support_phone, brand_primary_color, brand_logo_path, portal_message, created_at
   FROM businesses WHERE id = ?`);
 const addBusinessSession = db.prepare(`
   INSERT INTO business_sessions (token_hash, business_id, expires_at)
@@ -574,7 +612,7 @@ const addBusinessSession = db.prepare(`
 const businessForSession = db.prepare(`
   SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode, b.billing_status, b.billing_expires_at,
          b.onboarding_state, b.organisation_completed_at, b.hotspot_name,
-         b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message
+         b.portal_name, b.portal_setup_completed_at, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message
     FROM business_sessions s JOIN businesses b ON b.id = s.business_id
    WHERE s.token_hash = ? AND s.expires_at > datetime('now')
 `);
@@ -599,6 +637,16 @@ const updateBusinessBranding = db.prepare(`
      SET portal_name=@portalName, support_phone=@supportPhone,
          brand_primary_color=@primaryColor, portal_message=@portalMessage
    WHERE id=@id
+`);
+const completeBusinessPortalSetup = db.prepare(`
+  UPDATE businesses
+     SET portal_setup_completed_at=COALESCE(portal_setup_completed_at, datetime('now'))
+   WHERE id=@id
+`);
+const completeLocationPortalSetup = db.prepare(`
+  UPDATE locations
+     SET portal_setup_completed_at=COALESCE(portal_setup_completed_at, datetime('now'))
+   WHERE id=@id AND business_id=@businessId
 `);
 const setBusinessLogo = db.prepare(`
   UPDATE businesses SET brand_logo_path=@brandLogoPath WHERE id=@id
@@ -682,6 +730,8 @@ module.exports = {
   setBusinessPlan,
   setBusinessTrial,
   updateBusinessBranding,
+  completeBusinessPortalSetup,
+  completeLocationPortalSetup,
   setBusinessLogo,
   businessBrandingById,
   addLocation,

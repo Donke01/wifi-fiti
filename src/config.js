@@ -26,13 +26,22 @@ if (missing.length) {
 
 const env = process.env.MPESA_ENV === 'production' ? 'production' : 'sandbox';
 
+function localHttpHost(host) {
+  const value = String(host || '').toLowerCase();
+  return value === 'localhost' || value === '127.0.0.1' || value === '::1' || value.endsWith('.localhost') || value.endsWith('.test');
+}
+
 function webOrigin(value, name) {
   try {
     const parsed = new URL(value);
     if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('unsupported protocol');
+    // Router credentials and customer payment sessions must never traverse
+    // an ordinary production HTTP origin. Local and .test development hosts
+    // remain available for the in-process test suite and local preview.
+    if (parsed.protocol === 'http:' && !localHttpHost(parsed.hostname)) throw new Error('HTTPS required');
     return parsed.origin;
   } catch (_) {
-    console.error(`${name} must be a full http:// or https:// URL.`);
+    console.error(`${name} must be a full https:// URL (http:// is allowed only for localhost or .test development hosts).`);
     process.exit(1);
   }
 }

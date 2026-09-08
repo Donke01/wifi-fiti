@@ -80,6 +80,87 @@ function portalUrlForRouter(location, requestedHostname) {
   return `${config.domains.appUrl}/p/${encodeURIComponent(location.id)}`;
 }
 
+/**
+ * Keep a paired router's captive-login redirect aligned with the customer
+ * address selected after setup. It uses a reported current host when
+ * available, otherwise the known cloud host used by older kits. It creates one exact
+ * walled-garden entry and refreshes login.html; it never opens an inbound
+ * management service or changes a customer's network.
+ *
+ * The changed address is also persisted in boot settings, so a power cut
+ * cannot restore the former captive-login redirect.
+ */
+function routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
+  if (!config.domains.portalGatewayEnabled) return '';
+  const desiredHost = edgeHostname(location && location.portal_hostname);
+  const appliedHost = edgeHostname(reportedPortalAppliedHost);
+  const legacyHost = edgeHostname(reportedPortalHost);
+  if (!desiredHost) return '';
+  // New pollers report portalApplied only after the replacement login file
+  // was fetched. Older pollers retain compatibility when their reported
+  // address already matches, without affecting router pairing readiness.
+  if (appliedHost === desiredHost || (!appliedHost && legacyHost === desiredHost)) return '';
+  const desiredUrl = `https://${desiredHost}`;
+  return [
+    ':global fitiUrl',
+    ':global fitiSite',
+    ':global fitiToken',
+    ':global fitiPortalUrl',
+    ':global fitiPortalHost',
+    ':global fitiPortalAppliedHost',
+    ':global fitiBridge',
+    ':global fitiHotspotServer',
+    ':global fitiSupportEnabled',
+    ':global fitiSupportEnrollUrl',
+    ':global fitiSupportInterface',
+    ':if ([:len $fitiHotspotServer] = 0) do={ :set fitiHotspotServer "hotspot1" }',
+    ':if ([:len $fitiBridge] = 0) do={ :set fitiBridge "bridge-hs" }',
+    ':if ([:len $fitiSupportEnabled] = 0) do={ :set fitiSupportEnabled "no" }',
+    ':if ([:len $fitiSupportEnrollUrl] = 0) do={ :set fitiSupportEnrollUrl ($fitiUrl . "/api/router/support-enroll") }',
+    ':if ([:len $fitiSupportInterface] = 0) do={ :set fitiSupportInterface "fiti-support-wg" }',
+    `:local fitiDesiredPortalHost "${desiredHost}"`,
+    `:local fitiDesiredPortalUrl "${desiredUrl}"`,
+    ':if ($fitiPortalAppliedHost != $fitiDesiredPortalHost) do={',
+    '  :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiDesiredPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiDesiredPortalHost comment="WiFi Fiti customer portal" }',
+    '  :if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={',
+    '    :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]',
+    '    :local fitiHtmlDir [/ip hotspot profile get [find where name=$fitiProfile] html-directory]',
+    '    :if ([:len $fitiHtmlDir] = 0) do={ :set fitiHtmlDir "hotspot" }',
+    '    :local fitiLoginUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login?portal=" . $fitiDesiredPortalHost)',
+    '    :do {',
+    '      /tool fetch url=$fitiLoginUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/login.html")',
+    '      :set fitiPortalHost $fitiDesiredPortalHost',
+    '      :set fitiPortalUrl $fitiDesiredPortalUrl',
+    '      :set fitiPortalAppliedHost $fitiDesiredPortalHost',
+    '  :local fitiBoot [/system script find where name="fiti-boot"]',
+    '  :if ([:len $fitiBoot] = 1) do={',
+    '    :local fitiBootSource (":global fitiUrl \\"" . $fitiUrl . "\\"\\r\\n" .',
+    '      ":global fitiPortalUrl \\"" . $fitiDesiredPortalUrl . "\\"\\r\\n" .',
+    '      ":global fitiPortalHost \\"" . $fitiDesiredPortalHost . "\\"\\r\\n" .',
+    '      ":global fitiPortalAppliedHost \\"" . $fitiDesiredPortalHost . "\\"\\r\\n" .',
+    '      ":global fitiSite \\"" . $fitiSite . "\\"\\r\\n" .',
+    '      ":global fitiToken \\"" . $fitiToken . "\\"\\r\\n" .',
+    '      ":global fitiSetupProtocol \\"2\\"\\r\\n" .',
+    '      ":global fitiBridge \\"" . $fitiBridge . "\\"\\r\\n" .',
+    '      ":global fitiHotspotServer \\"" . $fitiHotspotServer . "\\"\\r\\n" .',
+    '      ":global fitiSupportEnabled \\"" . $fitiSupportEnabled . "\\"\\r\\n" .',
+    '      ":global fitiSupportEnrollUrl \\"" . $fitiSupportEnrollUrl . "\\"\\r\\n" .',
+    '      ":global fitiSupportInterface \\"" . $fitiSupportInterface . "\\"\\r\\n" .',
+    '      ":local fitiSupportScheduler [/system scheduler find where name=\\"fiti-support-enroll\\"]\\r\\n" .',
+    '      ":if ([:len $fitiSupportScheduler] = 1) do={ /system scheduler disable $fitiSupportScheduler }\\r\\n" .',
+    '      ":global fitiAck \\\"\\\"\\r\\n" .',
+    '      ":global fitiSupportAck \\\"\\\"\\r\\n" .',
+    '      ":global fitiSetupAck \\\"\\\"\\r\\n" .',
+    '      ":log info \\"fiti: settings restored after boot\\"\\r\\n")',
+    '    /system script set $fitiBoot source=$fitiBootSource',
+    '      } else={ :log warning "fiti: customer portal address will need a refreshed connection kit after reboot" }',
+    '      :log info "fiti: customer portal address updated"',
+    '    } on-error={ :log warning "fiti: customer portal update failed" }',
+    '  } else={ :log warning "fiti: customer portal update skipped; Hotspot server was not found" }',
+    '}',
+  ].join('\n') + '\n';
+}
+
 function edgePortalOriginForRequest(req, location) {
   const host = requestHost(req);
   if (host !== config.domains.appHost && !localDevelopmentHost(host)) return null;
@@ -181,7 +262,10 @@ app.use((req, res, next) => {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     // Business users should land on app even if they follow an old bookmark.
     // Keep portal and API paths here because existing routers still use them.
-    if (isGet && (req.path === '/business.html' || req.path === '/operations.html')) return redirectToApp(req, res);
+    // In a local or transitional single-host deployment the app and legacy
+    // names may intentionally be identical. Redirecting a business page in
+    // that case would point straight back to itself forever.
+    if (host !== config.domains.appHost && isGet && (req.path === '/business.html' || req.path === '/operations.html')) return redirectToApp(req, res);
     return next();
   }
 
@@ -583,6 +667,52 @@ app.patch('/api/business/branding', (req, res) => {
   }
 });
 
+/**
+ * The first customer-facing screen is intentionally completed only after a
+ * router has checked in. This keeps a new owner on one clear path: connect
+ * the router first, then choose the address customers will see.
+ */
+app.post('/api/business/onboarding/customer-portal', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const body = req.body || {};
+    const locationId = String(body.locationId || '').trim();
+    const currentLocation = tenant.locationForBusiness.get(locationId, business.id);
+    if (!currentLocation) return res.status(404).json({ error: 'Router location not found.' });
+    if (!currentLocation.last_successful_sync_at) {
+      return res.status(409).json({ error: 'Finish router setup before choosing the customer portal address.' });
+    }
+    const portalName = portalText(body.portalName === undefined ? (business.portal_name || business.name) : body.portalName,
+      'customer-facing business name', 80, true);
+    const supportRaw = String(body.supportPhone === undefined ? business.support_phone || '' : body.supportPhone || '').trim();
+    const supportPhone = supportRaw ? mpesa.normalizePhone(supportRaw) : null;
+    if (supportRaw && !supportPhone) return res.status(400).json({ error: 'Enter a valid Kenyan support phone number, or leave it blank.' });
+
+    let location = currentLocation;
+    if (config.domains.portalGatewayEnabled) {
+      const slug = String(body.portalSlug || '').trim().toLowerCase();
+      if (!slug) return res.status(400).json({ error: 'Choose a customer portal address.' });
+      if (tenant.managedPortalSlugReserved(slug)) return res.status(400).json({ error: 'Choose a different customer portal address.' });
+      location = tenant.setManagedPortalHostname({ locationId: currentLocation.id, businessId: business.id, slug });
+    }
+
+    db.updateBusinessBranding.run({
+      id: business.id,
+      portalName,
+      supportPhone,
+      primaryColor: primaryColor(business.brand_primary_color),
+      portalMessage: portalText(business.portal_message, 'portal message', 120),
+    });
+    db.completeBusinessPortalSetup.run({ id: business.id });
+    db.completeLocationPortalSetup.run({ id: location.id, businessId: business.id });
+    location = tenant.locationForBusiness.get(location.id, business.id);
+    const updated = db.businessById.get(business.id);
+    res.json({ business: updated, location, portalUrl: portalUrlForLocation(location) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not save the customer portal.' });
+  }
+});
+
 app.post('/api/business/branding/logo', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   try {
@@ -789,15 +919,19 @@ app.post('/api/business/locations/:locationId/router-setup', (req, res) => {
   const body = req.body || {};
   try {
     const setup = validateRouterSetup(body);
-    if (setup.mode === 'new' && String(body.replaceRouter || '') !== 'yes') {
+    // A first kit for a saved draft is not replacing a live router. Ask for
+    // explicit confirmation only once this location has actually checked in.
+    if (setup.mode === 'new' && current.last_successful_sync_at && String(body.replaceRouter || '') !== 'yes') {
       return res.status(400).json({ error: 'Confirm that this new/reset kit is replacing the current router before generating it.' });
     }
     const name = body.name === undefined ? current.name : String(body.name || '').trim().slice(0, 80);
     const routerName = body.routerName === undefined ? current.router_name : String(body.routerName || '').trim().slice(0, 80);
     if (!name) return res.status(400).json({ error: 'Give this location a name.' });
-    tenant.updateLocationSettings({ locationId: current.id, businessId: business.id, name, routerName,
+    // Keep the live router's Hotspot settings intact while the replacement
+    // kit is being pasted. Both the new token and the future settings promote
+    // together only after the replacement completes its receipt handshake.
+    const location = tenant.stageLocationReplacement({ locationId: current.id, businessId: business.id, name, routerName,
       hotspotServer: setup.hotspotServer, setup });
-    const location = tenant.rotateLocationToken({ locationId: current.id, businessId: business.id });
     if (!location) return res.status(404).json({ error: 'Location not found.' });
     const portalUrl = portalUrlForLocation(location);
     const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, portalUrl, input: body });
@@ -2581,6 +2715,9 @@ app.post('/api/router/support-enroll', (req, res) => {
   const locationId = String(req.query.site || '');
   const location = tenant.authenticateRouter(locationId, req.get('X-WiFi-Fiti-Router'), 'header');
   if (!location) return res.status(403).type('text/plain').send('forbidden');
+  if (location.router_pairing_auth !== 'active' || !location.router_setup_verified_at) {
+    return res.status(409).type('text/plain').send('router setup is not verified');
+  }
   try {
     const { publicKey } = parseRemoteSupportEnrollment(req.body, location.id);
     tenant.recordRemoteAccessEnrollment({ locationId: location.id, publicKey });
@@ -2600,11 +2737,29 @@ function routerAckIds(value) {
     .slice(0, 50);
 }
 
-function tenantRouterScript(location) {
+function routerSetupReceiptScript(challenge) {
+  if (!challenge) return '';
+  return [
+    ':global fitiSetupAck',
+    `:set fitiSetupAck "${challenge}"`,
+    ':log info "fiti: setup receipt queued"',
+  ].join('\n') + '\n';
+}
+
+function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
+  // A candidate replacement must not collect jobs or acknowledge old work
+  // before it has completed the receipt challenge. This protects a live
+  // router from a partially imported or misdirected replacement kit.
+  if (location.router_pairing_auth === 'pending' || !location.router_setup_verified_at) {
+    return { script: '', emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
+  }
   tenant.queueExpiredSubscriptions(location.id);
   const jobs = tenant.pendingJobs.all(location.id);
   const controls = tenant.pendingRemoteSupportControls.all(location.id);
-  if (!jobs.length && !controls.length) return { script: '', emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
+  const portal = routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost });
+  if (!jobs.length && !controls.length) {
+    return { script: portal, emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
+  }
 
   // Support controls always use their own queue and ACK global. They are
   // emitted before customer provisioning so a requested cleanup cannot be
@@ -2619,7 +2774,7 @@ function tenantRouterScript(location) {
   }
 
   if (!jobs.length) {
-    return { script: support.script, emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
+    return { script: [portal, support.script].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
   }
 
   const { script, emitted, rejected } = buildScript({
@@ -2632,7 +2787,7 @@ function tenantRouterScript(location) {
   }
   if (emitted.length) console.log(`[tenant router] ${location.id} collected job(s) ${emitted.join(', ')}`);
   return {
-    script: [support.script, script].filter(Boolean).join('\n'),
+    script: [portal, support.script, script].filter(Boolean).join('\n'),
     emitted,
     rejected,
     supportEmitted: support.emitted,
@@ -2680,7 +2835,10 @@ function ingestTenantUsage(location, rawBody) {
 app.get('/api/router/jobs', (req, res) => {
   const location = tenantRouterForRequest(req, res);
   if (location === false) return;
-  if (location) return res.type('text/plain').send(tenantRouterScript(location).script);
+  if (location) return res.type('text/plain').send(tenantRouterScript(location, {
+    reportedPortalAppliedHost: req.query.portalApplied,
+    reportedPortalHost: req.query.portal,
+  }).script);
 
   const site = authSite(req, res);
   if (!site) return;
@@ -2718,15 +2876,29 @@ app.post('/api/router/sync', (req, res) => {
   const location = tenantRouterForRequest(req, res);
   if (location === false) return;
   if (location) {
-    acknowledgeTenantRouterJobs(location, req.query.ack);
-    acknowledgeTenantRemoteSupportControls(location, req.query.supportAck);
-    ingestTenantUsage(location, req.body);
-    // Build the full response before recording the stronger onboarding
-    // signal. Authentication alone updates ordinary router health, but only
-    // a successful tenant sync round-trip may unlock owner remote-support
-    // consent.
-    const response = tenantRouterScript(location).script;
-    tenant.recordSuccessfulRouterSync(location.id);
+    const receipt = tenant.processRouterSetupReceipt(location, {
+      protocol: req.query.protocol,
+      ack: req.query.setupAck,
+      health: req.query.health,
+    });
+    if (!receipt.verified) {
+      // The response is deliberately receipt-only. Do not accept usage,
+      // jobs, or support controls until the router proves it executed a prior
+      // response. A dropped response cannot be mistaken for a paired router.
+      return res.type('text/plain').send(routerSetupReceiptScript(receipt.challenge));
+    }
+    let readyLocation = tenant.autoCompleteCustomerPortal(receipt.location.id) || receipt.location;
+    const appliedHost = edgeHostname(req.query.portalApplied);
+    if (appliedHost && appliedHost === edgeHostname(readyLocation.portal_hostname)) {
+      readyLocation = tenant.recordRouterPortalApplied(readyLocation.id, appliedHost);
+    }
+    acknowledgeTenantRouterJobs(readyLocation, req.query.ack);
+    acknowledgeTenantRemoteSupportControls(readyLocation, req.query.supportAck);
+    ingestTenantUsage(readyLocation, req.body);
+    const response = tenantRouterScript(readyLocation, {
+      reportedPortalAppliedHost: req.query.portalApplied,
+      reportedPortalHost: req.query.portal,
+    }).script;
     return res.type('text/plain').send(response);
   }
 

@@ -33,8 +33,11 @@
 :global fitiUrl
 :global fitiPortalUrl
 :global fitiPortalHost
+:global fitiPortalAppliedHost
 :global fitiSite
 :global fitiToken
+:global fitiSetupAck
+:global fitiSetupProtocol
 :global fitiBridge
 :global fitiSupportEnabled
 :global fitiSupportEnrollUrl
@@ -44,6 +47,9 @@
 }
 :if ([:len $fitiBridge] = 0) do={ :set fitiBridge "bridge-hs" }
 :if ([:len $fitiPortalHost] = 0) do={ :set fitiPortalHost "" }
+:if ([:len $fitiPortalAppliedHost] = 0) do={ :set fitiPortalAppliedHost "" }
+:if ([:len $fitiSetupAck] = 0) do={ :set fitiSetupAck "" }
+:if ([:len $fitiSetupProtocol] = 0) do={ :set fitiSetupProtocol "2" }
 :if ([:len $fitiSupportEnabled] = 0) do={ :set fitiSupportEnabled "no" }
 :if ([:len $fitiSupportEnrollUrl] = 0) do={ :set fitiSupportEnrollUrl ($fitiUrl . "/api/router/support-enroll") }
 :if ([:len $fitiSupportInterface] = 0) do={ :set fitiSupportInterface "fiti-support-wg" }
@@ -78,7 +84,8 @@
 :local fitiLoginUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login")
 :if ([:len $fitiPortalHost] > 0) do={ :set fitiLoginUrl ($fitiLoginUrl . "?portal=" . $fitiPortalHost) }
 /tool fetch url=$fitiLoginUrl \
-  http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($htmlDir . "/login.html")
+  check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($htmlDir . "/login.html")
+:set fitiPortalAppliedHost $fitiPortalHost
 
 :if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={
   /ip hotspot user profile add name=standard shared-users=1
@@ -97,6 +104,7 @@
 }
 
 :global fitiAck ""
+:global fitiSetupAck ""
 :global fitiSupportAck ""
 
 /system script remove [find name="fiti-poll"]
@@ -104,35 +112,52 @@
 /system scheduler remove [find name="fiti-poll"]
 /system scheduler remove [find name="fiti-globals"]
 
-/system script add name=fiti-poll policy=read,write,test,policy source="\
+/system script add name=fiti-poll policy=read,write,ftp,test,policy source="\
 :global fitiUrl\r\
+\n:global fitiPortalHost\r\
+\n:global fitiPortalAppliedHost\r\
 \n:global fitiSite\r\
 \n:global fitiToken\r\
+\n:global fitiBridge\r\
+\n:global fitiHotspotServer\r\
 \n:global fitiAck\r\
+\n:global fitiSetupAck\r\
+\n:global fitiSetupProtocol\r\
 \n:global fitiSupportAck\r\
 \n:if ([:len \$fitiToken] > 8) do={\r\
 \n  :local report \"\"\r\
+\n  :local reportCount 0\r\
 \n  :foreach u in=[/ip hotspot user find where name~\"^254\"] do={\r\
-\n    :local n [/ip hotspot user get \$u name]\r\
-\n    :local up [/ip hotspot user get \$u uptime]\r\
-\n    :local lim [/ip hotspot user get \$u limit-uptime]\r\
-\n    :local act 0\r\
-\n    :if ([:len [/ip hotspot active find where user=\$n]] > 0) do={ :set act 1 }\r\
-\n    :set report (\$report . \$n . \":\" . [:tonum \$up] . \":\" . [:tonum \$lim] . \":\" . \$act . \"\\n\")\r\
+\n    :if (\$reportCount < 100) do={\r\
+\n      :local n [/ip hotspot user get \$u name]\r\
+\n      :local up [/ip hotspot user get \$u uptime]\r\
+\n      :local lim [/ip hotspot user get \$u limit-uptime]\r\
+\n      :local act 0\r\
+\n      :if ([:len [/ip hotspot active find where user=\$n]] > 0) do={ :set act 1 }\r\
+\n      :set report (\$report . \$n . \":\" . [:tonum \$up] . \":\" . [:tonum \$lim] . \":\" . \$act . \"\\n\")\r\
+\n      :set reportCount (\$reportCount + 1)\r\
+\n    }\r\
 \n  }\r\
+\n  :local fitiHealth \"ready\"\r\
+\n  :if ([:len [/ip hotspot find where name=\$fitiHotspotServer]] != 1) do={ :set fitiHealth \"hotspot-missing\" }\r\
+\n  :if ([:len [/interface bridge find where name=\$fitiBridge]] != 1) do={ :set fitiHealth \"bridge-missing\" }\r\
+\n  :if ([:len [/system script find where name=\"fiti-poll\"]] != 1) do={ :set fitiHealth \"poller-missing\" }\r\
+\n  :if ([:len \$fitiPortalHost] > 0 && \$fitiPortalAppliedHost != \$fitiPortalHost) do={ :set fitiHealth \"portal-missing\" }\r\
 \n  :local sending \$fitiAck\r\
+\n  :local sendingSetup \$fitiSetupAck\r\
 \n  :local sendingSupport \$fitiSupportAck\r\
-\n  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite . \"&ack=\" . \$sending . \"&supportAck=\" . \$sendingSupport)\r\
+\n  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite . \"&ack=\" . \$sending . \"&setupAck=\" . \$sendingSetup . \"&supportAck=\" . \$sendingSupport . \"&protocol=\" . \$fitiSetupProtocol . \"&health=\" . \$fitiHealth . \"&portal=\" . \$fitiPortalHost . \"&portalApplied=\" . \$fitiPortalAppliedHost)\r\
 \n  :local reply \"\"\r\
 \n  :local ok false\r\
 \n  :do {\r\
-\n    :set reply [/tool fetch url=\$url http-header-field=(\"X-WiFi-Fiti-Router: \" . \$fitiToken) http-method=post http-data=\$report output=user as-value]\r\
-\n    :set ok true\r\
+\n    :set reply [/tool fetch url=\$url check-certificate=yes http-header-field=(\"X-WiFi-Fiti-Router: \" . \$fitiToken) http-method=post http-data=\$report output=user as-value]\r\
+\n    :if ([:typeof \$reply] = \"array\") do={ :if ((\$reply->\"status\") = \"finished\") do={ :set ok true } else={ :log warning \"fiti: cloud sync did not finish\" } } else={ :log warning \"fiti: cloud sync returned no status\" }\r\
 \n  } on-error={\r\
 \n    :log warning \"fiti: server unreachable\"\r\
 \n  }\r\
 \n  :if (\$ok) do={\r\
 \n    :if (\$fitiAck = \$sending) do={ :set fitiAck \"\" }\r\
+\n    :if (\$fitiSetupAck = \$sendingSetup) do={ :set fitiSetupAck \"\" }\r\
 \n    :if (\$fitiSupportAck = \$sendingSupport) do={ :set fitiSupportAck \"\" }\r\
 \n    :if ([:typeof \$reply] = \"array\") do={\r\
 \n      :local body (\$reply->\"data\")\r\
@@ -153,19 +178,23 @@
 # --- Restore settings at boot ----------------------------------------
 #  RouterOS clears globals on restart. Without this the poll silently
 #  stops after every power cut and payments queue up unseen.
-/system script add name=fiti-boot policy=read,write,test,policy source="\
+/system script add name=fiti-boot policy=read,write,ftp,test,policy source="\
 :global fitiUrl \"$fitiUrl\"\r\
 \n:global fitiPortalUrl \"$fitiPortalUrl\"\r\
 \n:global fitiPortalHost \"$fitiPortalHost\"\r\
+\n:global fitiPortalAppliedHost \"$fitiPortalAppliedHost\"\r\
 \n:global fitiSite \"$fitiSite\"\r\
 \n:global fitiToken \"$fitiToken\"\r\
+\n:global fitiSetupProtocol \"2\"\r\
 \n:global fitiBridge \"$fitiBridge\"\r\
+\n:global fitiHotspotServer \"$fitiHotspotServer\"\r\
 \n:global fitiSupportEnabled \"$fitiSupportEnabled\"\r\
 \n:global fitiSupportEnrollUrl \"$fitiSupportEnrollUrl\"\r\
 \n:global fitiSupportInterface \"$fitiSupportInterface\"\r\
 \n:local fitiSupportScheduler [/system scheduler find where name=\"fiti-support-enroll\"]\r\
 \n:if ([:len \$fitiSupportScheduler] = 1) do={ /system scheduler disable \$fitiSupportScheduler }\r\
 \n:global fitiAck \"\"\r\
+\n:global fitiSetupAck \"\"\r\
 \n:global fitiSupportAck \"\"\r\
 \n:log info \"fiti: settings restored after boot\"\r\
 \n"
@@ -208,7 +237,7 @@
 \n      :local fitiSupportUrl (\$fitiSupportEnrollUrl . \"\?site=\" . \$fitiSite)\r\
 \n      :local fitiSupportScheduler [/system scheduler find where name=\"fiti-support-enroll\"]\r\
 \n      :do {\r\
-\n        /tool fetch url=\$fitiSupportUrl http-header-field=(\"X-WiFi-Fiti-Router: \" . \$fitiToken) http-method=post http-data=\$fitiSupportPayload output=none\r\
+\n        /tool fetch url=\$fitiSupportUrl check-certificate=yes http-header-field=(\"X-WiFi-Fiti-Router: \" . \$fitiToken) http-method=post http-data=\$fitiSupportPayload output=none\r\
 \n        :if ([:len \$fitiSupportScheduler] = 1) do={ /system scheduler disable \$fitiSupportScheduler }\r\
 \n        :log info \"fiti support: public key reported; WireGuard remains disabled until the gateway is provisioned\"\r\
 \n      } on-error={\r\
@@ -224,7 +253,7 @@
 \n}\r\
 \n"
 /system script remove [find name="fiti-support-bootstrap"]
-/system script add name=fiti-support-bootstrap policy=read,write,test,policy source=$fitiSupportSource
+/system script add name=fiti-support-bootstrap policy=read,write,ftp,test,policy source=$fitiSupportSource
 
 # Leave the retry scheduler disabled until the customer has expressly opted
 # in. A failed bootstrap enables this scheduler for a retry during that
@@ -233,20 +262,20 @@
 :local fitiSupportScheduler [/system scheduler find where name="fiti-support-enroll"]
 :if ([:len $fitiSupportScheduler] = 0) do={
   /system scheduler add name=fiti-support-enroll interval=1h disabled=yes \
-    policy=read,write,test,policy on-event="/system script run fiti-support-bootstrap" \
+    policy=read,write,ftp,test,policy on-event="/system script run fiti-support-bootstrap" \
     comment="WiFi Fiti: optional remote-support public-key enrollment"
 } else={
   /system scheduler set $fitiSupportScheduler interval=1h \
-    policy=read,write,test,policy on-event="/system script run fiti-support-bootstrap" \
+    policy=read,write,ftp,test,policy on-event="/system script run fiti-support-bootstrap" \
     comment="WiFi Fiti: optional remote-support public-key enrollment"
 }
 
 /system scheduler add name=fiti-globals start-time=startup interval=0 \
-  policy=read,write,test,policy on-event="/system script run fiti-boot" \
+  policy=read,write,ftp,test,policy on-event="/system script run fiti-boot" \
   comment="WiFi Fiti: restore settings after reboot"
 
 /system scheduler add name=fiti-poll interval=5s disabled=no \
-  policy=read,write,test,policy on-event="/system script run fiti-poll" \
+  policy=read,write,ftp,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 
 :put ""

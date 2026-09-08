@@ -75,9 +75,9 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   });
 
   // A dashboard owner may abandon an untouched draft, but that operation is
-  // deliberately narrow: it requires the exact confirmation and removes the
-  // paired hostname along with the one-time router credential.  It must not
-  // become a way to erase a router that has ever checked in.
+  // deliberately narrow: a customer hostname is not reserved until after a
+  // successful router sync. It must not become a way to erase a router that
+  // has ever checked in.
   const unusedDraft = tenant.createLocation({
     id: 'location-unused-draft', businessId: 'business-a', name: 'Unused draft', routerName: 'hAP lite',
   });
@@ -87,16 +87,14 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'discarding a draft requires an explicit, case-sensitive confirmation'
   );
   assert.ok(tenant.locationById.get(unusedDraft.id), 'a rejected discard leaves the draft intact');
-  assert.ok(tenant.portalDomainByHostname.get(unusedDraft.portalHostname),
-    'a rejected discard keeps the unused portal address reserved');
+  assert.strictEqual(unusedDraft.portalHostname, null,
+    'an unused draft has no customer address before router setup completes');
   const discarded = tenant.discardUnusedLocation({
     locationId: unusedDraft.id, businessId: 'business-a', confirm: 'DELETE',
   });
   assert.deepStrictEqual(discarded, { id: unusedDraft.id, name: 'Unused draft' });
   assert.strictEqual(tenant.locationById.get(unusedDraft.id), undefined,
     'a confirmed discard removes the unused location record');
-  assert.strictEqual(tenant.portalDomainByHostname.get(unusedDraft.portalHostname), undefined,
-    'a confirmed discard frees the managed portal address');
   assert.strictEqual(tenant.authenticateRouter(unusedDraft.id, unusedDraft.routerToken), null,
     'the discarded one-time pairing credential cannot check in later');
 
@@ -143,10 +141,16 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   assert.strictEqual(tenant.authenticateRouter(bravo.id, alpha.routerToken), null);
   assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken).business_id, 'business-a');
   const paired = tenant.locationById.get(alpha.id);
-  assert.strictEqual(paired.router_status, 'online');
-  assert.ok(paired.last_seen_at, 'successful pairing should record router health');
+  assert.strictEqual(paired.router_status, 'waiting',
+    'a router login records contact but does not claim readiness before the setup receipt');
+  assert.ok(paired.last_router_contact_at, 'router authentication should record the last contact');
   assert.strictEqual(paired.last_successful_sync_at, null,
     'generic router authentication must not be mistaken for a completed control-plane sync');
+  assert.throws(
+    () => tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-before-sync' }),
+    (error) => error && error.status === 409 && /Finish router setup/.test(error.message),
+    'a draft cannot reserve a customer address before a successful sync'
+  );
 
   // Remote support is intentionally a second, owner-consented onboarding
   // stage. It is unavailable before the first authenticated router poll,
@@ -266,24 +270,21 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'SELECT router_public_key FROM tenant_remote_access WHERE location_id=?'
   ).get(alpha.id).router_public_key, replacementSupportPublicKey);
 
-  // The generated label retains enough of the ID to stay unique at scale, and
-  // location/domain creation is atomic when a malformed legacy record happens
-  // to occupy a hostname.
-  assert.match(alpha.portalHostname, /-locationalpha\.fiti\.test$/, 'the full available location-id suffix is retained');
+  // Customer hostnames are owner-selected after sync. They are isolated by
+  // location and cannot be claimed by another tenant.
   const collisionOwner = tenant.createLocation({
     id: 'collision-owner', businessId: 'business-a', name: 'Collision owner', routerName: 'hAP lite',
   });
-  const collidingId = 'loc-1234567890abcdef';
-  legacy.db.prepare(`INSERT INTO tenant_portal_domains (hostname, location_id, kind, status, is_primary)
-    VALUES (?, ?, 'managed', 'active', 0)`).run('collision-1234567890abcdef.fiti.test', collisionOwner.id);
-  assert.throws(() => tenant.createLocation({
-    id: collidingId, businessId: 'business-a', name: 'Collision', routerName: 'hAP lite',
-  }), /UNIQUE constraint failed/);
-  assert.strictEqual(tenant.locationById.get(collidingId), undefined, 'a portal-host collision rolls back the new location and its pairing token');
+  tenant.recordSuccessfulRouterSync(collisionOwner.id);
+  tenant.setManagedPortalHostname({ locationId: collisionOwner.id, businessId: 'business-a', slug: 'collision' });
+  assert.throws(() => tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'collision' }),
+    (error) => error && error.status === 409 && /already in use/.test(error.message),
+    'a customer address belongs to only one location');
 
   tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-one' });
   tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-two' });
-  assert.throws(() => tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-three' }), /three active portal addresses/);
+  tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-three' });
+  assert.throws(() => tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-four' }), /three active portal addresses/);
   assert.strictEqual(tenant.managedPortalSlugReserved('cloud'), true, 'system host labels cannot be claimed by tenants');
   const staged = tenant.rotateLocationToken({ locationId: alpha.id, businessId: 'business-a' });
   assert.ok(staged.routerToken, 'replacement kit receives a one-time staged credential');
@@ -293,7 +294,14 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'a prior router sync is not presented as healthy while a replacement router is still pending');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken).business_id, 'business-a',
     'the live router stays online until the replacement kit checks in');
-  assert.strictEqual(tenant.authenticateRouter(alpha.id, staged.routerToken).business_id, 'business-a');
+  const pendingRouter = tenant.authenticateRouter(alpha.id, staged.routerToken);
+  assert.strictEqual(pendingRouter.business_id, 'business-a');
+  const challenge = tenant.processRouterSetupReceipt(pendingRouter, { protocol: '2', health: 'ready' });
+  assert.ok(challenge.challenge, 'a replacement router receives a receipt challenge before promotion');
+  const promoted = tenant.processRouterSetupReceipt(tenant.authenticateRouter(alpha.id, staged.routerToken), {
+    protocol: '2', ack: challenge.challenge, health: 'ready',
+  });
+  assert.strictEqual(promoted.promoted, true, 'the replacement promotes only after echoing the receipt');
   assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken), null,
     'the old router is retired only after the staged credential checks in');
   assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_pairing_pending, false,

@@ -2,6 +2,11 @@ const assert = require('assert');
 const fs = require('fs');
 const PORT = 15600;
 process.env.PORT = String(PORT); process.env.PUBLIC_URL = 'https://fiti.test';
+// A developer may run the complete app and legacy compatibility routes on
+// one host. Keep this explicit in the test so a business-page redirect cannot
+// accidentally point back to the very same URL forever.
+process.env.APP_URL = 'https://fiti.test'; process.env.LEGACY_HOST = 'fiti.test';
+process.env.MARKETING_URL = 'https://marketing.fiti.test';
 process.env.MPESA_CONSUMER_KEY = 'k'; process.env.MPESA_CONSUMER_SECRET = 's';
 process.env.MPESA_SHORTCODE = '174379'; process.env.MPESA_PASSKEY = 'p';
 process.env.PROVISION_MODE = 'poll'; process.env.SITE_TOKEN = 'business-test-token';
@@ -13,6 +18,11 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   body: JSON.stringify(body || {}) }).then(async r => ({ status:r.status, body:await r.json() }));
 (async () => {
   await new Promise(r => setTimeout(r, 200));
+  const sameHostBusinessPage = await fetch(`http://127.0.0.1:${PORT}/business.html`, {
+    headers: { Host: 'fiti.test' }, redirect: 'manual',
+  });
+  assert.strictEqual(sameHostBusinessPage.status, 200,
+    'a single-host local deployment must serve the dashboard instead of redirecting to itself');
   const created = await call('/api/business/register', {name:'North Star WiFi',ownerName:'Amina',phone:'0712345678',email:'amina@example.test',password:'securepass',plan:'starter',collectionMode:'own'});
   assert.strictEqual(created.status, 201); assert.ok(created.body.token);
   assert.strictEqual(created.body.onboarding.organisationComplete, true);

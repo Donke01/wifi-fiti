@@ -40,6 +40,8 @@ assert.match(existingKit.script, /:global fitiHotspotServer "guest-hotspot"/);
 assert.match(existingKit.script, /:global fitiSupportEnabled "no"/);
 assert.match(existingKit.script, /:global fitiSupportEnrollUrl "https:\/\/cloud\.wififiti\.co\.ke\/api\/router\/support-enroll"/);
 assert.match(existingKit.script, /:global fitiSupportInterface "fiti-support-wg"/);
+assert.match(existingKit.script, /:global fitiSetupProtocol "2"/);
+assert.match(existingKit.script, /check-certificate=yes/);
 assert.doesNotMatch(existingKit.script, /:global fitiSupportEnabled "yes"/);
 assert.match(existingKit.script, /tenant-router-install\.rsc/);
 assert.match(existingKit.script, /selected Hotspot server is not on the selected customer bridge/);
@@ -55,11 +57,17 @@ assert.match(installer, /api\/router\/support-enroll/);
 assert.match(installer, /fitiSupportExpectedUrl/);
 assert.match(installer, /\/system scheduler add name=fiti-support-enroll interval=1h disabled=yes/);
 assert.match(installer, /:global fitiSupportAck ""/);
+assert.match(installer, /:global fitiSetupAck ""/);
+assert.match(installer, /:global fitiSetupProtocol/);
+assert.match(installer, /fitiPortalAppliedHost/);
+assert.match(installer, /check-certificate=yes/);
 assert.match(installer, /&supportAck=/);
 const bootSource = installer.slice(installer.indexOf('/system script add name=fiti-boot'), installer.indexOf('# --- Optional remote-support'));
 assert.match(bootSource, /fiti-support-enroll/);
 assert.match(bootSource, /\/system scheduler disable/,
   'a reboot restores the dormant scheduler state');
+assert.match(bootSource, /fitiHotspotServer/,
+  'a reboot restores the Hotspot server used by the health check');
 assert.doesNotMatch(installer, /\/interface wireguard peers/);
 assert.doesNotMatch(installer, /persistent-keepalive/);
 assert.doesNotMatch(installer, /\[:parse \\$fitiSupportReply\]/);
@@ -77,6 +85,10 @@ assert.doesNotMatch(supportSource, /\/ip (?:address|route|firewall|service) /);
 assert.doesNotMatch(supportSource, /endpoint-address|endpoint-port/);
 const pollSource = installer.slice(installer.indexOf('/system script add name=fiti-poll'), installer.indexOf('# --- Restore settings at boot'));
 assert.match(pollSource, /fitiSupportAck/);
+assert.match(pollSource, /:global fitiPortalHost/,
+  'the polling script retains the current customer portal host');
+assert.match(pollSource, /&portal=\\\" \. \\\$/,
+  'each sync reports the customer portal host so the cloud can safely refresh it');
 assert.doesNotMatch(pollSource, /fitiSupportEnabled|support-enroll|wireguard|fiti-support/);
 
 const prepareSupport = remoteSupportControlToScript({ id: 91, action: 'prepare' });

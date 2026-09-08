@@ -14,15 +14,17 @@ assert.match(html, /action:\s*'revoke'/, 'an owner can revoke remote access');
 assert.match(html, /Customer traffic and payments never use this support path/, 'the UI does not imply customer traffic is routed through support access');
 assert.doesNotMatch(html, /privateKey|private-key|vpnPrivate/i, 'the business UI must never render VPN private material');
 
-// A tenant must be able to find its branded WiFi Fiti address before one has
-// been assigned.  Keeping this inside a `location.portal_hostname` condition
-// made the capability invisible precisely when a new location needed it.
+// A customer address is intentionally deferred until the router has proved
+// its WiFi Fiti connection. The normal dashboard must not tease an owner
+// with a setting that the server will correctly refuse.
 const locationEditor = html.match(/function renderLocationEditor\(location, card\) \{[\s\S]*?\n\s*function rotateLocationToken/);
 assert.ok(locationEditor, 'the location editor remains a distinct dashboard surface');
 assert.match(locationEditor[0], /field\('Customer portal address',\s*'portalSlug'/,
-  'the location editor always includes the managed portal-address field');
-assert.doesNotMatch(locationEditor[0], /if\s*\(\s*location\.portal_hostname\s*\)\s*field\(\s*'Customer portal address'/,
-  'the managed portal-address field is not hidden until a hostname already exists');
+  'the location editor has a managed portal-address field for connected routers');
+assert.match(locationEditor[0], /var routerConnected = Boolean\(location\.last_successful_sync_at\)/,
+  'the location editor derives availability from the completed router sync');
+assert.match(locationEditor[0], /Connect this router first/,
+  'an unconnected router receives a direct explanation instead of an unusable field');
 
 // Starting over must be safe for a live business: the dashboard can clear
 // unsaved wizard choices or stage a replacement kit, while deletion stays
@@ -60,7 +62,11 @@ assert.match(html, /sequential-onboarding[\s\S]*section:not\(#onboarding-section
 assert.match(html, /unlocked:\s*unlocked/,
   'the journey remembers which explicit Next action has unlocked each stage');
 assert.match(html, /number <= flow\.unlocked/,
-  'future stages remain locked until the owner explicitly advances to them');
+  'future stages remain locked until the current stage is complete');
+assert.match(html, /\.setup-rail\{pointer-events:none\}/,
+  'the progress rail is informational and cannot reopen unrelated setup pages');
+assert.match(html, /var item = el\('div', 'setup-stage '/,
+  'progress items are display-only rather than clickable controls');
 assert.match(html, /last_successful_sync_at/,
   'router pairing is derived from a completed secure sync');
 assert.match(html, /router_pairing_pending/,
@@ -79,10 +85,14 @@ assert.match(html, /document\.visibilityState === 'hidden'/,
   'automatic status checks pause while the dashboard is not visible');
 assert.match(html, /Router needs to reconnect/,
   'a historically paired but offline router is never presented as ready for customers');
-assert.match(html, /Review or delete unused setup/,
-  'the guided setup exposes the safe recovery route for a pristine draft');
-assert.match(html, /openOnboardingPortal/,
-  'the customer-portal step leads owners to their managed portal address settings');
+assert.match(html, /Create a different kit/,
+  'the guided setup offers a single clear recovery action for its connection kit');
+assert.match(html, /appendCustomerPortalSetup/,
+  'the customer-page step is rendered directly after router connection');
+assert.match(html, /!model\.portalReady/,
+  'customer page setup precedes packages and payment configuration');
+assert.match(html, /portal_setup_completed_at/,
+  'customer-page completion is tracked per selected router location');
 assert.match(html, /@media\(max-width:900px\)\{\.onboarding-flow-head[\s\S]*\.setup-rail\{grid-template-columns:1fr/,
   'the three setup stages stay readable in one connected mobile/tablet sequence');
 assert.match(html, /Initial Preparation \(Optional\)/,
@@ -108,26 +118,25 @@ assert.match(html, /name="routerName"[\s\S]*name="location"/,
 assert.match(html, /openRouterDraftModal\(\)/,
   'the initial router route is launched from the short dialog');
 
-// Secure remote access is the selected presentation route, but it must not
-// pretend that the current outbound polling check is a VPN handshake. Two
-// manual unsuccessful checks expose the explicitly selectable polling path.
-assert.match(html, /Secure remote access/,
-  'the recommended secure remote route is visible first');
-assert.match(html, /WiFi Fiti polling/,
-  'the customer can select the polling fallback');
-assert.match(html, /connectionAttemptCount\(location\)/,
-  'fallback availability tracks connection checks per router');
-assert.match(html, /attempts < 2/,
-  'the fallback is deferred until two unsuccessful checks');
-assert.match(html, /recordConnectionAttempt\(current\.location\)/,
-  'manual unsuccessful checks are recorded before exposing fallback');
+// The normal connection route is one outbound-only path. It must not pretend
+// to be a working VPN or make the owner choose between duplicate installers.
+assert.match(html, /Secure outbound connection/,
+  'the recommended outbound route is visible first');
 assert.doesNotMatch(html, /VPN connected/i,
   'the UI does not falsely claim a VPN handshake without a real gateway');
-assert.match(html, /\/system\/device-mode\/update mode=advanced/,
+assert.match(html, /\/system device-mode update mode=advanced/,
   'device-mode guidance is directly copyable');
-assert.match(html, /physical confirmation and reboot/,
+assert.match(html, /confirm the physical prompt/,
   'device-mode guidance accurately requires local RouterOS confirmation');
+const onboardingRenderer = html.match(/function renderOnboarding\(\) \{[\s\S]*?\n\s*function readFileDataUrl/);
+assert.ok(onboardingRenderer, 'the guided setup renderer is present');
+assert.doesNotMatch(onboardingRenderer[0], /mountSetupPanel\([^\n]*router-setup-section/,
+  'the legacy large router form is not mounted inside the focused journey');
+assert.match(onboardingRenderer[0], /appendSimpleRouterSetup\(connectBody, model\)/,
+  'the focused journey mounts one compact router-kit screen');
+assert.match(html, /\/api\/business\/onboarding\/customer-portal/,
+  'customer-page details use the post-connection endpoint');
 
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
-console.log('Business UI: remote onboarding, discoverable managed portal addressing, and client-script safety passed.');
+console.log('Business UI: focused onboarding, post-connection customer pages, and client-script safety passed.');

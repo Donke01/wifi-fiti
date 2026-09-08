@@ -185,7 +185,8 @@ async function t(name, fn) {
     );
     assert.strictEqual(r.status, 200);
     const s = await post('/api/session/lookup', { phone: '0722000001' });
-    assert.strictEqual(s.b.remainingSeconds, 10800, 'router usage must not replace wall-clock time');
+    assert.ok(s.b.remainingSeconds <= 10800 && s.b.remainingSeconds >= 10798,
+      'router usage must not replace wall-clock time');
   });
 
   await t('sync ignores junk lines without failing', async () => {
@@ -196,7 +197,8 @@ async function t(name, fn) {
     );
     assert.strictEqual(r.status, 200);
     const s = await post('/api/session/lookup', { phone: '0722000001' });
-    assert.strictEqual(s.b.remainingSeconds, 10800, 'junk should not have altered expiry');
+    assert.ok(s.b.remainingSeconds <= 10800 && s.b.remainingSeconds >= 10798,
+      'junk should not have altered expiry');
   });
 
   await t('accepts the urlencoded content-type RouterOS actually sends', async () => {

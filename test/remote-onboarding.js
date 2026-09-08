@@ -102,6 +102,19 @@ function supportEnrollmentPayload(site, publicKey = supportPublicKey) {
   return `version=1\nsite=${site}\ninterface=fiti-support-wg\npublic-key=${publicKey}\n`;
 }
 
+async function completeRouterSync(location) {
+  const query = `site=${encodeURIComponent(location.id)}&ack=&protocol=2&health=ready`;
+  const first = await api(`/api/router/sync?${query}`, {
+    method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
+  });
+  assert.equal(first.status, 200, first.text);
+  const challenge = first.text.match(/:set fitiSetupAck "([^"]+)"/);
+  if (!challenge) return first;
+  return api(`/api/router/sync?${query}&setupAck=${encodeURIComponent(challenge[1])}`, {
+    method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
+  });
+}
+
 async function main() {
   const alphaToken = await createBusiness('alpha-remote@example.test');
   const bravoToken = await createBusiness('bravo-remote@example.test');
@@ -146,8 +159,9 @@ async function main() {
       routerToken: location.routerToken,
     });
     assert.equal(jobs.status, 200, jobs.text);
-    const beforeSync = db.prepare('SELECT last_seen_at, last_successful_sync_at FROM locations WHERE id=?').get(location.id);
-    assert.ok(beforeSync.last_seen_at, 'authenticated router requests still update ordinary health telemetry');
+    const beforeSync = db.prepare('SELECT last_seen_at, last_router_contact_at, last_successful_sync_at FROM locations WHERE id=?').get(location.id);
+    assert.ok(beforeSync.last_router_contact_at, 'authenticated router requests still update ordinary contact telemetry');
+    assert.equal(beforeSync.last_seen_at, null, 'a generic router request does not claim a completed setup');
     assert.equal(beforeSync.last_successful_sync_at, null,
       'only the completed /api/router/sync route may unlock remote-support consent');
 
@@ -162,9 +176,7 @@ async function main() {
     assert.equal(db.prepare('SELECT last_successful_sync_at FROM locations WHERE id=?').get(location.id).last_successful_sync_at, null,
       'a rejected sync cannot create the required onboarding proof');
 
-    const paired = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
-      method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
-    });
+    const paired = await completeRouterSync(location);
     assert.equal(paired.status, 200, paired.text);
     assert.ok(db.prepare('SELECT last_successful_sync_at FROM locations WHERE id=?').get(location.id).last_successful_sync_at,
       'the valid sync stores the dedicated proof used by the owner-consent check');

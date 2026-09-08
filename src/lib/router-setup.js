@@ -160,6 +160,10 @@ function ros(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
+function fetchTlsOption(url) {
+  return new URL(url).protocol === 'https:' ? ' check-certificate=yes' : '';
+}
+
 function setupPrefix({ location, token, appUrl, portalUrl, config }) {
   const origin = new URL(appUrl).origin;
   const host = new URL(origin).hostname;
@@ -169,8 +173,11 @@ function setupPrefix({ location, token, appUrl, portalUrl, config }) {
     ':global fitiUrl ' + ros(origin),
     ':global fitiPortalUrl ' + ros(portalOrigin),
     ':global fitiPortalHost ' + ros(portalHost),
+    ':global fitiPortalAppliedHost ""',
     ':global fitiSite ' + ros(location.id),
     ':global fitiToken ' + ros(token),
+    ':global fitiSetupAck ""',
+    ':global fitiSetupProtocol "2"',
     ':global fitiBridge ' + ros(config.customerBridge),
     ':global fitiHotspotServer ' + ros(config.hotspotServer),
     // Remote support is intentionally dormant in every generated kit. The
@@ -193,8 +200,11 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config }) {
     ':global fitiUrl ' + ros(origin),
     ':global fitiPortalUrl ' + ros(portalOrigin),
     ':global fitiPortalHost ' + ros(portalHost),
+    ':global fitiPortalAppliedHost ""',
     ':global fitiSite ' + ros(location.id),
     ':global fitiToken ' + ros(token),
+    ':global fitiSetupAck ""',
+    ':global fitiSetupProtocol "2"',
     ':global fitiBridge ' + ros(config.customerBridge),
     ':global fitiHotspotServer ' + ros(config.hotspotServer),
     ':local fitiHost ' + ros(host),
@@ -202,7 +212,7 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config }) {
     ':if ([:len [/ip hotspot walled-garden find where dst-host=$fitiHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiHost comment="WiFi Fiti cloud API" }',
     ':if ($fitiPortalHost != $fitiHost) do={ :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiPortalHost comment="WiFi Fiti customer portal" } }',
     ':do {',
-    '  /tool fetch url=' + ros(origin + '/tenant-router-install.rsc') + ' dst-path="fiti-tenant-install.rsc"',
+    '  /tool fetch url=' + ros(origin + '/tenant-router-install.rsc') + fetchTlsOption(origin) + ' dst-path="fiti-tenant-install.rsc"',
     '  /import file-name="fiti-tenant-install.rsc"',
     '  /system scheduler disable [find where name="fiti-first-install"]',
     '  :log info "fiti: cloud installer completed"',
@@ -222,12 +232,16 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config }) {
   ];
 }
 
-function assertExistingHotspotLines() {
+function assertExistingHotspotLines(config) {
+  const hotspotServer = ros(config.hotspotServer);
+  const customerBridge = ros(config.customerBridge);
   return [
-    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] != 1) do={ :error "Hotspot server not found. Check its name before importing." }',
-    ':if ([:len [/interface bridge find where name=$fitiBridge]] != 1) do={ :error "Customer bridge not found. Check its name before importing." }',
-    ':local fitiHotspotBridge [/ip hotspot get [find where name=$fitiHotspotServer] interface]',
-    ':if ($fitiHotspotBridge != $fitiBridge) do={ :error "The selected Hotspot server is not on the selected customer bridge." }',
+    ':local fitiCheckHotspot ' + hotspotServer,
+    ':local fitiCheckBridge ' + customerBridge,
+    ':if ([:len [/ip hotspot find where name=$fitiCheckHotspot]] != 1) do={ :error "Hotspot server not found. Check its name before importing." }',
+    ':if ([:len [/interface bridge find where name=$fitiCheckBridge]] != 1) do={ :error "Customer bridge not found. Check its name before importing." }',
+    ':local fitiHotspotBridge [/ip hotspot get [find where name=$fitiCheckHotspot] interface]',
+    ':if ($fitiHotspotBridge != $fitiCheckBridge) do={ :error "The selected Hotspot server is not on the selected customer bridge." }',
   ];
 }
 
@@ -236,8 +250,11 @@ function buildExistingRouterKit({ location, token, appUrl, portalUrl, config }) 
     '# WiFi Fiti — existing-router pairing kit',
     '# This kit preserves the WAN, Wi-Fi, DHCP and Hotspot configuration.',
     '# It replaces only the captive login redirect and WiFi Fiti polling scripts.',
+    // Do all read-only checks before creating globals or a retry scheduler.
+    // A wrong bridge/Hotspot name therefore leaves an existing live router
+    // completely untouched.
+    ...assertExistingHotspotLines(config),
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
-    ...assertExistingHotspotLines(),
     ...pairingSuffix({ appUrl, portalUrl, location, token, config }),
   ].join('\n') + '\n';
 }
@@ -309,19 +326,24 @@ function newRouterSecurityLines() {
 function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
   const checks = [config.wanInterface, config.wifiInterface, ...config.customerPorts]
     .map((name) => ':if ([:len [/interface find where name=' + ros(name) + ']] != 1) do={ :error ' + ros(`Interface ${name} was not found.`) + ' }');
+  const bridgeMembershipChecks = [...config.customerPorts, config.wifiInterface]
+    .map((name) => ':if ([:len [/interface bridge port find where interface=' + ros(name) + ']] > 0) do={ :error ' + ros(`Interface ${name} is already in a bridge. Use the existing-router path instead.`) + ' }');
   const bridgePorts = config.customerPorts.map((name) => '/interface bridge port add bridge=$fitiBridge interface=' + ros(name));
   return [
     '# WiFi Fiti — new/reset RouterOS 7 setup kit',
     '# Use only on a router reset with NO default configuration.',
     '# Connect with MAC WinBox or Ethernet. This script never resets the router itself.',
     '# Router administrator login: admin / ' + config.routerAdminPassword,
+    // Read-only preflight comes before globals or network mutations. It is
+    // safe to stop here and switch to the existing-router path.
+    ':if ([:len [/interface bridge find where name=' + ros(config.customerBridge) + ']] > 0) do={ :error "Customer bridge already exists. Use the existing-router path instead." }',
+    ':if ([:len [/ip hotspot find where name=' + ros(config.hotspotServer) + ']] > 0) do={ :error "Hotspot server already exists. Use the existing-router path instead." }',
+    ...checks,
+    ...bridgeMembershipChecks,
+    ':if ([:len [/user find where name="admin"]] != 1) do={ :error "Default admin account was not found. Stop and use the existing-router path." }',
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ':local fitiWanInterface ' + ros(config.wanInterface),
     ':local fitiWifiInterface ' + ros(config.wifiInterface),
-    ':if ([:len [/interface bridge find where name=$fitiBridge]] > 0) do={ :error "Customer bridge already exists. Use the existing-router path instead." }',
-    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] > 0) do={ :error "Hotspot server already exists. Use the existing-router path instead." }',
-    ...checks,
-    ':if ([:len [/user find where name="admin"]] != 1) do={ :error "Default admin account was not found. Stop and use the existing-router path." }',
     '/user set [find where name="admin"] password=' + ros(config.routerAdminPassword),
     '/interface bridge add name=$fitiBridge protocol-mode=rstp comment="WiFi Fiti customer network"',
     ...bridgePorts,
