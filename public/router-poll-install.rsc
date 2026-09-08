@@ -88,10 +88,8 @@
 \n    :if ([:typeof \$reply] = \"array\") do={\r\
 \n      :local body (\$reply->\"data\")\r\
 \n      :if ([:len \$body] > 4) do={\r\
-\n        :do {\r\
-\n          [:parse \$body]\r\
-\n        } on-error={\r\
-\n          :log warning \"fiti: job script failed to run\"\r\
+\n        :onerror fitiJobError in={ [:parse \$body] } do={\r\
+\n          :log warning (\"fiti: job script failed to run: \" . \$fitiJobError)\r\
 \n        }\r\
 \n      }\r\
 \n    }\r\

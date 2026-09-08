@@ -132,6 +132,7 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     '      :set fitiPortalHost $fitiDesiredPortalHost',
     '      :set fitiPortalUrl $fitiDesiredPortalUrl',
     '      :set fitiPortalAppliedHost $fitiDesiredPortalHost',
+    '    }',
     '  :local fitiBoot [/system script find where name="fiti-boot"]',
     '  :if ([:len $fitiBoot] = 1) do={',
     '    :local fitiBootSource (":global fitiUrl \\"" . $fitiUrl . "\\"\\r\\n" .',

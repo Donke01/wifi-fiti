@@ -28,6 +28,19 @@
 #  Edit the three SETTINGS values, then paste the whole file.
 # =====================================================================
 
+# RouterOS 7.21+ includes built-in root CAs, but they can be disabled after
+# an upgrade (especially on small-board devices). Enable them before the
+# first HTTPS request; retain the older property as a safe fallback.
+:do {
+  /certificate settings set builtin-trust-store=all
+} on-error={
+  :do {
+    /certificate settings set builtin-trust-anchors=trusted
+  } on-error={
+    :log warning "fiti: built-in CA trust store could not be enabled"
+  }
+}
+
 # Settings must already exist as globals before import. The installer does
 # not contain or overwrite the private site token.
 :global fitiUrl
@@ -162,10 +175,8 @@
 \n    :if ([:typeof \$reply] = \"array\") do={\r\
 \n      :local body (\$reply->\"data\")\r\
 \n      :if ([:len \$body] > 4) do={\r\
-\n        :do {\r\
-\n          [:parse \$body]\r\
-\n        } on-error={\r\
-\n          :log warning \"fiti: job script failed to run\"\r\
+\n        :onerror fitiJobError in={ [:parse \$body] } do={\r\
+\n          :log warning (\"fiti: job script failed to run: \" . \$fitiJobError)\r\
 \n        }\r\
 \n      }\r\
 \n    }\r\

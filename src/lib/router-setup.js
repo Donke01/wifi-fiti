@@ -157,6 +157,24 @@ function fetchTlsOption(url) {
   return new URL(url).protocol === 'https:' ? ' check-certificate=yes' : '';
 }
 
+// RouterOS 7.21+ ships built-in root CAs but upgrades and small-board
+// profiles can leave them untrusted. Enable the trust store before the first
+// HTTPS fetch. The older property name is retained as a guarded fallback for
+// RouterOS 7 releases that predate builtin-trust-store.
+function routerTrustStoreLines() {
+  return [
+    ':do {',
+    '  /certificate settings set builtin-trust-store=all',
+    '} on-error={',
+    '  :do {',
+    '    /certificate settings set builtin-trust-anchors=trusted',
+    '  } on-error={',
+    '    :log warning "fiti: built-in CA trust store could not be enabled"',
+    '  }',
+    '}',
+  ];
+}
+
 // RouterOS terminal paste executes each top-level line as its own command.
 // Keep the generated kit inside one :onerror block so :local values survive
 // the paste and a failure is printed with its actual RouterOS error. This is
@@ -205,6 +223,7 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config }) {
   const portalOrigin = new URL(portalUrl || appUrl).origin;
   const portalHost = new URL(portalOrigin).hostname;
   const bootstrap = [
+    ...routerTrustStoreLines(),
     ':global fitiUrl ' + ros(origin),
     ':global fitiPortalUrl ' + ros(portalOrigin),
     ':global fitiPortalHost ' + ros(portalHost),

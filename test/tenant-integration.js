@@ -392,6 +392,9 @@ async function main() {
       'the exact customer hostname is added to the walled garden');
     assert.match(portalRefresh.script, /\/system script set \$fitiBoot source=\$fitiBootSource/,
       'the router keeps the new customer hostname after reboot');
+    assert.match(portalRefresh.script,
+      /:set fitiPortalAppliedHost \$fitiDesiredPortalHost\n    \}\n  :local fitiBoot/,
+      'the portal fetch on-error block is closed before boot settings are rebuilt');
     const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
     assert.equal(whiteLabelRouterLogin.status, 200);
     assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));

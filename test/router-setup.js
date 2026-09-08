@@ -42,6 +42,10 @@ assert.match(existingKit.script, /:global fitiSupportEnrollUrl "https:\/\/cloud\
 assert.match(existingKit.script, /:global fitiSupportInterface "fiti-support-wg"/);
 assert.match(existingKit.script, /:global fitiSetupProtocol "2"/);
 assert.match(existingKit.script, /check-certificate=yes/);
+assert.match(existingKit.script, /builtin-trust-store=all/,
+  'the generated kit enables RouterOS built-in CAs before its first HTTPS fetch');
+assert.match(existingKit.script, /builtin-trust-anchors=trusted/,
+  'older RouterOS 7 releases receive the legacy trust-store fallback');
 assert.doesNotMatch(existingKit.script, /:global fitiSupportEnabled "yes"/);
 assert.match(existingKit.script, /tenant-router-install\.rsc/);
 assert.match(existingKit.script, /selected Hotspot server is not on the selected customer bridge/);
@@ -61,6 +65,12 @@ assert.match(installer, /:global fitiSetupAck ""/);
 assert.match(installer, /:global fitiSetupProtocol/);
 assert.match(installer, /fitiPortalAppliedHost/);
 assert.match(installer, /check-certificate=yes/);
+assert.match(installer, /builtin-trust-store=all/,
+  'the downloaded installer enables built-in CAs before fetching the portal');
+assert.match(installer, /fitiJobError/,
+  'polling captures the actual RouterOS parse error instead of hiding it');
+assert.match(installer, /job script failed to run: /,
+  'polling includes the captured parse error in the router log');
 assert.match(installer, /&supportAck=/);
 const bootSource = installer.slice(installer.indexOf('/system script add name=fiti-boot'), installer.indexOf('# --- Optional remote-support'));
 assert.match(bootSource, /fiti-support-enroll/);
