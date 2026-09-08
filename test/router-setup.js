@@ -128,10 +128,12 @@ assert.match(installer, /fitiLoginUrl.*\?portal=/);
 const newKit = kit(newRouter);
 assert.equal(newKit.config.mode, 'new');
 assert.match(newKit.script, /new\/reset RouterOS 7 setup kit/);
-assert.match(newKit.script, /^:do \{/,
+assert.match(newKit.script, /^:onerror fitiSetupError in=\{/,
   'the complete kit is one RouterOS transaction so local variables survive terminal paste');
-assert.match(newKit.script, /\} on-error=\{/,
-  'a preflight error stops the remainder of the kit instead of partially configuring the router');
+assert.match(newKit.script, /\} do=\{/,
+  'a setup error is caught and printed instead of leaving a silent partial import');
+assert.match(newKit.script, /WiFi Fiti setup stopped: /,
+  'the exact RouterOS failure is visible in the terminal and log');
 assert.match(newKit.script, /\/interface wireless set/);
 assert.match(newKit.script, /fitiWifiStack/);
 assert.match(newKit.script, /No supported WiFi interface found/);

@@ -158,15 +158,16 @@ function fetchTlsOption(url) {
 }
 
 // RouterOS terminal paste executes each top-level line as its own command.
-// Keep the generated kit inside one :do block so :local values survive the
-// paste and the first preflight error stops the rest of the installer. This
-// is also valid when the same text is imported from an .rsc file.
+// Keep the generated kit inside one :onerror block so :local values survive
+// the paste and a failure is printed with its actual RouterOS error. This is
+// also valid when the same text is imported from an .rsc file.
 function wrapRouterScript(lines) {
   return [
-    ':do {',
+    ':onerror fitiSetupError in={',
     ...lines.map((line) => line ? `  ${line}` : line),
-    '} on-error={',
-    '  :log warning "WiFi Fiti setup stopped. Fix the displayed error, then generate a fresh kit."',
+    '} do={',
+    '  :log warning ("WiFi Fiti setup stopped: " . $fitiSetupError)',
+    '  :put ("WiFi Fiti setup stopped: " . $fitiSetupError)',
     '}',
   ].join('\n') + '\n';
 }
@@ -393,9 +394,11 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     ':local fitiWanInterface ' + ros(config.wanInterface),
     ':local fitiWifiInterface ' + ros(config.wifiInterface),
     ...newRouterWirelessDetectionLines(config),
+    // Configure the radio before creating the bridge. If the Wi-Fi package
+    // rejects a setting, the safety wrapper leaves no partial customer bridge.
+    ...newRouterWirelessLines(config),
     '/interface bridge add name=$fitiBridge protocol-mode=rstp comment="WiFi Fiti customer network"',
     ...bridgePorts,
-    ...newRouterWirelessLines(config),
     '/interface bridge port add bridge=$fitiBridge interface=$fitiWifiInterface',
     ...newRouterWanLines(config),
     '/ip address add address=' + ros(config.network.gateway + '/24') + ' interface=$fitiBridge comment="WiFi Fiti customer gateway"',
