@@ -139,6 +139,12 @@ assert.match(newKit.script, /fitiWifiStack/);
 assert.match(newKit.script, /No supported WiFi interface found/);
 assert.doesNotMatch(newKit.script, /Interface wlan1 was not found/,
   'Wi-Fi is detected at runtime instead of being rejected by a static interface-name check');
+assert.match(newKit.script, /:foreach fitiEther in=\[\/interface ethernet find\] do=\{/,
+  'customer Ethernet ports are discovered from the router at runtime');
+assert.match(newKit.script, /customer Ethernet ports: /,
+  'the detected board and customer-port count are reported in the terminal');
+assert.doesNotMatch(newKit.script, /Interface ether[2345] was not found/,
+  'a model profile cannot reject a valid router because it has a different port count');
 assert.match(newKit.script, /\/ip hotspot add name=\$fitiHotspotServer/);
 assert.match(newKit.script, /\/ip firewall nat add chain=srcnat/);
 assert.match(newKit.script, /\/ip pool add name="fiti-pool"/);

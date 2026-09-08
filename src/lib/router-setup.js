@@ -314,6 +314,33 @@ function newRouterWirelessDetectionLines(config) {
   ];
 }
 
+function newRouterEthernetDetectionLines() {
+  return [
+    // A fresh router can expose ether2–ether4, ether2–ether5, or another
+    // physical-port count. Inspect the live Ethernet menu instead of trusting
+    // a model label or a stale browser field. The selected WAN is excluded;
+    // every other physical Ethernet port becomes a customer LAN port.
+    ':local fitiEthernetCount 0',
+    ':foreach fitiEther in=[/interface ethernet find] do={',
+    '  :local fitiEtherName [/interface ethernet get $fitiEther name]',
+    '  :if ($fitiEtherName != $fitiWanInterface) do={',
+    '    :if ([:len [/interface bridge port find where interface=$fitiEtherName]] > 0) do={ :error ("Ethernet interface " . $fitiEtherName . " is already in a bridge. Use the existing-router path instead.") }',
+    '    :set fitiEthernetCount ($fitiEthernetCount + 1)',
+    '  }',
+    '}',
+    ':put ("WiFi Fiti detected board " . [/system resource get board-name] . "; customer Ethernet ports: " . $fitiEthernetCount)',
+  ];
+}
+
+function newRouterEthernetBridgeLines() {
+  return [
+    ':foreach fitiEther in=[/interface ethernet find] do={',
+    '  :local fitiEtherName [/interface ethernet get $fitiEther name]',
+    '  :if ($fitiEtherName != $fitiWanInterface) do={ /interface bridge port add bridge=$fitiBridge interface=$fitiEtherName }',
+    '}',
+  ];
+}
+
 function newRouterWanLines(config) {
   if (config.wanMode === 'pppoe') {
     return [
@@ -373,11 +400,8 @@ function newRouterMacSecurityLines() {
 }
 
 function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
-  const checks = [config.wanInterface, ...config.customerPorts]
+  const checks = [config.wanInterface]
     .map((name) => ':if ([:len [/interface find where name=' + ros(name) + ']] != 1) do={ :error ' + ros(`Interface ${name} was not found.`) + ' }');
-  const bridgeMembershipChecks = [...config.customerPorts]
-    .map((name) => ':if ([:len [/interface bridge port find where interface=' + ros(name) + ']] > 0) do={ :error ' + ros(`Interface ${name} is already in a bridge. Use the existing-router path instead.`) + ' }');
-  const bridgePorts = config.customerPorts.map((name) => '/interface bridge port add bridge=$fitiBridge interface=' + ros(name));
   return wrapRouterScript([
     '# WiFi Fiti — new/reset RouterOS 7 setup kit',
     '# Use only on a router reset with NO default configuration.',
@@ -388,17 +412,17 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     ':if ([:len [/interface bridge find where name=' + ros(config.customerBridge) + ']] > 0) do={ :error "Customer bridge already exists. Use the existing-router path instead." }',
     ':if ([:len [/ip hotspot find where name=' + ros(config.hotspotServer) + ']] > 0) do={ :error "Hotspot server already exists. Use the existing-router path instead." }',
     ...checks,
-    ...bridgeMembershipChecks,
     ':if ([:len [/user find where name="admin"]] != 1) do={ :error "Default admin account was not found. Stop and use the existing-router path." }',
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ':local fitiWanInterface ' + ros(config.wanInterface),
     ':local fitiWifiInterface ' + ros(config.wifiInterface),
     ...newRouterWirelessDetectionLines(config),
+    ...newRouterEthernetDetectionLines(),
     // Configure the radio before creating the bridge. If the Wi-Fi package
     // rejects a setting, the safety wrapper leaves no partial customer bridge.
     ...newRouterWirelessLines(config),
     '/interface bridge add name=$fitiBridge protocol-mode=rstp comment="WiFi Fiti customer network"',
-    ...bridgePorts,
+    ...newRouterEthernetBridgeLines(),
     '/interface bridge port add bridge=$fitiBridge interface=$fitiWifiInterface',
     ...newRouterWanLines(config),
     '/ip address add address=' + ros(config.network.gateway + '/24') + ' interface=$fitiBridge comment="WiFi Fiti customer gateway"',
@@ -444,9 +468,9 @@ function validateRouterSetup(input) {
     hotspotServer,
     wanInterface: identifier(input && input.wanInterface, 'WAN interface', 'ether1'),
     wifiInterface: identifier(input && input.wifiInterface, 'WiFi interface', fallback.wifiInterface),
-    // A new-router profile is authoritative for physical customer ports. A
-    // stale browser form must not send ether5 to an hAP lite, which only has
-    // ether1–ether4. Existing-router mode does not touch these ports.
+    // Existing-router mode records the explicitly selected ports. New-router
+    // kits keep the profile's nominal ports as metadata, but discover the
+    // actual physical Ethernet layout on the router before bridging it.
     customerPorts: mode === 'new' ? [...fallback.customerPorts] : requestedCustomerPorts,
     wifiSsid: '',
     wifiPassword: '',
