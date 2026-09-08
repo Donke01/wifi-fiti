@@ -393,18 +393,15 @@ async function main() {
     });
     assert.match(portalRefresh.script, /:local fitiDesiredPortalHost "alpha-guests\.wififiti\.co\.ke"/,
       'the next router check receives the new customer hostname');
-    assert.match(portalRefresh.script, /:global fitiBridge/,
-      'the refresh script restores every boot setting it reads, including the customer bridge');
+    assert.match(portalRefresh.script, /:global fitiHotspotServer/,
+      'the refresh script declares only the Hotspot setting it needs');
     assert.match(portalRefresh.script, /dst-host=\$fitiDesiredPortalHost/,
       'the exact customer hostname is added to the walled garden');
-    assert.match(portalRefresh.script, /\/system script set \$fitiBoot source=\$fitiBootSource/,
-      'the router keeps the new customer hostname after reboot');
+    assert.doesNotMatch(portalRefresh.script, /\/system script set/,
+      'a portal refresh never rewrites a router boot script');
     assert.match(portalRefresh.script,
-      /:if \(\[:len \\\$fitiSupportScheduler\] = 1\) do=\{ \/system scheduler disable \\\$fitiSupportScheduler \}/,
-      'the rebuilt boot script retains its future scheduler variable literally instead of expanding it during portal refresh');
-    assert.match(portalRefresh.script,
-      /:set fitiPortalRefreshOk true\n    \} on-error=\{[^\n]+\}\n  :if \(\$fitiPortalRefreshOk\) do=\{/,
-      'the portal refresh persists the new host only after the login page fetch succeeds');
+      /:set fitiPortalAppliedHost \$fitiDesiredPortalHost\n      :log info "fiti: customer portal address updated"\n    \} on-error=\{/,
+      'the portal refresh records success only after the login page fetch succeeds');
     const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
     assert.equal(whiteLabelRouterLogin.status, 200);
     assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));

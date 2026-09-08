@@ -87,8 +87,10 @@ function portalUrlForRouter(location, requestedHostname) {
  * walled-garden entry and refreshes login.html; it never opens an inbound
  * management service or changes a customer's network.
  *
- * The changed address is also persisted in boot settings, so a power cut
- * cannot restore the former captive-login redirect.
+ * The polling agent re-applies this desired address after every boot.  That
+ * is deliberately safer than rewriting a router's boot script from a remote
+ * response: a temporary old address after a restart is repaired on the next
+ * poll, while an invalid boot-script rewrite can stop all future updates.
  */
 function routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
   if (!config.domains.portalGatewayEnabled) return '';
@@ -108,20 +110,13 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     ':global fitiPortalUrl',
     ':global fitiPortalHost',
     ':global fitiPortalAppliedHost',
-    ':global fitiBridge',
     ':global fitiHotspotServer',
-    ':global fitiSupportEnabled',
-    ':global fitiSupportEnrollUrl',
-    ':global fitiSupportInterface',
     ':if ([:len $fitiHotspotServer] = 0) do={ :set fitiHotspotServer "hotspot1" }',
-    ':if ([:len $fitiBridge] = 0) do={ :set fitiBridge "bridge-hs" }',
-    ':if ([:len $fitiSupportEnabled] = 0) do={ :set fitiSupportEnabled "no" }',
-    ':if ([:len $fitiSupportEnrollUrl] = 0) do={ :set fitiSupportEnrollUrl ($fitiUrl . "/api/router/support-enroll") }',
-    ':if ([:len $fitiSupportInterface] = 0) do={ :set fitiSupportInterface "fiti-support-wg" }',
+    ':if ([:len $fitiPortalHost] = 0) do={ :set fitiPortalHost "" }',
+    ':if ([:len $fitiPortalAppliedHost] = 0) do={ :set fitiPortalAppliedHost "" }',
     `:local fitiDesiredPortalHost "${desiredHost}"`,
     `:local fitiDesiredPortalUrl "${desiredUrl}"`,
     ':if ($fitiPortalAppliedHost != $fitiDesiredPortalHost) do={',
-    '  :local fitiPortalRefreshOk false',
     '  :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiDesiredPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiDesiredPortalHost comment="WiFi Fiti customer portal" }',
     '  :if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={',
     '    :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]',
@@ -133,37 +128,8 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     '      :set fitiPortalHost $fitiDesiredPortalHost',
     '      :set fitiPortalUrl $fitiDesiredPortalUrl',
     '      :set fitiPortalAppliedHost $fitiDesiredPortalHost',
-    '      :set fitiPortalRefreshOk true',
-    '    } on-error={ :log warning "fiti: customer portal login page download failed" }',
-    '  :if ($fitiPortalRefreshOk) do={',
-    '  :local fitiBoot [/system script find where name="fiti-boot"]',
-    '  :if ([:len $fitiBoot] = 1) do={',
-    '    :local fitiBootSource (":global fitiUrl \\"" . $fitiUrl . "\\"\\r\\n" .',
-    '      ":global fitiPortalUrl \\"" . $fitiDesiredPortalUrl . "\\"\\r\\n" .',
-    '      ":global fitiPortalHost \\"" . $fitiDesiredPortalHost . "\\"\\r\\n" .',
-    '      ":global fitiPortalAppliedHost \\"" . $fitiDesiredPortalHost . "\\"\\r\\n" .',
-    '      ":global fitiSite \\"" . $fitiSite . "\\"\\r\\n" .',
-    '      ":global fitiToken \\"" . $fitiToken . "\\"\\r\\n" .',
-    '      ":global fitiSetupProtocol \\"2\\"\\r\\n" .',
-    '      ":global fitiBridge \\"" . $fitiBridge . "\\"\\r\\n" .',
-    '      ":global fitiHotspotServer \\"" . $fitiHotspotServer . "\\"\\r\\n" .',
-    '      ":global fitiSupportEnabled \\"" . $fitiSupportEnabled . "\\"\\r\\n" .',
-    '      ":global fitiSupportEnrollUrl \\"" . $fitiSupportEnrollUrl . "\\"\\r\\n" .',
-    '      ":global fitiSupportInterface \\"" . $fitiSupportInterface . "\\"\\r\\n" .',
-    '      ":local fitiSupportScheduler [/system scheduler find where name=\\"fiti-support-enroll\\"]\\r\\n" .',
-    // This line is written into fiti-boot, so its variable must remain
-    // literal while the current poll response is parsed.  RouterOS expands
-    // unescaped $variables inside strings immediately; that local does not
-    // exist until a later reboot.
-    '      ":if ([:len \\$fitiSupportScheduler] = 1) do={ /system scheduler disable \\$fitiSupportScheduler }\\r\\n" .',
-    '      ":global fitiAck \\\"\\\"\\r\\n" .',
-    '      ":global fitiSupportAck \\\"\\\"\\r\\n" .',
-    '      ":global fitiSetupAck \\\"\\\"\\r\\n" .',
-    '      ":log info \\"fiti: settings restored after boot\\"\\r\\n")',
-    '    /system script set $fitiBoot source=$fitiBootSource',
-    '      } else={ :log warning "fiti: customer portal address will need a refreshed connection kit after reboot" }',
     '      :log info "fiti: customer portal address updated"',
-    '  }',
+    '    } on-error={ :log warning "fiti: customer portal login page download failed" }',
     '  } else={ :log warning "fiti: customer portal update skipped; Hotspot server was not found" }',
     '}',
   ].join('\n') + '\n';
