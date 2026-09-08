@@ -208,7 +208,7 @@
       function portalAddressing() { var details = state.workspace && state.workspace.portalAddressing; return details && typeof details === 'object' ? details : { enabled: false, rootDomain: '', kind: 'managed-subdomain' }; }
       function portalHostname(location) { return String(location && (location.portal_hostname || location.portalHostname) || '').trim().toLowerCase(); }
       function portalSlug(location) { var hostname = portalHostname(location); return hostname ? hostname.split('.')[0] : ''; }
-      function portalStatus(location) { var addressing = portalAddressing(); var hostname = portalHostname(location); if (!location || !routerSyncHealthy(location)) return 'Created after verified router setup'; if (addressing.enabled && hostname) return hostname + ' · active'; return 'Cloud portal active'; }
+      function portalStatus(location) { var addressing = portalAddressing(); var hostname = portalHostname(location); if (!location || !routerSyncHealthy(location)) return 'Created after verified router setup'; if (addressing.enabled && hostname) { var applied = String(location.router_portal_applied_host || '').trim().toLowerCase(); return hostname + (applied === hostname ? ' · active' : ' · applying on router'); } return 'Cloud portal active'; }
       function publicPortal(value) {
         var location = value && typeof value === 'object' ? value : ((state.workspace && state.workspace.locations) || []).find(function (item) { return String(item.id) === String(value); });
         var id = location ? location.id : value;

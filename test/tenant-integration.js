@@ -393,8 +393,8 @@ async function main() {
     assert.match(portalRefresh.script, /\/system script set \$fitiBoot source=\$fitiBootSource/,
       'the router keeps the new customer hostname after reboot');
     assert.match(portalRefresh.script,
-      /:set fitiPortalAppliedHost \$fitiDesiredPortalHost\n    \}\n  :local fitiBoot/,
-      'the portal fetch on-error block is closed before boot settings are rebuilt');
+      /:set fitiPortalRefreshOk true\n    \} on-error=\{[^\n]+\}\n  :if \(\$fitiPortalRefreshOk\) do=\{/,
+      'the portal refresh persists the new host only after the login page fetch succeeds');
     const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
     assert.equal(whiteLabelRouterLogin.status, 200);
     assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));
