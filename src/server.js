@@ -922,7 +922,7 @@ app.post('/api/business/locations/:locationId/router-setup', (req, res) => {
     const setup = validateRouterSetup(body);
     // A first kit for a saved draft is not replacing a live router. Ask for
     // explicit confirmation only once this location has actually checked in.
-    if (setup.mode === 'new' && current.last_successful_sync_at && String(body.replaceRouter || '') !== 'yes') {
+    if (['auto', 'new'].includes(setup.mode) && current.last_successful_sync_at && String(body.replaceRouter || '') !== 'yes') {
       return res.status(400).json({ error: 'Confirm that this new/reset kit is replacing the current router before generating it.' });
     }
     const name = body.name === undefined ? current.name : String(body.name || '').trim().slice(0, 80);
@@ -2889,6 +2889,19 @@ app.post('/api/router/sync', (req, res) => {
       return res.type('text/plain').send(routerSetupReceiptScript(receipt.challenge));
     }
     let readyLocation = tenant.autoCompleteCustomerPortal(receipt.location.id) || receipt.location;
+    // Automatic kits discover the live Hotspot and customer bridge on the
+    // router. Persist those detected names before emitting queued jobs so a
+    // custom Hotspot is never addressed as the default `hotspot1`.
+    const reportedHotspot = String(req.query.hotspot || '').trim();
+    const reportedBridge = String(req.query.bridge || '').trim();
+    if ((reportedHotspot && /^[A-Za-z0-9_-]{1,32}$/.test(reportedHotspot)) || (reportedBridge && /^[A-Za-z0-9_-]{1,32}$/.test(reportedBridge))) {
+      readyLocation = tenant.updateLocationSettings({
+        locationId: readyLocation.id,
+        businessId: readyLocation.business_id,
+        hotspotServer: reportedHotspot || readyLocation.hotspot_server,
+        setup: reportedBridge ? { customerBridge: reportedBridge } : {},
+      }) || readyLocation;
+    }
     const appliedHost = edgeHostname(req.query.portalApplied);
     if (appliedHost && appliedHost === edgeHostname(readyLocation.portal_hostname)) {
       readyLocation = tenant.recordRouterPortalApplied(readyLocation.id, appliedHost);

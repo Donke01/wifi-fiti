@@ -134,6 +134,10 @@ assert.doesNotMatch(onboardingRenderer[0], /mountSetupPanel\([^\n]*router-setup-
   'the legacy large router form is not mounted inside the focused journey');
 assert.match(onboardingRenderer[0], /appendSimpleRouterSetup\(connectBody, model\)/,
   'the focused journey mounts one compact router-kit screen');
+assert.match(html, /Automatic router detection/,
+  'the focused journey lets the router kit choose the safe setup path');
+assert.match(html, /payload\.modelProfile = 'auto'/,
+  'the focused journey does not ask customers to guess a board profile');
 assert.match(html, /Download \.rsc/,
   'the focused connection screen offers a file download instead of forcing a long terminal paste');
 assert.match(html, /downloadRouterScript\(script\)/,

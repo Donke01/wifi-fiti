@@ -5,12 +5,14 @@
  * contains a one-time router credential, so keeping validation and RouterOS
  * quoting here prevents a browser field from becoming RouterOS source.
  *
- * There are two deliberately different paths:
+ * There are three deliberately different paths:
  *
  *   existing — preserve WAN, Wi-Fi, DHCP and Hotspot settings; only pair
  *              WiFi Fiti after verifying the selected bridge and Hotspot.
  *   new      — a known RouterOS 7 template for a router that was reset with
  *              no default configuration.  It never resets a router itself.
+ *   auto     — a guarded preflight detects an existing Hotspot or a blank
+ *              no-defaults router, then selects the safe path at import time.
  */
 
 const IDENTIFIER = /^[A-Za-z0-9_-]{1,32}$/;
@@ -217,13 +219,17 @@ function setupPrefix({ location, token, appUrl, portalUrl, config }) {
   ];
 }
 
-function pairingSuffix({ appUrl, portalUrl, location, token, config }) {
+function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDetected = false }) {
   const origin = new URL(appUrl).origin;
   const host = new URL(origin).hostname;
   const portalOrigin = new URL(portalUrl || appUrl).origin;
   const portalHost = new URL(portalOrigin).hostname;
   const bootstrap = [
     ...routerTrustStoreLines(),
+    ...(preserveDetected ? [
+      ':local fitiBootstrapHotspots [/ip hotspot find]',
+      ':if ([:len $fitiBootstrapHotspots] = 1) do={ :local fitiBootstrapHotspot [:pick $fitiBootstrapHotspots 0]; :global fitiHotspotServer; :global fitiBridge; :set fitiHotspotServer [/ip hotspot get $fitiBootstrapHotspot name]; :set fitiBridge [/ip hotspot get $fitiBootstrapHotspot interface] }',
+    ] : []),
     ':global fitiUrl ' + ros(origin),
     ':global fitiPortalUrl ' + ros(portalOrigin),
     ':global fitiPortalHost ' + ros(portalHost),
@@ -232,8 +238,10 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config }) {
     ':global fitiToken ' + ros(token),
     ':global fitiSetupAck ""',
     ':global fitiSetupProtocol "2"',
-    ':global fitiBridge ' + ros(config.customerBridge),
-    ':global fitiHotspotServer ' + ros(config.hotspotServer),
+    ...(preserveDetected ? [] : [
+      ':global fitiBridge ' + ros(config.customerBridge),
+      ':global fitiHotspotServer ' + ros(config.hotspotServer),
+    ]),
     ':local fitiHost ' + ros(host),
     ':local fitiPortalHost ' + ros(portalHost),
     ':if ([:len [/ip hotspot walled-garden find where dst-host=$fitiHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiHost comment="WiFi Fiti cloud API" }',
@@ -347,8 +355,89 @@ function newRouterEthernetDetectionLines() {
     '    :set fitiEthernetCount ($fitiEthernetCount + 1)',
     '  }',
     '}',
+    ':if ($fitiEthernetCount = 0) do={ :error "No customer Ethernet interface was found after reserving the WAN interface." }',
     ':put ("WiFi Fiti detected board " . [/system resource get board-name] . "; customer Ethernet ports: " . $fitiEthernetCount)',
   ];
+}
+
+function automaticRouterDetectionLines() {
+  return [
+    '# Automatic preflight: identify the router before making configuration changes.',
+    ':local fitiRouterVersion [/system resource get version]',
+    ':if ([:len $fitiRouterVersion] < 2 || [:pick $fitiRouterVersion 0 2] != "7.") do={ :error ("RouterOS 7 is required; detected " . $fitiRouterVersion) }',
+    ':local fitiAutoMode ""',
+    ':local fitiHotspots [/ip hotspot find]',
+    ':local fitiBridges [/interface bridge find]',
+    ':if ([:len $fitiHotspots] > 1) do={ :error "Multiple Hotspot servers found. Choose the customer Hotspot explicitly in advanced setup." }',
+    ':if ([:len $fitiHotspots] = 1) do={ :set fitiAutoMode "existing" } else={',
+    '  :if ([:len $fitiBridges] = 0) do={ :set fitiAutoMode "new" } else={ :error "A bridge exists but no Hotspot server was found. Finish the Hotspot setup or reset with no defaults, then retry." }',
+    '}',
+    ':if ($fitiAutoMode = "existing") do={',
+    '  :local fitiHotspotId [:pick $fitiHotspots 0]',
+    '  :set fitiHotspotServer [/ip hotspot get $fitiHotspotId name]',
+    '  :set fitiBridge [/ip hotspot get $fitiHotspotId interface]',
+    '  :if ([:len [/interface bridge find where name=$fitiBridge]] != 1) do={ :error "The detected Hotspot is not attached to a bridge. Use advanced setup to select its customer interface." }',
+    '  :put ("WiFi Fiti detected existing Hotspot " . $fitiHotspotServer . " on " . $fitiBridge)',
+    '} else={',
+    '  :set fitiBridge "bridge-hs"',
+    '  :set fitiHotspotServer "hotspot1"',
+    '  :do { :set fitiWanInterface [/interface ethernet get [find where name="ether1"] name] } on-error={}',
+    '  :if ([:len $fitiWanInterface] = 0) do={ :local fitiEthernetIds [/interface ethernet find]; :if ([:len $fitiEthernetIds] > 0) do={ :set fitiWanInterface [/interface ethernet get [:pick $fitiEthernetIds 0] name] } }',
+    '  :if ([:len $fitiWanInterface] = 0) do={ :error "No Ethernet WAN interface was found." }',
+    // A no-defaults router may already have the optional WAN DHCP client. Any
+    // other L3/service state means this is a partial or custom installation;
+    // do not guess and risk creating duplicate addresses, NAT, or DHCP.
+    '  :local fitiExistingDhcpServers [/ip dhcp-server find]',
+    '  :local fitiExistingNatRules [/ip firewall nat find]',
+    '  :if ([:len $fitiExistingDhcpServers] > 0 || [:len $fitiExistingNatRules] > 0) do={ :error "Router has existing DHCP-server or NAT configuration but no Hotspot. Finish or reset that configuration, then retry." }',
+    '  :foreach fitiAddress in=[/ip address find] do={ :if ([/ip address get $fitiAddress interface] != $fitiWanInterface || [/ip address get $fitiAddress dynamic] != true) do={ :error "Router has existing non-DHCP IP configuration. Use advanced setup or reset with no defaults, then retry." } }',
+    '  :foreach fitiDhcp in=[/ip dhcp-client find] do={ :if ([/ip dhcp-client get $fitiDhcp interface] != $fitiWanInterface) do={ :error "A DHCP client already exists on another interface. Use advanced setup instead." } }',
+    '  :local fitiWifiId ""',
+    '  :local fitiWifiIds ""',
+    '  :do { :set fitiWifiIds [/interface wireless find where disabled=no] } on-error={}',
+    '  :if ([:len $fitiWifiIds] > 0) do={ :set fitiWifiId [:pick $fitiWifiIds 0]; :set fitiWifiInterface [/interface wireless get $fitiWifiId name]; :set fitiWifiStack "wireless" } else={',
+    '    :do { :set fitiWifiIds [/interface wifi find where disabled=no] } on-error={}',
+    '    :if ([:len $fitiWifiIds] > 0) do={ :set fitiWifiId [:pick $fitiWifiIds 0]; :set fitiWifiInterface [/interface wifi get $fitiWifiId name]; :set fitiWifiStack "wifi" }',
+    '  }',
+    '  :if ([:len $fitiWifiStack] = 0) do={ :error "No enabled wireless or WiFi interface was found. Check the installed RouterOS Wi-Fi package." }',
+    '  :put ("WiFi Fiti detected fresh board " . [/system resource get board-name] . "; WAN " . $fitiWanInterface . "; WiFi " . $fitiWifiInterface . " (" . $fitiWifiStack . ")")',
+    '}',
+  ];
+}
+
+function buildAutomaticRouterKit({ location, token, appUrl, portalUrl, config }) {
+  return wrapRouterScript([
+    '# WiFi Fiti — automatic RouterOS 7 setup kit',
+    '# The kit detects an existing Hotspot or a blank no-defaults router before changing anything.',
+    '# It never resets the router and never changes administrator credentials.',
+    ...setupPrefix({ location, token, appUrl, portalUrl, config }),
+    ':local fitiWanInterface ""',
+    ':local fitiWifiInterface ""',
+    ':local fitiWifiStack ""',
+    ...automaticRouterDetectionLines(),
+    ':if ($fitiAutoMode = "existing") do={',
+    ...pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDetected: true }),
+    '} else={',
+    ...newRouterEthernetDetectionLines(),
+    ...newRouterWirelessLines(config),
+    '/interface bridge add name=$fitiBridge protocol-mode=rstp comment="WiFi Fiti customer network"',
+    ...newRouterEthernetBridgeLines(),
+    '/interface bridge port add bridge=$fitiBridge interface=$fitiWifiInterface',
+    ...newRouterWanLines({ ...config, wanMode: 'dhcp' }),
+    '/ip address add address=' + ros(config.network.gateway + '/24') + ' interface=$fitiBridge comment="WiFi Fiti customer gateway"',
+    '/ip pool add name="fiti-pool" ranges=' + ros(config.network.pool),
+    '/ip dhcp-server add name="fiti-dhcp" interface=$fitiBridge address-pool="fiti-pool" lease-time=1h disabled=no',
+    '/ip dhcp-server network add address=' + ros(config.network.cidr) + ' gateway=' + ros(config.network.gateway) + ' dns-server=' + ros(config.network.gateway),
+    routerDnsLine({ ...config, wanMode: 'dhcp' }),
+    '/ip firewall nat add chain=srcnat out-interface=$fitiWanOut action=masquerade comment="WiFi Fiti hotspot NAT"',
+    '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=http-chap,http-pap use-radius=no',
+    '/ip hotspot add name=$fitiHotspotServer interface=$fitiBridge address-pool="fiti-pool" profile="fiti-hsprof" addresses-per-mac=1 idle-timeout=10m keepalive-timeout=5m disabled=no',
+    ':if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={ /ip hotspot user profile add name="standard" shared-users=1 add-mac-cookie=yes mac-cookie-timeout=1d status-autorefresh=1m transparent-proxy=no }',
+    ...newRouterSecurityLines(),
+    ...pairingSuffix({ appUrl, portalUrl, location, token, config }),
+    ...newRouterMacSecurityLines(),
+    '}',
+  ]);
 }
 
 function newRouterEthernetBridgeLines() {
@@ -461,7 +550,7 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
 
 function validateRouterSetup(input) {
   const mode = String(input && input.mode || '').trim();
-  if (!['new', 'existing'].includes(mode)) throw invalid('Choose whether this is a new/reset router or an existing Hotspot router.');
+  if (!['auto', 'new', 'existing'].includes(mode)) throw invalid('Choose automatic setup, a new/reset router, or an existing Hotspot router.');
   const routerOsVersion = String(input && input.routerOsVersion || '').trim();
   if (routerOsVersion !== '7') throw invalid('WiFi Fiti guided setup currently requires RouterOS 7.');
   const modelProfile = String(input && input.modelProfile || '').trim();
@@ -473,16 +562,16 @@ function validateRouterSetup(input) {
   const fallback = profile || MODEL_PROFILES['legacy-wireless'];
   const customerBridge = identifier(input && input.customerBridge, 'customer bridge', fallback.bridge);
   const hotspotServer = identifier(input && input.hotspotServer, 'Hotspot server name', 'hotspot1');
-  const routerModel = text(input && input.routerModel, 'router model', 80, mode === 'new') || (profile ? profile.label : 'Existing MikroTik');
+  const routerModel = text(input && input.routerModel, 'router model', 80, mode === 'new') || (profile ? profile.label : 'MikroTik (automatic detection)');
   const requestedCustomerPorts = mode === 'new'
     ? [...fallback.customerPorts]
     : parsePorts(input && input.customerPorts, fallback.customerPorts);
   const config = {
     mode,
     routerOsVersion,
-    modelProfile: profile ? modelProfile : 'existing-router',
+    modelProfile: profile ? modelProfile : mode === 'auto' ? 'auto' : 'existing-router',
     routerModel,
-    radio: fallback.radio,
+    radio: mode === 'auto' ? 'auto' : fallback.radio,
     customerBridge,
     hotspotServer,
     wanInterface: identifier(input && input.wanInterface, 'WAN interface', 'ether1'),
@@ -490,7 +579,7 @@ function validateRouterSetup(input) {
     // Existing-router mode records the explicitly selected ports. New-router
     // kits keep the profile's nominal ports as metadata, but discover the
     // actual physical Ethernet layout on the router before bridging it.
-    customerPorts: mode === 'new' ? [...fallback.customerPorts] : requestedCustomerPorts,
+    customerPorts: mode === 'new' ? [...fallback.customerPorts] : mode === 'auto' ? [] : requestedCustomerPorts,
     wifiSsid: '',
     wifiPassword: '',
     customerSubnet: '',
@@ -502,7 +591,7 @@ function validateRouterSetup(input) {
   if (config.customerPorts.includes(config.wanInterface) || config.customerPorts.includes(config.wifiInterface)) {
     throw invalid('Customer LAN interfaces cannot also be the WAN or WiFi interface.');
   }
-  if (mode === 'new') {
+  if (mode === 'auto' || mode === 'new') {
     config.wifiSsid = text(input && input.wifiSsid, 'WiFi name', 32, true);
     if (!config.wifiSsid || /["\\$\r\n]/.test(config.wifiSsid)) throw invalid('WiFi name cannot contain quotes, backslashes, dollar signs, or line breaks.');
     config.wifiPassword = routerString(input && input.wifiPassword, 'WiFi password', 8, 63);
@@ -520,6 +609,9 @@ function validateRouterSetup(input) {
 }
 
 function setupSummary(config) {
+  if (config.mode === 'auto') {
+    return `Detects the RouterOS 7 board, Wi-Fi stack, WAN interface, customer ports, bridge and Hotspot, then safely chooses the existing-router or fresh-router setup.`;
+  }
   if (config.mode === 'existing') {
     return `Pairs the existing ${config.hotspotServer} Hotspot on ${config.customerBridge}; it does not change WAN, Wi-Fi or DHCP.`;
   }
@@ -528,10 +620,20 @@ function setupSummary(config) {
 
 function buildRouterSetup({ location, token, appUrl, portalUrl, input }) {
   const config = validateRouterSetup(input);
-  const script = config.mode === 'new'
-    ? buildNewRouterKit({ location, token, appUrl, portalUrl, config })
-    : buildExistingRouterKit({ location, token, appUrl, portalUrl, config });
-  const warnings = config.mode === 'new'
+  const script = config.mode === 'auto'
+    ? buildAutomaticRouterKit({ location, token, appUrl, portalUrl, config })
+    : config.mode === 'new'
+      ? buildNewRouterKit({ location, token, appUrl, portalUrl, config })
+      : buildExistingRouterKit({ location, token, appUrl, portalUrl, config });
+  const warnings = config.mode === 'auto'
+    ? [
+      'Import the complete kit once in WinBox. It detects the router before changing anything and stops safely if the configuration is ambiguous.',
+      'A router with one Hotspot server is paired as an existing router. A blank no-defaults RouterOS 7 router is prepared automatically.',
+      'A router with a bridge but no Hotspot is not changed; reset it with no defaults or finish its Hotspot setup first.',
+      'The kit never changes the RouterOS administrator password and never opens WinBox, API or SSH to the internet.',
+      'Automatic fresh-router setup uses DHCP on the detected WAN interface. Use the advanced manual kit for PPPoE or static WAN settings.',
+    ]
+    : config.mode === 'new'
     ? [
       'Paste or import the complete kit in one operation. Do not run it line by line; the kit is one RouterOS transaction.',
       'Use this only after resetting the router with no default configuration. It does not reset the router for you.',

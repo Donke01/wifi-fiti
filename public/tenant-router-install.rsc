@@ -159,7 +159,7 @@
 \n  :local sending \$fitiAck\r\
 \n  :local sendingSetup \$fitiSetupAck\r\
 \n  :local sendingSupport \$fitiSupportAck\r\
-\n  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite . \"&ack=\" . \$sending . \"&setupAck=\" . \$sendingSetup . \"&supportAck=\" . \$sendingSupport . \"&protocol=\" . \$fitiSetupProtocol . \"&health=\" . \$fitiHealth . \"&portal=\" . \$fitiPortalHost . \"&portalApplied=\" . \$fitiPortalAppliedHost)\r\
+\n  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite . \"&ack=\" . \$sending . \"&setupAck=\" . \$sendingSetup . \"&supportAck=\" . \$sendingSupport . \"&protocol=\" . \$fitiSetupProtocol . \"&health=\" . \$fitiHealth . \"&portal=\" . \$fitiPortalHost . \"&portalApplied=\" . \$fitiPortalAppliedHost . \"&hotspot=\" . \$fitiHotspotServer . \"&bridge=\" . \$fitiBridge)\r\
 \n  :local reply \"\"\r\
 \n  :local ok false\r\
 \n  :do {\r\

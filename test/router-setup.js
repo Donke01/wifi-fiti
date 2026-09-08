@@ -64,6 +64,10 @@ assert.match(installer, /:global fitiSupportAck ""/);
 assert.match(installer, /:global fitiSetupAck ""/);
 assert.match(installer, /:global fitiSetupProtocol/);
 assert.match(installer, /fitiPortalAppliedHost/);
+assert.match(installer, /&hotspot=.*fitiHotspotServer/,
+  'router sync reports an automatically detected Hotspot name');
+assert.match(installer, /&bridge=.*fitiBridge/,
+  'router sync reports an automatically detected customer bridge');
 assert.match(installer, /check-certificate=yes/);
 assert.match(installer, /builtin-trust-store=all/,
   'the downloaded installer enables built-in CAs before fetching the portal');
@@ -168,6 +172,21 @@ assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n\s+\/ip d
   'the kit creates or adopts the WAN DHCP client without a duplicate-client failure');
 assert.doesNotMatch(newKit.script, /XenFi WAN/,
   'generated router configuration remains WiFi Fiti-branded after WAN preparation');
+
+const automaticKit = kit({ mode: 'auto', routerOsVersion: '7', wifiSsid: 'Automatic Guest WiFi', wifiPassword: 'SafeWifiPass9', customerSubnet: '10.5.52.0/24', wanMode: 'dhcp' });
+assert.equal(automaticKit.config.mode, 'auto');
+assert.match(automaticKit.script, /automatic RouterOS 7 setup kit/);
+assert.match(automaticKit.script, /Multiple Hotspot servers found/);
+assert.match(automaticKit.script, /A bridge exists but no Hotspot server was found/);
+assert.match(automaticKit.script, /\[\/interface wireless find where disabled=no\]/);
+assert.match(automaticKit.script, /\[\/interface wifi find where disabled=no\]/);
+assert.match(automaticKit.script, /customer Ethernet ports:/);
+assert.match(automaticKit.script, /existing DHCP-server or NAT configuration/);
+assert.match(automaticKit.script, /existing non-DHCP IP configuration/);
+assert.match(automaticKit.script, /A DHCP client already exists on another interface/);
+assert.match(automaticKit.script, /fitiBootstrapHotspots/);
+assert.match(automaticKit.config.mode === 'auto' ? automaticKit.summary : '', /safely chooses the existing-router or fresh-router setup/,
+  'automatic setup explains the detection decision');
 assert.match(newKit.script, /block WAN management/);
 assert.match(newKit.script, /\/system scheduler add name="fiti-first-install" interval=15s/);
 assert.match(newKit.script, /fiti: waiting for WAN\/DNS before cloud pairing/);
