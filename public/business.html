@@ -713,7 +713,7 @@
         preparation.appendChild(commands); body.appendChild(preparation);
       }
       function appendDeviceModeNote(body) {
-        var note = el('section', 'device-mode-note'); var copy = el('div'); add(copy, 'strong', '', 'If RouterOS says “not allowed by device mode”'); add(copy, 'p', '', 'Run this command on the router, confirm the physical prompt, then retry the connection kit.'); var command = '/system device-mode update mode=advanced'; add(copy, 'code', '', command); note.appendChild(copy); var button = setupAction(note, 'Copy command', 'quiet', function () { copyText(command, button); }); body.appendChild(note);
+        var note = el('section', 'device-mode-note'); var copy = el('div'); add(copy, 'strong', '', 'If RouterOS says “not allowed by device mode”'); add(copy, 'p', '', 'Enable only the three features WiFi Fiti needs, confirm the physical prompt, then retry the connection kit.'); var command = '/system device-mode update fetch=yes scheduler=yes hotspot=yes'; add(copy, 'code', '', command); note.appendChild(copy); var button = setupAction(note, 'Copy command', 'quiet', function () { copyText(command, button); }); body.appendChild(note);
       }
       function appendSimpleRouterSetup(body, model) {
         var location = model.location; if (!location) return;

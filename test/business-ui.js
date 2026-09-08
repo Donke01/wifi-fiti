@@ -146,8 +146,8 @@ assert.match(html, /Secure outbound connection/,
   'the recommended outbound route is visible first');
 assert.doesNotMatch(html, /VPN connected/i,
   'the UI does not falsely claim a VPN handshake without a real gateway');
-assert.match(html, /\/system device-mode update mode=advanced/,
-  'device-mode guidance is directly copyable');
+assert.match(html, /\/system device-mode update fetch=yes scheduler=yes hotspot=yes/,
+  'device-mode guidance is directly copyable and enables only required features');
 assert.match(html, /confirm the physical prompt/,
   'device-mode guidance accurately requires local RouterOS confirmation');
 const onboardingRenderer = html.match(/function renderOnboarding\(\) \{[\s\S]*?\n\s*function readFileDataUrl/);
@@ -187,6 +187,10 @@ assert.match(compactKitUi[0], /This saved connection kit is out of date and cann
   'owners receive a direct fresh-kit instruction before a stale RouterOS command can be copied');
 assert.match(html, /item && item\.token && storedRouterKitIsCurrent\(item\)/,
   'the legacy pairing-kit list also refuses to surface a stale cached command');
+assert.match(html, /\/system device-mode update fetch=yes scheduler=yes hotspot=yes/,
+  'the onboarding hint enables only the three required RouterOS device-mode features');
+assert.doesNotMatch(html, /\/system device-mode update mode=advanced/,
+  'the onboarding hint does not overwrite unrelated owner device-mode choices');
 
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
