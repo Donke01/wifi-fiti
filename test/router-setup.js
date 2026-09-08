@@ -133,6 +133,10 @@ assert.match(newKit.script, /^:do \{/,
 assert.match(newKit.script, /\} on-error=\{/,
   'a preflight error stops the remainder of the kit instead of partially configuring the router');
 assert.match(newKit.script, /\/interface wireless set/);
+assert.match(newKit.script, /fitiWifiStack/);
+assert.match(newKit.script, /No supported WiFi interface found/);
+assert.doesNotMatch(newKit.script, /Interface wlan1 was not found/,
+  'Wi-Fi is detected at runtime instead of being rejected by a static interface-name check');
 assert.match(newKit.script, /\/ip hotspot add name=\$fitiHotspotServer/);
 assert.match(newKit.script, /\/ip firewall nat add chain=srcnat/);
 assert.match(newKit.script, /\/ip pool add name="fiti-pool"/);
@@ -155,7 +159,8 @@ assert.doesNotMatch(newKit.script, /\/system reset-configuration|\/ip service|\/
 
 const modernKit = kit({ ...newRouter, modelProfile: 'modern-wifi', routerModel: 'Modern WiFi router', wifiInterface: 'wifi1' });
 assert.match(modernKit.script, /\/interface wifi set/);
-assert.doesNotMatch(modernKit.script, /\/interface wireless set/);
+assert.match(modernKit.script, /\/interface wireless find/,
+  'the modern kit probes both RouterOS Wi-Fi stacks before selecting the right one');
 
 const staticKit = kit({
   ...newRouter,

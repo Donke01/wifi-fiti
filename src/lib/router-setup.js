@@ -267,16 +267,39 @@ function buildExistingRouterKit({ location, token, appUrl, portalUrl, config }) 
 }
 
 function newRouterWirelessLines(config) {
-  if (config.radio === 'wifi') {
-    return [
-      ':if ([:len [/interface wifi find where name=$fitiWifiInterface]] != 1) do={ :error "Modern WiFi interface not found. Check the WiFi interface name." }',
-      '/interface wifi set [find where name=$fitiWifiInterface] configuration.mode=ap configuration.country=Kenya configuration.ssid=' + ros(config.wifiSsid) + ' security.authentication-types=wpa2-psk security.passphrase=' + ros(config.wifiPassword) + ' disabled=no',
-    ];
-  }
   return [
-    ':if ([:len [/interface wireless find where name=$fitiWifiInterface]] != 1) do={ :error "Wireless interface not found. Check the WiFi interface name." }',
-    ':if ([:len [/interface wireless security-profiles find where name="fiti-wifi-security"]] = 0) do={ /interface wireless security-profiles add name="fiti-wifi-security" mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key=' + ros(config.wifiPassword) + ' supplicant-identity=MikroTik }',
-    '/interface wireless set [find where name=$fitiWifiInterface] mode=ap-bridge band=2ghz-b/g/n ssid=' + ros(config.wifiSsid) + ' security-profile="fiti-wifi-security" country=kenya disabled=no',
+    ':if ($fitiWifiStack = "wireless") do={',
+    '  :if ([:len [/interface wireless security-profiles find where name="fiti-wifi-security"]] = 0) do={ /interface wireless security-profiles add name="fiti-wifi-security" mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key=' + ros(config.wifiPassword) + ' supplicant-identity=MikroTik }',
+    '  /interface wireless set [find where name=$fitiWifiInterface] mode=ap-bridge band=2ghz-b/g/n ssid=' + ros(config.wifiSsid) + ' security-profile="fiti-wifi-security" country=kenya disabled=no',
+    '} else={',
+    '  /interface wifi set [find where name=$fitiWifiInterface] configuration.mode=ap configuration.country=Kenya configuration.ssid=' + ros(config.wifiSsid) + ' security.authentication-types=wpa2-psk security.passphrase=' + ros(config.wifiPassword) + ' disabled=no',
+    '}',
+  ];
+}
+
+function newRouterWirelessDetectionLines(config) {
+  const expected = ros(config.wifiInterface);
+  const alternate = config.wifiInterface === 'wlan1' ? 'wifi1' : 'wlan1';
+  return [
+    // RouterOS 7 has two Wi-Fi stacks. The legacy wireless package exposes
+    // wlan1, while the newer wifi package normally exposes wifi1. Probe the
+    // selected name and both supported menus before changing anything.
+    ':local fitiWifiId ""',
+    ':local fitiWifiStack ""',
+    ':do { :set fitiWifiId [/interface wireless find where name=' + expected + '] } on-error={ :set fitiWifiId "" }',
+    ':if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wireless" } else={',
+    '  :do { :set fitiWifiId [/interface wifi find where name=' + expected + '] } on-error={ :set fitiWifiId "" }',
+    '  :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wifi" } else={',
+    '    :set fitiWifiInterface ' + ros(alternate),
+    '    :do { :set fitiWifiId [/interface wireless find where name=$fitiWifiInterface] } on-error={ :set fitiWifiId "" }',
+    '    :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wireless" } else={',
+    '      :do { :set fitiWifiId [/interface wifi find where name=$fitiWifiInterface] } on-error={ :set fitiWifiId "" }',
+    '      :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wifi" }',
+    '    }',
+    '  }',
+    '}',
+    ':if ([:len $fitiWifiStack] = 0) do={ :error "No supported WiFi interface found. Check /interface print; expected wlan1 or wifi1." }',
+    ':if ([:len [/interface bridge port find where interface=$fitiWifiInterface]] > 0) do={ :error "WiFi interface is already in a bridge. Use the existing-router path instead." }',
   ];
 }
 
@@ -339,9 +362,9 @@ function newRouterMacSecurityLines() {
 }
 
 function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
-  const checks = [config.wanInterface, config.wifiInterface, ...config.customerPorts]
+  const checks = [config.wanInterface, ...config.customerPorts]
     .map((name) => ':if ([:len [/interface find where name=' + ros(name) + ']] != 1) do={ :error ' + ros(`Interface ${name} was not found.`) + ' }');
-  const bridgeMembershipChecks = [...config.customerPorts, config.wifiInterface]
+  const bridgeMembershipChecks = [...config.customerPorts]
     .map((name) => ':if ([:len [/interface bridge port find where interface=' + ros(name) + ']] > 0) do={ :error ' + ros(`Interface ${name} is already in a bridge. Use the existing-router path instead.`) + ' }');
   const bridgePorts = config.customerPorts.map((name) => '/interface bridge port add bridge=$fitiBridge interface=' + ros(name));
   return wrapRouterScript([
@@ -359,6 +382,7 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ':local fitiWanInterface ' + ros(config.wanInterface),
     ':local fitiWifiInterface ' + ros(config.wifiInterface),
+    ...newRouterWirelessDetectionLines(config),
     '/interface bridge add name=$fitiBridge protocol-mode=rstp comment="WiFi Fiti customer network"',
     ...bridgePorts,
     ...newRouterWirelessLines(config),
