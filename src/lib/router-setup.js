@@ -269,10 +269,20 @@ function buildExistingRouterKit({ location, token, appUrl, portalUrl, config }) 
 function newRouterWirelessLines(config) {
   return [
     ':if ($fitiWifiStack = "wireless") do={',
-    '  :if ([:len [/interface wireless security-profiles find where name="fiti-wifi-security"]] = 0) do={ /interface wireless security-profiles add name="fiti-wifi-security" mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key=' + ros(config.wifiPassword) + ' supplicant-identity=MikroTik }',
-    '  /interface wireless set [find where name=$fitiWifiInterface] mode=ap-bridge band=2ghz-b/g/n ssid=' + ros(config.wifiSsid) + ' security-profile="fiti-wifi-security" country=kenya disabled=no',
+    '  :if ([:len [/interface wireless security-profiles find where name="fiti-wifi-security"]] = 0) do={',
+    '    /interface wireless security-profiles add name="fiti-wifi-security" mode=dynamic-keys',
+    '  }',
+    '  /interface wireless security-profiles set [find where name="fiti-wifi-security"] authentication-types=wpa2-psk',
+    '  /interface wireless security-profiles set [find where name="fiti-wifi-security"] wpa2-pre-shared-key=' + ros(config.wifiPassword),
+    '  /interface wireless security-profiles set [find where name="fiti-wifi-security"] supplicant-identity=MikroTik',
+    '  /interface wireless set [find where name=$fitiWifiInterface] mode=ap-bridge band=2ghz-b/g/n',
+    '  /interface wireless set [find where name=$fitiWifiInterface] ssid=' + ros(config.wifiSsid) + ' security-profile="fiti-wifi-security"',
+    '  /interface wireless set [find where name=$fitiWifiInterface] country=kenya disabled=no',
     '} else={',
-    '  /interface wifi set [find where name=$fitiWifiInterface] configuration.mode=ap configuration.country=Kenya configuration.ssid=' + ros(config.wifiSsid) + ' security.authentication-types=wpa2-psk security.passphrase=' + ros(config.wifiPassword) + ' disabled=no',
+    '  /interface wifi set [find where name=$fitiWifiInterface] configuration.mode=ap configuration.country=Kenya',
+    '  /interface wifi set [find where name=$fitiWifiInterface] configuration.ssid=' + ros(config.wifiSsid) + ' disabled=no',
+    '  /interface wifi set [find where name=$fitiWifiInterface] security.authentication-types=wpa2-psk',
+    '  /interface wifi set [find where name=$fitiWifiInterface] security.passphrase=' + ros(config.wifiPassword),
     '}',
   ];
 }
