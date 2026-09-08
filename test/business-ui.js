@@ -111,16 +111,34 @@ assert.match(html, /Copy connection kit/,
   'the normal onboarding route lets an owner copy the complete RouterOS kit directly');
 assert.match(html, /appendCustomerPortalSetup/,
   'the customer-page step is rendered directly after router connection');
-assert.match(html, /!model\.portalReady/,
-  'customer page setup precedes packages and payment configuration');
+assert.match(html, /model\.portalReviewRequired/,
+  'a verified router still presents the customer-page review before packages and payment configuration');
 assert.match(html, /portal_setup_completed_at/,
   'customer-page completion is tracked per selected router location');
+assert.match(html, /markCustomerPortalReviewed\(location\)/,
+  'saving the customer-facing name or managed subdomain advances only that browser session');
 assert.match(html, /@media\(max-width:900px\)\{\.onboarding-flow-head[\s\S]*\.setup-rail\{grid-template-columns:1fr/,
   'the three setup stages stay readable in one connected mobile/tablet sequence');
 assert.match(html, /Initial Preparation \(Optional\)/,
   'safe optional preparation guidance is available in the connection stage');
 assert.match(html, /WiFi Fiti never resets a router remotely/,
   'the new onboarding language keeps router resets explicitly owner-controlled');
+assert.match(html, /function connectionPhaseFor\(model\)/,
+  'the connection stage remembers which single focused page an owner was on');
+assert.match(html, /Continue to secure connection/,
+  'preparation has one explicit transition into the secure kit page');
+assert.match(html, /appendConnectionMilestones\(prepareBody, phase\)/,
+  'the preparation page shows progress without rendering the following work');
+assert.match(html, /appendConnectionMilestones\(connectBody, phase\)/,
+  'the secure-kit page retains the same compact progress context');
+assert.match(html, /\/ip dhcp-client add interface=ether1 disabled=no comment="WiFi Fiti WAN"/,
+  'new DHCP routers can be prepared with a visible, copyable WAN command');
+assert.match(html, /Skip it for PPPoE, static IP or another WAN port/,
+  'the WAN guidance does not pretend that DHCP on ether1 fits every router');
+assert.match(html, /WiFi Fiti already retries through its outbound polling link/,
+  'failed connection checks offer an honest recovery path rather than a fake second transport');
+assert.match(html, /Review WAN preparation/,
+  'two unsuccessful connection checks route the owner back to the prerequisite page');
 
 // New business owners create a sign-in first, then complete only their
 // organisation profile. Router identity is collected in a small dialog so
@@ -156,6 +174,8 @@ assert.doesNotMatch(onboardingRenderer[0], /mountSetupPanel\([^\n]*router-setup-
   'the legacy large router form is not mounted inside the focused journey');
 assert.match(onboardingRenderer[0], /appendSimpleRouterSetup\(connectBody, model\)/,
   'the focused journey mounts one compact router-kit screen');
+assert.match(onboardingRenderer[0], /phase === 'prepare'/,
+  'only the preparation page is rendered before the owner explicitly continues');
 assert.match(html, /Automatic router detection/,
   'the focused journey lets the router kit choose the safe setup path');
 assert.match(html, /payload\.modelProfile = 'auto'/,
