@@ -128,21 +128,29 @@ assert.match(installer, /fitiLoginUrl.*\?portal=/);
 const newKit = kit(newRouter);
 assert.equal(newKit.config.mode, 'new');
 assert.match(newKit.script, /new\/reset RouterOS 7 setup kit/);
+assert.match(newKit.script, /^:do \{/,
+  'the complete kit is one RouterOS transaction so local variables survive terminal paste');
+assert.match(newKit.script, /\} on-error=\{/,
+  'a preflight error stops the remainder of the kit instead of partially configuring the router');
 assert.match(newKit.script, /\/interface wireless set/);
 assert.match(newKit.script, /\/ip hotspot add name=\$fitiHotspotServer/);
 assert.match(newKit.script, /\/ip firewall nat add chain=srcnat/);
 assert.match(newKit.script, /\/ip pool add name="fiti-pool"/);
 assert.match(newKit.script, /administrator credentials are never changed/);
 assert.doesNotMatch(newKit.script, /\/user set .*password/);
+assert.doesNotMatch(newKit.script, /interface="ether5"/,
+  'the hAP lite profile never receives a non-existent ether5 port');
 assert.match(newKit.script, /:local fitiWanDhcp \[\/ip dhcp-client find where interface=\$fitiWanInterface\]/,
   'the kit detects a DHCP client created during optional WAN preparation');
-assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n  \/ip dhcp-client add interface=\$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\} else=\{\n  \/ip dhcp-client set \$fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\}/,
+assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n\s+\/ip dhcp-client add interface=\$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\s+\} else=\{\n\s+\/ip dhcp-client set \$fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\s+\}/,
   'the kit creates or adopts the WAN DHCP client without a duplicate-client failure');
 assert.doesNotMatch(newKit.script, /XenFi WAN/,
   'generated router configuration remains WiFi Fiti-branded after WAN preparation');
 assert.match(newKit.script, /block WAN management/);
 assert.match(newKit.script, /\/system scheduler add name="fiti-first-install" interval=15s/);
 assert.match(newKit.script, /fiti: waiting for WAN\/DNS before cloud pairing/);
+assert.ok(newKit.script.indexOf('/system script run fiti-first-install') < newKit.script.indexOf('/tool mac-server set'),
+  'MAC management restrictions run only after the critical pairing script is installed');
 assert.doesNotMatch(newKit.script, /\/system reset-configuration|\/ip service|\/user add/);
 
 const modernKit = kit({ ...newRouter, modelProfile: 'modern-wifi', routerModel: 'Modern WiFi router', wifiInterface: 'wifi1' });
@@ -157,7 +165,7 @@ assert.match(staticKit.script, /servers=9\.9\.9\.9,1\.1\.1\.1/);
 assert.doesNotMatch(staticKit.script, /servers=1\.1\.1\.1,8\.8\.8\.8/);
 
 expectInvalid({ ...existing, customerBridge: 'bridge-hs; /system reboot' }, 'RouterOS injection is rejected');
-expectInvalid({ ...newRouter, customerPorts: 'ether1,ether2' }, 'WAN cannot be a customer port');
+expectInvalid({ ...newRouter, wanInterface: 'ether2' }, 'WAN cannot be a customer port');
 expectInvalid({ ...newRouter, customerSubnet: '8.8.8.0/24' }, 'Customer network must be private');
 expectInvalid({ ...newRouter, wifiPassword: 'has spaces' }, 'WiFi secret must be shell-safe');
 expectInvalid({ ...newRouter, freshRouterConfirmed: 'no' }, 'fresh router setup requires explicit confirmation');

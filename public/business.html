@@ -347,7 +347,7 @@
         $('router-model').required = isNew;
         document.querySelectorAll('.new-router-only').forEach(function (section) { section.classList.toggle('hidden', !isNew); section.querySelectorAll('input,select').forEach(function (field) { field.disabled = !isNew; }); });
         $('router-setup-note').textContent = isNew ? (replacing ? 'This prepares a replacement reset-router kit. It never changes administrator credentials; the current router remains online until the replacement checks in.' : 'Use only on a router reset with no default configuration. The installer never changes administrator credentials; set them yourself before service.') : (replacing ? 'This creates a safe re-pairing kit. The current router remains online until the new kit checks in.' : 'This preserves Wi-Fi, WAN, DHCP, Hotspot and administrator credentials. It replaces the captive login redirect and WiFi Fiti scripts.');
-        if (useProfileDefaults && isNew) {
+        if (isNew) {
           var profile = routerProfiles[$('router-profile').value];
           if (profile) {
             $('wifi-interface').value = profile.wifi;

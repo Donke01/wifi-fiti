@@ -101,7 +101,10 @@ control centre is designed around this operating sequence:
    the normal RouterOS process. The kit blocks WAN management and keeps
    retrying cloud pairing until WAN/DNS is ready. The dashboard defaults to
    the existing-Hotspot path and requires an explicit fresh-router
-   confirmation before generating a new-network kit.
+   confirmation before generating a new-network kit. Paste the complete kit
+   in one operation or import the downloaded `.rsc` file; do not execute it
+   line by line, because the installer intentionally keeps local variables in
+   one RouterOS transaction and stops on the first preflight error.
 5. **Verify the portal.** From a fresh unauthenticated phone, join the Wi-Fi
    and confirm the location portal opens at the address shown in the dashboard
    (or the cloud `/p/<location-id>` fallback before the optional edge gateway

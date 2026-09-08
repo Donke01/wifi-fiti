@@ -157,6 +157,20 @@ function fetchTlsOption(url) {
   return new URL(url).protocol === 'https:' ? ' check-certificate=yes' : '';
 }
 
+// RouterOS terminal paste executes each top-level line as its own command.
+// Keep the generated kit inside one :do block so :local values survive the
+// paste and the first preflight error stops the rest of the installer. This
+// is also valid when the same text is imported from an .rsc file.
+function wrapRouterScript(lines) {
+  return [
+    ':do {',
+    ...lines.map((line) => line ? `  ${line}` : line),
+    '} on-error={',
+    '  :log warning "WiFi Fiti setup stopped. Fix the displayed error, then generate a fresh kit."',
+    '}',
+  ].join('\n') + '\n';
+}
+
 function setupPrefix({ location, token, appUrl, portalUrl, config }) {
   const origin = new URL(appUrl).origin;
   const host = new URL(origin).hostname;
@@ -239,7 +253,7 @@ function assertExistingHotspotLines(config) {
 }
 
 function buildExistingRouterKit({ location, token, appUrl, portalUrl, config }) {
-  return [
+  return wrapRouterScript([
     '# WiFi Fiti — existing-router pairing kit',
     '# This kit preserves the WAN, Wi-Fi, DHCP and Hotspot configuration.',
     '# It replaces only the captive login redirect and WiFi Fiti polling scripts.',
@@ -249,7 +263,7 @@ function buildExistingRouterKit({ location, token, appUrl, portalUrl, config }) 
     ...assertExistingHotspotLines(config),
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ...pairingSuffix({ appUrl, portalUrl, location, token, config }),
-  ].join('\n') + '\n';
+  ]);
 }
 
 function newRouterWirelessLines(config) {
@@ -303,9 +317,6 @@ function newRouterSecurityLines() {
   return [
     '/interface list add name="fiti-local-admin" comment="WiFi Fiti local administration"',
     '/interface list member add list="fiti-local-admin" interface=$fitiBridge',
-    '/tool mac-server set allowed-interface-list="fiti-local-admin"',
-    '/tool mac-server mac-winbox set allowed-interface-list="fiti-local-admin"',
-    '/ip neighbor discovery-settings set discover-interface-list="fiti-local-admin"',
     '/ip firewall filter add chain=input action=accept connection-state=established,related,untracked comment="WiFi Fiti established"',
     '/ip firewall filter add chain=input action=drop connection-state=invalid comment="WiFi Fiti invalid input"',
     '/ip firewall filter add chain=input action=accept in-interface=$fitiWanInterface protocol=udp src-port=67 dst-port=68 comment="WiFi Fiti WAN DHCP"',
@@ -316,13 +327,24 @@ function newRouterSecurityLines() {
   ];
 }
 
+function newRouterMacSecurityLines() {
+  // These services can interrupt an active MAC WinBox terminal. Run them
+  // after the pairing script has been installed and started, so a console
+  // restart cannot leave a router half-configured.
+  return [
+    '/tool mac-server set allowed-interface-list="fiti-local-admin"',
+    '/tool mac-server mac-winbox set allowed-interface-list="fiti-local-admin"',
+    '/ip neighbor discovery-settings set discover-interface-list="fiti-local-admin"',
+  ];
+}
+
 function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
   const checks = [config.wanInterface, config.wifiInterface, ...config.customerPorts]
     .map((name) => ':if ([:len [/interface find where name=' + ros(name) + ']] != 1) do={ :error ' + ros(`Interface ${name} was not found.`) + ' }');
   const bridgeMembershipChecks = [...config.customerPorts, config.wifiInterface]
     .map((name) => ':if ([:len [/interface bridge port find where interface=' + ros(name) + ']] > 0) do={ :error ' + ros(`Interface ${name} is already in a bridge. Use the existing-router path instead.`) + ' }');
   const bridgePorts = config.customerPorts.map((name) => '/interface bridge port add bridge=$fitiBridge interface=' + ros(name));
-  return [
+  return wrapRouterScript([
     '# WiFi Fiti — new/reset RouterOS 7 setup kit',
     '# Use only on a router reset with NO default configuration.',
     '# Connect with MAC WinBox or Ethernet. This script never resets the router itself.',
@@ -353,7 +375,8 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     ':if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={ /ip hotspot user profile add name="standard" shared-users=1 add-mac-cookie=yes mac-cookie-timeout=1d status-autorefresh=1m transparent-proxy=no }',
     ...newRouterSecurityLines(),
     ...pairingSuffix({ appUrl, portalUrl, location, token, config }),
-  ].join('\n') + '\n';
+    ...newRouterMacSecurityLines(),
+  ]);
 }
 
 function validateRouterSetup(input) {
@@ -371,6 +394,9 @@ function validateRouterSetup(input) {
   const customerBridge = identifier(input && input.customerBridge, 'customer bridge', fallback.bridge);
   const hotspotServer = identifier(input && input.hotspotServer, 'Hotspot server name', 'hotspot1');
   const routerModel = text(input && input.routerModel, 'router model', 80, mode === 'new') || (profile ? profile.label : 'Existing MikroTik');
+  const requestedCustomerPorts = mode === 'new'
+    ? [...fallback.customerPorts]
+    : parsePorts(input && input.customerPorts, fallback.customerPorts);
   const config = {
     mode,
     routerOsVersion,
@@ -381,7 +407,10 @@ function validateRouterSetup(input) {
     hotspotServer,
     wanInterface: identifier(input && input.wanInterface, 'WAN interface', 'ether1'),
     wifiInterface: identifier(input && input.wifiInterface, 'WiFi interface', fallback.wifiInterface),
-    customerPorts: parsePorts(input && input.customerPorts, fallback.customerPorts),
+    // A new-router profile is authoritative for physical customer ports. A
+    // stale browser form must not send ether5 to an hAP lite, which only has
+    // ether1–ether4. Existing-router mode does not touch these ports.
+    customerPorts: mode === 'new' ? [...fallback.customerPorts] : requestedCustomerPorts,
     wifiSsid: '',
     wifiPassword: '',
     customerSubnet: '',
@@ -424,12 +453,14 @@ function buildRouterSetup({ location, token, appUrl, portalUrl, input }) {
     : buildExistingRouterKit({ location, token, appUrl, portalUrl, config });
   const warnings = config.mode === 'new'
     ? [
+      'Paste or import the complete kit in one operation. Do not run it line by line; the kit is one RouterOS transaction.',
       'Use this only after resetting the router with no default configuration. It does not reset the router for you.',
       'The kit never changes the RouterOS administrator password. Set and save that password yourself before putting the router into service.',
       'It keeps retrying cloud pairing every 15 seconds until WAN and DNS are ready. Do not use it on a router serving customers.',
       'The router must have RouterOS 7 and device-mode fetch enabled.',
     ]
     : [
+      'Paste or import the complete kit in one operation. Do not run it line by line; the kit is one RouterOS transaction.',
       'This keeps WAN, Wi-Fi, DHCP, Hotspot and administrator credentials, but replaces the captive login redirect and WiFi Fiti polling scripts.',
       'Back up a busy router first. The selected Hotspot must run on the selected customer bridge.',
       'The router must have RouterOS 7, working internet/DNS, and device-mode fetch enabled.',
