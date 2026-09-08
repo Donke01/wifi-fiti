@@ -1,7 +1,5 @@
 'use strict';
 
-const crypto = require('crypto');
-
 /*
  * Router setup kits are intentionally generated on the server.  A kit
  * contains a one-time router credential, so keeping validation and RouterOS
@@ -77,11 +75,6 @@ function routerString(value, label, min, max) {
     throw invalid(`${label} must be ${min}-${max} characters and cannot contain spaces, quotes, dollar signs, or line breaks.`);
   }
   return out;
-}
-
-function generatedAdminPassword() {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!#%&*+,.@_-';
-  return [...crypto.randomBytes(18)].map((byte) => alphabet[byte % alphabet.length]).join('');
 }
 
 function parsePorts(value, fallback) {
@@ -333,7 +326,7 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     '# WiFi Fiti — new/reset RouterOS 7 setup kit',
     '# Use only on a router reset with NO default configuration.',
     '# Connect with MAC WinBox or Ethernet. This script never resets the router itself.',
-    '# Router administrator login: admin / ' + config.routerAdminPassword,
+    '# Router administrator credentials are never changed by this installer.',
     // Read-only preflight comes before globals or network mutations. It is
     // safe to stop here and switch to the existing-router path.
     ':if ([:len [/interface bridge find where name=' + ros(config.customerBridge) + ']] > 0) do={ :error "Customer bridge already exists. Use the existing-router path instead." }',
@@ -344,7 +337,6 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     ...setupPrefix({ location, token, appUrl, portalUrl, config }),
     ':local fitiWanInterface ' + ros(config.wanInterface),
     ':local fitiWifiInterface ' + ros(config.wifiInterface),
-    '/user set [find where name="admin"] password=' + ros(config.routerAdminPassword),
     '/interface bridge add name=$fitiBridge protocol-mode=rstp comment="WiFi Fiti customer network"',
     ...bridgePorts,
     ...newRouterWirelessLines(config),
@@ -372,6 +364,9 @@ function validateRouterSetup(input) {
   const modelProfile = String(input && input.modelProfile || '').trim();
   const profile = MODEL_PROFILES[modelProfile];
   if (mode === 'new' && !profile) throw invalid('Choose a supported router profile for a new/reset router.');
+  if (mode === 'new' && String(input && input.freshRouterConfirmed || '') !== 'yes') {
+    throw invalid('Confirm that this is a fresh/reset router before generating its setup kit.');
+  }
   const fallback = profile || MODEL_PROFILES['legacy-wireless'];
   const customerBridge = identifier(input && input.customerBridge, 'customer bridge', fallback.bridge);
   const hotspotServer = identifier(input && input.hotspotServer, 'Hotspot server name', 'hotspot1');
@@ -394,7 +389,6 @@ function validateRouterSetup(input) {
     wan: null,
     pppoeUser: '',
     pppoePassword: '',
-    routerAdminPassword: '',
   };
   if (config.customerPorts.includes(config.wanInterface) || config.customerPorts.includes(config.wifiInterface)) {
     throw invalid('Customer LAN interfaces cannot also be the WAN or WiFi interface.');
@@ -403,8 +397,6 @@ function validateRouterSetup(input) {
     config.wifiSsid = text(input && input.wifiSsid, 'WiFi name', 32, true);
     if (!config.wifiSsid || /["\\$\r\n]/.test(config.wifiSsid)) throw invalid('WiFi name cannot contain quotes, backslashes, dollar signs, or line breaks.');
     config.wifiPassword = routerString(input && input.wifiPassword, 'WiFi password', 8, 63);
-    const requestedAdminPassword = input && input.routerAdminPassword;
-    config.routerAdminPassword = routerString(requestedAdminPassword || generatedAdminPassword(), 'router administrator password', 12, 63);
     config.network = customerNetwork(input && input.customerSubnet);
     config.customerSubnet = config.network.cidr;
     config.wanMode = String(input && input.wanMode || 'dhcp').trim();
@@ -433,12 +425,12 @@ function buildRouterSetup({ location, token, appUrl, portalUrl, input }) {
   const warnings = config.mode === 'new'
     ? [
       'Use this only after resetting the router with no default configuration. It does not reset the router for you.',
-      'The kit generates a router administrator password and blocks IP management from WAN. Save that password from the kit; WiFi Fiti does not store it.',
+      'The kit never changes the RouterOS administrator password. Set and save that password yourself before putting the router into service.',
       'It keeps retrying cloud pairing every 15 seconds until WAN and DNS are ready. Do not use it on a router serving customers.',
       'The router must have RouterOS 7 and device-mode fetch enabled.',
     ]
     : [
-      'This keeps WAN, Wi-Fi, DHCP and existing Hotspot settings, but replaces the captive login redirect and WiFi Fiti polling scripts.',
+      'This keeps WAN, Wi-Fi, DHCP, Hotspot and administrator credentials, but replaces the captive login redirect and WiFi Fiti polling scripts.',
       'Back up a busy router first. The selected Hotspot must run on the selected customer bridge.',
       'The router must have RouterOS 7, working internet/DNS, and device-mode fetch enabled.',
     ];

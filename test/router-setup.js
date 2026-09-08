@@ -29,7 +29,7 @@ const newRouter = {
   mode: 'new', routerOsVersion: '7', modelProfile: 'hap-lite', routerModel: 'hAP lite',
   customerBridge: 'bridge-hs', hotspotServer: 'hotspot1', wanInterface: 'ether1',
   wifiInterface: 'wlan1', customerPorts: 'ether2,ether3,ether4',
-  wifiSsid: 'Fiti Guest WiFi', wifiPassword: 'SafeWifiPass9', routerAdminPassword: 'AdminSetupPass9', customerSubnet: '10.5.50.0/24', wanMode: 'dhcp',
+  wifiSsid: 'Fiti Guest WiFi', wifiPassword: 'SafeWifiPass9', freshRouterConfirmed: 'yes', customerSubnet: '10.5.50.0/24', wanMode: 'dhcp',
 };
 
 const existingKit = kit(existing);
@@ -132,7 +132,8 @@ assert.match(newKit.script, /\/interface wireless set/);
 assert.match(newKit.script, /\/ip hotspot add name=\$fitiHotspotServer/);
 assert.match(newKit.script, /\/ip firewall nat add chain=srcnat/);
 assert.match(newKit.script, /\/ip pool add name="fiti-pool"/);
-assert.match(newKit.script, /\/user set \[find where name="admin"\] password="AdminSetupPass9"/);
+assert.match(newKit.script, /administrator credentials are never changed/);
+assert.doesNotMatch(newKit.script, /\/user set .*password/);
 assert.match(newKit.script, /:local fitiWanDhcp \[\/ip dhcp-client find where interface=\$fitiWanInterface\]/,
   'the kit detects a DHCP client created during optional WAN preparation');
 assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n  \/ip dhcp-client add interface=\$fitiWanInterface disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\} else=\{\n  \/ip dhcp-client set \$fitiWanDhcp disabled=no add-default-route=yes use-peer-dns=no comment="WiFi Fiti WAN"\n\}/,
@@ -155,14 +156,11 @@ const staticKit = kit({
 assert.match(staticKit.script, /servers=9\.9\.9\.9,1\.1\.1\.1/);
 assert.doesNotMatch(staticKit.script, /servers=1\.1\.1\.1,8\.8\.8\.8/);
 
-const generatedPasswordKit = kit({ ...newRouter, routerAdminPassword: '' });
-assert.match(generatedPasswordKit.script, /Router administrator login: admin \/ [A-Za-z0-9!#%&*+,.@_-]{12,}/);
-
 expectInvalid({ ...existing, customerBridge: 'bridge-hs; /system reboot' }, 'RouterOS injection is rejected');
 expectInvalid({ ...newRouter, customerPorts: 'ether1,ether2' }, 'WAN cannot be a customer port');
 expectInvalid({ ...newRouter, customerSubnet: '8.8.8.0/24' }, 'Customer network must be private');
 expectInvalid({ ...newRouter, wifiPassword: 'has spaces' }, 'WiFi secret must be shell-safe');
-expectInvalid({ ...newRouter, routerAdminPassword: 'short-pass' }, 'router administrator password must be strong');
+expectInvalid({ ...newRouter, freshRouterConfirmed: 'no' }, 'fresh router setup requires explicit confirmation');
 expectInvalid({ ...newRouter, wanMode: 'static', staticWanAddress: '192.168.1.2/24', staticWanGateway: '192.168.2.1', dnsServers: '1.1.1.1' }, 'static gateway must share its subnet');
 expectInvalid({ ...newRouter, wanMode: 'static', staticWanAddress: '10.5.50.2/24', staticWanGateway: '10.5.50.1', dnsServers: '1.1.1.1' }, 'static WAN must not overlap the Hotspot network');
 expectInvalid({ ...newRouter, routerOsVersion: '6' }, 'unsupported RouterOS version is rejected');

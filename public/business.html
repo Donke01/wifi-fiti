@@ -334,12 +334,19 @@
         'legacy-wireless': { label: 'RouterOS 7 legacy wireless', wifi: 'wlan1', ports: 'ether2,ether3,ether4,ether5' },
         'modern-wifi': { label: 'RouterOS 7 modern WiFi', wifi: 'wifi1', ports: 'ether2,ether3,ether4,ether5' }
       };
-      function selectedRouterMode() { var selected = document.querySelector('input[name="mode"]:checked'); return selected ? selected.value : 'new'; }
+      function selectedRouterMode() { var selected = document.querySelector('input[name="mode"]:checked'); return selected ? selected.value : 'existing'; }
+      function enforceSafeRouterDefault() {
+        var form = $('router-setup-form'); if (!form) return;
+        var existing = form.querySelector('input[name="mode"][value="existing"]');
+        if (existing) existing.checked = true;
+        var intro = document.querySelector('#router-setup-section .wizard-intro');
+        if (intro) intro.textContent = 'Existing routers are the safe default: WiFi Fiti preserves their network and administrator credentials. A fresh-router kit is available only when you explicitly confirm the router has been reset.';
+      }
       function syncRouterSetupForm(useProfileDefaults) {
         var mode = selectedRouterMode(); var isNew = mode === 'new'; var replacing = Boolean($('router-setup-form').dataset.locationId);
         $('router-model').required = isNew;
         document.querySelectorAll('.new-router-only').forEach(function (section) { section.classList.toggle('hidden', !isNew); section.querySelectorAll('input,select').forEach(function (field) { field.disabled = !isNew; }); });
-        $('router-setup-note').textContent = isNew ? (replacing ? 'This prepares a replacement reset-router kit. The current router remains online until the replacement checks in; then it is retired.' : 'Use only on a router reset with no default configuration. The kit creates a strong router administrator password; save it from the kit. WiFi Fiti does not store it.') : (replacing ? 'This creates a safe re-pairing kit. The current router remains online until the new kit checks in.' : 'This preserves Wi-Fi, WAN, DHCP and Hotspot settings. It replaces the captive login redirect and WiFi Fiti scripts.');
+        $('router-setup-note').textContent = isNew ? (replacing ? 'This prepares a replacement reset-router kit. It never changes administrator credentials; the current router remains online until the replacement checks in.' : 'Use only on a router reset with no default configuration. The installer never changes administrator credentials; set them yourself before service.') : (replacing ? 'This creates a safe re-pairing kit. The current router remains online until the new kit checks in.' : 'This preserves Wi-Fi, WAN, DHCP, Hotspot and administrator credentials. It replaces the captive login redirect and WiFi Fiti scripts.');
         if (useProfileDefaults && isNew) {
           var profile = routerProfiles[$('router-profile').value];
           if (profile) {
@@ -401,7 +408,7 @@
         var form = $('router-setup-form');
         form.reset();
         $('router-profile').value = 'hap-lite';
-        var newMode = form.querySelector('input[name="mode"][value="new"]'); if (newMode) newMode.checked = true;
+        var existingMode = form.querySelector('input[name="mode"][value="existing"]'); if (existingMode) existingMode.checked = true;
         if (location && location.id) {
           form.dataset.locationId = location.id;
           form.elements.name.value = location.name || '';
@@ -648,8 +655,8 @@
         var form = el('form'); form.noValidate = true;
         var modes = el('div', 'simple-mode'); modes.setAttribute('role', 'radiogroup'); modes.setAttribute('aria-label', 'Router condition');
         function modeOption(value, title, copy, selected) { var label = el('label'); var input = document.createElement('input'); input.type = 'radio'; input.name = 'mode'; input.value = value; input.checked = selected; label.appendChild(input); var text = el('span'); add(text, 'b', '', title); add(text, 'small', '', copy); label.appendChild(text); modes.appendChild(label); return input; }
-        var newMode = modeOption('new', 'New or reset router', 'Creates the Wi-Fi, Hotspot and cloud connection.', true);
-        var existingMode = modeOption('existing', 'Existing Hotspot router', 'Keeps the current Wi-Fi, internet and Hotspot settings.', false);
+        var existingMode = modeOption('existing', 'Existing Hotspot router', 'Keeps the current Wi-Fi, internet, Hotspot and administrator credentials.', true);
+        var newMode = modeOption('new', 'Fresh or reset router', 'Creates the Wi-Fi, Hotspot and cloud connection after an explicit confirmation.', false);
         form.appendChild(modes);
         var fields = el('div', 'fields');
         function inputField(parent, labelText, name, value, options) { var label = el('label'); add(label, 'span', '', labelText); var input = document.createElement('input'); input.name = name; input.value = value || ''; input.type = options && options.type || 'text'; if (options && options.placeholder) input.placeholder = options.placeholder; if (options && options.required) input.required = true; if (options && options.autocomplete) input.autocomplete = options.autocomplete; label.appendChild(input); parent.appendChild(label); return { label: label, input: input }; }
@@ -660,7 +667,7 @@
         ], 'hap-lite');
         var ssid = inputField(fields, 'Customer Wi-Fi name', 'wifiSsid', model.business.hotspot_name || model.business.name || '', { required: true, placeholder: 'My WiFi' });
         var password = inputField(fields, 'Wi-Fi password', 'wifiPassword', '', { type: 'password', required: true, autocomplete: 'new-password', placeholder: 'At least 8 characters' });
-        form.appendChild(fields); add(form, 'p', 'router-requirement', 'RouterOS 7 is required. Your router administrator password is never requested or stored.');
+        form.appendChild(fields); add(form, 'p', 'router-requirement', 'RouterOS 7 is required. WiFi Fiti never changes your RouterOS administrator password.');
 
         var advanced = el('details', 'simple-advanced'); add(advanced, 'summary', '', 'Advanced router settings'); var advancedInner = el('div', 'simple-advanced-inner'); add(advancedInner, 'p', 'form-note', 'Change these only when your router does not use the normal WiFi Fiti defaults.'); var shared = el('div', 'fields');
         inputField(shared, 'Customer bridge', 'customerBridge', location.customer_bridge || 'bridge-hs', { placeholder: 'bridge-hs' }); inputField(shared, 'Hotspot server', 'hotspotServer', location.hotspot_server || 'hotspot1', { placeholder: 'hotspot1' }); advancedInner.appendChild(shared);
@@ -674,7 +681,7 @@
         form.addEventListener('submit', function (event) {
           event.preventDefault(); error.textContent = ''; var payload = values(form); var mode = selectedMode(); var selectedProfile = routerProfiles[payload.modelProfile] || routerProfiles['hap-lite'];
           payload.mode = mode; payload.routerOsVersion = '7'; payload.name = location.name; payload.routerName = location.router_name || location.router_model || ''; payload.customerBridge = payload.customerBridge || 'bridge-hs'; payload.hotspotServer = payload.hotspotServer || 'hotspot1'; payload.wanInterface = payload.wanInterface || 'ether1'; payload.customerSubnet = payload.customerSubnet || '10.5.50.0/24'; payload.wifiInterface = selectedProfile.wifi; payload.customerPorts = selectedProfile.ports;
-          if (mode === 'new') { payload.routerModel = selectedProfile.label; if (location.last_successful_sync_at && !window.confirm('Prepare a replacement router kit? The current router stays online until the replacement checks in.')) return; if (location.last_successful_sync_at) payload.replaceRouter = 'yes'; }
+          if (mode === 'new') { if (!window.confirm('Only continue if this router has been reset with no default configuration. WiFi Fiti will not change its administrator password.')) return; payload.freshRouterConfirmed = 'yes'; payload.routerModel = selectedProfile.label; if (location.last_successful_sync_at && !window.confirm('Prepare a replacement router kit? The current router stays online until the replacement checks in.')) return; if (location.last_successful_sync_at) payload.replaceRouter = 'yes'; }
           else { payload.modelProfile = 'existing-router'; payload.routerModel = ''; payload.wifiInterface = 'wlan1'; payload.customerPorts = 'ether2,ether3,ether4,ether5'; }
           setBusy(submit, true, 'Creating…'); api('/api/business/locations/' + encodeURIComponent(location.id) + '/router-setup', { method: 'POST', body: JSON.stringify(payload) }).then(function (result) { saveSetup(result.location, result.portalUrl, result.setup); mergeLocation(result.location); rememberOnboardingLocation((state.workspace && state.workspace.business) || {}, result.location); return load(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(submit, false); });
         });
@@ -1027,12 +1034,14 @@
       $('router-setup-form').addEventListener('submit', function (event) {
         event.preventDefault(); var form = event.currentTarget; var button = $('generate-router-setup'); var locationId = form.dataset.locationId;
         $('router-setup-error').textContent = '';
+        var freshRouter = selectedRouterMode() === 'new';
+        if (freshRouter && !window.confirm('Only continue if this router has been reset with no default configuration. WiFi Fiti will not change its administrator password.')) return;
         var replacement = Boolean(locationId && selectedRouterMode() === 'new');
         var prompt = replacement ? 'Prepare this reset-router replacement? The current router stays online until the replacement kit checks in, then it is retired.' : 'Stage this re-pairing kit? The current router stays online until the new kit checks in.';
         if (locationId && !window.confirm(prompt)) return;
         setBusy(button, true, 'Generating…');
         var endpoint = locationId ? '/api/business/locations/' + encodeURIComponent(locationId) + '/router-setup' : '/api/business/router-setup';
-        var payload = values(form); if (replacement) payload.replaceRouter = 'yes';
+        var payload = values(form); if (freshRouter) payload.freshRouterConfirmed = 'yes'; if (replacement) payload.replaceRouter = 'yes';
         api(endpoint, { method: 'POST', body: JSON.stringify(payload) }).then(function (result) {
           saveSetup(result.location, result.portalUrl, result.setup); resetRouterSetupTarget();
           return load().then(function () { showRouterSetup(result); moveToSetupSection('onboarding-section'); });
@@ -1062,7 +1071,7 @@
       document.querySelectorAll('[data-scroll]').forEach(function (button) { button.addEventListener('click', function (event) { var target = $(event.currentTarget.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); });
       document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') clearOnboardingPolling(); else if (state.workspace) scheduleOnboardingPolling(onboardingModel()); });
       $('sign-out').addEventListener('click', function (event) { var button = event.currentTarget; setBusy(button, true, 'Signing out…'); clearBillingPolling(); clearOnboardingPolling(); api('/api/business/logout', { method: 'POST', body: '{}' }).then(function () { clearSession(); }).catch(function () { clearSession(); $('login-error').textContent = 'Signed out on this browser. The server could not confirm the session was closed.'; }).finally(function () { setBusy(button, false); window.scrollTo({ top: 0, behavior: 'smooth' }); }); });
-      $('copyright-year').textContent = String(new Date().getFullYear()); installRouterSetupClearAction(); syncRouterSetupForm(true); syncWanFields(); if (!token && new URLSearchParams(window.location.search).get('mode') === 'login') chooseAccess('login'); load();
+      $('copyright-year').textContent = String(new Date().getFullYear()); installRouterSetupClearAction(); enforceSafeRouterDefault(); syncRouterSetupForm(true); syncWanFields(); if (!token && new URLSearchParams(window.location.search).get('mode') === 'login') chooseAccess('login'); load();
     }());
   </script>
 </body>

@@ -439,13 +439,14 @@ async function main() {
   await test('guided router setup safely brands a portal and stages replacement credentials', async () => {
     const created = await api('/api/business/router-setup', { method: 'POST', token: alpha.token, body: {
       name: 'Alpha Second Site', routerName: 'Fresh hAP lite', mode: 'new', routerOsVersion: '7',
-      modelProfile: 'hap-lite', routerModel: 'hAP lite', customerBridge: 'bridge-hs', hotspotServer: 'hotspot1',
+      modelProfile: 'hap-lite', routerModel: 'hAP lite', freshRouterConfirmed: 'yes', customerBridge: 'bridge-hs', hotspotServer: 'hotspot1',
       wanInterface: 'ether1', wifiInterface: 'wlan1', customerPorts: 'ether2,ether3,ether4',
       wifiSsid: 'Alpha Guest', wifiPassword: 'AlphaGuestPass9', customerSubnet: '10.5.51.0/24', wanMode: 'dhcp',
     } });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     assert.ok(created.body.location.routerToken, 'a setup kit reveals its pairing secret only once');
-    assert.match(created.body.setup.script, /Router administrator login: admin \/ /);
+    assert.match(created.body.setup.script, /administrator credentials are never changed/);
+    assert.doesNotMatch(created.body.setup.script, /\/user set .*password/);
     assert.match(created.body.setup.script, /:global fitiUrl "https:\/\/cloud\.wififiti\.co\.ke"/);
     assert.match(created.body.setup.script, /:global fitiPortalHost "cloud\.wififiti\.co\.ke"/,
       'a new router starts with the safe cloud customer URL');

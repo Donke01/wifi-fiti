@@ -96,10 +96,12 @@ control centre is designed around this operating sequence:
    DHCP settings while adding WiFi Fiti pairing.
 4. **Copy or import the one-time kit.** The router polls WiFi Fiti over
    outbound HTTPS, so it stays behind NAT without exposing its administration
-   API to the internet. New-router kits never reset a router themselves; they
-   generate a strong `admin` password inside the kit, block WAN management,
-   and keep retrying cloud pairing until WAN/DNS is ready. Save that password
-   before importing.
+   API to the internet. New-router kits never reset a router or change its
+   administrator password; the owner must set and save that password through
+   the normal RouterOS process. The kit blocks WAN management and keeps
+   retrying cloud pairing until WAN/DNS is ready. The dashboard defaults to
+   the existing-Hotspot path and requires an explicit fresh-router
+   confirmation before generating a new-network kit.
 5. **Verify the portal.** From a fresh unauthenticated phone, join the Wi-Fi
    and confirm the location portal opens at the address shown in the dashboard
    (or the cloud `/p/<location-id>` fallback before the optional edge gateway
