@@ -634,6 +634,147 @@ function buildRemoteSupportScript({ controls }) {
   return { script: blocks.join('\n') + (blocks.length ? '\n' : ''), emitted, rejected };
 }
 
+/*
+ * A mapped deployment is deliberately much narrower than a generic remote
+ * command facility.  The cloud never accepts RouterOS source from a browser
+ * (or from the VPN gateway).  It can emit exactly one reviewed action:
+ * verify the owner-confirmed map against the live router, then apply the
+ * corresponding WiFi Fiti service selectors.
+ *
+ * The action uses the already-installed `fitiSupportAck` transport because
+ * every paired poller knows how to return it on the following authenticated
+ * HTTPS poll.  Its value is namespaced (`deploy.<id>.<receipt>`) so it cannot
+ * acknowledge a WireGuard lifecycle control by accident.  The receipt is a
+ * server-generated capability; the server verifies its HMAC before marking
+ * the deployment acknowledged.
+ *
+ * There are intentionally no commands here for RouterOS users/passwords,
+ * default routes, IP addresses, NAT, firewall, Hotspot creation, Wi-Fi
+ * passwords, or service exposure.  Those would require a separate,
+ * explicitly reviewed deployment type rather than being smuggled through a
+ * port-map action.
+ */
+const MAPPED_DEPLOYMENT_ACTION = 'apply_mapped_service_v1';
+const MAPPED_DEPLOYMENT_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
+const MAPPED_DEPLOYMENT_RECEIPT = /^[A-Za-z0-9_-]{32,64}$/;
+const MAPPED_DEPLOYMENT_SIGNATURE = /^[a-f0-9]{64}$/;
+
+function mappedDeploymentName(value) {
+  const name = typeof value === 'string' ? value.trim() : '';
+  return MAPPED_DEPLOYMENT_TOKEN.test(name) ? name : null;
+}
+
+function mappedDeploymentNames(value, maximum) {
+  if (!Array.isArray(value) || value.length > maximum) return null;
+  const names = value.map(mappedDeploymentName);
+  if (names.some((name) => !name) || new Set(names).size !== names.length) return null;
+  return names;
+}
+
+function mappedDeploymentControl(control) {
+  const id = supportControlId(control);
+  if (!id || control?.action !== MAPPED_DEPLOYMENT_ACTION) return null;
+  const receipt = typeof control.receipt === 'string' ? control.receipt : '';
+  const signature = typeof control.signature === 'string' ? control.signature : '';
+  const mapping = control?.mapping;
+  const hotspotServer = mappedDeploymentName(control?.hotspotServer);
+  const topologyFingerprint = typeof control?.topologyFingerprint === 'string' ? control.topologyFingerprint : '';
+  if (!MAPPED_DEPLOYMENT_RECEIPT.test(receipt) || !MAPPED_DEPLOYMENT_SIGNATURE.test(signature) ||
+      !/^[a-f0-9]{64}$/.test(topologyFingerprint) || !mapping || typeof mapping !== 'object' || Array.isArray(mapping) ||
+      Number(mapping.version) !== 1 || !hotspotServer) return null;
+
+  const wanInterface = mappedDeploymentName(mapping.wanInterface);
+  const customerBridge = mappedDeploymentName(mapping.customerBridge);
+  const wifiInterfaces = mappedDeploymentNames(mapping.wifiInterfaces, 8);
+  const customerPorts = mappedDeploymentNames(mapping.customerPorts, 32);
+  if (!wanInterface || !customerBridge || !wifiInterfaces || !customerPorts ||
+      wifiInterfaces.includes(wanInterface) || customerPorts.includes(wanInterface)) return null;
+
+  // Do not put the HMAC in a RouterOS log or a mutable router-global. The
+  // server verifies it before rendering this independently validated control;
+  // the one-time receipt is sufficient for the return acknowledgement.
+  const lines = [
+    ':global fitiSupportAck',
+    ':global fitiBridge',
+    ':global fitiHotspotServer',
+    ':local fitiMappedDeploymentOk true',
+    `:local fitiMappedDeploymentWan "${wanInterface}"`,
+    `:local fitiMappedDeploymentBridge "${customerBridge}"`,
+    `:local fitiMappedDeploymentHotspot "${hotspotServer}"`,
+    '',
+    // Validate rather than rearrange hardware. A changed board or a local
+    // edit is a safe no-op and remains visible in the dashboard as pending.
+    ':if ([:len [/interface ethernet find where name=$fitiMappedDeploymentWan]] != 1) do={',
+    '  :set fitiMappedDeploymentOk false',
+    '  :log warning "fiti deploy: confirmed WAN interface is no longer available; map must be reviewed"',
+    '}',
+    ':if ([:len [/interface bridge find where name=$fitiMappedDeploymentBridge]] != 1) do={',
+    '  :set fitiMappedDeploymentOk false',
+    '  :log warning "fiti deploy: confirmed customer bridge is no longer available; map must be reviewed"',
+    '}',
+    ':if ([:len [/ip hotspot find where name=$fitiMappedDeploymentHotspot]] != 1) do={',
+    '  :set fitiMappedDeploymentOk false',
+    '  :log warning "fiti deploy: detected Hotspot server is no longer available; no change was made"',
+    '} else={',
+    '  :local fitiMappedDeploymentHotspotBridge [/ip hotspot get [find where name=$fitiMappedDeploymentHotspot] interface]',
+    '  :if ($fitiMappedDeploymentHotspotBridge != $fitiMappedDeploymentBridge) do={',
+    '    :set fitiMappedDeploymentOk false',
+    '    :log warning "fiti deploy: Hotspot is not on the confirmed customer bridge; no change was made"',
+    '  }',
+    '}',
+    ':if ([:len [/interface bridge port find where bridge=$fitiMappedDeploymentBridge interface=$fitiMappedDeploymentWan]] != 0) do={',
+    '  :set fitiMappedDeploymentOk false',
+    '  :log warning "fiti deploy: confirmed WAN is now a customer-bridge member; no change was made"',
+    '}',
+  ];
+
+  for (const port of customerPorts) {
+    lines.push(
+      `:if ([:len [/interface ethernet find where name="${port}"]] != 1 || [:len [/interface bridge port find where bridge=$fitiMappedDeploymentBridge interface="${port}"]] != 1) do={`,
+      '  :set fitiMappedDeploymentOk false',
+      '  :log warning "fiti deploy: a confirmed customer Ethernet port changed; no change was made"',
+      '}'
+    );
+  }
+  for (const wifi of wifiInterfaces) {
+    lines.push(
+      `:if ([:len [/interface find where name="${wifi}"]] != 1 || [:len [/interface bridge port find where bridge=$fitiMappedDeploymentBridge interface="${wifi}"]] != 1) do={`,
+      '  :set fitiMappedDeploymentOk false',
+      '  :log warning "fiti deploy: a confirmed Wi-Fi interface changed; no change was made"',
+      '}'
+    );
+  }
+
+  lines.push(
+    '',
+    // These two globals are WiFi Fiti-owned selectors consumed by the
+    // installed outbound poller. They are set only after every read-only
+    // check above succeeds; no bridge membership, WAN client, route,
+    // administrator account, radio security profile or customer data moves.
+    ':if ($fitiMappedDeploymentOk) do={',
+    '  :set fitiBridge $fitiMappedDeploymentBridge',
+    '  :set fitiHotspotServer $fitiMappedDeploymentHotspot',
+    `  :global fitiSupportAck "deploy.${id}.${receipt}"`,
+    `  :log info "fiti deploy: verified mapped service action ${id} applied"`,
+    '} else={',
+    // Report a finite failure state through the existing acknowledgement
+    // transport. This is deliberately not an acknowledgement: Railway marks
+    // the action stale and asks the owner to reconfirm rather than retrying a
+    // mismatched local map forever.
+    `  :global fitiSupportAck "deploy.${id}.${receipt}.blocked"`,
+    '  :log warning "fiti deploy: mapped service action did not pass its local checks; it will not be acknowledged"',
+    '}'
+  );
+  return lines.join('\n');
+}
+
+function buildMappedDeploymentScript({ control } = {}) {
+  const script = mappedDeploymentControl(control);
+  return script
+    ? { script: script + '\n', emitted: [control.id], rejected: [] }
+    : { script: '', emitted: [], rejected: control ? [control.id] : [] };
+}
+
 /** Disable subscriptions whose wall-clock expiry has passed. The router
  * polls every five seconds, so an expired customer is disconnected even if
  * their browser is closed and their RouterOS uptime allowance is unused. */
@@ -661,4 +802,5 @@ function buildExpiryScript(accounts) {
 module.exports = {
   buildScript, buildExpiryScript, jobToScript, rateProfileName, safe, safeSeconds,
   remoteSupportControlToScript, buildRemoteSupportScript,
+  MAPPED_DEPLOYMENT_ACTION, mappedDeploymentControl, buildMappedDeploymentScript,
 };

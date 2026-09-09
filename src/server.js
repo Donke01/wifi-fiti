@@ -1101,6 +1101,38 @@ app.put('/api/business/locations/:locationId/router-mapping', (req, res) => {
 });
 
 /* ------------------------------------------------------------------ */
+/* Map-bound remote deployment                                         */
+/* ------------------------------------------------------------------ */
+
+// This API is intentionally *not* a remote terminal. The only accepted
+// browser request is an explicit request for the reviewed map-bound action;
+// every RouterOS value is rebuilt server-side from a fresh inventory and the
+// owner's confirmed map. No command, script, credential or route field can
+// cross this boundary.
+app.get('/api/business/locations/:locationId/mapped-deployment', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const result = tenant.mappedDeploymentForBusiness({ locationId: String(req.params.locationId), businessId: business.id });
+  if (!result) return res.status(404).json({ error: 'Location not found.' });
+  res.json(result);
+});
+
+app.post('/api/business/locations/:locationId/mapped-deployment', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body) ||
+      Object.keys(body).length !== 1 || body.action !== 'apply') {
+    return res.status(400).json({ error: 'Use only the apply action for a verified router map.' });
+  }
+  try {
+    const result = tenant.requestMappedDeployment({ locationId: String(req.params.locationId), businessId: business.id });
+    if (!result) return res.status(404).json({ error: 'Location not found.' });
+    res.status(result.reused ? 200 : 202).json(result);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not queue the verified router deployment.' });
+  }
+});
+
+/* ------------------------------------------------------------------ */
 /* Optional remote-support onboarding                                  */
 /* ------------------------------------------------------------------ */
 
@@ -2900,7 +2932,7 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* Router polling API                                                  */
 /* ------------------------------------------------------------------ */
 
-const { buildScript, buildExpiryScript, buildRemoteSupportScript } = require('./lib/rsc');
+const { buildScript, buildExpiryScript, buildRemoteSupportScript, buildMappedDeploymentScript } = require('./lib/rsc');
 
 /** Constant-time compare so the token cannot be guessed by timing. */
 function tokenOk(supplied) {
@@ -3038,8 +3070,12 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   tenant.queueExpiredSubscriptions(location.id);
   const jobs = tenant.pendingJobs.all(location.id);
   const controls = tenant.pendingRemoteSupportControls.all(location.id);
+  // A mapped deployment deliberately waits behind any WireGuard lifecycle
+  // work. Both use the existing support-ack global, and remote cleanup or
+  // re-enrollment must never race a map-bound service selector update.
+  const deployment = controls.length ? null : tenant.pendingMappedDeploymentForRouter(location);
   const portal = routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost });
-  if (!jobs.length && !controls.length) {
+  if (!jobs.length && !controls.length && !deployment) {
     return { script: portal, emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
 
@@ -3057,8 +3093,17 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
     console.log(`[tenant router] ${location.id} collected support control(s) ${support.emitted.join(', ')}`);
   }
 
+  const mapped = buildMappedDeploymentScript({ control: deployment });
+  for (const id of mapped.emitted) tenant.markMappedDeploymentDeliveredForRouter({ locationId: location.id, id });
+  if (mapped.rejected.length) {
+    console.error(`[tenant router] ${location.id} refused malformed mapped deployment(s): ${mapped.rejected.join(', ')}`);
+  }
+  if (mapped.emitted.length) {
+    console.log(`[tenant router] ${location.id} collected mapped deployment(s) ${mapped.emitted.join(', ')}`);
+  }
+
   if (!jobs.length) {
-    return { script: [portal, support.script].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
+    return { script: [portal, support.script, mapped.script].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
   }
 
   const { script, emitted, rejected } = buildScript({
@@ -3071,7 +3116,7 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   }
   if (emitted.length) console.log(`[tenant router] ${location.id} collected job(s) ${emitted.join(', ')}`);
   return {
-    script: [portal, support.script, script].filter(Boolean).join('\n'),
+    script: [portal, support.script, mapped.script, script].filter(Boolean).join('\n'),
     emitted,
     rejected,
     supportEmitted: support.emitted,
@@ -3087,6 +3132,12 @@ function acknowledgeTenantRouterJobs(location, value) {
 }
 
 function acknowledgeTenantRemoteSupportControls(location, value) {
+  const mapped = tenant.acknowledgeMappedDeploymentForRouter({ locationId: location.id, acknowledgement: value });
+  if (mapped.handled) {
+    if (mapped.acknowledged) console.log(`[tenant router] ${location.id} acknowledged mapped deployment${mapped.idempotent ? ' (repeat)' : ''}`);
+    if (mapped.blocked) console.warn(`[tenant router] ${location.id} reported a mapped deployment topology mismatch`);
+    return mapped.acknowledged ? [Number(String(value).split('.')[1])] : [];
+  }
   const ids = routerAckIds(value);
   for (const id of ids) tenant.markRemoteSupportControlAcked.run(id, location.id);
   if (ids.length) console.log(`[tenant router] ${location.id} acked support control(s) ${ids.join(', ')}`);
@@ -3209,9 +3260,12 @@ app.post('/api/router/sync', (req, res) => {
     if (appliedHost && appliedHost === edgeHostname(readyLocation.portal_hostname)) {
       readyLocation = tenant.recordRouterPortalApplied(readyLocation.id, appliedHost);
     }
+    // Refresh the narrow map snapshot before accepting a map-bound action
+    // receipt. A router that changed ports since the action was issued is
+    // therefore marked stale instead of being recorded as deployed.
+    ingestTenantTopology(readyLocation, req.body);
     acknowledgeTenantRouterJobs(readyLocation, req.query.ack);
     acknowledgeTenantRemoteSupportControls(readyLocation, req.query.supportAck);
-    ingestTenantTopology(readyLocation, req.body);
     ingestTenantUsage(readyLocation, req.body);
     const response = tenantRouterScript(readyLocation, {
       reportedPortalAppliedHost: req.query.portalApplied,

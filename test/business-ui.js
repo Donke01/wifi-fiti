@@ -13,6 +13,11 @@ assert.match(html, /consent:\s*true/, 'a business owner must explicitly consent 
 assert.match(html, /action:\s*'revoke'/, 'an owner can revoke remote access');
 assert.match(html, /Customer traffic and payments never use this support path/, 'the UI does not imply customer traffic is routed through support access');
 assert.doesNotMatch(html, /privateKey|private-key|vpnPrivate/i, 'the business UI must never render VPN private material');
+assert.match(html, /\/mapped-deployment/, 'the mapped deployment remains location-scoped and owner-authenticated');
+assert.match(html, /action:\s*'apply'/, 'the browser can request only the finite reviewed mapped-deployment action');
+assert.match(html, /Apply confirmed service/, 'the remote panel makes the post-map action explicit rather than implying a generic terminal');
+assert.match(html, /fresh private management handshake/, 'the UI explains that deployment is gated by a current private connection');
+assert.match(html, /It never changes WAN, bridge membership, Wi‑Fi name or password, DHCP, NAT, firewall policy, Hotspot address, or router administrator access/, 'the UI precisely defines the autonomous deployment boundary');
 
 // A customer address is intentionally deferred until the router has proved
 // its WiFi Fiti connection. The normal dashboard must not tease an owner

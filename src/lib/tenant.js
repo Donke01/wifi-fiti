@@ -324,6 +324,48 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tenant_router_mappings_topology
     ON tenant_router_mappings(topology_fingerprint);
 
+  -- A remote mapped deployment is a small, signed, owner-requested action
+  -- queue. It is intentionally distinct from WireGuard lifecycle controls
+  -- and customer-provisioning jobs: a port-map verification must never
+  -- acknowledge a VPN peer operation or alter paid customer access.
+  --
+  -- payload_json is generated only from the server's current validated
+  -- inventory + owner-confirmed map. Browser input never reaches this table
+  -- as RouterOS source. signature is an HMAC over the canonical envelope;
+  -- it is verified again immediately before an action can become RouterOS
+  -- source. nonce is a non-secret unique replay component used to derive
+  -- the router's one-time acknowledgement receipt without persisting that
+  -- receipt itself.
+  CREATE TABLE IF NOT EXISTS tenant_mapped_deployments (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id          TEXT NOT NULL REFERENCES locations(id),
+    action               TEXT NOT NULL,
+    topology_fingerprint TEXT NOT NULL,
+    mapping_fingerprint  TEXT NOT NULL,
+    payload_json         TEXT NOT NULL,
+    nonce                TEXT NOT NULL UNIQUE,
+    signature            TEXT NOT NULL,
+    status               TEXT NOT NULL DEFAULT 'queued',
+    error_code           TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    delivered_at         TEXT,
+    acknowledged_at      TEXT,
+    cancelled_at         TEXT,
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(action = 'apply_mapped_service_v1'),
+    CHECK(length(topology_fingerprint) = 64),
+    CHECK(length(mapping_fingerprint) = 64),
+    CHECK(status IN ('queued', 'delivered', 'acknowledged', 'cancelled', 'stale', 'failed')),
+    CHECK(error_code IS NULL OR error_code IN ('mapping_stale', 'replacement_pending', 'remote_access_revoked', 'invalid_signature', 'invalid_payload', 'superseded'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_mapped_deployments_location
+    ON tenant_mapped_deployments(location_id, id DESC);
+  CREATE INDEX IF NOT EXISTS idx_tenant_mapped_deployments_pending
+    ON tenant_mapped_deployments(location_id, status, delivered_at, id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_mapped_deployments_one_pending
+    ON tenant_mapped_deployments(location_id, action)
+    WHERE status IN ('queued', 'delivered');
+
   -- A paid checkout may be observed by the customer polling endpoint,
   -- Daraja's callback and the background reconciliation task. This tiny
   -- ledger is the idempotency lock: only one of them can ever credit it.
@@ -813,6 +855,63 @@ const saveRouterMapping = db.prepare(`
     confirmed_at=datetime('now'),
     updated_at=datetime('now')
 `);
+const mappedDeploymentById = db.prepare(`
+  SELECT id, location_id, action, topology_fingerprint, mapping_fingerprint,
+         payload_json, nonce, signature, status, error_code,
+         created_at, delivered_at, acknowledged_at, cancelled_at, updated_at
+    FROM tenant_mapped_deployments
+   WHERE id=? AND location_id=?
+`);
+const latestMappedDeploymentByLocation = db.prepare(`
+  SELECT id, location_id, action, topology_fingerprint, mapping_fingerprint,
+         payload_json, nonce, signature, status, error_code,
+         created_at, delivered_at, acknowledged_at, cancelled_at, updated_at
+    FROM tenant_mapped_deployments
+   WHERE location_id=?
+   ORDER BY id DESC LIMIT 1
+`);
+const activeMappedDeploymentByLocation = db.prepare(`
+  SELECT id, location_id, action, topology_fingerprint, mapping_fingerprint,
+         payload_json, nonce, signature, status, error_code,
+         created_at, delivered_at, acknowledged_at, cancelled_at, updated_at
+    FROM tenant_mapped_deployments
+   WHERE location_id=? AND status IN ('queued', 'delivered')
+   ORDER BY id DESC LIMIT 1
+`);
+const insertMappedDeployment = db.prepare(`
+  INSERT INTO tenant_mapped_deployments
+    (location_id, action, topology_fingerprint, mapping_fingerprint, payload_json, nonce, signature)
+  VALUES (@locationId, @action, @topologyFingerprint, @mappingFingerprint, @payloadJson, @nonce, @signature)
+`);
+const setMappedDeploymentSignature = db.prepare(`
+  UPDATE tenant_mapped_deployments
+     SET signature=@signature, updated_at=datetime('now')
+   WHERE id=@id AND location_id=@locationId AND signature=''
+`);
+const markMappedDeploymentDelivered = db.prepare(`
+  UPDATE tenant_mapped_deployments
+     SET status='delivered', delivered_at=datetime('now'), updated_at=datetime('now')
+   WHERE id=? AND location_id=? AND status IN ('queued', 'delivered')
+`);
+const acknowledgeMappedDeployment = db.prepare(`
+  UPDATE tenant_mapped_deployments
+     SET status='acknowledged', acknowledged_at=COALESCE(acknowledged_at, datetime('now')),
+         error_code=NULL, updated_at=datetime('now')
+   WHERE id=? AND location_id=? AND status IN ('queued', 'delivered')
+`);
+const markMappedDeploymentState = db.prepare(`
+  UPDATE tenant_mapped_deployments
+     SET status=@status, error_code=@errorCode,
+         cancelled_at=CASE WHEN @status='cancelled' THEN COALESCE(cancelled_at, datetime('now')) ELSE cancelled_at END,
+         updated_at=datetime('now')
+   WHERE id=@id AND location_id=@locationId AND status IN ('queued', 'delivered')
+`);
+const cancelPendingMappedDeployments = db.prepare(`
+  UPDATE tenant_mapped_deployments
+     SET status='cancelled', error_code=@errorCode,
+         cancelled_at=datetime('now'), updated_at=datetime('now')
+   WHERE location_id=@locationId AND status IN ('queued', 'delivered')
+`);
 // A staged replacement has a new pairing credential and may represent an
 // entirely different board.  Never let its owner see, reconfirm, or inherit
 // the prior router's descriptive map while that credential is waiting to
@@ -837,7 +936,8 @@ const unusedLocationForDiscard = db.prepare(`
          (SELECT COUNT(*) FROM tenant_remote_support_controls WHERE location_id=l.id) AS remote_control_count,
          (SELECT COUNT(*) FROM tenant_vpn_peers WHERE location_id=l.id) AS vpn_peer_count,
          (SELECT COUNT(*) FROM tenant_router_topologies WHERE location_id=l.id) AS topology_count,
-         (SELECT COUNT(*) FROM tenant_router_mappings WHERE location_id=l.id) AS mapping_count
+         (SELECT COUNT(*) FROM tenant_router_mappings WHERE location_id=l.id) AS mapping_count,
+         (SELECT COUNT(*) FROM tenant_mapped_deployments WHERE location_id=l.id) AS mapped_deployment_count
     FROM locations l
    WHERE l.id=@locationId AND l.business_id=@businessId
 `);
@@ -1360,6 +1460,13 @@ function createLocation({ id, businessId, name, routerName, setup }) {
 const REMOTE_ACCESS_ACTIVE_STATES = new Set(['requested', 'approved', 'configured']);
 const REMOTE_SUPPORT_CONTROL_ACTIONS = new Set(['prepare', 'activate', 'revoke']);
 const VPN_GATEWAY_STATES = new Set(['ready', 'error', 'revoked']);
+const MAPPED_DEPLOYMENT_ACTION = 'apply_mapped_service_v1';
+const MAPPED_DEPLOYMENT_PENDING = new Set(['queued', 'delivered']);
+const MAPPED_DEPLOYMENT_STATUSES = new Set(['queued', 'delivered', 'acknowledged', 'cancelled', 'stale', 'failed']);
+// A keepalive-driven WireGuard session should be observed every few seconds.
+// Two minutes leaves normal gateway/poll jitter room but does not let an old
+// tunnel observation authorize a new deployment after the router disappears.
+const MAPPED_DEPLOYMENT_HANDSHAKE_MAX_AGE_MS = 2 * 60_000;
 
 function remoteAccessError(message, status) {
   const error = new Error(message);
@@ -1560,6 +1667,10 @@ function revokeRemoteAccessForBusiness({ locationId, businessId }) {
   return withRemoteAccessTransaction(() => {
     const existing = remoteAccessByLocation.get(location.id);
     if (!existing || existing.status === 'revoked') return remoteAccessPayload(location, existing);
+    // Withdrawal of consent also cancels a map-bound action that has not
+    // received the router's completion receipt. It cannot be revived by a
+    // later poll without a new explicit owner request.
+    cancelPendingMappedDeployments.run({ locationId: location.id, errorCode: 'remote_access_revoked' });
     revokeVpnPeerDesiredInTransaction(location.id);
     revokeRemoteAccess.run(location.id);
     queueRemoteSupportControl(location.id, 'revoke');
@@ -1883,6 +1994,7 @@ function manageRemoteAccess({ locationId, action, managementAddress: requestedAd
     const existing = remoteAccessByLocation.get(location.id);
     if (operation === 'revoke') {
       if (!existing || existing.status === 'revoked') return remoteAccessPayload(location, existing);
+      cancelPendingMappedDeployments.run({ locationId: location.id, errorCode: 'remote_access_revoked' });
       revokeVpnPeerDesiredInTransaction(location.id);
       revokeRemoteAccess.run(location.id);
       queueRemoteSupportControl(location.id, 'revoke');
@@ -2113,6 +2225,7 @@ function revokeVpnPeer({ locationId, actorId = 'vpn-gateway' }) {
   return withRemoteAccessTransaction(() => {
     const existingPeer = vpnPeerByLocation.get(location.id);
     if (!existingPeer) return null;
+    cancelPendingMappedDeployments.run({ locationId: location.id, errorCode: 'remote_access_revoked' });
     const wasActive = existingPeer.desired_state === 'active';
     const peer = revokeVpnPeerDesiredInTransaction(location.id);
     const access = remoteAccessByLocation.get(location.id);
@@ -2318,12 +2431,365 @@ function confirmRouterMapping({ locationId, businessId, mapping }) {
       mappingFingerprint: mappingFingerprint(normalized),
       mappingJson: serialized,
     });
+    // A new confirmation is a fresh owner decision. Never let an older
+    // queued action execute after the owner has reviewed the map again,
+    // even when its selected interface names happen to be unchanged.
+    cancelPendingMappedDeployments.run({ locationId: location.id, errorCode: 'superseded' });
     db.exec('COMMIT');
   } catch (error) {
     try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
     throw error;
   }
   return routerTopologyForLocation(locationForBusiness.get(locationId, businessId));
+}
+
+/* ------------------------------------------------------------------ */
+/* Signed, map-bound remote deployment controls                       */
+/* ------------------------------------------------------------------ */
+
+const MAPPED_DEPLOYMENT_INTERFACE = /^[A-Za-z0-9_.-]{1,64}$/;
+const MAPPED_DEPLOYMENT_NONCE = /^[A-Za-z0-9_-]{32,64}$/;
+const MAPPED_DEPLOYMENT_SIGNATURE = /^[a-f0-9]{64}$/;
+const MAPPED_DEPLOYMENT_ACK = /^deploy\.([1-9]\d{0,15})\.([A-Za-z0-9_-]{32,64})(?:\.(blocked))?$/;
+
+function mappedDeploymentToken(value) {
+  const token = String(value || '').trim();
+  return MAPPED_DEPLOYMENT_INTERFACE.test(token) ? token : null;
+}
+
+function mappedDeploymentTimestamp(value) {
+  let text = String(value || '').trim().replace(' ', 'T');
+  if (text && !/(?:Z|[+-]\d\d:\d\d)$/i.test(text)) text += 'Z';
+  const timestamp = Date.parse(text);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function mappedDeploymentHandshakeFresh(value) {
+  const timestamp = mappedDeploymentTimestamp(value);
+  return timestamp !== null && timestamp <= Date.now() + 5 * 60_000 &&
+    timestamp >= Date.now() - MAPPED_DEPLOYMENT_HANDSHAKE_MAX_AGE_MS;
+}
+
+function mappedDeploymentCurrentContext(location) {
+  if (!location) return { ok: false, blocker: 'location_missing' };
+  if (hasLivePendingRouterPairing(location)) return { ok: false, blocker: 'replacement_pending' };
+  const snapshot = topologySnapshot(routerTopologyByLocation.get(location.id));
+  if (!snapshot) return { ok: false, blocker: 'inventory_missing' };
+  if (!topologyFreshAt(snapshot.lastReportedAt)) return { ok: false, blocker: 'inventory_stale' };
+  const mappingRow = routerMappingByLocation.get(location.id);
+  if (!mappingRow || mappingRow.topology_fingerprint !== snapshot.fingerprint) {
+    return { ok: false, blocker: 'mapping_stale' };
+  }
+  const mapping = confirmedMapping(mappingRow, snapshot.topology);
+  if (!mapping) return { ok: false, blocker: 'mapping_needs_confirmation' };
+  const hotspotServer = mappedDeploymentToken(snapshot.topology.hotspotServer);
+  if (!hotspotServer) return { ok: false, blocker: 'hotspot_not_detected' };
+  return { ok: true, snapshot, mappingRow, mapping, hotspotServer };
+}
+
+function mappedDeploymentVpnContext(location) {
+  const access = remoteAccessByLocation.get(location.id);
+  const peer = vpnPeerByLocation.get(location.id);
+  if (!config.vpnGateway.enabled) return { ok: false, blocker: 'vpn_not_configured' };
+  if (!access || access.status !== 'configured') return { ok: false, blocker: 'remote_access_not_configured' };
+  if (!peer || peer.desired_state !== 'active' || peer.gateway_state !== 'ready') {
+    return { ok: false, blocker: 'vpn_not_ready' };
+  }
+  if (!mappedDeploymentHandshakeFresh(peer.last_handshake_at)) {
+    return { ok: false, blocker: 'vpn_not_active' };
+  }
+  return { ok: true, access, peer };
+}
+
+function mappedDeploymentBlockerMessage(blocker) {
+  const messages = {
+    replacement_pending: 'Wait for the replacement router to finish pairing and report its own map.',
+    inventory_missing: 'Wait for this router to report its port and Wi-Fi inventory.',
+    inventory_stale: 'Wait for a fresh router inventory before deploying.',
+    mapping_stale: 'The router layout changed. Review and confirm the map again before deploying.',
+    mapping_needs_confirmation: 'Confirm the current router map before deploying.',
+    hotspot_not_detected: 'WiFi Fiti could not verify a Hotspot server on the mapped router.',
+    vpn_not_configured: 'WiFi Fiti VPN is not configured for this deployment.',
+    remote_access_not_configured: 'Enable secure remote access for this router before deploying.',
+    vpn_not_ready: 'Wait for the secure VPN connection to finish preparing.',
+    vpn_not_active: 'Wait for an active WiFi Fiti VPN handshake before deploying.',
+    remote_control_pending: 'Wait for the current secure-connection change to finish before deploying.',
+  };
+  return messages[blocker] || 'This router is not ready for a mapped deployment.';
+}
+
+function mappedDeploymentPayload(context) {
+  // Keep property order stable: the same explicit object is HMAC-signed,
+  // persisted and later verified before it can be rendered as RouterOS.
+  return {
+    version: 1,
+    action: MAPPED_DEPLOYMENT_ACTION,
+    hotspotServer: context.hotspotServer,
+    mapping: {
+      version: 1,
+      wanInterface: context.mapping.wanInterface,
+      customerBridge: context.mapping.customerBridge,
+      wifiInterfaces: [...context.mapping.wifiInterfaces],
+      customerPorts: [...context.mapping.customerPorts],
+    },
+  };
+}
+
+function normalizeMappedDeploymentPayload(value, topology) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      Object.keys(value).length !== 4 || value.version !== 1 || value.action !== MAPPED_DEPLOYMENT_ACTION ||
+      !Object.prototype.hasOwnProperty.call(value, 'hotspotServer') ||
+      !Object.prototype.hasOwnProperty.call(value, 'mapping')) return null;
+  const hotspotServer = mappedDeploymentToken(value.hotspotServer);
+  if (!hotspotServer || !topology || hotspotServer !== topology.hotspotServer) return null;
+  try {
+    const mapping = validateRouterMapping(value.mapping, topology);
+    // A stored action must retain the canonical map which was signed. Do not
+    // silently sort or repair a damaged payload before routing it to a router.
+    if (JSON.stringify(mapping) !== JSON.stringify(value.mapping)) return null;
+    return {
+      version: 1,
+      action: MAPPED_DEPLOYMENT_ACTION,
+      hotspotServer,
+      mapping,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function mappedDeploymentSigningKey() {
+  const secret = String(config.vpnGateway?.controlSecret || '');
+  if (!config.vpnGateway?.enabled || secret.length < 32) {
+    throw remoteAccessError('WiFi Fiti VPN signing is not configured for mapped deployment.', 503);
+  }
+  return secret;
+}
+
+function mappedDeploymentEnvelope(row, payload) {
+  return JSON.stringify({
+    version: 1,
+    id: Number(row.id),
+    locationId: row.location_id,
+    action: row.action,
+    topologyFingerprint: row.topology_fingerprint,
+    mappingFingerprint: row.mapping_fingerprint,
+    nonce: row.nonce,
+    payload,
+  });
+}
+
+function mappedDeploymentSignature(row, payload) {
+  return crypto.createHmac('sha256', mappedDeploymentSigningKey())
+    .update(mappedDeploymentEnvelope(row, payload))
+    .digest('hex');
+}
+
+function mappedDeploymentReceipt(row) {
+  // A receipt is derived, never stored. Leaking a database row therefore
+  // cannot by itself acknowledge an action; the VPN control secret remains
+  // necessary to reproduce this value.
+  return crypto.createHmac('sha256', mappedDeploymentSigningKey())
+    .update(`mapped-deployment-ack\n${row.signature}`)
+    .digest('base64url');
+}
+
+function equalMappedDeploymentValue(left, right) {
+  const a = Buffer.from(String(left || ''));
+  const b = Buffer.from(String(right || ''));
+  return Boolean(a.length && a.length === b.length && crypto.timingSafeEqual(a, b));
+}
+
+function verifiedMappedDeployment(row, context) {
+  if (!row || row.action !== MAPPED_DEPLOYMENT_ACTION || !MAPPED_DEPLOYMENT_NONCE.test(String(row.nonce || '')) ||
+      !MAPPED_DEPLOYMENT_SIGNATURE.test(String(row.signature || '')) ||
+      !/^[a-f0-9]{64}$/.test(String(row.topology_fingerprint || '')) ||
+      !/^[a-f0-9]{64}$/.test(String(row.mapping_fingerprint || ''))) return null;
+  let parsed;
+  try { parsed = JSON.parse(row.payload_json); } catch (_) { return null; }
+  const payload = normalizeMappedDeploymentPayload(parsed, context.snapshot.topology);
+  if (!payload || row.topology_fingerprint !== context.snapshot.fingerprint ||
+      row.mapping_fingerprint !== mappingFingerprint(payload.mapping)) return null;
+  try {
+    return equalMappedDeploymentValue(row.signature, mappedDeploymentSignature(row, payload)) ? payload : null;
+  } catch (_) {
+    // A removed/rotated deployment signing configuration must fail closed,
+    // not turn a normal router poll into a server error or render a stale
+    // control from a previously configured gateway.
+    return null;
+  }
+}
+
+function mappedDeploymentPublic(row) {
+  if (!row || !MAPPED_DEPLOYMENT_STATUSES.has(row.status)) return null;
+  return {
+    id: Number(row.id),
+    action: row.action,
+    status: row.status,
+    errorCode: row.error_code || null,
+    createdAt: row.created_at,
+    deliveredAt: row.delivered_at || null,
+    acknowledgedAt: row.acknowledged_at || null,
+    cancelledAt: row.cancelled_at || null,
+    updatedAt: row.updated_at,
+  };
+}
+
+function reconcileMappedDeployment(location) {
+  const current = activeMappedDeploymentByLocation.get(location.id);
+  if (!current) return null;
+  const context = mappedDeploymentCurrentContext(location);
+  if (!context.ok) {
+    const errorCode = context.blocker === 'replacement_pending' ? 'replacement_pending' : 'mapping_stale';
+    const status = context.blocker === 'replacement_pending' ? 'cancelled' : 'stale';
+    markMappedDeploymentState.run({ id: current.id, locationId: location.id, status, errorCode });
+    return activeMappedDeploymentByLocation.get(location.id);
+  }
+  if (current.topology_fingerprint !== context.snapshot.fingerprint ||
+      current.mapping_fingerprint !== mappingFingerprint(context.mapping)) {
+    markMappedDeploymentState.run({ id: current.id, locationId: location.id, status: 'stale', errorCode: 'mapping_stale' });
+    return null;
+  }
+  return current;
+}
+
+function mappedDeploymentReadiness(location) {
+  if (!location) return { canRequest: false, blocker: 'location_missing', mappingCurrent: false, vpnActive: false };
+  const map = mappedDeploymentCurrentContext(location);
+  const vpn = mappedDeploymentVpnContext(location);
+  const remoteControlPending = outstandingRemoteSupportControls.all(location.id).length > 0;
+  const blocker = !map.ok ? map.blocker : (!vpn.ok ? vpn.blocker : (remoteControlPending ? 'remote_control_pending' : null));
+  return {
+    canRequest: !blocker,
+    blocker,
+    mappingCurrent: map.ok,
+    vpnActive: vpn.ok,
+  };
+}
+
+function mappedDeploymentForBusiness({ locationId, businessId }) {
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  reconcileMappedDeployment(location);
+  const readiness = mappedDeploymentReadiness(location);
+  return {
+    deployment: mappedDeploymentPublic(latestMappedDeploymentByLocation.get(location.id)),
+    canRequest: readiness.canRequest,
+    blocker: readiness.blocker,
+    mappingCurrent: readiness.mappingCurrent,
+    vpnActive: readiness.vpnActive,
+  };
+}
+
+function requestMappedDeployment({ locationId, businessId }) {
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  return withRemoteAccessTransaction(() => {
+    const existing = reconcileMappedDeployment(location);
+    if (existing) return { ...mappedDeploymentForBusiness({ locationId, businessId }), reused: true };
+    const readiness = mappedDeploymentReadiness(location);
+    if (!readiness.canRequest) {
+      throw remoteAccessError(mappedDeploymentBlockerMessage(readiness.blocker), 409);
+    }
+    const context = mappedDeploymentCurrentContext(location);
+    const payload = mappedDeploymentPayload(context);
+    const inserted = insertMappedDeployment.run({
+      locationId: location.id,
+      action: MAPPED_DEPLOYMENT_ACTION,
+      topologyFingerprint: context.snapshot.fingerprint,
+      mappingFingerprint: mappingFingerprint(context.mapping),
+      payloadJson: JSON.stringify(payload),
+      nonce: crypto.randomBytes(24).toString('base64url'),
+      signature: '',
+    });
+    const row = mappedDeploymentById.get(Number(inserted.lastInsertRowid), location.id);
+    const signature = mappedDeploymentSignature(row, payload);
+    if (!setMappedDeploymentSignature.run({ id: row.id, locationId: location.id, signature }).changes) {
+      throw new Error('Could not sign the mapped deployment.');
+    }
+    return { ...mappedDeploymentForBusiness({ locationId, businessId }), reused: false };
+  });
+}
+
+/**
+ * Return exactly one locally executable, server-signed deployment action for
+ * a verified router poll. It shares the safe support-ack transport but never
+ * shares the WireGuard lifecycle queue. An active support lifecycle action
+ * wins, so a cleanup or re-enrollment cannot race a mapping action.
+ */
+function pendingMappedDeploymentForRouter(location) {
+  if (!location || location.router_pairing_auth === 'pending' || !location.router_setup_verified_at) return null;
+  if (outstandingRemoteSupportControls.all(location.id).length) return null;
+  const active = reconcileMappedDeployment(location);
+  if (!active) return null;
+  const due = active.status === 'queued' || !active.delivered_at ||
+    mappedDeploymentTimestamp(active.delivered_at) === null ||
+    mappedDeploymentTimestamp(active.delivered_at) <= Date.now() - 60_000;
+  if (!due) return null;
+  // The action is sent only while the gateway has recently observed the
+  // management tunnel. HTTPS is still the delivery path because it requires
+  // no Winbox/API credential or exposed RouterOS service.
+  if (!mappedDeploymentVpnContext(location).ok) return null;
+  const context = mappedDeploymentCurrentContext(location);
+  if (!context.ok) return null;
+  const payload = verifiedMappedDeployment(active, context);
+  if (!payload) {
+    markMappedDeploymentState.run({ id: active.id, locationId: location.id, status: 'failed', errorCode: 'invalid_signature' });
+    return null;
+  }
+  return {
+    id: Number(active.id),
+    action: MAPPED_DEPLOYMENT_ACTION,
+    topologyFingerprint: active.topology_fingerprint,
+    signature: active.signature,
+    receipt: mappedDeploymentReceipt(active),
+    hotspotServer: payload.hotspotServer,
+    mapping: payload.mapping,
+  };
+}
+
+function markMappedDeploymentDeliveredForRouter({ locationId, id }) {
+  const deploymentId = Number(id);
+  if (!Number.isInteger(deploymentId) || deploymentId < 1) return false;
+  return Boolean(markMappedDeploymentDelivered.run(deploymentId, locationId).changes);
+}
+
+function acknowledgeMappedDeploymentForRouter({ locationId, acknowledgement }) {
+  const match = MAPPED_DEPLOYMENT_ACK.exec(String(acknowledgement || '').trim());
+  if (!match) return { handled: false, acknowledged: false };
+  const deploymentId = Number(match[1]);
+  const receipt = match[2];
+  const blocked = match[3] === 'blocked';
+  const row = mappedDeploymentById.get(deploymentId, locationId);
+  if (!row) return { handled: true, acknowledged: false };
+  const location = locationById.get(locationId);
+  if (!location) return { handled: true, acknowledged: false };
+  const context = mappedDeploymentCurrentContext(location);
+  if (!context.ok || row.topology_fingerprint !== context.snapshot?.fingerprint ||
+      row.mapping_fingerprint !== mappingFingerprint(context.mapping || {})) {
+    if (MAPPED_DEPLOYMENT_PENDING.has(row.status)) {
+      const errorCode = context.blocker === 'replacement_pending' ? 'replacement_pending' : 'mapping_stale';
+      const status = context.blocker === 'replacement_pending' ? 'cancelled' : 'stale';
+      markMappedDeploymentState.run({ id: row.id, locationId, status, errorCode });
+    }
+    return { handled: true, acknowledged: false };
+  }
+  const payload = verifiedMappedDeployment(row, context);
+  if (!payload || !equalMappedDeploymentValue(receipt, mappedDeploymentReceipt(row))) {
+    if (MAPPED_DEPLOYMENT_PENDING.has(row.status)) {
+      markMappedDeploymentState.run({ id: row.id, locationId, status: 'failed', errorCode: 'invalid_signature' });
+    }
+    return { handled: true, acknowledged: false };
+  }
+  if (blocked) {
+    if (MAPPED_DEPLOYMENT_PENDING.has(row.status)) {
+      markMappedDeploymentState.run({ id: row.id, locationId, status: 'stale', errorCode: 'mapping_stale' });
+    }
+    return { handled: true, acknowledged: false, blocked: true };
+  }
+  if (row.status === 'acknowledged') return { handled: true, acknowledged: true, idempotent: true };
+  if (!MAPPED_DEPLOYMENT_PENDING.has(row.status)) return { handled: true, acknowledged: false };
+  return { handled: true, acknowledged: Boolean(acknowledgeMappedDeployment.run(row.id, locationId).changes) };
 }
 
 /**
@@ -2596,6 +3062,10 @@ function rotateLocationToken({ locationId, businessId, pendingSetup } = {}) {
     // This is a pairing-generation boundary. A topology and owner mapping
     // describe the outgoing router only; retaining either can cause the new
     // board to be displayed as configured before it has reported itself.
+    // The same boundary cancels any queued mapped deployment. A response
+    // already in flight cannot be recalled, so the RouterOS action also
+    // validates every selected port locally before it can acknowledge.
+    cancelPendingMappedDeployments.run({ locationId, errorCode: 'replacement_pending' });
     deleteRouterMapping.run(locationId);
     deleteRouterTopology.run(locationId);
     db.exec('COMMIT');
@@ -2674,7 +3144,7 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
       Number(location.job_count) || Number(location.device_count) || Number(location.voucher_count) ||
       Number(location.remote_access_count) || Number(location.remote_access_event_count) ||
       Number(location.remote_control_count) || Number(location.vpn_peer_count) ||
-      Number(location.topology_count) || Number(location.mapping_count) || supportTicketCount;
+      Number(location.topology_count) || Number(location.mapping_count) || Number(location.mapped_deployment_count) || supportTicketCount;
     if (location.router_status !== 'waiting' || location.last_seen_at || location.last_router_contact_at || location.last_successful_sync_at || hasHistory) {
       const error = new Error('This setup has already been paired or has customer, payment, voucher, router-job, support, or remote-setup history. Keep the location and generate a replacement router kit instead.');
       error.status = 409;
@@ -2964,6 +3434,8 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 module.exports = {
   tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
+  mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
+  markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
   remoteAccessForLocation, remoteAccessForBusiness, requestRemoteAccess, revokeRemoteAccessForBusiness, manageRemoteAccess, recordRemoteAccessEnrollment,
   provisionRemoteVpn, allocateDesiredVpnPeer, desiredVpnPeersForGateway, reportVpnGatewaySync,
