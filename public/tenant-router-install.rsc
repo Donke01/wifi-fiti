@@ -139,6 +139,10 @@
 :global fitiAck ""
 :global fitiSetupAck ""
 :global fitiSupportAck ""
+# Inventory is a bounded, non-secret port map sent through the existing
+# authenticated poll. It deliberately excludes IPs, MACs, credentials,
+# routes, users, security profiles and all WireGuard material.
+:global fitiTopologyTick 0
 
 /system script remove [find name="fiti-poll"]
 /system script remove [find name="fiti-boot"]
@@ -157,6 +161,7 @@
 \n:global fitiSetupAck\r\
 \n:global fitiSetupProtocol\r\
 \n:global fitiSupportAck\r\
+\n:global fitiTopologyTick\r\
 \n:if ([:len \$fitiToken] > 8) do={\r\
 \n  :local report \"\"\r\
 \n  :local reportCount 0\r\
@@ -170,6 +175,86 @@
 \n      :set report (\$report . \$n . \":\" . [:tonum \$up] . \":\" . [:tonum \$lim] . \":\" . \$act . \"\\n\")\r\
 \n      :set reportCount (\$reportCount + 1)\r\
 \n    }\r\
+\n  }\r\
+\n  :if ([:typeof \$fitiTopologyTick] != \"num\") do={ :set fitiTopologyTick 0 }\r\
+\n  :set fitiTopologyTick (\$fitiTopologyTick + 1)\r\
+\n  :if (\$fitiTopologyTick >= 6) do={\r\
+\n    :set fitiTopologyTick 0\r\
+\n    :local fitiTopology \"fiti-topology-v1\\n\"\r\
+\n    :local fitiTopologyInterfaces 0\r\
+\n    :local fitiTopologyWifiInterfaces 0\r\
+\n    :local fitiTopologyBridgePorts 0\r\
+\n    :local fitiTopologySafe do={\r\
+\n      :local fitiTopologyValue \$1\r\
+\n      :local fitiTopologyValid true\r\
+\n      :if ([:len \$fitiTopologyValue] = 0 || [:len \$fitiTopologyValue] > 64) do={ :set fitiTopologyValid false }\r\
+\n      :local fitiTopologyOffset 0\r\
+\n      :while (\$fitiTopologyOffset < [:len \$fitiTopologyValue]) do={\r\
+\n        :local fitiTopologyCharacter [:pick \$fitiTopologyValue \$fitiTopologyOffset (\$fitiTopologyOffset + 1)]\r\
+\n        :if ([:typeof [:find \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-\" \$fitiTopologyCharacter]] = \"nil\") do={ :set fitiTopologyValid false }\r\
+\n        :set fitiTopologyOffset (\$fitiTopologyOffset + 1)\r\
+\n      }\r\
+\n      :return \$fitiTopologyValid\r\
+\n    }\r\
+\n    :local fitiTopologyVersion [/system resource get version]\r\
+\n    :local fitiTopologyVersionSpace [:find \$fitiTopologyVersion \" \"]\r\
+\n    :if ([:typeof \$fitiTopologyVersionSpace] != \"nil\") do={ :set fitiTopologyVersion [:pick \$fitiTopologyVersion 0 \$fitiTopologyVersionSpace] }\r\
+\n    :if ([\$fitiTopologySafe \$fitiTopologyVersion]) do={ :set fitiTopology (\$fitiTopology . \"topo|system|routeros|\" . \$fitiTopologyVersion . \"\\n\") }\r\
+\n    :if ([\$fitiTopologySafe \$fitiHotspotServer]) do={ :set fitiTopology (\$fitiTopology . \"topo|hotspot|\" . \$fitiHotspotServer . \"\\n\") }\r\
+\n    :if ([\$fitiTopologySafe \$fitiBridge]) do={ :set fitiTopology (\$fitiTopology . \"topo|customer-bridge|\" . \$fitiBridge . \"\\n\") }\r\
+\n    :local fitiTopologyDhcpClients [/ip dhcp-client find where disabled=no]\r\
+\n    :if ([:len \$fitiTopologyDhcpClients] = 1) do={\r\
+\n      :local fitiTopologyWan [/ip dhcp-client get [:pick \$fitiTopologyDhcpClients 0] interface]\r\
+\n      :if ([\$fitiTopologySafe \$fitiTopologyWan]) do={ :set fitiTopology (\$fitiTopology . \"topo|wan|\" . \$fitiTopologyWan . \"\\n\") }\r\
+\n    }\r\
+\n    :foreach fitiTopologyEther in=[/interface ethernet find] do={\r\
+\n      :if (\$fitiTopologyInterfaces < 20) do={\r\
+\n        :local fitiTopologyName [/interface ethernet get \$fitiTopologyEther name]\r\
+\n        :local fitiTopologyState \"down\"\r\
+\n        :do { :if ([/interface ethernet get \$fitiTopologyEther running] = true) do={ :set fitiTopologyState \"up\" } } on-error={}\r\
+\n        :do { :if ([/interface ethernet get \$fitiTopologyEther disabled] = true) do={ :set fitiTopologyState \"disabled\" } } on-error={}\r\
+\n        :if ([\$fitiTopologySafe \$fitiTopologyName]) do={ :set fitiTopology (\$fitiTopology . \"topo|interface|ether|\" . \$fitiTopologyName . \"|\" . \$fitiTopologyState . \"\\n\"); :set fitiTopologyInterfaces (\$fitiTopologyInterfaces + 1) }\r\
+\n      }\r\
+\n    }\r\
+\n    :foreach fitiTopologyBridge in=[/interface bridge find] do={\r\
+\n      :if (\$fitiTopologyInterfaces < 28) do={\r\
+\n        :local fitiTopologyName [/interface bridge get \$fitiTopologyBridge name]\r\
+\n        :local fitiTopologyState \"down\"\r\
+\n        :do { :if ([/interface bridge get \$fitiTopologyBridge running] = true) do={ :set fitiTopologyState \"up\" } } on-error={}\r\
+\n        :do { :if ([/interface bridge get \$fitiTopologyBridge disabled] = true) do={ :set fitiTopologyState \"disabled\" } } on-error={}\r\
+\n        :if ([\$fitiTopologySafe \$fitiTopologyName]) do={ :set fitiTopology (\$fitiTopology . \"topo|interface|bridge|\" . \$fitiTopologyName . \"|\" . \$fitiTopologyState . \"\\n\"); :set fitiTopologyInterfaces (\$fitiTopologyInterfaces + 1) }\r\
+\n      }\r\
+\n    }\r\
+\n    :local fitiTopologyWireless \"\"\r\
+\n    :do { :set fitiTopologyWireless [/interface wireless find] } on-error={}\r\
+\n    :foreach fitiTopologyRadio in=\$fitiTopologyWireless do={\r\
+\n      :if (\$fitiTopologyInterfaces < 32 && \$fitiTopologyWifiInterfaces < 8) do={\r\
+\n        :local fitiTopologyName [/interface wireless get \$fitiTopologyRadio name]\r\
+\n        :local fitiTopologyState \"down\"\r\
+\n        :do { :if ([/interface wireless get \$fitiTopologyRadio running] = true) do={ :set fitiTopologyState \"up\" } } on-error={}\r\
+\n        :do { :if ([/interface wireless get \$fitiTopologyRadio disabled] = true) do={ :set fitiTopologyState \"disabled\" } } on-error={}\r\
+\n        :if ([\$fitiTopologySafe \$fitiTopologyName]) do={ :set fitiTopology (\$fitiTopology . \"topo|interface|wireless|\" . \$fitiTopologyName . \"|\" . \$fitiTopologyState . \"\\n\" . \"topo|wifi|wireless|\" . \$fitiTopologyName . \"|\" . \$fitiTopologyState . \"\\n\"); :set fitiTopologyInterfaces (\$fitiTopologyInterfaces + 1); :set fitiTopologyWifiInterfaces (\$fitiTopologyWifiInterfaces + 1) }\r\
+\n      }\r\
+\n    }\r\
+\n    :local fitiTopologyWifi \"\"\r\
+\n    :do { :set fitiTopologyWifi [/interface wifi find] } on-error={}\r\
+\n    :foreach fitiTopologyRadio in=\$fitiTopologyWifi do={\r\
+\n      :if (\$fitiTopologyInterfaces < 32 && \$fitiTopologyWifiInterfaces < 8) do={\r\
+\n        :local fitiTopologyName [/interface wifi get \$fitiTopologyRadio name]\r\
+\n        :local fitiTopologyState \"down\"\r\
+\n        :do { :if ([/interface wifi get \$fitiTopologyRadio running] = true) do={ :set fitiTopologyState \"up\" } } on-error={}\r\
+\n        :do { :if ([/interface wifi get \$fitiTopologyRadio disabled] = true) do={ :set fitiTopologyState \"disabled\" } } on-error={}\r\
+\n        :if ([\$fitiTopologySafe \$fitiTopologyName]) do={ :set fitiTopology (\$fitiTopology . \"topo|interface|wifi|\" . \$fitiTopologyName . \"|\" . \$fitiTopologyState . \"\\n\" . \"topo|wifi|wifi|\" . \$fitiTopologyName . \"|\" . \$fitiTopologyState . \"\\n\"); :set fitiTopologyInterfaces (\$fitiTopologyInterfaces + 1); :set fitiTopologyWifiInterfaces (\$fitiTopologyWifiInterfaces + 1) }\r\
+\n      }\r\
+\n    }\r\
+\n    :foreach fitiTopologyBridgePort in=[/interface bridge port find] do={\r\
+\n      :if (\$fitiTopologyBridgePorts < 64) do={\r\
+\n        :local fitiTopologyPortBridge [/interface bridge port get \$fitiTopologyBridgePort bridge]\r\
+\n        :local fitiTopologyPortInterface [/interface bridge port get \$fitiTopologyBridgePort interface]\r\
+\n        :if ([\$fitiTopologySafe \$fitiTopologyPortBridge] && [\$fitiTopologySafe \$fitiTopologyPortInterface]) do={ :set fitiTopology (\$fitiTopology . \"topo|bridge-port|\" . \$fitiTopologyPortBridge . \"|\" . \$fitiTopologyPortInterface . \"\\n\"); :set fitiTopologyBridgePorts (\$fitiTopologyBridgePorts + 1) }\r\
+\n      }\r\
+\n    }\r\
+\n    :set report (\$report . \$fitiTopology . \"fiti-topology-end\\n\")\r\
 \n  }\r\
 \n  :local fitiHealth \"ready\"\r\
 \n  :if ([:len [/ip hotspot find where name=\$fitiHotspotServer]] != 1) do={ :set fitiHealth \"hotspot-missing\" }\r\
@@ -232,6 +317,7 @@
 \n:global fitiSupportEnabled \"$fitiSupportEnabled\"\r\
 \n:global fitiSupportEnrollUrl \"$fitiSupportEnrollUrl\"\r\
 \n:global fitiSupportInterface \"$fitiSupportInterface\"\r\
+\n:global fitiTopologyTick 0\r\
 \n:local fitiSupportScheduler [/system scheduler find where name=\"fiti-support-enroll\"]\r\
 \n:if ([:len \$fitiSupportScheduler] = 1) do={ /system scheduler disable \$fitiSupportScheduler }\r\
 \n:global fitiAck \"\"\r\

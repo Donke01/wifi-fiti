@@ -103,6 +103,18 @@ assert.doesNotMatch(supportSource, /\/ip (?:address|route|firewall|service) /);
 assert.doesNotMatch(supportSource, /endpoint-address|endpoint-port/);
 const pollSource = installer.slice(installer.indexOf('/system script add name=fiti-poll'), installer.indexOf('# --- Restore settings at boot'));
 assert.match(pollSource, /fitiSupportAck/);
+assert.match(pollSource, /fiti-topology-v1/,
+  'the paired poller can report a bounded router topology through its existing outbound sync');
+assert.match(pollSource, /fitiTopologyTick >= 6/,
+  'inventory is sampled periodically instead of adding work to every five-second billing poll');
+assert.match(pollSource, /fitiTopologySafe/,
+  'only delimiter-safe router interface labels are emitted into the topology grammar');
+assert.match(pollSource, /\/interface ethernet find/);
+assert.match(pollSource, /\/interface bridge port find/);
+assert.match(pollSource, /topo\|wifi\|/,
+  'the report distinguishes Wi-Fi stack/interface state from generic interfaces');
+assert.doesNotMatch(pollSource, /private-key|password|security-profile|mac-address|\/ip address|\/ip route/i,
+  'topology telemetry excludes credentials, hardware addresses and L3/route data');
 assert.match(pollSource, /:global fitiPortalHost/,
   'the polling script retains the current customer portal host');
 assert.match(pollSource, /&portal=\\\" \. \\\$/,

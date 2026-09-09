@@ -12,6 +12,7 @@ const mpesa = require('./lib/mpesa');
 const mikrotik = require('./lib/mikrotik');
 const { fulfil } = require('./lib/fulfil');
 const { validateRouterSetup, buildRouterSetup } = require('./lib/router-setup');
+const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 
 const app = express();
@@ -683,7 +684,15 @@ app.post('/api/business/logout', (req, res) => {
 app.get('/api/business/me', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const locations = tenant.locationsForBusiness.all(business.id)
-    .map((location) => ({ ...location, remoteAccess: tenant.remoteAccessForLocation(location) }));
+    .map((location) => ({
+      ...location,
+      remoteAccess: tenant.remoteAccessForLocation(location),
+      // This is summary-only. The full non-secret inventory is available
+      // through the owner-scoped topology endpoint when the mapping step is
+      // open; no router credentials, addresses, traffic or VPN material is
+      // ever placed in the general dashboard response.
+      routerMapping: tenant.routerMappingForLocation(location),
+    }));
   res.json({ business, onboarding: onboardingState(business, locations), plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
@@ -1054,6 +1063,40 @@ app.post('/api/business/locations', (req, res) => {
     res.status(201).json({ ...draft, draft: true, onboarding: onboardingState(business, locations) });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not add this router location.' });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Router inventory and owner-confirmed mapping                       */
+/* ------------------------------------------------------------------ */
+
+// The full snapshot is owner-scoped rather than part of a public portal or
+// gateway response. It contains only validated interface/bridge/Wi-Fi/WAN
+// labels; it never includes addresses, MACs, users, routes, credentials,
+// security profiles, private keys or traffic data.
+app.get('/api/business/locations/:locationId/router-topology', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const result = tenant.routerTopologyForBusiness({ locationId: String(req.params.locationId), businessId: business.id });
+  if (!result) return res.status(404).json({ error: 'Location not found.' });
+  res.json(result);
+});
+
+// Confirmation stores descriptive dashboard metadata only. The tenant layer
+// requires every requested WAN, bridge, Wi-Fi interface and customer port to
+// be present in the current, fresh router inventory; arbitrary interface
+// names can never become persistent configuration through this endpoint.
+app.put('/api/business/locations/:locationId/router-mapping', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const result = tenant.confirmRouterMapping({
+      locationId: String(req.params.locationId),
+      businessId: business.id,
+      mapping: req.body || {},
+    });
+    if (!result) return res.status(404).json({ error: 'Location not found.' });
+    res.json(result);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not confirm this router map.' });
   }
 });
 
@@ -3069,6 +3112,26 @@ function ingestTenantUsage(location, rawBody) {
 }
 
 /**
+ * Inventory travels inside the normal authenticated poll and is deliberately
+ * best-effort. A malformed or outdated topology block must never prevent
+ * customer billing, expiry jobs, acknowledgements, or the next poll from
+ * succeeding. The parser accepts only the narrow non-secret grammar in
+ * router-topology.js and tenant storage hashes its canonical result.
+ */
+function ingestTenantTopology(location, rawBody) {
+  try {
+    const report = parseRouterTopology(typeof rawBody === 'string' ? rawBody : '');
+    if (!report) return null;
+    return tenant.recordRouterTopology({ locationId: location.id, ...report });
+  } catch (error) {
+    // Do not echo or log router input—interface names may be customer chosen.
+    // This is observability-only data; silently ignore an invalid snapshot so
+    // the same request remains a safe billing/control-plane poll.
+    return null;
+  }
+}
+
+/**
  * A router asks what work is waiting. The reply is RouterOS script, which
  * the router parses and runs in memory - no file written, no flash wear.
  * Empty means nothing to do, which is the common case.
@@ -3148,6 +3211,7 @@ app.post('/api/router/sync', (req, res) => {
     }
     acknowledgeTenantRouterJobs(readyLocation, req.query.ack);
     acknowledgeTenantRemoteSupportControls(readyLocation, req.query.supportAck);
+    ingestTenantTopology(readyLocation, req.body);
     ingestTenantUsage(readyLocation, req.body);
     const response = tenantRouterScript(readyLocation, {
       reportedPortalAppliedHost: req.query.portalApplied,

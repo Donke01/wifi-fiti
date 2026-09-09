@@ -8,6 +8,11 @@
 const crypto = require('crypto');
 const { db } = require('./db');
 const config = require('../config');
+const {
+  topologyFreshAt,
+  validateRouterMapping,
+  mappingFingerprint,
+} = require('./router-topology');
 
 const tokenHash = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 // `locations.router_token` existed in the first dashboard schema as a
@@ -280,6 +285,45 @@ db.exec(`
     CHECK(config_version > 0),
     CHECK(gateway_state IN ('pending', 'ready', 'error', 'revoke_pending', 'revoked'))
   );
+
+  -- The router inventory is intentionally not a configuration backup. It is
+  -- a small validated snapshot of interface, bridge and Wi-Fi relationships
+  -- reported by the paired router through its existing outbound poll. It
+  -- never stores a password, MAC address, IP address, route, user, security
+  -- profile, private key, or packet/traffic information.
+  CREATE TABLE IF NOT EXISTS tenant_router_topologies (
+    location_id       TEXT PRIMARY KEY REFERENCES locations(id),
+    schema_version    INTEGER NOT NULL,
+    fingerprint       TEXT NOT NULL,
+    topology_json     TEXT NOT NULL,
+    first_reported_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_reported_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(schema_version = 1),
+    CHECK(length(fingerprint) = 64)
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_router_topologies_reported
+    ON tenant_router_topologies(last_reported_at);
+
+  -- A mapping is owner-confirmed descriptive metadata, not a command queue.
+  -- Its fingerprint binds it to one exact router inventory snapshot. If the
+  -- router topology changes, the UI must request a fresh confirmation rather
+  -- than silently applying an old port layout to a new router.
+  CREATE TABLE IF NOT EXISTS tenant_router_mappings (
+    location_id          TEXT PRIMARY KEY REFERENCES locations(id),
+    schema_version       INTEGER NOT NULL,
+    topology_fingerprint TEXT NOT NULL,
+    mapping_fingerprint  TEXT NOT NULL,
+    mapping_json         TEXT NOT NULL,
+    confirmed_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(schema_version = 1),
+    CHECK(length(topology_fingerprint) = 64),
+    CHECK(length(mapping_fingerprint) = 64)
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_router_mappings_topology
+    ON tenant_router_mappings(topology_fingerprint);
+
   -- A paid checkout may be observed by the customer polling endpoint,
   -- Daraja's callback and the background reconciliation task. This tiny
   -- ledger is the idempotency lock: only one of them can ever credit it.
@@ -725,6 +769,57 @@ const updateLocation = db.prepare(`
     hotspot_subnet=@hotspotSubnet
    WHERE id=@id AND business_id=@businessId
 `);
+// Inventory and mapping are deliberately isolated from `locations`: setup
+// fields are the owner-requested configuration, while these rows are the
+// router-observed topology and the owner's confirmation of that observation.
+const routerTopologyByLocation = db.prepare(`
+  SELECT location_id, schema_version, fingerprint, topology_json,
+         first_reported_at, last_reported_at, updated_at
+    FROM tenant_router_topologies WHERE location_id=?
+`);
+const insertRouterTopology = db.prepare(`
+  INSERT INTO tenant_router_topologies
+    (location_id, schema_version, fingerprint, topology_json)
+  VALUES (@locationId, 1, @fingerprint, @topologyJson)
+`);
+const replaceRouterTopology = db.prepare(`
+  UPDATE tenant_router_topologies
+     SET fingerprint=@fingerprint, topology_json=@topologyJson,
+         last_reported_at=datetime('now'), updated_at=datetime('now')
+   WHERE location_id=@locationId
+`);
+// A poll runs every few seconds. The topology is static most of the time, so
+// retain a truthful freshness signal without generating a database write for
+// every otherwise unchanged customer usage report.
+const touchRouterTopology = db.prepare(`
+  UPDATE tenant_router_topologies
+     SET last_reported_at=datetime('now')
+   WHERE location_id=? AND last_reported_at <= datetime('now','-90 seconds')
+`);
+const routerMappingByLocation = db.prepare(`
+  SELECT location_id, schema_version, topology_fingerprint, mapping_fingerprint,
+         mapping_json, confirmed_at, updated_at
+    FROM tenant_router_mappings WHERE location_id=?
+`);
+const saveRouterMapping = db.prepare(`
+  INSERT INTO tenant_router_mappings
+    (location_id, schema_version, topology_fingerprint, mapping_fingerprint, mapping_json)
+  VALUES (@locationId, 1, @topologyFingerprint, @mappingFingerprint, @mappingJson)
+  ON CONFLICT(location_id) DO UPDATE SET
+    schema_version=excluded.schema_version,
+    topology_fingerprint=excluded.topology_fingerprint,
+    mapping_fingerprint=excluded.mapping_fingerprint,
+    mapping_json=excluded.mapping_json,
+    confirmed_at=datetime('now'),
+    updated_at=datetime('now')
+`);
+// A staged replacement has a new pairing credential and may represent an
+// entirely different board.  Never let its owner see, reconfirm, or inherit
+// the prior router's descriptive map while that credential is waiting to
+// prove itself.  The two rows are observational metadata only, so clearing
+// them cannot affect paid customers or the active router's job queue.
+const deleteRouterMapping = db.prepare(`DELETE FROM tenant_router_mappings WHERE location_id=?`);
+const deleteRouterTopology = db.prepare(`DELETE FROM tenant_router_topologies WHERE location_id=?`);
 // A location may be discarded only while it is a genuinely unused setup
 // draft. Most tenant tables intentionally do not use cascading foreign keys:
 // payment and customer history must survive ordinary lifecycle operations.
@@ -740,7 +835,9 @@ const unusedLocationForDiscard = db.prepare(`
          (SELECT COUNT(*) FROM tenant_remote_access WHERE location_id=l.id) AS remote_access_count,
          (SELECT COUNT(*) FROM tenant_remote_access_events WHERE location_id=l.id) AS remote_access_event_count,
          (SELECT COUNT(*) FROM tenant_remote_support_controls WHERE location_id=l.id) AS remote_control_count,
-         (SELECT COUNT(*) FROM tenant_vpn_peers WHERE location_id=l.id) AS vpn_peer_count
+         (SELECT COUNT(*) FROM tenant_vpn_peers WHERE location_id=l.id) AS vpn_peer_count,
+         (SELECT COUNT(*) FROM tenant_router_topologies WHERE location_id=l.id) AS topology_count,
+         (SELECT COUNT(*) FROM tenant_router_mappings WHERE location_id=l.id) AS mapping_count
     FROM locations l
    WHERE l.id=@locationId AND l.business_id=@businessId
 `);
@@ -2045,6 +2142,190 @@ const markRemoteSupportControlAcked = {
   },
 };
 
+function topologySnapshot(row) {
+  if (!row || Number(row.schema_version) !== 1 || !/^[a-f0-9]{64}$/.test(String(row.fingerprint || ''))) return null;
+  try {
+    const topology = JSON.parse(row.topology_json);
+    if (!topology || typeof topology !== 'object' || Array.isArray(topology) || Number(topology.version) !== 1) return null;
+    // The fingerprint is computed over the exact canonical serialization
+    // created from the validated wire grammar. A damaged row therefore never
+    // becomes an owner-visible map or a source for mapping validation.
+    const serialized = JSON.stringify(topology);
+    const fingerprint = crypto.createHash('sha256').update(serialized).digest('hex');
+    if (fingerprint !== row.fingerprint) return null;
+    return {
+      topology,
+      fingerprint,
+      firstReportedAt: row.first_reported_at,
+      lastReportedAt: row.last_reported_at,
+      updatedAt: row.updated_at,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function confirmedMapping(row, topology) {
+  if (!row || Number(row.schema_version) !== 1 || !topology || !/^[a-f0-9]{64}$/.test(String(row.mapping_fingerprint || ''))) return null;
+  try {
+    const mapping = JSON.parse(row.mapping_json);
+    if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping) ||
+        mappingFingerprint(mapping) !== row.mapping_fingerprint) return null;
+    // Validate from the stored current topology again. This keeps a manually
+    // corrupted persistent row from becoming dashboard data.
+    const normalized = validateRouterMapping(mapping, topology);
+    return JSON.stringify(normalized) === JSON.stringify(mapping) ? normalized : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function waitingForRouterInventory() {
+  return {
+    status: 'waiting_for_inventory',
+    inventoryReportedAt: null,
+    inventoryUpdatedAt: null,
+    confirmedAt: null,
+    mapping: null,
+    canConfirm: false,
+  };
+}
+
+function routerMappingForLocation(location) {
+  if (!location) return null;
+  // A new pairing token is intentionally staged while the old router stays
+  // online.  Its inventory is not evidence about the replacement board, so
+  // hide both the old snapshot and the old confirmation until the pending
+  // token has completed its receipt and a new inventory has arrived.
+  if (hasLivePendingRouterPairing(location)) return waitingForRouterInventory();
+  const snapshot = topologySnapshot(routerTopologyByLocation.get(location.id));
+  if (!snapshot) return waitingForRouterInventory();
+  const fresh = topologyFreshAt(snapshot.lastReportedAt);
+  const row = routerMappingByLocation.get(location.id);
+  const mapping = confirmedMapping(row, snapshot.topology);
+  let status;
+  if (!fresh) status = 'inventory_stale';
+  else if (row && row.topology_fingerprint !== snapshot.fingerprint) status = 'stale';
+  else if (!mapping) status = 'needs_confirmation';
+  else status = 'confirmed';
+  return {
+    status,
+    inventoryReportedAt: snapshot.lastReportedAt,
+    inventoryUpdatedAt: snapshot.updatedAt,
+    confirmedAt: mapping && row.topology_fingerprint === snapshot.fingerprint ? row.confirmed_at : null,
+    mapping: mapping && row.topology_fingerprint === snapshot.fingerprint ? mapping : null,
+    canConfirm: fresh,
+  };
+}
+
+function routerTopologyForLocation(location) {
+  if (!location) return null;
+  // See routerMappingForLocation: a pending replacement deliberately starts
+  // with no visible map. Returning no historical topology also prevents an
+  // owner UI from accidentally pre-filling the new router's ports.
+  if (hasLivePendingRouterPairing(location)) {
+    return {
+      locationId: location.id,
+      topology: null,
+      inventory: {
+        fingerprint: null,
+        firstReportedAt: null,
+        reportedAt: null,
+        updatedAt: null,
+        fresh: false,
+      },
+      mapping: waitingForRouterInventory(),
+    };
+  }
+  const snapshot = topologySnapshot(routerTopologyByLocation.get(location.id));
+  return {
+    locationId: location.id,
+    topology: snapshot?.topology || null,
+    inventory: snapshot ? {
+      fingerprint: snapshot.fingerprint,
+      firstReportedAt: snapshot.firstReportedAt,
+      reportedAt: snapshot.lastReportedAt,
+      updatedAt: snapshot.updatedAt,
+      fresh: topologyFreshAt(snapshot.lastReportedAt),
+    } : {
+      fingerprint: null,
+      firstReportedAt: null,
+      reportedAt: null,
+      updatedAt: null,
+      fresh: false,
+    },
+    mapping: routerMappingForLocation(location),
+  };
+}
+
+function routerTopologyForBusiness({ locationId, businessId }) {
+  return routerTopologyForLocation(locationForBusiness.get(locationId, businessId));
+}
+
+/**
+ * Store an already parsed router report. This is called only after the same
+ * authenticated poll has completed its setup receipt, so a staged or old
+ * router cannot seed the new owner's mapping screen.
+ */
+function recordRouterTopology({ locationId, topology, fingerprint }) {
+  const location = locationById.get(locationId);
+  if (!location) return null;
+  // The active router is deliberately allowed to keep serving customers
+  // while a replacement kit is pending. Its old port list must not refill
+  // the cleared mapping rows in that window.
+  if (hasLivePendingRouterPairing(location)) return null;
+  const serialized = JSON.stringify(topology);
+  const calculated = crypto.createHash('sha256').update(serialized).digest('hex');
+  if (!topology || typeof topology !== 'object' || Array.isArray(topology) ||
+      Number(topology.version) !== 1 || !/^[a-f0-9]{64}$/.test(String(fingerprint || '')) || fingerprint !== calculated) {
+    throw new Error('Refusing an invalid router topology snapshot.');
+  }
+  const existing = routerTopologyByLocation.get(location.id);
+  if (!existing) insertRouterTopology.run({ locationId: location.id, fingerprint, topologyJson: serialized });
+  else if (existing.fingerprint !== fingerprint || existing.topology_json !== serialized) {
+    replaceRouterTopology.run({ locationId: location.id, fingerprint, topologyJson: serialized });
+  } else {
+    touchRouterTopology.run(location.id);
+  }
+  return routerTopologyForLocation(location);
+}
+
+/**
+ * Confirm an owner-visible topology map. The result is descriptive metadata
+ * only: it cannot create a peer, alter a bridge, move a WAN, or change any
+ * Hotspot/customer traffic setting on the router.
+ */
+function confirmRouterMapping({ locationId, businessId, mapping }) {
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  if (hasLivePendingRouterPairing(location)) {
+    throw remoteAccessError('Wait for the replacement router to pair and report its own inventory before confirming a map.', 409);
+  }
+  if (!location.router_setup_verified_at || !location.last_successful_sync_at) {
+    throw remoteAccessError('Pair the router and wait for a completed WiFi Fiti poll before confirming its map.', 409);
+  }
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const snapshot = topologySnapshot(routerTopologyByLocation.get(location.id));
+    if (!snapshot || !topologyFreshAt(snapshot.lastReportedAt)) {
+      throw remoteAccessError('Wait for a fresh router inventory before confirming its map.', 409);
+    }
+    const normalized = validateRouterMapping(mapping, snapshot.topology);
+    const serialized = JSON.stringify(normalized);
+    saveRouterMapping.run({
+      locationId: location.id,
+      topologyFingerprint: snapshot.fingerprint,
+      mappingFingerprint: mappingFingerprint(normalized),
+      mappingJson: serialized,
+    });
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+  return routerTopologyForLocation(locationForBusiness.get(locationId, businessId));
+}
+
 /**
  * Compatibility marker for an already-installed legacy poller. New generated
  * kits use `processRouterSetupReceipt` below, which requires the router to
@@ -2090,7 +2371,15 @@ function setupNonce() {
 // nevertheless treat this as unverified until the staged router echoes its
 // own receipt challenge.
 function hasLivePendingRouterPairing(location) {
-  if (!location || !location.router_pending_token_hash) return false;
+  if (!location) return false;
+  // Owner-facing location queries intentionally select only this boolean,
+  // never the staged credential hash. Honour it when available so the same
+  // safety gate applies to `/api/business/me`, the mapping endpoint, and
+  // internal router records alike.
+  if (location.router_pairing_pending !== undefined && location.router_pairing_pending !== null) {
+    return Boolean(location.router_pairing_pending);
+  }
+  if (!location.router_pending_token_hash) return false;
   const expiresAt = Date.parse(String(location.router_pending_token_expires_at || '').replace(' ', 'T') + 'Z');
   return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
@@ -2297,8 +2586,27 @@ function rotateLocationToken({ locationId, businessId, pendingSetup } = {}) {
   // a two-poll receipt handshake. A pasted-but-never-imported kit therefore
   // cannot interrupt paid customers or alter their active configuration.
   const pendingSetupJson = pendingSetup ? JSON.stringify(pendingSetup) : null;
-  stageLocationToken.run({ tokenHash: hash, expiresAt: nowSql(Date.now() + 24 * 60 * 60 * 1000), locationId, pendingSetupJson });
-  return { ...location, routerToken };
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const staged = stageLocationToken.run({ tokenHash: hash, expiresAt: nowSql(Date.now() + 24 * 60 * 60 * 1000), locationId, pendingSetupJson });
+    if (!staged.changes) {
+      db.exec('COMMIT');
+      return null;
+    }
+    // This is a pairing-generation boundary. A topology and owner mapping
+    // describe the outgoing router only; retaining either can cause the new
+    // board to be displayed as configured before it has reported itself.
+    deleteRouterMapping.run(locationId);
+    deleteRouterTopology.run(locationId);
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+  // Return a post-transaction row so a caller that uses this one-time
+  // response (rather than immediately reloading `/api/business/me`) also
+  // sees the replacement as pending and cannot render an old map briefly.
+  return { ...locationForBusiness.get(locationId, businessId), routerToken };
 }
 
 function updateLocationSettings({ locationId, businessId, name, routerName, hotspotServer, setup }) {
@@ -2365,7 +2673,8 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
     const hasHistory = Number(location.transaction_count) || Number(location.subscription_count) ||
       Number(location.job_count) || Number(location.device_count) || Number(location.voucher_count) ||
       Number(location.remote_access_count) || Number(location.remote_access_event_count) ||
-      Number(location.remote_control_count) || Number(location.vpn_peer_count) || supportTicketCount;
+      Number(location.remote_control_count) || Number(location.vpn_peer_count) ||
+      Number(location.topology_count) || Number(location.mapping_count) || supportTicketCount;
     if (location.router_status !== 'waiting' || location.last_seen_at || location.last_router_contact_at || location.last_successful_sync_at || hasHistory) {
       const error = new Error('This setup has already been paired or has customer, payment, voucher, router-job, support, or remote-setup history. Keep the location and generate a replacement router kit instead.');
       error.status = 409;
@@ -2654,6 +2963,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 
 module.exports = {
   tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
   remoteAccessForLocation, remoteAccessForBusiness, requestRemoteAccess, revokeRemoteAccessForBusiness, manageRemoteAccess, recordRemoteAccessEnrollment,
   provisionRemoteVpn, allocateDesiredVpnPeer, desiredVpnPeersForGateway, reportVpnGatewaySync,

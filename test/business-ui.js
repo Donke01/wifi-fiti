@@ -57,7 +57,7 @@ assert.match(html, /id="onboarding-section"/,
   'the business workspace includes a dedicated guided setup surface');
 assert.match(html, /SELF-ONBOARDING/,
   'the onboarding journey has a focused self-onboarding heading');
-assert.match(html, /Add router.*Setup & connect.*Go live/s,
+assert.match(html, /Add router.*Secure connection.*Map router/s,
   'the journey presents the requested three-stage sequence');
 assert.match(html, /sequential-onboarding[\s\S]*section:not\(#onboarding-section\)/,
   'unrelated dashboard pages are hidden while the sequential flow is active');
@@ -99,8 +99,8 @@ assert.match(html, /checks this router automatically every 5 seconds/,
   'an awaiting router receives a clear, live connection status');
 assert.match(html, /confirmFreshOnboardingRouter/,
   'continuing and finishing revalidate a fresh secure router sync');
-assert.match(html, /model\.needsRouterCheck \? 5000 : 30000/,
-  'a verified router is still rechecked while its setup flow remains open');
+assert.match(html, /model\.needsRouterCheck \? 5000 : waitsForMap \? 10000 : 30000/,
+  'connection and post-connection map states both receive bounded automatic checks');
 assert.match(html, /document\.visibilityState === 'hidden'/,
   'automatic status checks pause while the dashboard is not visible');
 assert.match(html, /Router needs to reconnect/,
@@ -109,14 +109,34 @@ assert.match(html, /Create a different kit/,
   'the guided setup offers a single clear recovery action for its connection kit');
 assert.match(html, /Copy connection kit/,
   'the normal onboarding route lets an owner copy the complete RouterOS kit directly');
-assert.match(html, /appendCustomerPortalSetup/,
-  'the customer-page step is rendered directly after router connection');
-assert.match(html, /model\.portalReviewRequired/,
-  'a verified router still presents the customer-page review before packages and payment configuration');
-assert.match(html, /portal_setup_completed_at/,
-  'customer-page completion is tracked per selected router location');
-assert.match(html, /markCustomerPortalReviewed\(location\)/,
-  'saving the customer-facing name or managed subdomain advances only that browser session');
+assert.match(html, /appendRouterMappingSetup/,
+  'the third focused step renders a router map after secure connection');
+assert.match(html, /routerMappingStatus/,
+  'onboarding follows the server-provided mapping status rather than guessed names');
+assert.match(html, /routerMappingConfirmed/,
+  'only a confirmed, current router map unlocks the normal workspace');
+assert.match(html, /!routerPairingPending\(location\) && routerMappingStatus\(location\) === 'confirmed'/,
+  'a staged replacement cannot inherit a previous router map in the browser');
+assert.match(html, /\(!stored \|\| !stored\.active\) && model\.configured\) return \{ active: false/,
+  'an existing workspace stays usable while an optional router map is reviewed');
+assert.match(html, /Customer branding, packages and payments follow in your workspace/,
+  'customer-facing and commercial settings are deferred until router setup is complete');
+assert.match(html, /\/router-topology/,
+  'the mapping page reads the owner-scoped router inventory endpoint');
+assert.match(html, /\/router-mapping/,
+  'the owner can save a confirmed router map through its dedicated endpoint');
+assert.match(html, /wanInterface: wanSelect\.value, customerBridge: bridgeSelect\.value, wifiInterfaces: selectedChecks\('wifiInterfaces'\), customerPorts: selectedChecks\('customerPorts'\)/,
+  'the confirmation sends only the selected WAN, bridge, Wi-Fi and Ethernet interface names');
+assert.match(html, /It does not alter bridges, Wi-Fi, Hotspot, firewall rules or router administrator access/,
+  'the mapping screen clearly states that confirmation cannot reconfigure the router');
+assert.match(html, /router-map-board/,
+  'detected Ethernet, bridge and Wi-Fi interfaces have an original visual map');
+assert.match(html, /Choose the physical WAN port/,
+  'an unknown WAN is never silently guessed from the first Ethernet port');
+assert.match(html, /This layout cannot be mapped yet/,
+  'incomplete router inventories receive a clear blocked state instead of empty selectors');
+assert.match(html, /Confirm the layout after sync/,
+  'the connection milestones accurately describe the next focused page');
 assert.match(html, /@media\(max-width:900px\)\{\.onboarding-flow-head[\s\S]*\.setup-rail\{grid-template-columns:1fr/,
   'the three setup stages stay readable in one connected mobile/tablet sequence');
 assert.match(html, /Initial Preparation \(Optional\)/,
@@ -214,4 +234,4 @@ assert.doesNotMatch(html, /\/system device-mode update mode=advanced/,
 
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
-console.log('Business UI: focused onboarding, post-connection customer pages, and client-script safety passed.');
+console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');
