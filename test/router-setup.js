@@ -7,7 +7,7 @@ const {
   validateRouterSetup,
   buildRouterSetup,
 } = require('../src/lib/router-setup');
-const { remoteSupportControlToScript, buildRemoteSupportScript } = require('../src/lib/rsc');
+const { remoteSupportControlToScript, buildRemoteSupportScript, mappedDeploymentControl } = require('../src/lib/rsc');
 
 const location = { id: 'loc-router-setup-test', name: 'Test location' };
 const appUrl = 'https://cloud.wififiti.co.ke';
@@ -233,6 +233,50 @@ assert.equal(remoteSupportControlToScript({ id: 0, action: 'revoke' }), null,
 const supportBatch = buildRemoteSupportScript({ controls: [{ id: 97, action: 'activate', gatewayPublicKey, endpointHost: 'vpn.wififiti.co.ke', endpointPort: 51820, managementAddress: '10.254.0.23/32', gatewayAddress: '10.254.0.1/32', configVersion: '2' }, { id: 98, action: 'revoke' }, { id: 0, action: 'prepare' }] });
 assert.deepEqual(supportBatch.emitted, [97, 98]);
 assert.deepEqual(supportBatch.rejected, [0]);
+
+const mappedDeployment = mappedDeploymentControl({
+  id: 117,
+  action: 'apply_mapped_service_v1',
+  receipt: 'M'.repeat(32),
+  signature: 'a'.repeat(64),
+  topologyFingerprint: 'b'.repeat(64),
+  hotspotServer: 'hotspot1',
+  mapping: {
+    version: 1,
+    wanInterface: 'ether1',
+    customerBridge: 'bridge-hs',
+    wifiInterfaces: ['wlan1'],
+    customerPorts: ['ether2', 'ether3'],
+  },
+});
+assert.ok(mappedDeployment, 'a signed, finite mapped deployment renders a local verifier');
+assert.doesNotMatch(mappedDeployment, /\/ip hotspot user profile (?:add|set)/,
+  'paid jobs retain their already-selected profiles; deployment does not invent an unused profile');
+assert.match(mappedDeployment, /\/ip firewall mangle add chain=postrouting out-interface=\$fitiMappedDeploymentBridge action=change-ttl new-ttl=set:1/);
+assert.match(mappedDeployment, /WiFi Fiti anti-tethering/);
+assert.match(mappedDeployment, /\/ip hotspot walled-garden add dst-host=\$fitiMappedDeploymentPortalHost comment=\$fitiMappedDeploymentPortalTag/);
+assert.match(mappedDeployment, /:set fitiPortalAppliedHost ""/,
+  'the existing safe portal refresher is prompted on the next authenticated poll');
+assert.match(mappedDeployment, /\/system scheduler enable \$fitiMappedDeploymentPollScheduler/,
+  'only a locally recognised WiFi Fiti polling scheduler can be enabled');
+assert.match(mappedDeployment, /fiti-poll is not the recognised WiFi Fiti agent/,
+  'a name collision is a safe blocked receipt rather than a remote overwrite');
+assert.match(mappedDeployment, /:global fitiSupportAck "deploy\.117\./,
+  'the expanded action preserves the namespaced existing acknowledgement transport');
+assert.match(mappedDeployment, /WiFi Fiti service reconciliation did not complete; it will retry without changing the confirmed map/,
+  'a tagged service-resource conflict is retried rather than being misreported as a stale physical map');
+assert.doesNotMatch(mappedDeployment,
+  /\/system (?:reset-configuration|reboot|shutdown)|\/user\b|password=|private-key|0\.0\.0\.0\/0|\/ip (?:route|address|dhcp-client|dhcp-server|firewall (?:filter|nat))|\/interface bridge port (?:add|remove|set)|\/interface (?:wifi|wireless) (?:add|set)|\/ip service\b/i,
+  'mapped deployment remains unable to alter credentials, WAN/L3, bridge membership, radio settings, generic firewall policy or service exposure');
+assert.equal(mappedDeploymentControl({
+  id: 118,
+  action: 'apply_mapped_service_v1',
+  receipt: 'M'.repeat(32),
+  signature: 'a'.repeat(64),
+  topologyFingerprint: 'b'.repeat(64),
+  hotspotServer: 'hotspot1',
+  mapping: { version: 1, wanInterface: 'ether1; /system reboot', customerBridge: 'bridge-hs', wifiInterfaces: ['wlan1'], customerPorts: ['ether2'] },
+}), null, 'a map value cannot become RouterOS source during the service reconciliation');
 
 const edgeKit = buildRouterSetup({ location, token, appUrl, portalUrl: 'https://test-branch.wififiti.co.ke', input: existing });
 assert.match(edgeKit.script, /:global fitiUrl "https:\/\/cloud\.wififiti\.co\.ke"/);

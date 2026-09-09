@@ -648,16 +648,22 @@ function buildRemoteSupportScript({ controls }) {
  * server-generated capability; the server verifies its HMAC before marking
  * the deployment acknowledged.
  *
- * There are intentionally no commands here for RouterOS users/passwords,
- * default routes, IP addresses, NAT, firewall, Hotspot creation, Wi-Fi
- * passwords, or service exposure.  Those would require a separate,
- * explicitly reviewed deployment type rather than being smuggled through a
- * port-map action.
+ * There are intentionally no commands here for RouterOS administrator
+ * credentials, WAN/default routes, IP addresses, DHCP, NAT, bridge
+ * membership, Wi-Fi settings, general firewall policy, Hotspot construction,
+ * or service exposure.  The narrow exception is an explicitly tagged
+ * postrouting TTL mangle rule: it is WiFi Fiti's existing anti-tethering
+ * service resource, is checked structurally before it is touched, and cannot
+ * affect routing or inbound management.
  */
 const MAPPED_DEPLOYMENT_ACTION = 'apply_mapped_service_v1';
 const MAPPED_DEPLOYMENT_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
 const MAPPED_DEPLOYMENT_RECEIPT = /^[A-Za-z0-9_-]{32,64}$/;
 const MAPPED_DEPLOYMENT_SIGNATURE = /^[a-f0-9]{64}$/;
+const MAPPED_DEPLOYMENT_TTL_TAG = 'WiFi Fiti anti-tethering';
+const MAPPED_DEPLOYMENT_PORTAL_TAG = 'WiFi Fiti customer portal';
+const MAPPED_DEPLOYMENT_POLLER_NAME = 'fiti-poll';
+const MAPPED_DEPLOYMENT_POLLER_COMMENT = 'WiFi Fiti: sync usage, ack jobs, collect work';
 
 function mappedDeploymentName(value) {
   const name = typeof value === 'string' ? value.trim() : '';
@@ -697,10 +703,17 @@ function mappedDeploymentControl(control) {
     ':global fitiSupportAck',
     ':global fitiBridge',
     ':global fitiHotspotServer',
+    ':global fitiPortalHost',
+    ':global fitiPortalAppliedHost',
     ':local fitiMappedDeploymentOk true',
+    ':local fitiMappedDeploymentMapOk true',
     `:local fitiMappedDeploymentWan "${wanInterface}"`,
     `:local fitiMappedDeploymentBridge "${customerBridge}"`,
     `:local fitiMappedDeploymentHotspot "${hotspotServer}"`,
+    `:local fitiMappedDeploymentTtlTag "${MAPPED_DEPLOYMENT_TTL_TAG}"`,
+    `:local fitiMappedDeploymentPortalTag "${MAPPED_DEPLOYMENT_PORTAL_TAG}"`,
+    `:local fitiMappedDeploymentPollName "${MAPPED_DEPLOYMENT_POLLER_NAME}"`,
+    `:local fitiMappedDeploymentPollComment "${MAPPED_DEPLOYMENT_POLLER_COMMENT}"`,
     '',
     // Validate rather than rearrange hardware. A changed board or a local
     // edit is a safe no-op and remains visible in the dashboard as pending.
@@ -747,22 +760,139 @@ function mappedDeploymentControl(control) {
 
   lines.push(
     '',
-    // These two globals are WiFi Fiti-owned selectors consumed by the
-    // installed outbound poller. They are set only after every read-only
-    // check above succeeds; no bridge membership, WAN client, route,
-    // administrator account, radio security profile or customer data moves.
+    // Before changing any service resource, prove it is either absent or
+    // recognisably WiFi Fiti-owned. This makes a copied comment/name a safe
+    // failure rather than permission to overwrite an operator's scheduler or
+    // rule. Paid jobs retain their selected profiles: inventing a new profile
+    // here would be cosmetic because it would not govern those jobs.
+    ':if ($fitiMappedDeploymentOk = false) do={ :set fitiMappedDeploymentMapOk false }',
+    '',
+    ':local fitiMappedDeploymentTtlRule ""',
+    ':local fitiMappedDeploymentTtlRuleCount 0',
+    ':local fitiMappedDeploymentTtlUnsafe false',
+    ':foreach fitiMappedDeploymentTtlCheck in=[/ip firewall mangle find where comment=$fitiMappedDeploymentTtlTag] do={',
+    '  :local fitiMappedDeploymentTtlChain [/ip firewall mangle get $fitiMappedDeploymentTtlCheck chain]',
+    '  :local fitiMappedDeploymentTtlInterface [/ip firewall mangle get $fitiMappedDeploymentTtlCheck out-interface]',
+    '  :local fitiMappedDeploymentTtlAction [/ip firewall mangle get $fitiMappedDeploymentTtlCheck action]',
+    '  :local fitiMappedDeploymentTtlValue [/ip firewall mangle get $fitiMappedDeploymentTtlCheck new-ttl]',
+    '  :local fitiMappedDeploymentTtlPass [/ip firewall mangle get $fitiMappedDeploymentTtlCheck passthrough]',
+    '  :if (($fitiMappedDeploymentTtlChain = "postrouting") && ($fitiMappedDeploymentTtlInterface = $fitiMappedDeploymentBridge) && ($fitiMappedDeploymentTtlAction = "change-ttl") && ($fitiMappedDeploymentTtlValue = "set:1") && ($fitiMappedDeploymentTtlPass = true)) do={',
+    '    :if ($fitiMappedDeploymentTtlRuleCount = 0) do={ :set fitiMappedDeploymentTtlRule $fitiMappedDeploymentTtlCheck }',
+    '    :set fitiMappedDeploymentTtlRuleCount ($fitiMappedDeploymentTtlRuleCount + 1)',
+    '  } else={',
+    '    :set fitiMappedDeploymentTtlUnsafe true',
+    '  }',
+    '}',
+    ':if ($fitiMappedDeploymentTtlUnsafe) do={',
+    '  :set fitiMappedDeploymentOk false',
+    '  :log warning "fiti deploy: anti-tethering tag belongs to a different rule; no change was made"',
+    '}',
+    // The scheduler is enabled only when both its script and its durable
+    // scheduler marker match the current WiFi Fiti agent. We deliberately do
+    // not create or rewrite a scheduler remotely.
+    ':local fitiMappedDeploymentPollScript ""',
+    ':local fitiMappedDeploymentPollScriptCount 0',
+    ':foreach fitiMappedDeploymentPollScriptCheck in=[/system script find where name=$fitiMappedDeploymentPollName] do={',
+    '  :set fitiMappedDeploymentPollScript $fitiMappedDeploymentPollScriptCheck',
+    '  :set fitiMappedDeploymentPollScriptCount ($fitiMappedDeploymentPollScriptCount + 1)',
+    '}',
+    ':local fitiMappedDeploymentPollScheduler ""',
+    ':local fitiMappedDeploymentPollSchedulerCount 0',
+    ':foreach fitiMappedDeploymentPollSchedulerCheck in=[/system scheduler find where name=$fitiMappedDeploymentPollName] do={',
+    '  :set fitiMappedDeploymentPollScheduler $fitiMappedDeploymentPollSchedulerCheck',
+    '  :set fitiMappedDeploymentPollSchedulerCount ($fitiMappedDeploymentPollSchedulerCount + 1)',
+    '}',
+    ':if (($fitiMappedDeploymentPollScriptCount != 1) || ($fitiMappedDeploymentPollSchedulerCount != 1)) do={',
+    '  :set fitiMappedDeploymentOk false',
+    '  :log warning "fiti deploy: WiFi Fiti polling agent is incomplete; no scheduler was changed"',
+    '} else={',
+    '  :local fitiMappedDeploymentPollSource [/system script get $fitiMappedDeploymentPollScript source]',
+    '  :local fitiMappedDeploymentPollSchedulerComment [/system scheduler get $fitiMappedDeploymentPollScheduler comment]',
+    '  :local fitiMappedDeploymentPollEvent [/system scheduler get $fitiMappedDeploymentPollScheduler on-event]',
+    '  :if (([:typeof [:find $fitiMappedDeploymentPollSource "X-WiFi-Fiti-Router: "]] = "nil") || ([:typeof [:find $fitiMappedDeploymentPollSource "fiti: token missing, not polling"]] = "nil") || ($fitiMappedDeploymentPollSchedulerComment != $fitiMappedDeploymentPollComment) || ($fitiMappedDeploymentPollEvent != "/system script run fiti-poll")) do={',
+    '    :set fitiMappedDeploymentOk false',
+    '    :log warning "fiti deploy: fiti-poll is not the recognised WiFi Fiti agent; no scheduler was changed"',
+    '  }',
+    '}',
+    // The hostname remains local state supplied by the paired installer, not
+    // a browser or deployment payload. Allow only an ordinary hostname before
+    // it can become a walled-garden destination.
+    ':local fitiMappedDeploymentPortalHost $fitiPortalHost',
+    ':local fitiMappedDeploymentPortalHostOk true',
+    ':if ([:len $fitiMappedDeploymentPortalHost] > 0) do={',
+    '  :if (([:len $fitiMappedDeploymentPortalHost] > 253) || ([:typeof [:find $fitiMappedDeploymentPortalHost "."]] = "nil") || ([:pick $fitiMappedDeploymentPortalHost 0 1] = ".") || ([:pick $fitiMappedDeploymentPortalHost ([:len $fitiMappedDeploymentPortalHost] - 1) [:len $fitiMappedDeploymentPortalHost]] = ".")) do={ :set fitiMappedDeploymentPortalHostOk false }',
+    '  :local fitiMappedDeploymentPortalOffset 0',
+    '  :while ($fitiMappedDeploymentPortalOffset < [:len $fitiMappedDeploymentPortalHost]) do={',
+    '    :local fitiMappedDeploymentPortalCharacter [:pick $fitiMappedDeploymentPortalHost $fitiMappedDeploymentPortalOffset ($fitiMappedDeploymentPortalOffset + 1)]',
+    '    :if ([:typeof [:find "abcdefghijklmnopqrstuvwxyz0123456789.-" $fitiMappedDeploymentPortalCharacter]] = "nil") do={ :set fitiMappedDeploymentPortalHostOk false }',
+    '    :set fitiMappedDeploymentPortalOffset ($fitiMappedDeploymentPortalOffset + 1)',
+    '  }',
+    '}',
+    ':if ($fitiMappedDeploymentPortalHostOk = false) do={',
+    '  :set fitiMappedDeploymentOk false',
+    '  :log warning "fiti deploy: stored customer portal host is invalid; no portal change was made"',
+    '}',
+    '',
+    // All checks passed. From here on, every mutable resource is scoped by a
+    // fixed WiFi Fiti name/comment and errors leave the acknowledgement
+    // pending for a safe retry.
+    ':if ($fitiMappedDeploymentOk) do={',
+    '  :if ($fitiMappedDeploymentTtlRuleCount = 0) do={',
+    '    :do { /ip firewall mangle add chain=postrouting out-interface=$fitiMappedDeploymentBridge action=change-ttl new-ttl=set:1 passthrough=yes comment=$fitiMappedDeploymentTtlTag } on-error={',
+    '      :set fitiMappedDeploymentOk false',
+    '      :log warning "fiti deploy: could not create the WiFi Fiti anti-tethering rule"',
+    '    }',
+    '  } else={',
+    '    :do { /ip firewall mangle set $fitiMappedDeploymentTtlRule disabled=no passthrough=yes } on-error={',
+    '      :set fitiMappedDeploymentOk false',
+    '      :log warning "fiti deploy: could not enable the WiFi Fiti anti-tethering rule"',
+    '    }',
+    '    :if ($fitiMappedDeploymentOk && $fitiMappedDeploymentTtlRuleCount > 1) do={',
+    '      :foreach fitiMappedDeploymentTtlDuplicate in=[/ip firewall mangle find where comment=$fitiMappedDeploymentTtlTag] do={',
+    '        :if ($fitiMappedDeploymentTtlDuplicate != $fitiMappedDeploymentTtlRule) do={',
+    '          :do { /ip firewall mangle remove $fitiMappedDeploymentTtlDuplicate } on-error={',
+    '            :set fitiMappedDeploymentOk false',
+    '            :log warning "fiti deploy: could not remove a duplicate WiFi Fiti anti-tethering rule"',
+    '          }',
+    '        }',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    ':if ($fitiMappedDeploymentOk && [:len $fitiMappedDeploymentPortalHost] > 0) do={',
+    '  :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiMappedDeploymentPortalHost]] = 0) do={',
+    '    :do { /ip hotspot walled-garden add dst-host=$fitiMappedDeploymentPortalHost comment=$fitiMappedDeploymentPortalTag } on-error={',
+    '      :set fitiMappedDeploymentOk false',
+    '      :log warning "fiti deploy: could not add the WiFi Fiti customer portal walled-garden entry"',
+    '    }',
+    '  }',
+    '}',
+    ':if ($fitiMappedDeploymentOk) do={',
+    '  :do { /system scheduler enable $fitiMappedDeploymentPollScheduler } on-error={',
+    '    :set fitiMappedDeploymentOk false',
+    '    :log warning "fiti deploy: could not enable the recognised WiFi Fiti poller"',
+    '  }',
+    '}',
+    // These globals are WiFi Fiti-owned selectors consumed by the installed
+    // outbound poller. Clearing only the applied marker prompts the existing
+    // server-side portal refresher on the next normal poll; it does not fetch
+    // arbitrary code or rewrite a boot script here.
     ':if ($fitiMappedDeploymentOk) do={',
     '  :set fitiBridge $fitiMappedDeploymentBridge',
     '  :set fitiHotspotServer $fitiMappedDeploymentHotspot',
+    '  :if ([:len $fitiMappedDeploymentPortalHost] > 0) do={ :set fitiPortalAppliedHost "" }',
     `  :global fitiSupportAck "deploy.${id}.${receipt}"`,
-    `  :log info "fiti deploy: verified mapped service action ${id} applied"`,
+    `  :log info "fiti deploy: verified mapped service action ${id} applied and WiFi Fiti service resources reconciled"`,
     '} else={',
-    // Report a finite failure state through the existing acknowledgement
-    // transport. This is deliberately not an acknowledgement: Railway marks
-    // the action stale and asks the owner to reconfirm rather than retrying a
-    // mismatched local map forever.
-    `  :global fitiSupportAck "deploy.${id}.${receipt}.blocked"`,
-    '  :log warning "fiti deploy: mapped service action did not pass its local checks; it will not be acknowledged"',
+    '  :if ($fitiMappedDeploymentMapOk = false) do={',
+    // Report a finite map mismatch through the existing acknowledgement
+    // transport. Railway marks only this outcome stale and asks the owner to
+    // reconfirm. A service-resource error deliberately leaves no ACK below.
+    `    :global fitiSupportAck "deploy.${id}.${receipt}.blocked"`,
+    '    :log warning "fiti deploy: confirmed map no longer matches this router; it will not be acknowledged"',
+    '  } else={',
+    '    :log warning "fiti deploy: WiFi Fiti service reconciliation did not complete; it will retry without changing the confirmed map"',
+    '  }',
     '}'
   );
   return lines.join('\n');

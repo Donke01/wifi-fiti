@@ -231,8 +231,14 @@ async function main() {
   assert.match(delivered.text, /fitiMappedDeploymentHotspot/);
   assert.match(delivered.text, /confirmed customer Ethernet port changed/);
   assert.match(delivered.text, /confirmed Wi-Fi interface changed/);
-  assert.doesNotMatch(delivered.text, /\/system (?:reset-configuration|reboot|shutdown)|\/user |password=|0\.0\.0\.0\/0|\/ip (?:route|address|firewall|firewall nat)|\/ip hotspot (?:add|set)|\/interface bridge port (?:add|remove|set)/i,
-    'the map action cannot change admin access, routes, L3, Hotspot construction or bridge membership');
+  assert.doesNotMatch(delivered.text, /\/ip hotspot user profile (?:add|set)/,
+    'the finite service action does not invent an unused profile or overwrite the operator’s existing paid-user profiles');
+  assert.match(delivered.text, /\/ip firewall mangle (?:add|set|remove)/,
+    'the finite service action reconciles only the tagged postrouting anti-tethering rule');
+  assert.match(delivered.text, /\/ip hotspot walled-garden add/,
+    'the finite service action can restore the customer portal walled-garden entry');
+  assert.doesNotMatch(delivered.text, /\/system (?:reset-configuration|reboot|shutdown)|\/user |password=|private-key|0\.0\.0\.0\/0|\/ip (?:route|address|dhcp-client|dhcp-server|firewall (?:filter|nat))|\/ip hotspot (?:add|set)(?! walled-garden)|\/interface bridge port (?:add|remove|set)|\/interface (?:wifi|wireless) (?:add|set)|\/ip service\b/i,
+    'the map action cannot change admin access, WAN/L3, Hotspot construction, bridge membership, radio settings, generic firewall policy or service exposure');
 
   const deliveredState = await api(deploymentEndpoint, { token: ownerToken });
   assert.equal(deliveredState.body.deployment.status, 'delivered');
