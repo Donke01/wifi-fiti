@@ -216,12 +216,24 @@ assert.match(html, /\/api\/business\/onboarding\/customer-portal/,
 // keep offering an older saved kit after its bootstrap behavior changes. The
 // owner has to deliberately generate a current replacement; merely loading
 // the dashboard does not rotate the still-pending server-side credential.
-assert.match(html, /var routerKitRevision = 'bootstrap-retry-v2';/,
+assert.match(html, /var routerKitRevision = 'bootstrap-endpoint-v1';/,
   'stored connection kits carry an explicit bootstrap revision');
 assert.match(html, /function storedRouterKitIsCurrent\(setup\) \{ return Boolean\(storedRouterKitHasScript\(setup\) && setup\.kitRevision === routerKitRevision\); \}/,
   'only a script saved with the current bootstrap revision is eligible for copying');
 assert.match(html, /kitRevision: hasGeneratedScript \? routerKitRevision : ''/,
   'only freshly generated full scripts are marked current in session storage');
+assert.match(html, /function routerBootstrapCommand\(setup\)/,
+  'existing Hotspot kits have a concise cloud-bootstrap command');
+assert.match(html, /mode !== 'existing'/,
+  'the concise command is never offered for a new or automatic router kit');
+assert.match(html, /\/api\/router\/v1\/bootstrap\?site=/,
+  'the concise command fetches WiFi Fiti’s location-specific bootstrap endpoint');
+assert.match(html, /http-header-field="' \+ rosQuote\('X-WiFi-Fiti-Router: ' \+ routerToken\)/,
+  'the concise command authenticates with the per-location router token, not a global credential');
+assert.match(html, /Copy one-line installer/,
+  'existing-router owners can copy the concise installer directly');
+assert.match(html, /Private VPN access is assigned only after the router checks in\./,
+  'the dashboard does not claim that a fixed VPN configuration is installed before pairing');
 const compactKitUi = html.match(/function appendSimpleRouterSetup\(body, model\) \{[\s\S]*?\n\s*function selectedMode\(\)/);
 assert.ok(compactKitUi, 'the compact connection-kit UI is present');
 assert.match(compactKitUi[0], /saved && saved\.token && storedRouterKitIsCurrent\(saved\)/,

@@ -11,7 +11,7 @@ const tenantMpesa = require('./lib/tenant-mpesa');
 const mpesa = require('./lib/mpesa');
 const mikrotik = require('./lib/mikrotik');
 const { fulfil } = require('./lib/fulfil');
-const { validateRouterSetup, buildRouterSetup } = require('./lib/router-setup');
+const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup } = require('./lib/router-setup');
 const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 
@@ -2967,6 +2967,56 @@ function tenantRouterForRequest(req, res) {
   }
   return location;
 }
+
+/**
+ * The one-line bootstrap has a location id in its URL so RouterOS knows
+ * which kit to fetch. Its pairing credential must remain in the request
+ * header: accepting a `token=` query parameter here would put a reusable
+ * router credential in browser, proxy, and RouterOS fetch logs.
+ */
+function tenantRouterForHeaderRequest(req, res) {
+  const site = String(req.query.site || '');
+  const header = req.get('X-WiFi-Fiti-Router');
+  if (!site.startsWith('loc-') || !header) {
+    res.status(403).type('text/plain').send('# forbidden\n');
+    return null;
+  }
+  const location = tenant.authenticateRouter(site, header, 'header');
+  if (!location) {
+    res.status(403).type('text/plain').send('# forbidden\n');
+    return null;
+  }
+  return location;
+}
+
+/**
+ * A location-specific fetch/import convenience for an existing Hotspot.
+ * This is intentionally not a static VPN script: private WireGuard peers
+ * are created only after an authenticated first sync and an explicit owner
+ * remote-access request. The returned source merely installs the normal
+ * outbound WiFi Fiti poller using the header-paired location credential.
+ */
+app.get('/api/router/v1/bootstrap', (req, res) => {
+  const location = tenantRouterForHeaderRequest(req, res);
+  if (!location) return;
+  try {
+    const script = buildExistingRouterBootstrap({
+      location,
+      token: req.get('X-WiFi-Fiti-Router'),
+      appUrl: config.domains.appUrl,
+      portalUrl: portalUrlForLocation(location),
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Vary', 'X-WiFi-Fiti-Router');
+    return res.type('text/plain').send(script);
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('[router bootstrap] could not render location kit:', error.message);
+    return res.status(status).type('text/plain').send(
+      '# WiFi Fiti bootstrap is unavailable. Generate a fresh full connection kit from the dashboard.\n'
+    );
+  }
+});
 
 function invalidRemoteSupportEnrollment() {
   const error = new Error('Invalid remote-support enrollment report.');

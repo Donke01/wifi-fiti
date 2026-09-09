@@ -336,6 +336,60 @@ function buildExistingRouterKit({ location, token, appUrl, portalUrl, config }) 
   ]);
 }
 
+function bootstrapUnavailable(message) {
+  const error = new Error(message);
+  error.status = 409;
+  return error;
+}
+
+/**
+ * Render the small, location-bound script fetched by the one-line RouterOS
+ * installer.  This route is deliberately limited to an already configured
+ * Hotspot: a fetch/import convenience must never guess a WAN, create a
+ * bridge, change a radio, or turn a reset board into a live network.
+ *
+ * The location configuration comes from durable server-side setup metadata,
+ * not from a browser query string.  When a replacement credential is being
+ * staged, use its pending snapshot so the incoming router is checked against
+ * the settings that will promote with that credential.
+ */
+function buildExistingRouterBootstrap({ location, token, appUrl, portalUrl }) {
+  if (!location || typeof location !== 'object') {
+    throw bootstrapUnavailable('WiFi Fiti could not find this router setup. Generate a fresh connection kit.');
+  }
+
+  let saved = location;
+  if (location.router_pairing_auth === 'pending') {
+    try {
+      const parsed = JSON.parse(String(location.router_pending_setup_json || ''));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid pending setup');
+      saved = parsed;
+    } catch (_) {
+      throw bootstrapUnavailable('This replacement setup is incomplete. Generate a fresh connection kit.');
+    }
+  }
+
+  const savedMode = saved.setupMode === undefined ? saved.setup_mode : saved.setupMode;
+  const mode = String(savedMode || '').trim();
+  if (mode !== 'existing') {
+    throw bootstrapUnavailable('The one-line installer needs a saved existing-Hotspot setup. Use the full kit for a new or automatic setup.');
+  }
+
+  const config = {
+    customerBridge: identifier(
+      saved.customerBridge === undefined ? saved.customer_bridge : saved.customerBridge,
+      'customer bridge'
+    ),
+    hotspotServer: identifier(
+      saved.hotspotServer === undefined ? saved.hotspot_server : saved.hotspotServer,
+      'Hotspot server name'
+    ),
+  };
+  const safeLocation = { ...location, id: identifier(location.id, 'location ID') };
+  const safeToken = identifier(token, 'router pairing token');
+  return buildExistingRouterKit({ location: safeLocation, token: safeToken, appUrl, portalUrl, config });
+}
+
 function newRouterWirelessLines(config) {
   return [
     ':if ($fitiWifiStack = "wireless") do={',
@@ -703,6 +757,7 @@ function buildRouterSetup({ location, token, appUrl, portalUrl, input }) {
 module.exports = {
   MODEL_PROFILES,
   validateRouterSetup,
+  buildExistingRouterBootstrap,
   buildExistingRouterKit,
   buildNewRouterKit,
   buildRouterSetup,

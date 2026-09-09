@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   validateRouterSetup,
+  buildExistingRouterBootstrap,
   buildRouterSetup,
 } = require('../src/lib/router-setup');
 const { remoteSupportControlToScript, buildRemoteSupportScript, mappedDeploymentControl } = require('../src/lib/rsc');
@@ -54,6 +55,61 @@ assert.doesNotMatch(existingKit.script, /\/system script add name="fiti-first-in
   'existing-router retries do not depend on a helper script that may disappear');
 assert.match(existingKit.script, /selected Hotspot server is not on the selected customer bridge/);
 assert.doesNotMatch(existingKit.script, /\/ip address add|\/system reset-configuration|\/ip service/);
+
+const bootstrapToken = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const bootstrapKit = buildExistingRouterBootstrap({
+  location: {
+    id: 'loc-router-bootstrap-test',
+    setup_mode: 'existing',
+    customer_bridge: 'customer-bridge',
+    hotspot_server: 'customer-hotspot',
+  },
+  token: bootstrapToken,
+  appUrl,
+  portalUrl: 'https://customer-portal.wififiti.co.ke',
+});
+assert.match(bootstrapKit, /existing-router pairing kit/);
+assert.match(bootstrapKit, /:global fitiBridge "customer-bridge"/,
+  'the cloud bootstrap uses the saved customer bridge, not a browser field');
+assert.match(bootstrapKit, /:global fitiHotspotServer "customer-hotspot"/,
+  'the cloud bootstrap uses the saved Hotspot server, not a browser field');
+assert.match(bootstrapKit, /:global fitiToken "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"/,
+  'the location-paired header credential is the only router credential in the bootstrap');
+assert.match(bootstrapKit, /:global fitiSupportEnabled "no"/,
+  'private support remains dormant until the owner explicitly requests it');
+assert.doesNotMatch(bootstrapKit,
+  /\/user\b|password=|private-key|endpoint-address|persistent-keepalive|\/ip service\b|\/ip firewall nat\b|\/ip (?:address|route|dhcp-client|dhcp-server)\s+(?:add|set|remove)|\/interface bridge(?: port)?\s+(?:add|set|remove)|\/interface (?:wifi|wireless)\s+(?:add|set)|\/interface wireguard(?:\s|$)/i,
+  'the one-line bootstrap cannot alter credentials, WAN/L3, bridge topology, Wi-Fi, NAT, services, or fixed WireGuard configuration');
+
+const pendingBootstrapKit = buildExistingRouterBootstrap({
+  location: {
+    id: 'loc-router-bootstrap-pending',
+    router_pairing_auth: 'pending',
+    router_pending_setup_json: JSON.stringify({
+      setupMode: 'existing', customerBridge: 'replacement-bridge', hotspotServer: 'replacement-hotspot',
+    }),
+  },
+  token: bootstrapToken,
+  appUrl,
+});
+assert.match(pendingBootstrapKit, /:global fitiBridge "replacement-bridge"/,
+  'a staged replacement bootstrap uses its pending bridge snapshot');
+assert.match(pendingBootstrapKit, /:global fitiHotspotServer "replacement-hotspot"/,
+  'a staged replacement bootstrap uses its pending Hotspot snapshot');
+assert.throws(() => buildExistingRouterBootstrap({
+  location: { id: 'loc-router-bootstrap-new', setup_mode: 'new', customer_bridge: 'bridge-hs', hotspot_server: 'hotspot1' },
+  token: bootstrapToken, appUrl,
+}), (error) => error && error.status === 409,
+'the one-line bootstrap cannot be used to configure a reset/new router');
+assert.throws(() => buildExistingRouterBootstrap({
+  location: { id: 'loc-router-bootstrap-unconfigured' }, token: bootstrapToken, appUrl,
+}), (error) => error && error.status === 409,
+'the one-line bootstrap never guesses a bridge or Hotspot for an unconfigured location');
+assert.throws(() => buildExistingRouterBootstrap({
+  location: { id: 'loc-router-bootstrap-invalid', setup_mode: 'existing', customer_bridge: 'bridge-hs;reboot', hotspot_server: 'hotspot1' },
+  token: bootstrapToken, appUrl,
+}), (error) => error && error.status === 400,
+'saved topology fields are revalidated before they become RouterOS source');
 const installer = fs.readFileSync(path.join(__dirname, '../public/tenant-router-install.rsc'), 'utf8');
 assert.match(installer, /X-WiFi-Fiti-Router/);
 assert.doesNotMatch(installer, /[?&]token=/);

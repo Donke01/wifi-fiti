@@ -173,7 +173,7 @@
       // Older stored entries have no revision and are deliberately treated as
       // stale; their server-side pending token is left untouched until the
       // owner explicitly creates a replacement kit.
-      var routerKitRevision = 'bootstrap-retry-v2';
+      var routerKitRevision = 'bootstrap-endpoint-v1';
       var salesPeriod = '30d';
       var state = { workspace: null, dashboard: null, vouchers: [], payment: null, issuedCodes: [], billing: null };
       var billingPollTimer = null;
@@ -274,6 +274,27 @@
           '/tool fetch url="' + rosQuote(origin + '/tenant-router-install.rsc') + '" dst-path="fiti-tenant-install.rsc"',
           '/import file-name="fiti-tenant-install.rsc"'
         ].join('\n');
+      }
+      // The concise installer is deliberately limited to an existing Hotspot
+      // kit. A new/automatic kit contains the owner's chosen Wi-Fi and WAN
+      // shape, so it must remain the full generated script rather than being
+      // guessed from a one-line command.
+      function routerBootstrapCommand(setup) {
+        var locationId = String(setup && setup.id || '');
+        var routerToken = String(setup && setup.token || '');
+        var mode = String(setup && setup.setup && setup.setup.mode || '');
+        if (mode !== 'existing' || !/^loc-[A-Za-z0-9_-]{1,96}$/.test(locationId) || !/^[A-Za-z0-9_-]{16,160}$/.test(routerToken)) return '';
+        var origin = window.location.origin;
+        var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId);
+        return [
+          ':do { /certificate settings set builtin-trust-store=all } on-error={ :do { /certificate settings set builtin-trust-anchors=trusted } on-error={} }',
+          ':do { /file remove [find where name="wifi-fiti-bootstrap.rsc"] } on-error={}',
+          '/tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=yes dst-path="wifi-fiti-bootstrap.rsc" mode=https',
+          ':delay 2s',
+          '/import file-name="wifi-fiti-bootstrap.rsc"',
+          ':delay 1s',
+          '/file remove "wifi-fiti-bootstrap.rsc"'
+        ].join('; ');
       }
       function copyText(value, button) {
         function copied() { var original = button.textContent; button.textContent = 'Copied'; setTimeout(function () { button.textContent = original; }, 1500); }
@@ -871,10 +892,20 @@
         var location = model.location; if (!location) return;
         var saved = getSetups()[String(location.id)]; var box = el('section', 'simple-router');
         if (saved && saved.token && storedRouterKitIsCurrent(saved)) {
-          add(box, 'h4', '', 'Copy the connection kit');
-          add(box, 'p', '', 'Copy the complete kit and paste it into a WinBox terminal once. Leave this page open; WiFi Fiti checks the connection automatically.');
-          var script = routerCommands(saved); var scriptDetails = el('details', 'simple-advanced'); add(scriptDetails, 'summary', '', 'Show RouterOS connection kit'); var scriptInner = el('div', 'simple-advanced-inner'); add(scriptInner, 'pre', 'kit-script', script); scriptDetails.appendChild(scriptInner); box.appendChild(scriptDetails);
-          var kitActions = el('div', 'buttons'); var copy = setupAction(kitActions, 'Copy connection kit', '', function () { copyText(script, copy); }); setupAction(kitActions, 'Download .rsc', 'secondary', function () { downloadRouterScript(script); }); setupAction(kitActions, 'Generate a new kit', 'secondary', function () { forgetSetup(location.id); renderOnboarding(); }); box.appendChild(kitActions); body.appendChild(box); return;
+          var script = routerCommands(saved); var bootstrap = routerBootstrapCommand(saved);
+          if (bootstrap) {
+            add(box, 'h4', '', 'One-line secure installer');
+            add(box, 'p', '', 'Paste this once into a WinBox terminal. It preserves the router’s Wi-Fi, WAN, DHCP, Hotspot and administrator credentials, then starts its secure outbound connection. Private VPN access is assigned only after the router checks in.');
+            var bootstrapDetails = el('details', 'simple-advanced'); bootstrapDetails.open = true; add(bootstrapDetails, 'summary', '', 'Show one-line RouterOS installer'); var bootstrapInner = el('div', 'simple-advanced-inner'); add(bootstrapInner, 'pre', 'kit-script', bootstrap); bootstrapDetails.appendChild(bootstrapInner); box.appendChild(bootstrapDetails);
+            var quickActions = el('div', 'buttons'); var quickCopy = setupAction(quickActions, 'Copy one-line installer', '', function () { copyText(bootstrap, quickCopy); }); setupAction(quickActions, 'Download full kit', 'secondary', function () { downloadRouterScript(script); }); setupAction(quickActions, 'Generate a new kit', 'secondary', function () { forgetSetup(location.id); renderOnboarding(); }); box.appendChild(quickActions);
+            var fallbackDetails = el('details', 'simple-advanced'); add(fallbackDetails, 'summary', '', 'Show full RouterOS kit (fallback)'); var fallbackInner = el('div', 'simple-advanced-inner'); add(fallbackInner, 'pre', 'kit-script', script); fallbackDetails.appendChild(fallbackInner); box.appendChild(fallbackDetails);
+          } else {
+            add(box, 'h4', '', 'Copy the connection kit');
+            add(box, 'p', '', 'Copy the complete kit and paste it into a WinBox terminal once. Leave this page open; WiFi Fiti checks the connection automatically.');
+            var scriptDetails = el('details', 'simple-advanced'); add(scriptDetails, 'summary', '', 'Show RouterOS connection kit'); var scriptInner = el('div', 'simple-advanced-inner'); add(scriptInner, 'pre', 'kit-script', script); scriptDetails.appendChild(scriptInner); box.appendChild(scriptDetails);
+            var kitActions = el('div', 'buttons'); var copy = setupAction(kitActions, 'Copy connection kit', '', function () { copyText(script, copy); }); setupAction(kitActions, 'Download .rsc', 'secondary', function () { downloadRouterScript(script); }); setupAction(kitActions, 'Generate a new kit', 'secondary', function () { forgetSetup(location.id); renderOnboarding(); }); box.appendChild(kitActions);
+          }
+          body.appendChild(box); return;
         }
 
         add(box, 'h4', '', 'Create the connection kit');
@@ -1100,7 +1131,9 @@
           if (item.setup && item.setup.summary) add(card, 'p', 'form-note', item.setup.summary);
           var fields = el('div', 'credentials');
           function field(label, value, link, command) { var box = el('div', 'credential' + (command ? ' command' : '')); add(box, 'small', '', label); if (command) add(box, 'pre', '', value); else if (link) { var a = add(box, 'a', '', value); a.href = value; a.target = '_blank'; a.rel = 'noopener'; } else add(box, 'code', '', value); var button = el('button', 'quiet', command ? 'Copy RouterOS commands' : 'Copy'); button.type = 'button'; button.addEventListener('click', function () { copyText(value, button); }); box.appendChild(button); fields.appendChild(box); }
-          field('Paste in RouterOS terminal', routerCommands(item), false, true);
+          var bootstrap = routerBootstrapCommand(item);
+          if (bootstrap) field('One-line secure installer', bootstrap, false, true);
+          field(bootstrap ? 'Full RouterOS kit (fallback)' : 'Paste in RouterOS terminal', routerCommands(item), false, true);
           card.appendChild(fields); list.appendChild(card);
         });
         section.classList.remove('hidden');

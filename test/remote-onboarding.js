@@ -68,7 +68,7 @@ async function api(endpoint, { method = 'GET', body, token, adminToken, routerTo
   const text = await response.text();
   let parsed;
   try { parsed = JSON.parse(text); } catch (_) { parsed = text; }
-  return { status: response.status, body: parsed, text };
+  return { status: response.status, body: parsed, text, headers: response.headers };
 }
 
 async function test(name, work) {
@@ -118,9 +118,12 @@ async function completeRouterSync(location) {
 async function main() {
   const alphaToken = await createBusiness('alpha-remote@example.test');
   const bravoToken = await createBusiness('bravo-remote@example.test');
-  const created = await api('/api/business/locations', {
+  const created = await api('/api/business/router-setup', {
     method: 'POST', token: alphaToken,
-    body: { name: 'Alpha Main', routerName: 'RB951Ui' },
+    body: {
+      name: 'Alpha Main', routerName: 'RB951Ui', mode: 'existing', routerOsVersion: '7',
+      customerBridge: 'alpha-guest-bridge', hotspotServer: 'alpha-guest-hotspot',
+    },
   });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const location = created.body.location;
@@ -132,7 +135,35 @@ async function main() {
   const bravoLocation = bravoLocationCreated.body.location;
   const endpoint = `/api/business/locations/${encodeURIComponent(location.id)}/remote-access`;
   const supportEndpoint = `/api/router/support-enroll?site=${encodeURIComponent(location.id)}`;
+  const bootstrapEndpoint = `/api/router/v1/bootstrap?site=${encodeURIComponent(location.id)}`;
   let prepareControlId = null;
+
+  await test('serves a location-bound existing-Hotspot bootstrap only to the header-paired router', async () => {
+    const anonymous = await api(bootstrapEndpoint);
+    assert.equal(anonymous.status, 403);
+    assert.equal(anonymous.text, '# forbidden\n');
+
+    const queryCredential = await api(`${bootstrapEndpoint}&token=${encodeURIComponent(location.routerToken)}`);
+    assert.equal(queryCredential.status, 403,
+      'the one-line installer never accepts a router credential in the URL');
+
+    const otherRouter = await api(bootstrapEndpoint, { routerToken: bravoLocation.routerToken });
+    assert.equal(otherRouter.status, 403,
+      'a different location token cannot fetch this router bootstrap');
+
+    const bootstrap = await api(bootstrapEndpoint, { routerToken: location.routerToken });
+    assert.equal(bootstrap.status, 200, bootstrap.text);
+    assert.match(bootstrap.headers.get('content-type'), /^text\/plain/);
+    assert.equal(bootstrap.headers.get('cache-control'), 'no-store');
+    assert.equal(bootstrap.headers.get('vary'), 'X-WiFi-Fiti-Router');
+    assert.match(bootstrap.text, /existing-router pairing kit/);
+    assert.match(bootstrap.text, /:global fitiBridge "alpha-guest-bridge"/);
+    assert.match(bootstrap.text, /:global fitiHotspotServer "alpha-guest-hotspot"/);
+    assert.match(bootstrap.text, /:global fitiSupportEnabled "no"/);
+    assert.doesNotMatch(bootstrap.text,
+      /\/user\b|password=|private-key|endpoint-address|persistent-keepalive|\/ip service\b|\/ip firewall nat\b|\/ip (?:address|route|dhcp-client|dhcp-server)\s+(?:add|set|remove)|\/interface bridge(?: port)?\s+(?:add|set|remove)|\/interface (?:wifi|wireless)\s+(?:add|set)|\/interface wireguard(?:\s|$)/i,
+      'the fetched bootstrap cannot change credentials, WAN/L3, bridge topology, Wi-Fi, NAT, services, or WireGuard peers');
+  });
 
   await test('exposes a non-sensitive default state in the owner workspace', async () => {
     const response = await api(endpoint, { token: alphaToken });
