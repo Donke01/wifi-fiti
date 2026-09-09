@@ -312,6 +312,16 @@
       function connectionPhaseKey(location) { return location && location.id ? 'fiti_connection_phase_v1:' + location.id : ''; }
       function connectionPhase(location) { try { var key = connectionPhaseKey(location); var phase = key ? sessionStorage.getItem(key) : ''; return phase === 'install' ? 'install' : 'prepare'; } catch (_) { return 'prepare'; } }
       function setConnectionPhase(location, phase) { try { var key = connectionPhaseKey(location); if (key) sessionStorage.setItem(key, phase === 'install' ? 'install' : 'prepare'); } catch (_) {} }
+      function clearRouterProgress(location) {
+        try {
+          [connectionPhaseKey(location), connectionAttemptKey(location), freshRouterSetupKey(location)].filter(Boolean).forEach(function (key) { sessionStorage.removeItem(key); });
+        } catch (_) {}
+        if (location && location.id) {
+          delete routerTopologyCache[String(location.id)];
+          delete routerTopologyRequests[String(location.id)];
+          clearMappedDeploymentPolling(String(location.id));
+        }
+      }
       function connectionPhaseFor(model) {
         if (!model || !model.location || model.syncHealthy) return 'verify';
         var saved = getSetups()[String(model.location.id)];
@@ -669,6 +679,14 @@
         $('branding-preview-name').textContent = name || 'Your WiFi business'; $('branding-preview-detail').textContent = business.support_phone ? 'Support: ' + business.support_phone : 'Customer portal identity'; $('branding-logo-preview').src = business.brand_logo_path ? '/media/logo/' + encodeURIComponent(business.id) + '?v=' + encodeURIComponent(business.brand_logo_path) : '/assets/wifi-fiti-logo.png';
       }
       function routerPairingPending(location) { return Boolean(location && (location.router_pairing_pending === true || location.router_pairing_pending === 1 || location.router_pairing_pending === '1')); }
+      // The server independently enforces this boundary. Keeping the same
+      // conservative rule in the UI makes the destructive control visible
+      // only before a router has contacted WiFi Fiti or any live history can
+      // exist. A physical router is never reset by this action.
+      function routerCanBeRemoved(location) {
+        return Boolean(location && String(location.router_status || 'waiting').toLowerCase() === 'waiting' &&
+          !routerPairingPending(location) && !location.last_seen_at && !location.last_router_contact_at && !location.last_successful_sync_at);
+      }
       // A previous router's successful sync must not make a newly staged
       // replacement kit look paired. The server exposes only this safe flag,
       // never the temporary token or its expiry.
@@ -790,6 +808,36 @@
         return 'https://wa.me/2547180166833?text=' + encodeURIComponent('Hello WiFi Fiti, I need help completing setup for ' + organisation + '.');
       }
       function setOnboardingError(message) { var notice = $('onboarding') && $('onboarding').querySelector('.onboarding-error'); if (notice) notice.textContent = message || ''; }
+      function leaveOnboarding(model) {
+        var current = model || onboardingModel();
+        saveOnboardingProgress(current.business, { active: false, stage: 1, unlocked: onboardingMaximumStage(current) });
+        onboardingPanel = '';
+        moduleView = 'overview';
+        renderOnboarding();
+        activateDashboardModule('overview');
+      }
+      function removeOnboardingRouter(model, button) {
+        var current = model || onboardingModel(); var location = current.location;
+        if (!routerCanBeRemoved(location)) {
+          setOnboardingError('This router has already contacted WiFi Fiti and cannot be removed. Use Start router setup again to keep customer records safe.');
+          return;
+        }
+        var name = location.name || location.router_name || 'this router';
+        var confirmation = window.prompt('Remove "' + name + '" from this workspace? This deletes only its unused WiFi Fiti setup and never resets the physical router. Type DELETE to confirm.');
+        if (confirmation !== 'DELETE') {
+          if (confirmation !== null) setOnboardingError('Nothing was removed. Type DELETE exactly to confirm.');
+          return;
+        }
+        setOnboardingError(''); setBusy(button, true, 'Removing…');
+        api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }).then(function () {
+          forgetSetup(location.id); clearRouterProgress(location); clearOnboardingLocation(current.business);
+          return load();
+        }).then(function () {
+          var updated = onboardingModel();
+          startNewOnboardingFlow(updated.business, 'router-new');
+          setOnboardingError('Router removed. Add the correct router when you are ready.');
+        }).catch(function (error) { setOnboardingError(error.message); }).finally(function () { setBusy(button, false); });
+      }
       function onboardingStatusFingerprint(model) {
         var location = model && model.location || {};
         return [location.id || '', freshRouterSetupRequired(location) ? 'fresh-kit-required' : routerPairingPending(location) ? 'pending-replacement' : routerSuccessfullyPaired(location) ? 'paired' : 'awaiting-pair', routerSyncHealthy(location) ? 'sync-healthy' : 'sync-stale', routerMappingStatus(location), location.routerMapping && location.routerMapping.inventoryUpdatedAt || '', location.router_status || '', location.last_seen_at ? 'seen' : 'not-seen', location.last_successful_sync_at ? 'synced' : 'not-synced'].join('|');
@@ -1082,13 +1130,14 @@
         restoreOnboardingPanels();
         var model = onboardingModel(); var flow = onboardingFlowState(model); clear(root); setSequentialOnboarding(flow.active);
         if (!flow.active) {
-          var compact = el('div', 'onboarding-compact'); var mapped = model.location && model.syncHealthy && !model.mappingConfirmed;
-          add(compact, 'p', 'onboarding-flow-kicker', mapped ? 'ROUTER MAP AVAILABLE' : 'WORKSPACE READY');
-          add(compact, 'h2', '', mapped ? 'Confirm this router’s layout.' : 'Your WiFi Fiti workspace is ready.');
-          add(compact, 'p', '', mapped ? 'WiFi Fiti can read the router inventory now. Confirm the WAN and customer network when you are ready; the rest of the workspace remains available.' : 'Add another router whenever you expand, or open the customer portal for the selected location.');
+          var compact = el('div', 'onboarding-compact'); var mapped = model.location && model.syncHealthy && !model.mappingConfirmed; var paused = Boolean(model.location && !model.mappingConfirmed && !mapped);
+          add(compact, 'p', 'onboarding-flow-kicker', mapped ? 'ROUTER MAP AVAILABLE' : paused ? 'SETUP PAUSED' : 'WORKSPACE READY');
+          add(compact, 'h2', '', mapped ? 'Confirm this router’s layout.' : paused ? 'Router setup is paused.' : 'Your WiFi Fiti workspace is ready.');
+          add(compact, 'p', '', mapped ? 'WiFi Fiti can read the router inventory now. Confirm the WAN and customer network when you are ready; the rest of the workspace remains available.' : paused ? 'Your router and its settings remain unchanged. Resume when you are ready, or add another router.' : 'Add another router whenever you expand, or open the customer portal for the selected location.');
           var compactActions = el('div', 'buttons');
           if (mapped) setupAction(compactActions, 'Map router', '', function () { resumeRouterMapping(model); });
-          setupAction(compactActions, 'Add another router', mapped ? 'secondary' : '', startAdditionalRouter);
+          if (paused) setupAction(compactActions, 'Resume router setup', '', function () { setOnboardingStage(model, model.syncHealthy ? 3 : 2, model.syncHealthy ? '' : 'connect'); });
+          setupAction(compactActions, 'Add another router', mapped || paused ? 'secondary' : '', startAdditionalRouter);
           if (model.location) { var portal = el('a', 'button secondary', 'Open customer portal'); portal.href = publicPortal(model.location); portal.target = '_blank'; portal.rel = 'noopener'; compactActions.appendChild(portal); }
           compact.appendChild(compactActions); root.appendChild(compact); scheduleOnboardingPolling(model); return;
         }
@@ -1100,21 +1149,21 @@
           var routerDescription = !currentLocation ? 'Enter a router name and location. The connection page opens immediately after that.' : waitingForRouter ? 'A fresh connection kit is already waiting for this router.' : restartRequested ? 'Previous verification is paused until you create a new connection kit.' : priorRouterVerified ? 'Start a new one-time pairing before this router can be verified again.' : 'Create the first connection kit for this router.';
           var routerBadge = !currentLocation ? 'One router at a time' : waitingForRouter ? 'Connection waiting' : restartRequested ? 'New kit required' : 'Ready to create kit';
           var routerBody = setupPage(root, 1, currentLocation ? 'Router saved' : addingNewRouter ? 'Add another router' : 'Add your first router', routerDescription, routerBadge);
-          var routerLead = el('div', 'setup-lead'); var routerLeadCopy = el('div'); add(routerLeadCopy, 'h4', '', currentLocation ? (currentLocation.router_name || 'MikroTik') + ' · ' + (currentLocation.name || 'Router location') : 'Start with the router you have'); add(routerLeadCopy, 'p', '', currentLocation ? waitingForRouter ? 'Use the already-created connection kit. WiFi Fiti waits for its secure check-in.' : 'The next page asks for the customer Wi-Fi name and password, then creates one visible kit. Prior verification cannot be reused.' : 'This only records the router and location.'); routerLead.appendChild(routerLeadCopy); var routerActions = el('div', 'buttons'); if (!currentLocation) setupAction(routerActions, 'Add router', '', openRouterDraftModal); else { setupAction(routerActions, waitingForRouter ? 'View connection kit' : 'Continue to connection kit', '', function () { beginFreshRouterPairing(model); }); setupAction(routerActions, 'Add another router', 'secondary', startAdditionalRouter); } routerLead.appendChild(routerActions); routerBody.appendChild(routerLead);
+          var routerLead = el('div', 'setup-lead'); var routerLeadCopy = el('div'); add(routerLeadCopy, 'h4', '', currentLocation ? (currentLocation.router_name || 'MikroTik') + ' · ' + (currentLocation.name || 'Router location') : 'Start with the router you have'); add(routerLeadCopy, 'p', '', currentLocation ? waitingForRouter ? 'Use the already-created connection kit. WiFi Fiti waits for its secure check-in.' : 'The next page asks for the customer Wi-Fi name and password, then creates one visible kit. Prior verification cannot be reused.' : 'This only records the router and location.'); routerLead.appendChild(routerLeadCopy); var routerActions = el('div', 'buttons'); if (!currentLocation) setupAction(routerActions, 'Add router', '', openRouterDraftModal); else { setupAction(routerActions, waitingForRouter ? 'View connection kit' : 'Continue to connection kit', '', function () { beginFreshRouterPairing(model); }); setupAction(routerActions, 'Add another router', 'secondary', startAdditionalRouter); if (routerCanBeRemoved(currentLocation)) { var removeRouter = setupAction(routerActions, 'Remove router', 'danger quiet', function () { removeOnboardingRouter(model, removeRouter); }); } } setupAction(routerActions, 'Back to workspace', 'secondary', function () { leaveOnboarding(model); }); routerLead.appendChild(routerActions); routerBody.appendChild(routerLead);
           if (!currentLocation && $('router-setup-form').dataset.locationId) clearRouterSetupForm(null);
         } else if (flow.stage === 2) {
           var phase = connectionPhaseFor(model);
           if (phase === 'prepare') {
             var prepareBody = setupPage(root, 2, 'Prepare your router', 'For a new router, confirm its WAN connection before creating the WiFi Fiti kit. Existing routers can skip straight to the secure connection.', 'Preparation'); appendConnectionMilestones(prepareBody, phase); appendPreparation(prepareBody, true); appendDeviceModeNote(prepareBody);
-            var prepareLead = el('div', 'setup-lead'); var prepareCopy = el('div'); add(prepareCopy, 'h4', '', 'Ready to create the connection kit?'); add(prepareCopy, 'p', '', 'Nothing is changed from this page. Continue when the router has power and, where applicable, WAN access.'); prepareLead.appendChild(prepareCopy); var prepareActions = el('div', 'buttons'); setupAction(prepareActions, 'Continue to secure connection', '', function () { setConnectionPhase(model.location, 'install'); renderOnboarding(); }); prepareLead.appendChild(prepareActions); prepareBody.appendChild(prepareLead);
+            var prepareLead = el('div', 'setup-lead'); var prepareCopy = el('div'); add(prepareCopy, 'h4', '', 'Ready to create the connection kit?'); add(prepareCopy, 'p', '', 'Nothing is changed from this page. Continue when the router has power and, where applicable, WAN access.'); prepareLead.appendChild(prepareCopy); var prepareActions = el('div', 'buttons'); setupAction(prepareActions, 'Continue to secure connection', '', function () { setConnectionPhase(model.location, 'install'); renderOnboarding(); }); setupAction(prepareActions, 'Back to router', 'secondary', function () { setOnboardingStage(model, 1, 'router'); }); if (routerCanBeRemoved(model.location)) { var removePreparedRouter = setupAction(prepareActions, 'Remove router', 'danger quiet', function () { removeOnboardingRouter(model, removePreparedRouter); }); } prepareLead.appendChild(prepareActions); prepareBody.appendChild(prepareLead);
           } else {
             var connectBadge = model.syncHealthy ? 'Connection verified' : model.freshKitRequired ? 'Create connection kit' : routerPairingPending(model.location) ? 'Waiting for router' : 'Connection required';
             var connectBody = setupPage(root, 2, 'Connect your router', 'Create one router-specific kit, paste it once in RouterOS, then wait for the automatic secure sync. No public router-management service is opened.', connectBadge); appendConnectionMilestones(connectBody, phase); appendConnectionMethods(connectBody, model); appendSimpleRouterSetup(connectBody, model); appendConnectionState(connectBody, model);
-            if (!model.syncHealthy) { var preparationBack = el('div', 'setup-subnav'); setupAction(preparationBack, 'Back to preparation', 'secondary', function () { setConnectionPhase(model.location, 'prepare'); renderOnboarding(); }); connectBody.appendChild(preparationBack); }
+            if (!model.syncHealthy) { var preparationBack = el('div', 'setup-subnav'); setupAction(preparationBack, 'Back to router', 'secondary', function () { setOnboardingStage(model, 1, 'router'); }); setupAction(preparationBack, 'Back to preparation', 'secondary', function () { setConnectionPhase(model.location, 'prepare'); renderOnboarding(); }); if (routerCanBeRemoved(model.location)) { var removeConnectedRouter = setupAction(preparationBack, 'Remove router', 'danger quiet', function () { removeOnboardingRouter(model, removeConnectedRouter); }); } connectBody.appendChild(preparationBack); }
           }
         } else {
           var mapBadge = model.mappingConfirmed ? 'Map confirmed' : model.mappingStatus === 'stale' ? 'Review required' : model.mappingStatus === 'inventory_stale' ? 'Refreshing inventory' : 'Detected layout';
-          var mapBody = setupPage(root, 3, 'Map your router', 'WiFi Fiti reads the router’s actual interfaces. Confirm the WAN, customer bridge, Wi-Fi and Ethernet ports before opening the full workspace.', mapBadge); appendRouterMappingSetup(mapBody, model);
+          var mapBody = setupPage(root, 3, 'Map your router', 'WiFi Fiti reads the router’s actual interfaces. Confirm the WAN, customer bridge, Wi-Fi and Ethernet ports before opening the full workspace.', mapBadge); appendRouterMappingSetup(mapBody, model); var mapBack = el('div', 'setup-subnav'); setupAction(mapBack, 'Back to secure connection', 'secondary', function () { setConnectionPhase(model.location, 'install'); setOnboardingStage(model, 2, 'connect'); }); mapBody.appendChild(mapBack);
         }
         scheduleOnboardingPolling(model);
       }
@@ -1186,7 +1235,7 @@
         }
         error.textContent = ''; setBusy(button, true, 'Deleting…');
         api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }).then(function () {
-          forgetSetup(location.id);
+          forgetSetup(location.id); clearRouterProgress(location);
           clearOnboardingLocation((state.workspace && state.workspace.business) || {});
           return load();
         }).then(function () {

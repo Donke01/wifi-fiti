@@ -46,6 +46,22 @@ assert.match(html, /Delete unused setup/,
   'a pristine location exposes a clearly scoped discard action');
 assert.match(html, /confirm:\s*'DELETE'/,
   'the UI sends the explicit deletion confirmation required by the API');
+assert.match(html, /function routerCanBeRemoved\(location\)/,
+  'the guided journey uses a conservative local check before exposing router removal');
+assert.match(html, /function removeOnboardingRouter\(model, button\)/,
+  'the guided journey has a dedicated unused-router removal path');
+assert.match(html, /Remove router/,
+  'the router can be removed directly from the focused onboarding pages');
+assert.match(html, /never resets the physical router/,
+  'router removal accurately states that it removes cloud setup only');
+assert.match(html, /Back to router/,
+  'the connection stages provide a direct return to router details');
+assert.match(html, /Back to secure connection/,
+  'the mapping stage can return to the preceding connection stage');
+assert.match(html, /Back to workspace/,
+  'owners can leave onboarding without deleting their saved progress');
+assert.match(html, /Router setup is paused\./,
+  'leaving an incomplete journey presents an accurate resumable state');
 assert.match(html, /Initial Preparation \(Optional\)/,
   'fresh-router preparation is explicitly optional');
 assert.match(html, /\/system reset-configuration no-defaults=yes skip-backup=yes/,
