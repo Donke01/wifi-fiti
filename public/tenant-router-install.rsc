@@ -248,10 +248,13 @@
 # public key through the existing HTTPS router authentication, and ignores all
 # response content. It never adds a peer, IP address, route, firewall rule,
 # management service rule, or WAN port opening. A VPN hub must be provisioned
-# separately before any remote connection can exist. To revoke support later,
-# the control plane must disable/remove this interface and disable its retry
-# scheduler; the dedicated revoke control removes the tagged interface and
-# disables the tagged scheduler.
+# separately before any remote connection can exist. After the gateway has
+# accepted this public key, a separate, authenticated activate control may
+# configure exactly one tagged gateway peer, this router's management /32,
+# a gateway-only /32 return route, and an input rule limited to that gateway.
+# It never changes a customer LAN route, default route, NAT rule or RouterOS
+# service. To revoke support later, the dedicated revoke control removes only
+# those tagged resources plus this tagged interface and retry scheduler.
 :local fitiSupportSource "\
 :global fitiUrl\r\
 \n:global fitiSite\r\

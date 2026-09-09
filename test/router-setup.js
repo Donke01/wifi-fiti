@@ -140,25 +140,86 @@ assert.match(prepareSupport, /:global fitiSupportAck "91"/);
 assert.doesNotMatch(prepareSupport, /\/ip (?:hotspot|address|route|firewall|service)\b/);
 assert.doesNotMatch(prepareSupport, /(?:peers|endpoint-address|endpoint-port|persistent-keepalive)/);
 
+const gatewayPublicKey = Buffer.alloc(32, 9).toString('base64');
+const activateSupport = remoteSupportControlToScript({
+  id: 92,
+  action: 'activate',
+  gatewayPublicKey,
+  endpointHost: 'vpn.wififiti.co.ke',
+  endpointPort: 51820,
+  managementAddress: '10.254.0.23/32',
+  gatewayAddress: '10.254.0.1/32',
+  configVersion: '2026.09.09-1',
+});
+assert.match(activateSupport, /fiti-support-wg/);
+assert.match(activateSupport, new RegExp(gatewayPublicKey.replace(/[+/]/g, '\\$&')));
+assert.match(activateSupport, /activation needs the prepared WireGuard interface/);
+assert.doesNotMatch(activateSupport, /\/interface wireguard add/,
+  'activation never rotates the prepared router key after the gateway accepted it');
+assert.match(activateSupport, /endpoint-address=\$fitiSupportEndpoint endpoint-port=\$fitiSupportEndpointPort/);
+assert.match(activateSupport, /allowed-address=\$fitiSupportGateway persistent-keepalive=25s/,
+  'only the gateway /32 is permitted through the peer, with an outbound keepalive');
+assert.match(activateSupport, /\/ip address (?:add|set).*fitiSupportAddress/,
+  'the router receives only its assigned management /32');
+assert.match(activateSupport, /\/ip route (?:add|set).*dst-address=\$fitiSupportGateway gateway=\$fitiSupportInterface/,
+  'RouterOS receives only the explicit gateway /32 return route');
+assert.match(activateSupport, /\/ip firewall filter (?:add|set).*chain=input action=accept in-interface=\$fitiSupportInterface src-address=\$fitiSupportGateway/,
+  'management input is constrained to the authenticated gateway source');
+assert.match(activateSupport, /WiFi Fiti VPN: gateway peer/);
+assert.match(activateSupport, /WiFi Fiti VPN: management address/);
+assert.match(activateSupport, /WiFi Fiti VPN: gateway route/);
+assert.match(activateSupport, /WiFi Fiti VPN: gateway input/);
+assert.match(activateSupport, /:global fitiSupportAck "92"/,
+  'activation uses the separate support acknowledgement only after configuration succeeds');
+assert.doesNotMatch(activateSupport, /private-key|0\.0\.0\.0\/0|\/ip firewall nat|\/ip hotspot|\/ip service|customer gateway/i,
+  'an activation control cannot reroute customers, alter the Hotspot, add NAT, or expose a service');
+
+assert.equal(remoteSupportControlToScript({
+  id: 93, action: 'activate', gatewayPublicKey,
+  endpointHost: 'vpn.wififiti.co.ke"; /system reboot', endpointPort: 51820,
+  managementAddress: '10.254.0.23/32', gatewayAddress: '10.254.0.1/32', configVersion: '1',
+}), null, 'an endpoint injection is rejected before it becomes RouterOS source');
+assert.equal(remoteSupportControlToScript({
+  id: 94, action: 'activate', gatewayPublicKey,
+  endpointHost: 'vpn.wififiti.co.ke', endpointPort: 51820,
+  managementAddress: '10.5.50.23/32', gatewayAddress: '10.254.0.1/32', configVersion: '1',
+}), null, 'a customer-LAN address cannot become a support-interface address');
+assert.equal(remoteSupportControlToScript({
+  id: 95, action: 'activate', gatewayPublicKey,
+  endpointHost: 'vpn.wififiti.co.ke', endpointPort: 51820,
+  managementAddress: '10.254.0.23/32', gatewayAddress: '0.0.0.0/0', configVersion: '1',
+}), null, 'a default route cannot be smuggled into an activation control');
+assert.equal(remoteSupportControlToScript({
+  id: 96, action: 'activate', gatewayPublicKey,
+  endpointHost: 'vpn.wififiti.co.ke', endpointPort: 51820,
+  managementAddress: '10.254.0.23/32', gatewayAddress: '10.254.0.1/32', configVersion: '1;reboot',
+}), null, 'a configuration version is not an arbitrary RouterOS interpolation point');
+
 const revokeSupport = remoteSupportControlToScript({ id: 92, action: 'revoke' });
 assert.match(revokeSupport, /:global fitiSupportEnabled "no"/);
 assert.match(revokeSupport, /:global fitiSupportInterface/);
 assert.match(revokeSupport, /name=\$fitiSupportInterface/);
 assert.match(revokeSupport, /\/system scheduler disable \$fitiSupportScheduler/);
+assert.match(revokeSupport, /\/ip firewall filter remove \$fitiSupportFirewall/);
+assert.match(revokeSupport, /\/ip route remove \$fitiSupportRoute/);
+assert.match(revokeSupport, /\/ip address remove \$fitiSupportAddress/);
+assert.match(revokeSupport, /\/interface wireguard peers remove \$fitiSupportPeer/);
 assert.match(revokeSupport, /\/interface wireguard disable \$fitiSupportWireguard/);
 assert.match(revokeSupport, /\/interface wireguard remove \$fitiSupportWireguard/);
 assert.match(revokeSupport, /WiFi Fiti support:/);
+assert.match(revokeSupport, /WiFi Fiti VPN:/);
 assert.match(revokeSupport, /:if \(\$fitiSupportCleanupOk\) do=\{ :global fitiSupportAck "92" \}/,
   'a revoke acknowledgement is emitted only after managed cleanup succeeds');
 assert.match(revokeSupport, /:global fitiSupportAck "92"/);
-assert.doesNotMatch(revokeSupport, /fiti-poll|\/ip (?:hotspot|address|route|firewall|service)\b/);
-assert.doesNotMatch(revokeSupport, /(?:peers|endpoint-address|endpoint-port|persistent-keepalive)/);
+assert.doesNotMatch(revokeSupport, /fiti-poll|\/ip hotspot|\/ip firewall nat|\/ip service|0\.0\.0\.0\/0/,
+  'revoke removes only tagged tunnel resources and cannot affect customer service');
+assert.doesNotMatch(revokeSupport, /endpoint-address|endpoint-port|persistent-keepalive|private-key/);
 assert.equal(remoteSupportControlToScript({ id: 93, action: 'connect' }), null,
-  'only inert prepare/revoke controls may be emitted');
+  'only prepare/activate/revoke controls may be emitted');
 assert.equal(remoteSupportControlToScript({ id: 0, action: 'revoke' }), null,
   'a malformed control id must not become router code');
-const supportBatch = buildRemoteSupportScript({ controls: [{ id: 94, action: 'revoke' }, { id: 0, action: 'prepare' }] });
-assert.deepEqual(supportBatch.emitted, [94]);
+const supportBatch = buildRemoteSupportScript({ controls: [{ id: 97, action: 'activate', gatewayPublicKey, endpointHost: 'vpn.wififiti.co.ke', endpointPort: 51820, managementAddress: '10.254.0.23/32', gatewayAddress: '10.254.0.1/32', configVersion: '2' }, { id: 98, action: 'revoke' }, { id: 0, action: 'prepare' }] });
+assert.deepEqual(supportBatch.emitted, [97, 98]);
 assert.deepEqual(supportBatch.rejected, [0]);
 
 const edgeKit = buildRouterSetup({ location, token, appUrl, portalUrl: 'https://test-branch.wififiti.co.ke', input: existing });

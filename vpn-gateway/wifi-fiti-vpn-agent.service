@@ -1,0 +1,29 @@
+[Unit]
+Description=WiFi Fiti WireGuard gateway reconciler
+After=network-online.target wg-quick@wg-fiti.service
+Wants=network-online.target
+Requires=wg-quick@wg-fiti.service
+
+[Service]
+Type=simple
+User=wifi-fiti-vpn-agent
+Group=wifi-fiti-vpn-agent
+StateDirectory=wifi-fiti-vpn-agent
+EnvironmentFile=/etc/wifi-fiti-vpn-agent.env
+ExecStart=/usr/bin/node /opt/wifi-fiti-vpn-agent/agent.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# The agent talks to the running WireGuard interface through netlink. It has
+# no reason to read the gateway private key or its configuration file.
+InaccessiblePaths=/etc/wireguard
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

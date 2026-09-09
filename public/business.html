@@ -331,10 +331,16 @@
       function routerHealthLabel(location) { var health = String(location && location.router_setup_health || '').toLowerCase(); return ({ 'bridge-missing': 'Customer bridge missing', 'hotspot-missing': 'Hotspot missing', 'poller-missing': 'Poller missing', 'portal-missing': 'Portal update pending', 'device-mode-blocked': 'Device mode blocked' })[health] || ''; }
       function routerState(location) { var raw = String(location.router_status || 'waiting').toLowerCase(); if (routerPairingPending(location)) return ['waiting', 'Verifying replacement']; var issue = routerHealthLabel(location); if (issue) return ['waiting', issue]; if (!routerSyncHealthy(location) && location && location.last_router_contact_at) return ['waiting', 'Verifying setup']; return raw === 'online' ? ['online', 'Online'] : raw === 'waiting' ? ['waiting', 'Awaiting router'] : ['unknown', raw.charAt(0).toUpperCase() + raw.slice(1)]; }
       function statusClass(status) { var raw = String(status || '').toLowerCase(); return raw === 'paid' ? 'paid' : raw === 'pending' ? 'pending' : raw === 'active' ? 'active' : raw === 'paused' ? 'paused' : raw === 'failed' ? 'failed' : 'unknown'; }
-      function remoteAccessStatus(status) {
-        var raw = String(status || 'not_requested').toLowerCase();
+      function remoteAccessStatus(remoteAccess) {
+        var raw = String(remoteAccess && remoteAccess.status || 'not_requested').toLowerCase();
+        var gateway = String(remoteAccess && remoteAccess.gatewayState || '').toLowerCase();
         if (raw === 'requested') return { label: 'Requested', style: 'waiting' };
         if (raw === 'approved') return { label: 'Preparing secure access', style: 'waiting' };
+        if (raw === 'configured' && gateway === 'preparing_router') return { label: 'Preparing router', style: 'waiting' };
+        if (raw === 'configured' && gateway === 'pending') return { label: 'Connecting gateway', style: 'waiting' };
+        if (raw === 'configured' && gateway === 'ready' && remoteAccess.lastHandshakeAt) return { label: 'Secure connection active', style: 'active' };
+        if (raw === 'configured' && gateway === 'ready') return { label: 'Waiting for router tunnel', style: 'waiting' };
+        if (raw === 'configured' && gateway === 'error') return { label: 'Gateway needs attention', style: 'failed' };
         if (raw === 'configured') return { label: 'Remote setup prepared', style: 'active' };
         if (raw === 'revoked') return { label: 'Access revoked', style: 'revoked' };
         return { label: 'Not requested', style: 'waiting' };
@@ -342,6 +348,7 @@
       function remoteAccessUrl(location) { return '/api/business/locations/' + encodeURIComponent(location.id) + '/remote-access'; }
       function mergeRemoteAccess(location, remoteAccess) {
         if (!location || !remoteAccess) return;
+        location.remoteAccess = remoteAccess;
         location.remote_access_status = remoteAccess.status || 'not_requested';
         location.remote_access_requested_at = remoteAccess.requestedAt || null;
         location.remote_access_configured_at = remoteAccess.configuredAt || null;
@@ -353,7 +360,12 @@
         var status = String(remoteAccess && remoteAccess.status || 'not_requested').toLowerCase();
         if (status === 'requested') return 'Your request is recorded. WiFi Fiti can prepare managed setup after reviewing this router. Normal portal, payments and polling continue as usual.';
         if (status === 'approved') return 'WiFi Fiti has approved this location for managed setup. The secure support route is being prepared; the router remains protected from public management access.';
-        if (status === 'configured') return 'WiFi Fiti has recorded this router for secure managed setup. The final private-connection check appears when the support gateway reports a handshake; customer internet traffic never uses this path.';
+        if (status === 'configured' && remoteAccess && remoteAccess.gatewayState === 'preparing_router') return 'The router is creating its own secure key. Keep it online. No password or customer traffic is shared with WiFi Fiti.';
+        if (status === 'configured' && remoteAccess && remoteAccess.gatewayState === 'pending') return 'The secure gateway is adding this router. The next router check-in completes the private connection.';
+        if (status === 'configured' && remoteAccess && remoteAccess.gatewayState === 'ready' && remoteAccess.lastHandshakeAt) return 'Secure remote access is active. Customer WiFi, payments, and browsing do not use this connection.';
+        if (status === 'configured' && remoteAccess && remoteAccess.gatewayState === 'ready') return 'The gateway is ready. Keep the router online while it establishes its first secure connection.';
+        if (status === 'configured' && remoteAccess && remoteAccess.gatewayState === 'error') return 'The secure gateway could not finish setup. Normal customer service continues. Contact WiFi Fiti support if this state remains.';
+        if (status === 'configured') return 'WiFi Fiti has recorded this router for secure managed setup. Customer internet traffic never uses this path.';
         if (status === 'revoked' && remoteAccess && remoteAccess.cleanupPending) return 'Revocation was sent to the router. Keep it online until it confirms removal of the support interface; normal WiFi Fiti polling and customer service continue.';
         if (status === 'revoked') return 'Managed access is disabled. The router continues its normal WiFi Fiti polling and customer service without it.';
         return 'First complete the local pairing kit and wait for the router to check in. You can then request secure remote completion for this location.';
@@ -365,11 +377,12 @@
       function renderRemoteAccessPanel(location, card, remoteAccess) {
         var prior = card.querySelector('.remote-setup-panel'); if (prior) prior.remove();
         var panel = el('section', 'remote-setup-panel'); panel.setAttribute('aria-live', 'polite'); add(panel, 'h4', '', 'Managed remote setup');
-        var current = remoteAccessStatus(remoteAccess && remoteAccess.status); add(panel, 'div', 'remote-state ' + current.style, current.label); add(panel, 'p', '', remoteAccessCopy(remoteAccess));
+        var current = remoteAccessStatus(remoteAccess); add(panel, 'div', 'remote-state ' + current.style, current.label); add(panel, 'p', '', remoteAccessCopy(remoteAccess));
         var details = el('div', 'remote-details');
         remoteDetail(details, 'Requested', remoteAccess && remoteAccess.requestedAt ? when(remoteAccess.requestedAt) : '');
         remoteDetail(details, 'Support gateway', remoteAccess && remoteAccess.hubName);
         remoteDetail(details, 'Management address', remoteAccess && remoteAccess.managementAddress);
+        remoteDetail(details, 'Gateway state', remoteAccess && remoteAccess.gatewayState ? String(remoteAccess.gatewayState).replace(/_/g, ' ') : '');
         remoteDetail(details, 'Last secure handshake', remoteAccess && remoteAccess.lastHandshakeAt ? when(remoteAccess.lastHandshakeAt) : '');
         if (details.childElementCount) panel.appendChild(details);
         var actions = el('div', 'buttons');
@@ -964,7 +977,7 @@
         locations.forEach(function (location) {
           var current = routerState(location); var card = el('article', 'location-card'); card.dataset.locationId = String(location.id || ''); var top = el('div', 'location-top'); var info = el('div'); add(info, 'h3', '', location.name || 'Unnamed location'); add(info, 'div', 'location-meta', location.router_name || 'Router name not added'); top.appendChild(info); add(top, 'span', 'status ' + current[0], current[1]); card.appendChild(top);
           var data = el('div', 'location-data'); function datum(label, value) { var entry = el('div'); add(entry, 'span', 'data-label', label); add(entry, 'div', 'data-value', value); data.appendChild(entry); }
-          datum('Location ID', location.id || 'Not available'); datum('Hotspot server', location.hotspot_server || 'Router default'); datum('Customer portal', portalStatus(location)); datum('Router check-in', location.last_seen_at ? 'Last seen ' + when(location.last_seen_at) : 'Waiting for first check-in'); var remote = remoteAccessStatus(location.remote_access_status); var remoteDatum = el('div'); add(remoteDatum, 'span', 'data-label', 'Remote setup'); add(remoteDatum, 'div', 'remote-state ' + remote.style, remote.label); data.appendChild(remoteDatum); card.appendChild(data);
+          datum('Location ID', location.id || 'Not available'); datum('Hotspot server', location.hotspot_server || 'Router default'); datum('Customer portal', portalStatus(location)); datum('Router check-in', location.last_seen_at ? 'Last seen ' + when(location.last_seen_at) : 'Waiting for first check-in'); var remote = remoteAccessStatus(location.remoteAccess || { status: location.remote_access_status }); var remoteDatum = el('div'); add(remoteDatum, 'span', 'data-label', 'Remote setup'); add(remoteDatum, 'div', 'remote-state ' + remote.style, remote.label); data.appendChild(remoteDatum); card.appendChild(data);
           var actions = el('div', 'location-actions');
           var portal = el('a', 'button quiet', 'Open customer portal'); portal.href = publicPortal(location); portal.target = '_blank'; portal.rel = 'noopener'; actions.appendChild(portal);
           var setup = el('button', 'quiet', 'Router setup'); setup.type = 'button'; setup.addEventListener('click', function () { openRouterSetupForLocation(location); }); actions.appendChild(setup);

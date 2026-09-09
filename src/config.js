@@ -68,6 +68,50 @@ function bareHostname(value, name) {
   }
 }
 
+function wireGuardPublicKey(value, name) {
+  const raw = String(value || '').trim();
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(raw) || Buffer.from(raw, 'base64').length !== 32) {
+    console.error(`${name} must be a 32-byte WireGuard public key in standard base64 format.`);
+    process.exit(1);
+  }
+  return raw;
+}
+
+function privateIpv4(value, name) {
+  const raw = String(value || '').trim();
+  const octets = raw.split('.');
+  const numeric = octets.map((octet) => (/^\d{1,3}$/.test(octet) ? Number(octet) : NaN));
+  const privateRange = numeric.length === 4 && numeric.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
+    (numeric[0] === 10 || (numeric[0] === 172 && numeric[1] >= 16 && numeric[1] <= 31) || (numeric[0] === 192 && numeric[1] === 168));
+  if (!privateRange) {
+    console.error(`${name} must be a private IPv4 address.`);
+    process.exit(1);
+  }
+  return numeric.join('.');
+}
+
+function privateIpv4Cidr(value, name) {
+  const raw = String(value || '').trim();
+  const match = /^(.+)\/(\d{1,2})$/.exec(raw);
+  if (!match || Number(match[2]) < 8 || Number(match[2]) > 30) {
+    console.error(`${name} must be a private IPv4 CIDR such as 10.254.0.0/16.`);
+    process.exit(1);
+  }
+  return `${privateIpv4(match[1], name)}/${Number(match[2])}`;
+}
+
+// The RouterOS activation helper deliberately accepts only this management
+// network. Keeping the application configuration equally narrow prevents a
+// future environment typo from sending a customer LAN, a default route, or a
+// differently shaped VPN network to a router. A later multi-gateway design
+// can expand this together with the reviewed RouterOS allowlist.
+function wifiFitiManagementNetwork(address, cidr) {
+  if (address !== '10.254.0.1' || cidr !== '10.254.0.0/16') {
+    console.error('WiFi Fiti VPN management is fixed to VPN_GATEWAY_ADDRESS=10.254.0.1 and VPN_GATEWAY_MANAGEMENT_CIDR=10.254.0.0/16.');
+    process.exit(1);
+  }
+}
+
 const publicUrl = webOrigin(process.env.PUBLIC_URL, 'PUBLIC_URL');
 // `PUBLIC_URL` was the original application's only public-origin setting.
 // Keep an older or staging deployment safe when APP_URL has not been added:
@@ -102,6 +146,50 @@ if (portalGatewayRequested && (!portalRootDomain || !edgeGatewaySecret)) {
 }
 const portalGatewayEnabled = portalGatewayRequested && Boolean(portalRootDomain && edgeGatewaySecret);
 
+// The WiFi Fiti gateway is deliberately a separate, outbound-only
+// WireGuard control plane. It carries router-management traffic only: never
+// customer browsing, M-Pesa, portal traffic, or router credentials. Keep
+// its private key exclusively on the VPS; Railway receives only this public
+// identity and an independently scoped pull-agent secret.
+const vpnGatewayRequested = String(process.env.VPN_GATEWAY_ENABLED || '').trim().toLowerCase() === 'true';
+const vpnGatewayId = String(process.env.VPN_GATEWAY_ID || '').trim();
+const vpnGatewayEndpoint = String(process.env.VPN_GATEWAY_ENDPOINT || '').trim();
+const vpnGatewayPortRaw = String(process.env.VPN_GATEWAY_PORT || '').trim();
+const vpnGatewayPublicKeyRaw = String(process.env.VPN_GATEWAY_PUBLIC_KEY || '').trim();
+const vpnGatewayAddressRaw = String(process.env.VPN_GATEWAY_ADDRESS || '').trim();
+const vpnGatewayManagementCidrRaw = String(process.env.VPN_GATEWAY_MANAGEMENT_CIDR || '').trim();
+const vpnGatewayControlSecret = String(process.env.VPN_GATEWAY_CONTROL_SECRET || '');
+let vpnGateway = { enabled: false };
+if (vpnGatewayRequested) {
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(vpnGatewayId)) {
+    console.error('VPN_GATEWAY_ID must contain lowercase letters, numbers, and hyphens, beginning with a letter.');
+    process.exit(1);
+  }
+  const endpointHost = bareHostname(vpnGatewayEndpoint, 'VPN_GATEWAY_ENDPOINT');
+  const endpointPort = Number(vpnGatewayPortRaw);
+  if (!Number.isInteger(endpointPort) || endpointPort < 1 || endpointPort > 65535) {
+    console.error('VPN_GATEWAY_PORT must be an integer from 1 to 65535.');
+    process.exit(1);
+  }
+  if (vpnGatewayControlSecret.length < 32) {
+    console.error('VPN_GATEWAY_CONTROL_SECRET must be at least 32 characters. Generate it with: openssl rand -hex 32');
+    process.exit(1);
+  }
+  const address = privateIpv4(vpnGatewayAddressRaw, 'VPN_GATEWAY_ADDRESS');
+  const managementCidr = privateIpv4Cidr(vpnGatewayManagementCidrRaw, 'VPN_GATEWAY_MANAGEMENT_CIDR');
+  wifiFitiManagementNetwork(address, managementCidr);
+  vpnGateway = {
+    enabled: true,
+    id: vpnGatewayId,
+    endpointHost,
+    endpointPort,
+    publicKey: wireGuardPublicKey(vpnGatewayPublicKeyRaw, 'VPN_GATEWAY_PUBLIC_KEY'),
+    address,
+    managementCidr,
+    controlSecret: vpnGatewayControlSecret,
+  };
+}
+
 module.exports = {
   port: Number(process.env.PORT || 3000),
   publicUrl,
@@ -116,6 +204,7 @@ module.exports = {
   },
 
   edgeGatewaySecret,
+  vpnGateway,
 
   mpesa: {
     env,

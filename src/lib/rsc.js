@@ -177,15 +177,319 @@ function buildScript({ jobs, hotspotServer }) {
 
 /*
  * Optional remote-support controls use a different queue and acknowledgement
- * from tenant HotSpot jobs. Keep the emitted language intentionally tiny:
- * `prepare` may run the already-installed bootstrap helper, while `revoke`
- * can only turn off the managed scheduler and delete the managed, disabled
- * WireGuard interface. Neither action is allowed to touch a HotSpot user,
- * billing poll, peer, address, route, firewall rule, service, or WAN port.
+ * from tenant HotSpot jobs.  They deliberately have a narrow, independently
+ * validated input surface: a cloud worker may provide the WiFi Fiti gateway's
+ * *public* key, endpoint and two management /32s, but never a private key,
+ * arbitrary RouterOS source, a customer LAN route, or a default route.
+ *
+ * `prepare` creates the disabled key pair and reports only its public half.
+ * The gateway creates the matching peer independently, then the server emits
+ * `activate`.  This order matters: generating a replacement key during
+ * activation would leave the gateway with a peer it can never authenticate.
  */
-function remoteSupportControlToScript(control) {
+
+const SUPPORT_INTERFACE = 'fiti-support-wg';
+const SUPPORT_VPN_PREFIX = 'WiFi Fiti VPN:';
+const SUPPORT_LEGACY_PREFIX = 'WiFi Fiti support:';
+
+function supportControlId(control) {
   const id = Number(control && control.id);
-  if (!Number.isInteger(id) || id < 1) return null;
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function supportPublicKey(value) {
+  const key = typeof value === 'string' ? value.trim() : '';
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(key)) return null;
+  return Buffer.from(key, 'base64').length === 32 ? key : null;
+}
+
+function supportEndpointHost(value) {
+  const host = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!host || host.length > 253 || host.includes('://') || host.includes(':')) return null;
+
+  // A numeric public endpoint is useful while a DNS record propagates.  A
+  // hostname must be a normal DNS name, not a URL, wildcard or shell value.
+  const ipv4 = host.split('.');
+  if (ipv4.length === 4 && ipv4.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return host;
+  if (!host.includes('.')) return null;
+  return host.split('.').every((label) =>
+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)
+  ) ? host : null;
+}
+
+function supportEndpointPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+function supportManagementAddress(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  // The WiFi Fiti gateway reserves 10.254.0.0/16 exclusively for remote
+  // management. Keeping this check local means a cloud regression cannot
+  // accidentally put the customer HotSpot subnet on the support interface.
+  const match = /^(\d{1,3}(?:\.\d{1,3}){3})(?:\/32)?$/.exec(raw);
+  if (!match) return null;
+  const octets = match[1].split('.').map(Number);
+  if (octets.some((octet) => octet > 255) || octets[0] !== 10 || octets[1] !== 254) return null;
+  if (octets[3] === 0 || octets[3] === 255) return null;
+  return `${octets.join('.')}/32`;
+}
+
+function supportConfigVersion(value) {
+  const version = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+  return /^[A-Za-z0-9._-]{1,64}$/.test(version) ? version : null;
+}
+
+function activationControl(control) {
+  const id = supportControlId(control);
+  const gatewayPublicKey = supportPublicKey(control && control.gatewayPublicKey);
+  const endpointHost = supportEndpointHost(control && control.endpointHost);
+  const endpointPort = supportEndpointPort(control && control.endpointPort);
+  const managementAddress = supportManagementAddress(control && control.managementAddress);
+  const gatewayAddress = supportManagementAddress(control && control.gatewayAddress);
+  const configVersion = supportConfigVersion(control && control.configVersion);
+  if (!id || !gatewayPublicKey || !endpointHost || !endpointPort || !managementAddress || !gatewayAddress || !configVersion) return null;
+  if (managementAddress === gatewayAddress) return null;
+  return { id, gatewayPublicKey, endpointHost, endpointPort, managementAddress, gatewayAddress, configVersion };
+}
+
+/**
+ * Configure the native RouterOS WireGuard client after the gateway has
+ * already installed the router public key. All mutable resources are marked
+ * with a specific WiFi Fiti comment, so a collision with a customer's own
+ * interface/peer/address/route/firewall rule is a safe no-op and retries are
+ * idempotent.
+ *
+ * The only route emitted is the gateway's own /32.  Customer LAN prefixes
+ * and 0.0.0.0/0 are rejected structurally: neither can enter the command
+ * language nor the peer allowed-address list.
+ */
+function remoteSupportActivateToScript(control) {
+  const activation = activationControl(control);
+  if (!activation) return null;
+  const {
+    id, gatewayPublicKey, endpointHost, endpointPort,
+    managementAddress, gatewayAddress, configVersion,
+  } = activation;
+
+  return [
+    ':global fitiSupportEnabled',
+    ':global fitiSupportInterface',
+    `:if ([:len $fitiSupportInterface] = 0) do={ :set fitiSupportInterface "${SUPPORT_INTERFACE}" }`,
+    `:local fitiSupportGatewayKey "${gatewayPublicKey}"`,
+    `:local fitiSupportEndpoint "${endpointHost}"`,
+    `:local fitiSupportEndpointPort ${endpointPort}`,
+    `:local fitiSupportAddress "${managementAddress}"`,
+    `:local fitiSupportGateway "${gatewayAddress}"`,
+    `:local fitiSupportVersion "${configVersion}"`,
+    `:local fitiSupportInterfaceTag "${SUPPORT_VPN_PREFIX} interface "`,
+    `:local fitiSupportPeerTag "${SUPPORT_VPN_PREFIX} gateway peer "`,
+    `:local fitiSupportAddressTag "${SUPPORT_VPN_PREFIX} management address "`,
+    `:local fitiSupportRouteTag "${SUPPORT_VPN_PREFIX} gateway route "`,
+    `:local fitiSupportFirewallTag "${SUPPORT_VPN_PREFIX} gateway input "`,
+    ':local fitiSupportOk true',
+    '',
+    // Do not create an interface here. The key must be the exact public key
+    // the gateway accepted during `prepare`; missing it needs a deliberate
+    // re-enrollment, not a silently generated replacement identity.
+    ':local fitiSupportWireguard [/interface wireguard find where name=$fitiSupportInterface]',
+    ':if ([:len $fitiSupportWireguard] != 1) do={',
+    '  :set fitiSupportOk false',
+    '  :log warning "fiti support: activation needs the prepared WireGuard interface; re-enroll this router"',
+    '} else={',
+    '  :local fitiSupportWireguardComment [/interface wireguard get $fitiSupportWireguard comment]',
+    `  :if (([:typeof [:find $fitiSupportWireguardComment "${SUPPORT_LEGACY_PREFIX}"]] != "nil") || ([:typeof [:find $fitiSupportWireguardComment "${SUPPORT_VPN_PREFIX}"]] != "nil")) do={`,
+    '    :do { /interface wireguard set $fitiSupportWireguard comment=($fitiSupportInterfaceTag . $fitiSupportVersion) } on-error={',
+    '      :set fitiSupportOk false',
+    '      :log warning "fiti support: could not tag the prepared WireGuard interface"',
+    '    }',
+    '  } else={',
+    '    :set fitiSupportOk false',
+    '    :log warning "fiti support: fiti-support-wg belongs to a non-WiFi-Fiti tunnel; leaving it untouched"',
+    '  }',
+    '}',
+    '',
+    // The support interface may contain only WiFi Fiti's tagged gateway peer.
+    // A user-created peer is never removed or reconfigured by this control.
+    ':local fitiSupportPeer ""',
+    ':local fitiSupportPeerCount 0',
+    ':local fitiSupportPeerUnsafe false',
+    ':if ($fitiSupportOk) do={',
+    '  :foreach fitiSupportPeerItem in=[/interface wireguard peers find where interface=$fitiSupportInterface] do={',
+    '    :local fitiSupportPeerComment [/interface wireguard peers get $fitiSupportPeerItem comment]',
+    '    :if ([:typeof [:find $fitiSupportPeerComment $fitiSupportPeerTag]] != "nil") do={',
+    '      :if ($fitiSupportPeerCount = 0) do={',
+    '        :set fitiSupportPeer $fitiSupportPeerItem',
+    '      } else={',
+    '        :do { /interface wireguard peers remove $fitiSupportPeerItem } on-error={',
+    '          :set fitiSupportOk false',
+    '          :log warning "fiti support: could not remove a duplicate managed gateway peer"',
+    '        }',
+    '      }',
+    '      :set fitiSupportPeerCount ($fitiSupportPeerCount + 1)',
+    '    } else={',
+    '      :set fitiSupportPeerUnsafe true',
+    '    }',
+    '  }',
+    '  :if ($fitiSupportPeerUnsafe) do={',
+    '    :set fitiSupportOk false',
+    '    :log warning "fiti support: an unowned peer uses fiti-support-wg; leaving it untouched"',
+    '  } else={',
+    '    :if ($fitiSupportPeerCount = 0) do={',
+    '      :do {',
+    '        /interface wireguard peers add interface=$fitiSupportInterface public-key=$fitiSupportGatewayKey endpoint-address=$fitiSupportEndpoint endpoint-port=$fitiSupportEndpointPort allowed-address=$fitiSupportGateway persistent-keepalive=25s comment=($fitiSupportPeerTag . $fitiSupportVersion)',
+    '        :set fitiSupportPeer [/interface wireguard peers find where interface=$fitiSupportInterface comment=($fitiSupportPeerTag . $fitiSupportVersion)]',
+    '      } on-error={',
+    '        :set fitiSupportOk false',
+    '        :log warning "fiti support: could not add the managed gateway peer"',
+    '      }',
+    '    } else={',
+    '      :do { /interface wireguard peers set $fitiSupportPeer public-key=$fitiSupportGatewayKey endpoint-address=$fitiSupportEndpoint endpoint-port=$fitiSupportEndpointPort allowed-address=$fitiSupportGateway persistent-keepalive=25s disabled=no comment=($fitiSupportPeerTag . $fitiSupportVersion) } on-error={',
+    '        :set fitiSupportOk false',
+    '        :log warning "fiti support: could not update the managed gateway peer"',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    '',
+    // A management /32 is placed only on the prepared interface. Check both
+    // an address conflict and an unexpected address on that interface before
+    // doing anything, so a local configuration is never overwritten.
+    ':local fitiSupportAddressConflict false',
+    ':if ($fitiSupportOk) do={',
+    '  :foreach fitiSupportAddressCheck in=[/ip address find where address=$fitiSupportAddress] do={',
+    '    :local fitiSupportAddressCheckComment [/ip address get $fitiSupportAddressCheck comment]',
+    '    :local fitiSupportAddressCheckInterface [/ip address get $fitiSupportAddressCheck interface]',
+    '    :if ($fitiSupportAddressCheckInterface != $fitiSupportInterface) do={',
+    '      :set fitiSupportAddressConflict true',
+    '    } else={',
+    '      :if ([:typeof [:find $fitiSupportAddressCheckComment $fitiSupportAddressTag]] = "nil") do={ :set fitiSupportAddressConflict true }',
+    '    }',
+    '  }',
+    '  :if ($fitiSupportAddressConflict) do={',
+    '    :set fitiSupportOk false',
+    '    :log warning "fiti support: management address is already owned by another router resource"',
+    '  }',
+    '}',
+    ':local fitiSupportManagedAddress ""',
+    ':local fitiSupportAddressUnsafe false',
+    ':if ($fitiSupportOk) do={',
+    '  :foreach fitiSupportAddressItem in=[/ip address find where comment~"^WiFi Fiti VPN: management address"] do={',
+    '    :local fitiSupportAddressComment [/ip address get $fitiSupportAddressItem comment]',
+    '    :local fitiSupportAddressInterface [/ip address get $fitiSupportAddressItem interface]',
+    '    :if ($fitiSupportAddressInterface != $fitiSupportInterface) do={',
+    '      :set fitiSupportAddressUnsafe true',
+    '    } else={',
+    '      :if ([:len $fitiSupportManagedAddress] = 0) do={',
+    '        :set fitiSupportManagedAddress $fitiSupportAddressItem',
+    '      } else={',
+    '        :do { /ip address remove $fitiSupportAddressItem } on-error={',
+    '          :set fitiSupportOk false',
+    '          :log warning "fiti support: could not remove a duplicate managed address"',
+    '        }',
+    '      }',
+    '    }',
+    '  }',
+    '  :foreach fitiSupportAddressItem in=[/ip address find where interface=$fitiSupportInterface] do={',
+    '    :local fitiSupportAddressComment [/ip address get $fitiSupportAddressItem comment]',
+    '    :if ([:typeof [:find $fitiSupportAddressComment $fitiSupportAddressTag]] = "nil") do={ :set fitiSupportAddressUnsafe true }',
+    '  }',
+    '  :if ($fitiSupportAddressUnsafe) do={',
+    '    :set fitiSupportOk false',
+    '    :log warning "fiti support: an unowned address uses fiti-support-wg; leaving it untouched"',
+    '  } else={',
+    '    :if ([:len $fitiSupportManagedAddress] = 0) do={',
+    '      :do { /ip address add address=$fitiSupportAddress interface=$fitiSupportInterface comment=($fitiSupportAddressTag . $fitiSupportVersion) } on-error={',
+    '        :set fitiSupportOk false',
+    '        :log warning "fiti support: could not add the management address"',
+    '      }',
+    '    } else={',
+    '      :do { /ip address set $fitiSupportManagedAddress address=$fitiSupportAddress interface=$fitiSupportInterface disabled=no comment=($fitiSupportAddressTag . $fitiSupportVersion) } on-error={',
+    '        :set fitiSupportOk false',
+    '        :log warning "fiti support: could not update the management address"',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    '',
+    // RouterOS does not infer routes from peer allowed-addresses. This is the
+    // sole static route: the gateway /32 through the already-owned WG link.
+    ':local fitiSupportRouteConflict false',
+    ':if ($fitiSupportOk) do={',
+    '  :foreach fitiSupportRouteCheck in=[/ip route find where dst-address=$fitiSupportGateway] do={',
+    '    :local fitiSupportRouteCheckComment [/ip route get $fitiSupportRouteCheck comment]',
+    '    :if ([:typeof [:find $fitiSupportRouteCheckComment $fitiSupportRouteTag]] = "nil") do={ :set fitiSupportRouteConflict true }',
+    '  }',
+    '  :if ($fitiSupportRouteConflict) do={',
+    '    :set fitiSupportOk false',
+    '    :log warning "fiti support: gateway route is already owned by another router resource"',
+    '  }',
+    '}',
+    ':local fitiSupportManagedRoute ""',
+    ':if ($fitiSupportOk) do={',
+    '  :foreach fitiSupportRouteItem in=[/ip route find where comment~"^WiFi Fiti VPN: gateway route"] do={',
+    '    :if ([:len $fitiSupportManagedRoute] = 0) do={',
+    '      :set fitiSupportManagedRoute $fitiSupportRouteItem',
+    '    } else={',
+    '      :do { /ip route remove $fitiSupportRouteItem } on-error={',
+    '        :set fitiSupportOk false',
+    '        :log warning "fiti support: could not remove a duplicate managed gateway route"',
+    '      }',
+    '    }',
+    '  }',
+    '  :if ([:len $fitiSupportManagedRoute] = 0) do={',
+    '    :do { /ip route add dst-address=$fitiSupportGateway gateway=$fitiSupportInterface distance=1 comment=($fitiSupportRouteTag . $fitiSupportVersion) } on-error={',
+    '      :set fitiSupportOk false',
+    '      :log warning "fiti support: could not add the gateway-only route"',
+    '    }',
+    '  } else={',
+    '    :do { /ip route set $fitiSupportManagedRoute dst-address=$fitiSupportGateway gateway=$fitiSupportInterface distance=1 disabled=no comment=($fitiSupportRouteTag . $fitiSupportVersion) } on-error={',
+    '      :set fitiSupportOk false',
+    '      :log warning "fiti support: could not update the gateway-only route"',
+    '    }',
+    '  }',
+    '}',
+    '',
+    // This lets only the gateway /32 access RouterOS through an authenticated
+    // tunnel. We do not enable SSH, Winbox, API or any other public service.
+    ':local fitiSupportManagedFirewall ""',
+    ':if ($fitiSupportOk) do={',
+    '  :foreach fitiSupportFirewallItem in=[/ip firewall filter find where comment~"^WiFi Fiti VPN: gateway input"] do={',
+    '    :if ([:len $fitiSupportManagedFirewall] = 0) do={',
+    '      :set fitiSupportManagedFirewall $fitiSupportFirewallItem',
+    '    } else={',
+    '      :do { /ip firewall filter remove $fitiSupportFirewallItem } on-error={',
+    '        :set fitiSupportOk false',
+    '        :log warning "fiti support: could not remove a duplicate managed firewall rule"',
+    '      }',
+    '    }',
+    '  }',
+    '  :if ([:len $fitiSupportManagedFirewall] = 0) do={',
+    '    :do { /ip firewall filter add chain=input action=accept in-interface=$fitiSupportInterface src-address=$fitiSupportGateway comment=($fitiSupportFirewallTag . $fitiSupportVersion) place-before=0 } on-error={',
+    '      :set fitiSupportOk false',
+    '      :log warning "fiti support: could not add the authenticated gateway firewall rule"',
+    '    }',
+    '  } else={',
+    '    :do { /ip firewall filter set $fitiSupportManagedFirewall chain=input action=accept in-interface=$fitiSupportInterface src-address=$fitiSupportGateway disabled=no comment=($fitiSupportFirewallTag . $fitiSupportVersion) } on-error={',
+    '      :set fitiSupportOk false',
+    '      :log warning "fiti support: could not update the authenticated gateway firewall rule"',
+    '    }',
+    '    :if ($fitiSupportOk) do={ :do { /ip firewall filter move $fitiSupportManagedFirewall destination=0 } on-error={ :set fitiSupportOk false; :log warning "fiti support: could not place the authenticated gateway firewall rule first" } }',
+    '  }',
+    '}',
+    '',
+    ':if ($fitiSupportOk) do={',
+    '  :do { /interface wireguard enable $fitiSupportWireguard } on-error={',
+    '    :set fitiSupportOk false',
+    '    :log warning "fiti support: WireGuard configuration is ready but the interface could not be enabled"',
+    '  }',
+    '}',
+    `:if ($fitiSupportOk) do={ :global fitiSupportEnabled "active"; :global fitiSupportAck "${id}"; :log info ("fiti support: WireGuard gateway configuration " . $fitiSupportVersion . " is active") } else={ :log warning "fiti support: gateway activation incomplete; it will retry" }`,
+  ].join('\n');
+}
+function remoteSupportControlToScript(control) {
+  const id = supportControlId(control);
+  if (!id) return null;
 
   if (control.action === 'prepare') {
     return [
@@ -206,10 +510,15 @@ function remoteSupportControlToScript(control) {
     ].join('\n');
   }
 
+  if (control.action === 'activate') {
+    return remoteSupportActivateToScript(control);
+  }
+
   if (control.action === 'revoke') {
     return [
       ':global fitiSupportEnabled "no"',
       ':global fitiSupportInterface',
+      `:if ([:len $fitiSupportInterface] = 0) do={ :set fitiSupportInterface "${SUPPORT_INTERFACE}" }`,
       ':local fitiSupportCleanupOk true',
       ':local fitiSupportSchedulers [/system scheduler find where name="fiti-support-enroll"]',
       ':foreach fitiSupportScheduler in=$fitiSupportSchedulers do={',
@@ -224,18 +533,77 @@ function remoteSupportControlToScript(control) {
       '    :log warning "fiti support: scheduler name belongs to a non-WiFi-Fiti task; leaving it untouched"',
       '  }',
       '}',
+      // These are the only rules WiFi Fiti inserts into the input chain. A
+      // rule whose comment has been copied onto another interface is left
+      // alone and keeps the revoke retry pending for an operator to inspect.
+      ':foreach fitiSupportFirewall in=[/ip firewall filter find where comment~"^WiFi Fiti VPN: gateway input"] do={',
+      '  :local fitiSupportFirewallInterface [/ip firewall filter get $fitiSupportFirewall in-interface]',
+      '  :if ($fitiSupportFirewallInterface = $fitiSupportInterface) do={',
+      '    :do { /ip firewall filter remove $fitiSupportFirewall } on-error={',
+      '      :set fitiSupportCleanupOk false',
+      '      :log warning "fiti support: could not remove the managed gateway firewall rule"',
+      '    }',
+      '  } else={',
+      '    :set fitiSupportCleanupOk false',
+      '    :log warning "fiti support: a tagged firewall rule belongs to another interface; leaving it untouched"',
+      '  }',
+      '}',
+      ':foreach fitiSupportRoute in=[/ip route find where comment~"^WiFi Fiti VPN: gateway route"] do={',
+      '  :local fitiSupportRouteGateway [/ip route get $fitiSupportRoute gateway]',
+      '  :if ($fitiSupportRouteGateway = $fitiSupportInterface) do={',
+      '    :do { /ip route remove $fitiSupportRoute } on-error={',
+      '      :set fitiSupportCleanupOk false',
+      '      :log warning "fiti support: could not remove the managed gateway-only route"',
+      '    }',
+      '  } else={',
+      '    :set fitiSupportCleanupOk false',
+      '    :log warning "fiti support: a tagged route uses another gateway; leaving it untouched"',
+      '  }',
+      '}',
+      ':foreach fitiSupportAddress in=[/ip address find where comment~"^WiFi Fiti VPN: management address"] do={',
+      '  :local fitiSupportAddressInterface [/ip address get $fitiSupportAddress interface]',
+      '  :if ($fitiSupportAddressInterface = $fitiSupportInterface) do={',
+      '    :do { /ip address remove $fitiSupportAddress } on-error={',
+      '      :set fitiSupportCleanupOk false',
+      '      :log warning "fiti support: could not remove the management address"',
+      '    }',
+      '  } else={',
+      '    :set fitiSupportCleanupOk false',
+      '    :log warning "fiti support: a tagged address belongs to another interface; leaving it untouched"',
+      '  }',
+      '}',
       ':local fitiSupportWireguards [/interface wireguard find where name=$fitiSupportInterface]',
-      ':foreach fitiSupportWireguard in=$fitiSupportWireguards do={',
-      '  :local fitiSupportWireguardComment [/interface wireguard get $fitiSupportWireguard comment]',
-      '  :if ([:typeof [:find $fitiSupportWireguardComment "WiFi Fiti support:"]] != "nil") do={',
-      '    :do { /interface wireguard disable $fitiSupportWireguard } on-error={',
+      ':if ([:len $fitiSupportWireguards] > 1) do={',
+      '  :set fitiSupportCleanupOk false',
+      '  :log warning "fiti support: multiple interfaces use the managed name; leaving them untouched"',
+      '} else={',
+      '  :foreach fitiSupportWireguard in=$fitiSupportWireguards do={',
+      '    :local fitiSupportWireguardComment [/interface wireguard get $fitiSupportWireguard comment]',
+      `    :if (([:typeof [:find $fitiSupportWireguardComment "${SUPPORT_LEGACY_PREFIX}"]] != "nil") || ([:typeof [:find $fitiSupportWireguardComment "${SUPPORT_VPN_PREFIX}"]] != "nil")) do={`,
+      '      :local fitiSupportPeerUnsafe false',
+      '      :foreach fitiSupportPeer in=[/interface wireguard peers find where interface=$fitiSupportInterface] do={',
+      '        :local fitiSupportPeerComment [/interface wireguard peers get $fitiSupportPeer comment]',
+      `        :if ([:typeof [:find $fitiSupportPeerComment "${SUPPORT_VPN_PREFIX} gateway peer "]] != "nil") do={`,
+      '          :do { /interface wireguard peers remove $fitiSupportPeer } on-error={',
+      '            :set fitiSupportCleanupOk false',
+      '            :log warning "fiti support: could not remove the managed gateway peer"',
+      '          }',
+      '        } else={',
+      '          :set fitiSupportPeerUnsafe true',
+      '        }',
+      '      }',
+      '      :if ($fitiSupportPeerUnsafe) do={',
+      '        :set fitiSupportCleanupOk false',
+      '        :log warning "fiti support: an unowned peer uses fiti-support-wg; leaving the interface untouched"',
+      '      } else={',
+      '        :do { /interface wireguard disable $fitiSupportWireguard } on-error={',
       '      :set fitiSupportCleanupOk false',
       '      :log warning "fiti support: could not disable the managed interface"',
-      '    }',
-      '    :if ($fitiSupportCleanupOk) do={',
-      '      :do { /interface wireguard remove $fitiSupportWireguard } on-error={',
+      '        }',
+      '        :do { /interface wireguard remove $fitiSupportWireguard } on-error={',
       '        :set fitiSupportCleanupOk false',
       '        :log warning "fiti support: could not remove the managed interface"',
+      '      }',
       '      }',
       '    }',
       '  } else={',

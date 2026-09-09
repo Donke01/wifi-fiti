@@ -63,6 +63,105 @@ function edgeGatewayAuthenticated(req) {
   return Boolean(expected.length && supplied.length === expected.length && crypto.timingSafeEqual(expected, supplied));
 }
 
+function vpnGatewayAuthenticated(req) {
+  if (!config.vpnGateway.enabled) return false;
+  const expected = Buffer.from(config.vpnGateway.controlSecret || '');
+  const supplied = Buffer.from(String(req.get('X-WiFi-Fiti-Gateway') || ''));
+  return Boolean(expected.length && supplied.length === expected.length && crypto.timingSafeEqual(expected, supplied));
+}
+
+function validWireGuardPublicKey(value) {
+  const key = String(value || '').trim();
+  return /^[A-Za-z0-9+/]{43}=$/.test(key) && Buffer.from(key, 'base64').length === 32 ? key : null;
+}
+
+function validVpnManagementAddress(value) {
+  const raw = String(value || '').trim();
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/32$/.exec(raw);
+  if (!match) return null;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((octet) => octet > 255) || octets[0] !== 10 || octets[1] !== 254) return null;
+  // 10.254.0.1 belongs to the gateway, while network/broadcast-like values
+  // are never issued to routers by the allocator.
+  if ((octets[2] === 0 && octets[3] === 1) || octets[3] === 0 || octets[3] === 255) return null;
+  return `${octets.join('.')}/32`;
+}
+
+const MAX_VPN_GATEWAY_REPORT_ITEMS = 65_536;
+
+function vpnGatewayReport(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const error = new Error('Invalid VPN gateway report.'); error.status = 400; throw error;
+  }
+  const array = (value, name) => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > MAX_VPN_GATEWAY_REPORT_ITEMS) {
+      const error = new Error(`Invalid VPN gateway ${name}.`); error.status = 400; throw error;
+    }
+    return value;
+  };
+  const appliedPeers = array(body.appliedPeers, 'applied peers').map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      const error = new Error('Invalid VPN gateway applied peer.'); error.status = 400; throw error;
+    }
+    const publicKey = validWireGuardPublicKey(entry.publicKey);
+    const allowedAddress = validVpnManagementAddress(entry.allowedAddress);
+    if (!publicKey || !allowedAddress) {
+      const error = new Error('Invalid VPN gateway applied peer.'); error.status = 400; throw error;
+    }
+    return { publicKey, allowedAddress };
+  });
+  const removedPeerKeys = array(body.removedPeerKeys, 'removed peers').map((value) => {
+    const publicKey = validWireGuardPublicKey(value);
+    if (!publicKey) { const error = new Error('Invalid VPN gateway removed peer.'); error.status = 400; throw error; }
+    return publicKey;
+  });
+  const observations = array(body.observations, 'observations').flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+    const publicKey = validWireGuardPublicKey(entry.publicKey);
+    const allowedAddress = validVpnManagementAddress(entry.allowedAddress);
+    const epoch = Number(entry.lastHandshakeEpoch);
+    if (!publicKey || !allowedAddress || !Number.isSafeInteger(epoch) || epoch <= 0) return [];
+    return [{ publicKey, allowedAddress, lastHandshakeEpoch: epoch }];
+  });
+  const unique = (items, key) => {
+    const seen = new Set();
+    for (const item of items) {
+      const value = key(item);
+      if (seen.has(value)) { const error = new Error('VPN gateway report contains a duplicate peer.'); error.status = 400; throw error; }
+      seen.add(value);
+    }
+  };
+  unique(appliedPeers, (item) => item.publicKey);
+  unique(removedPeerKeys, (item) => item);
+  unique(observations, (item) => item.publicKey);
+  const knownRevisionRaw = body.knownRevision;
+  const knownRevision = knownRevisionRaw === undefined || knownRevisionRaw === null || knownRevisionRaw === ''
+    ? null : String(knownRevisionRaw);
+  if (knownRevision !== null && !/^[a-f0-9]{64}$/.test(knownRevision)) {
+    const error = new Error('Invalid VPN gateway desired-state revision.'); error.status = 400; throw error;
+  }
+  return { appliedPeers, removedPeerKeys, observations, knownRevision };
+}
+
+function vpnGatewayPeerId(peer) {
+  // A gateway peer id is an audit label only. It is deterministic, contains
+  // no credential, and never exposes a base64 key to a restrictive ID field.
+  return `wg-${crypto.createHash('sha256').update(`${peer.locationId}:${peer.configVersion}:${peer.routerPublicKey}`).digest('hex').slice(0, 32)}`;
+}
+
+function vpnGatewayDesiredSnapshot(gatewayId) {
+  const peers = tenant.desiredVpnPeersForGateway({ gatewayId })
+    .filter((peer) => peer.desiredState === 'active')
+    .map((peer) => ({ publicKey: peer.routerPublicKey, allowedAddress: `${peer.managementAddress}/32` }))
+    .sort((a, b) => a.publicKey.localeCompare(b.publicKey));
+  // The agent keeps the last complete public desired set locally. A stable
+  // digest means routine five-second health polls return a few bytes instead
+  // of repeatedly transferring every tenant router peer.
+  const revision = crypto.createHash('sha256').update(JSON.stringify(peers)).digest('hex');
+  return { revision, peers };
+}
+
 function portalUrlForLocation(location) {
   const hostname = edgeHostname(location && (location.portal_hostname || location.portalHostname));
   if (config.domains.portalGatewayEnabled && hostname) return `https://${hostname}`;
@@ -263,6 +362,11 @@ app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
 // ahead of urlencoded(), which otherwise consumes RouterOS fetch payloads
 // before the exact versioned report can be validated.
 app.use('/api/router/support-enroll', express.text({ type: '*/*', limit: '2kb' }));
+// The self-hosted VPN gateway is the only trusted machine that needs a
+// larger, peer-state JSON report. Register its parser before the normal API
+// parser so an intentionally bounded gateway snapshot does not share the
+// small browser-body limit used by payment and dashboard requests.
+app.use('/api/internal/vpn-gateways', express.json({ limit: '4mb' }));
 // Brand logos are stored on the persistent volume and are deliberately kept
 // separate from the small JSON bodies used by payment and router endpoints.
 app.use('/api/business/branding/logo', express.json({ limit: '520kb' }));
@@ -956,8 +1060,23 @@ app.post('/api/business/locations/:locationId/remote-access', (req, res) => {
     return res.status(400).json({ error: 'Confirm that WiFi Fiti may prepare remote support for this router.' });
   }
   try {
-    const remoteAccess = tenant.requestRemoteAccess({ locationId: String(req.params.locationId), businessId: business.id });
+    let remoteAccess = tenant.requestRemoteAccess({ locationId: String(req.params.locationId), businessId: business.id });
     if (!remoteAccess) return res.status(404).json({ error: 'Location not found.' });
+    // A configured self-hosted gateway lets consent move directly into the
+    // safe prepare stage. The router still creates its own WireGuard key;
+    // neither a router password nor a private key enters Railway. Keeping
+    // the legacy requested state when the feature flag is off preserves the
+    // existing manual approval workflow for deployments without a gateway.
+    if (config.vpnGateway.enabled) {
+      const provisioned = tenant.provisionRemoteVpn({
+        locationId: String(req.params.locationId),
+        gatewayId: config.vpnGateway.id,
+        gatewayName: 'WiFi Fiti secure gateway',
+        managementCidr: config.vpnGateway.managementCidr,
+        actorId: `business:${business.id}`,
+      });
+      remoteAccess = provisioned && provisioned.remoteAccess;
+    }
     res.json({ remoteAccess });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not request remote access.' });
@@ -975,6 +1094,106 @@ app.patch('/api/business/locations/:locationId/remote-access', (req, res) => {
     res.json({ remoteAccess });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not revoke remote access.' });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Self-hosted WireGuard gateway                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The VPS pulls this endpoint; Railway never opens a connection to a
+ * customer router or to the VPS. The request may report only observed state
+ * for peers already known to the database. All endpoint/key/address material
+ * for activation is reconstructed from Railway configuration, never trusted
+ * from the gateway request.
+ */
+app.post('/api/internal/vpn-gateways/:gatewayId/sync', (req, res) => {
+  if (!config.vpnGateway.enabled || String(req.params.gatewayId) !== config.vpnGateway.id || !vpnGatewayAuthenticated(req)) {
+    return res.status(404).type('text/plain').send('Not found.');
+  }
+  try {
+    const report = vpnGatewayReport(req.body);
+    const peers = tenant.desiredVpnPeersForGateway({ gatewayId: config.vpnGateway.id });
+    const byPublicKey = new Map(peers.map((peer) => [peer.routerPublicKey, peer]));
+
+    // A reported application is accepted only for the exact currently
+    // assigned /32. A delayed gateway response for an older configuration is
+    // ignored, then the response below tells the gateway the current state.
+    for (const applied of report.appliedPeers) {
+      const peer = byPublicKey.get(applied.publicKey);
+      if (!peer || peer.desiredState !== 'active' || applied.allowedAddress !== `${peer.managementAddress}/32`) continue;
+      try {
+        tenant.recordVpnGatewayPeer({
+          locationId: peer.locationId,
+          gatewayId: config.vpnGateway.id,
+          configVersion: peer.configVersion,
+          gatewayPeerId: vpnGatewayPeerId(peer),
+          gatewayPublicKey: config.vpnGateway.publicKey,
+          endpointHost: config.vpnGateway.endpointHost,
+          endpointPort: config.vpnGateway.endpointPort,
+          gatewayAddress: config.vpnGateway.address,
+        });
+      } catch (error) {
+        // A business can revoke consent between the gateway snapshot and this
+        // individual state transition. The tenant lifecycle is authoritative;
+        // a 409 merely makes this old observation harmless.
+        if (error.status !== 409) throw error;
+      }
+    }
+
+    // Revocation is proven only once the agent says its managed peer is no
+    // longer present. The desired record stays visible until this happens,
+    // which keeps an offline router from retaining a gateway peer by mistake.
+    for (const publicKey of report.removedPeerKeys) {
+      const peer = byPublicKey.get(publicKey);
+      if (!peer || peer.desiredState !== 'revoked') continue;
+      try {
+        tenant.reportVpnGatewaySync({
+          locationId: peer.locationId,
+          gatewayId: config.vpnGateway.id,
+          configVersion: peer.configVersion,
+          status: 'revoked',
+        });
+      } catch (error) {
+        if (error.status !== 409) throw error;
+      }
+    }
+
+    // Re-read after application/revocation transitions. Handshakes are
+    // monotonic and are accepted only for an active, ready peer with the
+    // exact currently assigned /32. Bad/stale observations never make the
+    // whole gateway poll fail.
+    const currentPeers = tenant.desiredVpnPeersForGateway({ gatewayId: config.vpnGateway.id });
+    const currentByPublicKey = new Map(currentPeers.map((peer) => [peer.routerPublicKey, peer]));
+    const now = Date.now();
+    for (const observation of report.observations) {
+      const peer = currentByPublicKey.get(observation.publicKey);
+      const observedAt = observation.lastHandshakeEpoch * 1000;
+      if (!peer || peer.desiredState !== 'active' || peer.gatewayState !== 'ready' ||
+          observation.allowedAddress !== `${peer.managementAddress}/32` ||
+          observedAt < now - 366 * 24 * 60 * 60 * 1000 || observedAt > now + 5 * 60 * 1000) continue;
+      try {
+        tenant.recordVpnPeerHandshake({
+          locationId: peer.locationId,
+          gatewayId: config.vpnGateway.id,
+          configVersion: peer.configVersion,
+          handshakeAt: new Date(observedAt).toISOString(),
+        });
+      } catch (error) {
+        if (error.status !== 409) throw error;
+      }
+    }
+
+    const desired = vpnGatewayDesiredSnapshot(config.vpnGateway.id);
+    if (report.knownRevision && report.knownRevision === desired.revision) {
+      return res.json({ version: 2, revision: desired.revision, unchanged: true, peers: [] });
+    }
+    res.json({ version: 2, revision: desired.revision, unchanged: false, peers: desired.peers });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('[vpn gateway] sync failed:', error.message);
+    res.status(status).json({ error: status === 400 ? error.message : 'VPN gateway sync failed.' });
   }
 });
 
@@ -2720,6 +2939,35 @@ function routerSetupReceiptScript(challenge) {
   ].join('\n') + '\n';
 }
 
+function hydratedRemoteSupportControls(controls) {
+  const hydrated = [];
+  const rejected = [];
+  for (const control of controls || []) {
+    if (!control || control.action !== 'activate') {
+      hydrated.push(control);
+      continue;
+    }
+    try {
+      const payload = JSON.parse(String(control.payload_json || ''));
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('not an object');
+      hydrated.push({
+        id: control.id,
+        action: 'activate',
+        ...payload,
+        // The database version, not a payload value, is the authoritative
+        // replay boundary for the RouterOS activation script.
+        configVersion: String(control.config_version),
+      });
+    } catch (_) {
+      // A corrupt persistent control must never be rendered as RouterOS
+      // source. Keep it queued for an operator/database recovery instead of
+      // marking it delivered and losing the evidence.
+      rejected.push(control.id);
+    }
+  }
+  return { controls: hydrated, rejected };
+}
+
 function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
   // A candidate replacement must not collect jobs or acknowledge old work
   // before it has completed the receipt challenge. This protects a live
@@ -2738,7 +2986,9 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   // Support controls always use their own queue and ACK global. They are
   // emitted before customer provisioning so a requested cleanup cannot be
   // held behind a large batch of ordinary HotSpot work.
-  const support = buildRemoteSupportScript({ controls });
+  const hydratedControls = hydratedRemoteSupportControls(controls);
+  const support = buildRemoteSupportScript({ controls: hydratedControls.controls });
+  support.rejected.push(...hydratedControls.rejected);
   for (const id of support.emitted) tenant.markRemoteSupportControlDelivered.run(id);
   if (support.rejected.length) {
     console.error(`[tenant router] ${location.id} refused malformed support control(s): ${support.rejected.join(', ')}`);

@@ -23,7 +23,29 @@ for (const suffix of ['', '-wal', '-shm']) {
 }
 
 const legacy = require('../src/lib/db');
+// Exercise the deployed v1 support-control schema before tenant.js loads.
+// The VPN release must preserve its outstanding prepare/revoke work while
+// widening the immutable SQLite CHECK constraint to allow activate.
+legacy.db.exec(`
+  CREATE TABLE tenant_remote_support_controls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    delivered_at TEXT,
+    acked_at TEXT,
+    cancelled_at TEXT,
+    CHECK(action IN ('prepare', 'revoke'))
+  );
+  INSERT INTO tenant_remote_support_controls(location_id, action) VALUES ('migration-control', 'revoke');
+`);
 const tenant = require('../src/lib/tenant');
+const migratedControl = legacy.db.prepare(`SELECT action, payload_json, config_version
+  FROM tenant_remote_support_controls WHERE location_id='migration-control'`).get();
+assert.deepStrictEqual({ ...migratedControl }, { action: 'revoke', payload_json: null, config_version: null },
+  'support-control migration preserves legacy outstanding cleanup rows');
+assert.match(String(legacy.db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tenant_remote_support_controls'`).get().sql), /activate/,
+  'support-control migration widens the action constraint without dropping the queue');
 
 function addBusiness(id, name, email) {
   legacy.addBusiness.run({
@@ -269,6 +291,155 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   assert.strictEqual(legacy.db.prepare(
     'SELECT router_public_key FROM tenant_remote_access WHERE location_id=?'
   ).get(alpha.id).router_public_key, replacementSupportPublicKey);
+
+  // The production VPN layer starts after owner consent, but it stays
+  // deliberately independent from customer HotSpot work and never stores a
+  // private key. One autonomous call selects a gateway and allocates the
+  // router's management address; the router's later public-key report turns
+  // that intent into a durable desired peer for the gateway worker.
+  const vpnLocation = tenant.createLocation({
+    id: 'location-vpn-gateway', businessId: 'business-a', name: 'VPN Gateway test', routerName: 'hAP lite',
+  });
+  tenant.recordSuccessfulRouterSync(vpnLocation.id);
+  tenant.requestRemoteAccess({ locationId: vpnLocation.id, businessId: 'business-a' });
+  const vpnProvisioned = tenant.provisionRemoteVpn({
+    locationId: vpnLocation.id,
+    gatewayId: 'do-fra-01',
+    gatewayName: 'Frankfurt VPN gateway',
+    managementCidr: '10.254.0.0/29',
+    actorId: 'tenant-test',
+  });
+  assert.strictEqual(vpnProvisioned.remoteAccess.status, 'configured');
+  assert.strictEqual(vpnProvisioned.remoteAccess.managementAddress, '10.254.0.2',
+    'automatic provisioning reserves the gateway .1 and assigns the first usable router address');
+  assert.strictEqual(vpnProvisioned.peer, null,
+    'no gateway peer exists until the router itself creates and reports its public key');
+  assert.strictEqual(tenant.provisionRemoteVpn({
+    locationId: vpnLocation.id, gatewayId: 'do-fra-01', gatewayName: 'Frankfurt VPN gateway',
+    managementCidr: '10.254.0.0/29', actorId: 'tenant-test',
+  }).remoteAccess.managementAddress, '10.254.0.2', 'replaying automatic provisioning is address-stable');
+  const vpnPrepare = tenant.pendingRemoteSupportControls.all(vpnLocation.id).find((control) => control.action === 'prepare');
+  assert.ok(vpnPrepare, 'autonomous provisioning queues only the safe local WireGuard preparation first');
+
+  const vpnRouterPublicKey = Buffer.alloc(32, 9).toString('base64');
+  tenant.recordRemoteAccessEnrollment({ locationId: vpnLocation.id, publicKey: vpnRouterPublicKey });
+  const desiredBeforeGateway = tenant.desiredVpnPeersForGateway({ gatewayId: 'do-fra-01' });
+  assert.strictEqual(desiredBeforeGateway.length, 1);
+  assert.deepStrictEqual({
+    locationId: desiredBeforeGateway[0].locationId,
+    gatewayId: desiredBeforeGateway[0].gatewayId,
+    managementAddress: desiredBeforeGateway[0].managementAddress,
+    routerPublicKey: desiredBeforeGateway[0].routerPublicKey,
+    desiredState: desiredBeforeGateway[0].desiredState,
+    gatewayState: desiredBeforeGateway[0].gatewayState,
+    configVersion: desiredBeforeGateway[0].configVersion,
+  }, {
+    locationId: vpnLocation.id,
+    gatewayId: 'do-fra-01',
+    managementAddress: '10.254.0.2',
+    routerPublicKey: vpnRouterPublicKey,
+    desiredState: 'active',
+    gatewayState: 'pending',
+    configVersion: 1,
+  }, 'the gateway receives durable public desired state and no private material');
+
+  const vpnGatewayPublicKey = Buffer.alloc(32, 10).toString('base64');
+  const gatewayReady = tenant.recordVpnGatewayPeer({
+    locationId: vpnLocation.id,
+    gatewayId: 'do-fra-01',
+    configVersion: 1,
+    gatewayPeerId: 'wg-peer-location-vpn-gateway',
+    gatewayPublicKey: vpnGatewayPublicKey,
+    endpointHost: 'vpn.wififiti.co.ke',
+    endpointPort: 51820,
+    gatewayAddress: '10.254.0.1',
+  });
+  assert.strictEqual(gatewayReady.gatewayState, 'ready');
+  assert.strictEqual(gatewayReady.gatewayPublicKey, vpnGatewayPublicKey,
+    'the applied gateway public key is durable without ever storing a private key');
+  assert.strictEqual(gatewayReady.activationControlId, null,
+    'a fast gateway report waits for the router to acknowledge preparation rather than cancelling it');
+  tenant.markRemoteSupportControlAcked.run(vpnPrepare.id, vpnLocation.id);
+  const firstVpnActivate = tenant.pendingRemoteSupportControls.all(vpnLocation.id).find((control) => control.action === 'activate');
+  assert.ok(firstVpnActivate, 'prepare acknowledgement automatically releases one versioned activation control');
+  assert.strictEqual(tenant.recordVpnGatewayError({
+    locationId: vpnLocation.id, gatewayId: 'do-fra-01', configVersion: 1, error: 'gateway-unreachable',
+  }).gatewayState, 'error', 'a gateway failure is recorded without exposing a secret diagnostic');
+  assert.ok(!tenant.pendingRemoteSupportControls.all(vpnLocation.id).some((control) => control.action === 'activate'),
+    'a failed gateway cancels an activation control that has not yet been acknowledged by the router');
+  assert.ok(tenant.recordVpnGatewayPeer({
+    locationId: vpnLocation.id, gatewayId: 'do-fra-01', configVersion: 1,
+    gatewayPeerId: 'wg-peer-location-vpn-gateway', gatewayPublicKey: vpnGatewayPublicKey,
+    endpointHost: 'vpn.wififiti.co.ke', endpointPort: 51820, gatewayAddress: '10.254.0.1/32',
+  }).activationControlId, 'a repaired gateway reissues the same versioned activation after prepare is acknowledged');
+  const vpnActivate = tenant.pendingRemoteSupportControls.all(vpnLocation.id).find((control) => control.action === 'activate');
+  assert.ok(vpnActivate, 'gateway recovery restores exactly one activation control');
+  assert.strictEqual(vpnActivate.config_version, 1);
+  const activationPayload = JSON.parse(vpnActivate.payload_json);
+  assert.deepStrictEqual(activationPayload, {
+    version: 1,
+    gatewayPublicKey: vpnGatewayPublicKey,
+    endpointHost: 'vpn.wififiti.co.ke',
+    endpointPort: 51820,
+    managementAddress: '10.254.0.2/32',
+    gatewayAddress: '10.254.0.1/32',
+  }, 'the activation queue contains a narrow management-only peer configuration');
+  assert.ok(!/private|password|secret|token/i.test(vpnActivate.payload_json),
+    'activation payloads can never smuggle private credentials into the billing database');
+  tenant.markRemoteSupportControlAcked.run(vpnActivate.id, vpnLocation.id);
+  assert.strictEqual(tenant.recordVpnGatewayPeer({
+    locationId: vpnLocation.id, gatewayId: 'do-fra-01', configVersion: 1,
+    gatewayPeerId: 'wg-peer-location-vpn-gateway', gatewayPublicKey: vpnGatewayPublicKey,
+    endpointHost: 'vpn.wififiti.co.ke', endpointPort: 51820, gatewayAddress: '10.254.0.1/32',
+  }).activationControlId, null,
+  'a normal gateway heartbeat never requeues an already acknowledged router activation');
+  assert.ok(!tenant.pendingRemoteSupportControls.all(vpnLocation.id).some((control) => control.action === 'activate'),
+    'a completed activate control is not redelivered every time the gateway reconciles');
+  assert.throws(
+    () => tenant.recordVpnGatewayError({ locationId: vpnLocation.id, gatewayId: 'do-fra-01', configVersion: 2, error: 'stale-report' }),
+    (error) => error && error.status === 409,
+    'a stale gateway worker cannot overwrite a newer desired peer state'
+  );
+  const handshake = tenant.recordVpnPeerHandshake({
+    locationId: vpnLocation.id, gatewayId: 'do-fra-01', configVersion: 1, handshakeAt: new Date().toISOString(),
+  });
+  assert.ok(handshake.lastHandshakeAt, 'only a trusted gateway can advance the VPN handshake timestamp');
+  assert.ok(tenant.remoteAccessForBusiness({ locationId: vpnLocation.id, businessId: 'business-a' }).lastHandshakeAt,
+    'the owner-facing lifecycle may show tunnel freshness without exposing peer keys');
+
+  const duplicateVpnLocation = tenant.createLocation({
+    id: 'location-vpn-duplicate-key', businessId: 'business-a', name: 'Duplicate VPN identity', routerName: 'hAP lite',
+  });
+  tenant.recordSuccessfulRouterSync(duplicateVpnLocation.id);
+  tenant.requestRemoteAccess({ locationId: duplicateVpnLocation.id, businessId: 'business-a' });
+  tenant.provisionRemoteVpn({
+    locationId: duplicateVpnLocation.id, gatewayId: 'do-fra-01', gatewayName: 'Frankfurt VPN gateway',
+    managementCidr: '10.254.0.0/29', actorId: 'tenant-test',
+  });
+  assert.throws(
+    () => tenant.recordRemoteAccessEnrollment({ locationId: duplicateVpnLocation.id, publicKey: vpnRouterPublicKey }),
+    (error) => error && error.status === 409 && /already assigned/.test(error.message),
+    'one active WireGuard public identity cannot be issued to two router locations'
+  );
+
+  const revokedPeer = tenant.revokeVpnPeer({ locationId: vpnLocation.id, actorId: 'tenant-test' });
+  assert.strictEqual(revokedPeer.desiredState, 'revoked', 'emergency revoke disables desired gateway state immediately');
+  assert.strictEqual(revokedPeer.configVersion, 2, 'revocation advances the desired configuration version');
+  assert.strictEqual(tenant.remoteAccessForBusiness({ locationId: vpnLocation.id, businessId: 'business-a' }).status, 'revoked',
+    'peer revocation also withdraws owner remote-access consent');
+  assert.strictEqual(tenant.revokeVpnPeer({ locationId: vpnLocation.id, actorId: 'tenant-test' }).configVersion, 2,
+    'repeating an emergency revoke is idempotent and does not advance the desired state again');
+  assert.strictEqual(tenant.desiredVpnPeersForGateway({ gatewayId: 'do-fra-01' }).length, 1,
+    'the gateway continues to see a revoked peer until it confirms deletion');
+  const gatewayRevoked = tenant.reportVpnGatewaySync({
+    locationId: vpnLocation.id, gatewayId: 'do-fra-01', configVersion: 2, status: 'revoked',
+  });
+  assert.strictEqual(gatewayRevoked.gatewayState, 'revoked');
+  assert.deepStrictEqual(tenant.desiredVpnPeersForGateway({ gatewayId: 'do-fra-01' }), [],
+    'confirmed removal disappears from the gateway reconciliation set');
+  const vpnColumns = legacy.db.prepare('PRAGMA table_info(tenant_vpn_peers)').all().map((column) => column.name);
+  assert.ok(!vpnColumns.some((name) => /private|password|secret|token/i.test(name)),
+    'the durable VPN peer table never has a private-key or credential column');
 
   // Customer hostnames are owner-selected after sync. They are isolated by
   // location and cannot be claimed by another tenant.

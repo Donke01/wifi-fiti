@@ -50,4 +50,25 @@ result = load({
 });
 assert.equal(result.status, 0, result.stderr);
 
-console.log('Cloudflare gateway configuration: safe activation checks passed.');
+const vpn = {
+  VPN_GATEWAY_ENABLED: 'true',
+  VPN_GATEWAY_ID: 'primary',
+  VPN_GATEWAY_ENDPOINT: 'vpn.wififiti.co.ke',
+  VPN_GATEWAY_PORT: '51820',
+  VPN_GATEWAY_PUBLIC_KEY: Buffer.alloc(32, 19).toString('base64'),
+  VPN_GATEWAY_ADDRESS: '10.254.0.1',
+  VPN_GATEWAY_MANAGEMENT_CIDR: '10.254.0.0/16',
+  VPN_GATEWAY_CONTROL_SECRET: 'g'.repeat(64),
+};
+result = load(vpn);
+assert.equal(result.status, 0, result.stderr);
+
+result = load({ ...vpn, VPN_GATEWAY_MANAGEMENT_CIDR: '10.253.0.0/16' });
+assert.notEqual(result.status, 0);
+assert.match(result.stderr, /fixed to/);
+
+result = load({ ...vpn, VPN_GATEWAY_ADDRESS: '10.254.0.2' });
+assert.notEqual(result.status, 0);
+assert.match(result.stderr, /fixed to/);
+
+console.log('Cloudflare and VPN gateway configuration: safe activation checks passed.');

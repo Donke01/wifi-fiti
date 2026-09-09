@@ -183,6 +183,10 @@ db.exec(`
     revoked_at          TEXT,
     management_address  TEXT,
     hub_name            TEXT,
+    -- Gateway selection is non-secret desired state kept long enough for
+    -- the router's later public-key enrollment to create its peer record.
+    vpn_gateway_id      TEXT,
+    vpn_management_cidr TEXT,
     last_handshake_at   TEXT,
     -- This is the router's WireGuard *public* identifier only. It is not
     -- sufficient to connect to the router and must never be confused with
@@ -218,20 +222,24 @@ db.exec(`
     ON tenant_remote_access_events(location_id, id DESC);
 
   -- Router support controls deliberately have their own queue and their own
-  -- acknowledgement channel.  They must never share IDs with HotSpot
+  -- acknowledgement channel. They must never share IDs with HotSpot
   -- provisioning jobs: a support revoke can then be retried independently
   -- without risking a customer-account action being acknowledged by mistake.
-  -- The only supported actions are deliberately narrow and contain no
-  -- endpoint, peer, route, address, firewall rule, service rule, or secret.
+  -- activate is deliberately versioned and contains only a validated,
+  -- non-secret WireGuard peer payload. Private keys stay on the router and
+  -- gateway respectively; neither one belongs in this database.
   CREATE TABLE IF NOT EXISTS tenant_remote_support_controls (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     location_id   TEXT NOT NULL,
     action        TEXT NOT NULL,
+    payload_json  TEXT,
+    config_version INTEGER,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     delivered_at  TEXT,
     acked_at      TEXT,
     cancelled_at  TEXT,
-    CHECK(action IN ('prepare', 'revoke'))
+    CHECK(action IN ('prepare', 'activate', 'revoke')),
+    CHECK(config_version IS NULL OR config_version > 0)
   );
   CREATE INDEX IF NOT EXISTS idx_tenant_remote_support_controls_pending
     ON tenant_remote_support_controls(location_id, acked_at, cancelled_at, id);
@@ -241,6 +249,37 @@ db.exec(`
     ON tenant_remote_support_controls(location_id, action)
     WHERE acked_at IS NULL AND cancelled_at IS NULL;
 
+  -- Desired peer state is intentionally separate from both the router's
+  -- support-control queue and the WireGuard gateway. This gives the gateway
+  -- a durable, replay-safe desired state if it restarts midway through an
+  -- enrollment. It contains public keys, private tunnel addresses and opaque
+  -- gateway IDs only. It must never contain a WireGuard private key, router
+  -- administrator password, API token, or a full gateway configuration.
+  CREATE TABLE IF NOT EXISTS tenant_vpn_peers (
+    location_id               TEXT PRIMARY KEY REFERENCES locations(id),
+    gateway_id                TEXT NOT NULL,
+    gateway_name              TEXT NOT NULL,
+    management_address        TEXT NOT NULL,
+    router_public_key         TEXT NOT NULL,
+    gateway_public_key        TEXT,
+    desired_state             TEXT NOT NULL DEFAULT 'active',
+    config_version            INTEGER NOT NULL DEFAULT 1,
+    gateway_peer_id           TEXT,
+    gateway_state             TEXT NOT NULL DEFAULT 'pending',
+    gateway_synced_at         TEXT,
+    gateway_error             TEXT,
+    -- A validated, non-secret router activation payload is retained only
+    -- while the desired peer is active, so an unacknowledged prepare
+    -- control can later release the matching activate control safely.
+    activation_payload_json   TEXT,
+    last_handshake_at         TEXT,
+    created_at                TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                TEXT NOT NULL DEFAULT (datetime('now')),
+    revoked_at                TEXT,
+    CHECK(desired_state IN ('active', 'revoked')),
+    CHECK(config_version > 0),
+    CHECK(gateway_state IN ('pending', 'ready', 'error', 'revoke_pending', 'revoked'))
+  );
   -- A paid checkout may be observed by the customer polling endpoint,
   -- Daraja's callback and the background reconciliation task. This tiny
   -- ledger is the idempotency lock: only one of them can ever credit it.
@@ -396,9 +435,82 @@ for (const statement of [
   // existing customer databases receive it without a table rebuild.
   `ALTER TABLE tenant_remote_access ADD COLUMN router_public_key TEXT`,
   `ALTER TABLE tenant_remote_access ADD COLUMN enrolled_at TEXT`,
+  `ALTER TABLE tenant_remote_access ADD COLUMN vpn_gateway_id TEXT`,
+  `ALTER TABLE tenant_remote_access ADD COLUMN vpn_management_cidr TEXT`,
+  // The first remote-support queue only understood prepare/revoke. Keep the
+  // schema upgrade additive before rebuilding its CHECK constraint below, so
+  // a deployment interrupted between releases never loses an outstanding
+  // cleanup control.
+  `ALTER TABLE tenant_remote_support_controls ADD COLUMN payload_json TEXT`,
+  `ALTER TABLE tenant_remote_support_controls ADD COLUMN config_version INTEGER`,
+  `ALTER TABLE tenant_vpn_peers ADD COLUMN gateway_id TEXT`,
+  `ALTER TABLE tenant_vpn_peers ADD COLUMN gateway_public_key TEXT`,
 ]) {
   try { db.exec(statement); } catch { /* existing deployment */ }
 }
+
+// SQLite cannot alter a CHECK constraint in place. Older deployments created
+// tenant_remote_support_controls with CHECK(action IN ('prepare','revoke'));
+// rebuild that one small queue atomically so they can receive the versioned
+// non-secret `activate` control without dropping any pending cleanup work.
+function migrateRemoteSupportControlsSchema() {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tenant_remote_support_controls'`).get();
+  if (!row || /['"]activate['"]/i.test(String(row.sql || ''))) return;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(`
+      CREATE TABLE tenant_remote_support_controls_next (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        location_id    TEXT NOT NULL,
+        action         TEXT NOT NULL,
+        payload_json   TEXT,
+        config_version INTEGER,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        delivered_at   TEXT,
+        acked_at       TEXT,
+        cancelled_at   TEXT,
+        CHECK(action IN ('prepare', 'activate', 'revoke')),
+        CHECK(config_version IS NULL OR config_version > 0)
+      );
+      INSERT INTO tenant_remote_support_controls_next
+        (id, location_id, action, payload_json, config_version, created_at, delivered_at, acked_at, cancelled_at)
+      SELECT id, location_id, action, payload_json, config_version, created_at, delivered_at, acked_at, cancelled_at
+        FROM tenant_remote_support_controls;
+      DROP TABLE tenant_remote_support_controls;
+      ALTER TABLE tenant_remote_support_controls_next RENAME TO tenant_remote_support_controls;
+      CREATE INDEX idx_tenant_remote_support_controls_pending
+        ON tenant_remote_support_controls(location_id, acked_at, cancelled_at, id);
+      CREATE UNIQUE INDEX idx_tenant_remote_support_controls_one_pending
+        ON tenant_remote_support_controls(location_id, action)
+        WHERE acked_at IS NULL AND cancelled_at IS NULL;
+    `);
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+}
+
+migrateRemoteSupportControlsSchema();
+
+// These indexes follow the additive peer-column migrations so a short-lived
+// pre-release database that already has tenant_vpn_peers can upgrade before
+// SQLite is asked to index the new gateway_id column.
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_tenant_vpn_peers_gateway_state
+    ON tenant_vpn_peers(gateway_id, desired_state, gateway_state, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_tenant_vpn_peers_gateway_lookup
+    ON tenant_vpn_peers(gateway_id, config_version);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_vpn_peers_active_management_address
+    ON tenant_vpn_peers(management_address)
+    WHERE desired_state='active';
+  -- One WireGuard public key belongs to one actively managed router. Without
+  -- this, two locations could make a gateway's desired snapshot impossible
+  -- to reconcile safely (one key cannot own two different /32 addresses).
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_vpn_peers_active_router_public_key
+    ON tenant_vpn_peers(router_public_key)
+    WHERE desired_state='active';
+`);
 
 // Legacy dashboard locations stored the raw pairing token. Migrate it to a
 // hash once; newly created locations never persist the secret in plaintext.
@@ -627,7 +739,8 @@ const unusedLocationForDiscard = db.prepare(`
          (SELECT COUNT(*) FROM tenant_vouchers WHERE location_id=l.id) AS voucher_count,
          (SELECT COUNT(*) FROM tenant_remote_access WHERE location_id=l.id) AS remote_access_count,
          (SELECT COUNT(*) FROM tenant_remote_access_events WHERE location_id=l.id) AS remote_access_event_count,
-         (SELECT COUNT(*) FROM tenant_remote_support_controls WHERE location_id=l.id) AS remote_control_count
+         (SELECT COUNT(*) FROM tenant_remote_support_controls WHERE location_id=l.id) AS remote_control_count,
+         (SELECT COUNT(*) FROM tenant_vpn_peers WHERE location_id=l.id) AS vpn_peer_count
     FROM locations l
    WHERE l.id=@locationId AND l.business_id=@businessId
 `);
@@ -637,13 +750,90 @@ const databaseTableExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='
 
 const remoteAccessByLocation = db.prepare(`
   SELECT location_id, status, requested_at, approved_at, configured_at, revoked_at,
-         management_address, hub_name, last_handshake_at, router_public_key,
+         management_address, hub_name, vpn_gateway_id, vpn_management_cidr,
+         last_handshake_at, router_public_key,
          enrolled_at, updated_at
     FROM tenant_remote_access WHERE location_id=?
 `);
 const remoteAccessByManagementAddress = db.prepare(`
   SELECT location_id FROM tenant_remote_access
    WHERE management_address=? AND status='configured' LIMIT 1
+`);
+const vpnPeerByLocation = db.prepare(`
+  SELECT location_id, gateway_id, gateway_name, management_address, router_public_key, gateway_public_key,
+         desired_state, config_version, gateway_peer_id, gateway_state,
+         gateway_synced_at, gateway_error, activation_payload_json,
+         last_handshake_at, created_at, updated_at, revoked_at
+    FROM tenant_vpn_peers WHERE location_id=?
+`);
+const activeVpnPeerByManagementAddress = db.prepare(`
+  SELECT location_id FROM tenant_vpn_peers
+   WHERE management_address=? AND desired_state='active' LIMIT 1
+`);
+const activeVpnPeerByRouterPublicKey = db.prepare(`
+  SELECT location_id FROM tenant_vpn_peers
+   WHERE router_public_key=? AND desired_state='active' LIMIT 1
+`);
+const activeVpnPeerManagementAddresses = db.prepare(`
+  SELECT management_address FROM tenant_vpn_peers
+   WHERE desired_state='active' AND management_address IS NOT NULL
+`);
+const configuredRemoteAccessManagementAddresses = db.prepare(`
+  SELECT management_address FROM tenant_remote_access
+   WHERE status='configured' AND management_address IS NOT NULL
+`);
+const insertVpnPeer = db.prepare(`
+  INSERT INTO tenant_vpn_peers
+    (location_id, gateway_id, gateway_name, management_address, router_public_key, desired_state,
+     config_version, gateway_state)
+  VALUES (@locationId, @gatewayId, @gatewayName, @managementAddress, @routerPublicKey, 'active',
+          @configVersion, 'pending')
+`);
+const updateVpnPeerDesired = db.prepare(`
+  UPDATE tenant_vpn_peers
+     SET gateway_id=@gatewayId, gateway_name=@gatewayName, management_address=@managementAddress,
+         router_public_key=@routerPublicKey, desired_state='active',
+         config_version=@configVersion, gateway_peer_id=NULL, gateway_state='pending',
+         gateway_public_key=NULL, gateway_synced_at=NULL, gateway_error=NULL, activation_payload_json=NULL,
+         last_handshake_at=NULL, revoked_at=NULL, updated_at=datetime('now')
+   WHERE location_id=@locationId
+`);
+const markVpnPeerGatewayReady = db.prepare(`
+  UPDATE tenant_vpn_peers
+     SET gateway_peer_id=@gatewayPeerId, gateway_public_key=@gatewayPublicKey,
+         gateway_state='ready', gateway_synced_at=datetime('now'),
+         gateway_error=NULL, activation_payload_json=@activationPayloadJson,
+         updated_at=datetime('now')
+   WHERE location_id=@locationId AND desired_state='active' AND config_version=@configVersion
+`);
+const markVpnPeerGatewayError = db.prepare(`
+  UPDATE tenant_vpn_peers
+     SET gateway_state='error', gateway_error=@gatewayError, gateway_synced_at=datetime('now'),
+         updated_at=datetime('now')
+   WHERE location_id=@locationId AND desired_state='active' AND config_version=@configVersion
+`);
+const markVpnPeerGatewayRevoked = db.prepare(`
+  UPDATE tenant_vpn_peers
+     SET gateway_peer_id=NULL, gateway_state='revoked', gateway_synced_at=datetime('now'),
+         gateway_error=NULL, activation_payload_json=NULL, last_handshake_at=NULL,
+         updated_at=datetime('now')
+   WHERE location_id=@locationId AND desired_state='revoked' AND config_version=@configVersion
+`);
+const revokeVpnPeerDesired = db.prepare(`
+  UPDATE tenant_vpn_peers
+     SET desired_state='revoked', config_version=config_version+1,
+         gateway_state=CASE WHEN gateway_state='revoked' THEN 'revoked' ELSE 'revoke_pending' END,
+         gateway_error=NULL, activation_payload_json=NULL, last_handshake_at=NULL,
+         revoked_at=COALESCE(revoked_at, datetime('now')), updated_at=datetime('now')
+   WHERE location_id=? AND desired_state='active'
+`);
+const updateVpnPeerHandshake = db.prepare(`
+  UPDATE tenant_vpn_peers
+     SET last_handshake_at=CASE
+           WHEN last_handshake_at IS NULL OR last_handshake_at < @handshakeAt THEN @handshakeAt
+           ELSE last_handshake_at END,
+         updated_at=datetime('now')
+   WHERE location_id=@locationId AND desired_state='active' AND gateway_state='ready'
 `);
 const remoteAccessEventsByLocation = db.prepare(`
   SELECT id, actor_type, actor_id, action, created_at
@@ -657,6 +847,7 @@ const reRequestRemoteAccess = db.prepare(`
   UPDATE tenant_remote_access
      SET status='requested', requested_at=datetime('now'), approved_at=NULL,
          configured_at=NULL, revoked_at=NULL, management_address=NULL, hub_name=NULL,
+         vpn_gateway_id=NULL, vpn_management_cidr=NULL,
          last_handshake_at=NULL, updated_at=datetime('now')
    WHERE location_id=? AND status='revoked'
 `);
@@ -671,10 +862,24 @@ const configureRemoteAccess = db.prepare(`
          hub_name=@hubName, revoked_at=NULL, updated_at=datetime('now')
    WHERE location_id=@locationId AND status='approved'
 `);
+const configureRemoteAccessWithGateway = db.prepare(`
+  UPDATE tenant_remote_access
+     SET status='configured', configured_at=datetime('now'), management_address=@managementAddress,
+         hub_name=@hubName, vpn_gateway_id=@gatewayId, vpn_management_cidr=@managementCidr,
+         revoked_at=NULL, updated_at=datetime('now')
+   WHERE location_id=@locationId AND status='approved'
+`);
+const setRemoteAccessVpnGateway = db.prepare(`
+  UPDATE tenant_remote_access
+     SET hub_name=@hubName, vpn_gateway_id=@gatewayId, vpn_management_cidr=@managementCidr,
+         updated_at=datetime('now')
+   WHERE location_id=@locationId AND status='configured'
+`);
 const revokeRemoteAccess = db.prepare(`
   UPDATE tenant_remote_access
      SET status='revoked', revoked_at=datetime('now'), management_address=NULL,
-         hub_name=NULL, last_handshake_at=NULL, router_public_key=NULL,
+         hub_name=NULL, vpn_gateway_id=NULL, vpn_management_cidr=NULL,
+         last_handshake_at=NULL, router_public_key=NULL,
          enrolled_at=NULL, updated_at=datetime('now')
    WHERE location_id=? AND status IN ('requested', 'approved', 'configured')
 `);
@@ -682,6 +887,14 @@ const saveRemoteAccessEnrollment = db.prepare(`
   UPDATE tenant_remote_access
      SET router_public_key=@routerPublicKey, enrolled_at=datetime('now'), updated_at=datetime('now')
    WHERE location_id=@locationId AND status IN ('approved', 'configured')
+`);
+const updateRemoteAccessHandshake = db.prepare(`
+  UPDATE tenant_remote_access
+     SET last_handshake_at=CASE
+           WHEN last_handshake_at IS NULL OR last_handshake_at < @handshakeAt THEN @handshakeAt
+           ELSE last_handshake_at END,
+         updated_at=datetime('now')
+   WHERE location_id=@locationId AND status='configured'
 `);
 const insertRemoteAccessEvent = db.prepare(`
   INSERT INTO tenant_remote_access_events (location_id, actor_type, actor_id, action)
@@ -693,11 +906,11 @@ const cancelPendingRemoteSupportControls = db.prepare(`
    WHERE location_id=? AND acked_at IS NULL AND cancelled_at IS NULL
 `);
 const insertRemoteSupportControl = db.prepare(`
-  INSERT INTO tenant_remote_support_controls (location_id, action)
-  VALUES (?, ?)
+  INSERT INTO tenant_remote_support_controls (location_id, action, payload_json, config_version)
+  VALUES (@locationId, @action, @payloadJson, @configVersion)
 `);
 const pendingRemoteSupportControls = db.prepare(`
-  SELECT id, location_id, action, created_at
+  SELECT id, location_id, action, payload_json, config_version, created_at
     FROM tenant_remote_support_controls
    WHERE location_id=? AND acked_at IS NULL AND cancelled_at IS NULL
      AND (delivered_at IS NULL OR delivered_at <= datetime('now','-60 seconds'))
@@ -709,14 +922,35 @@ const markRemoteSupportControlDelivered = db.prepare(`
      SET delivered_at=datetime('now')
    WHERE id=? AND cancelled_at IS NULL
 `);
-const markRemoteSupportControlAcked = db.prepare(`
+const markRemoteSupportControlAckedStatement = db.prepare(`
   UPDATE tenant_remote_support_controls
      SET acked_at=datetime('now')
    WHERE id=? AND location_id=? AND cancelled_at IS NULL
 `);
+const remoteSupportControlById = db.prepare(`
+  SELECT id, location_id, action, payload_json, config_version, acked_at, cancelled_at
+    FROM tenant_remote_support_controls WHERE id=? AND location_id=?
+`);
+const outstandingRemoteSupportControls = db.prepare(`
+  SELECT id, action, payload_json, config_version
+    FROM tenant_remote_support_controls
+   WHERE location_id=? AND acked_at IS NULL AND cancelled_at IS NULL
+   ORDER BY id
+`);
+const cancelPendingVpnActivationControls = db.prepare(`
+  UPDATE tenant_remote_support_controls
+     SET cancelled_at=datetime('now')
+   WHERE location_id=? AND action='activate' AND acked_at IS NULL AND cancelled_at IS NULL
+`);
 const pendingRemoteSupportRevoke = db.prepare(`
   SELECT id FROM tenant_remote_support_controls
    WHERE location_id=? AND action='revoke' AND acked_at IS NULL AND cancelled_at IS NULL
+   LIMIT 1
+`);
+const acknowledgedRemoteSupportActivation = db.prepare(`
+  SELECT id FROM tenant_remote_support_controls
+   WHERE location_id=? AND action='activate' AND config_version=?
+     AND acked_at IS NOT NULL AND cancelled_at IS NULL
    LIMIT 1
 `);
 
@@ -1027,12 +1261,21 @@ function createLocation({ id, businessId, name, routerName, setup }) {
 }
 
 const REMOTE_ACCESS_ACTIVE_STATES = new Set(['requested', 'approved', 'configured']);
-const REMOTE_SUPPORT_CONTROL_ACTIONS = new Set(['prepare', 'revoke']);
+const REMOTE_SUPPORT_CONTROL_ACTIONS = new Set(['prepare', 'activate', 'revoke']);
+const VPN_GATEWAY_STATES = new Set(['ready', 'error', 'revoked']);
 
 function remoteAccessError(message, status) {
   const error = new Error(message);
   error.status = status;
   return error;
+}
+
+function gatewayId(value) {
+  const raw = String(value || '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(raw)) {
+    throw remoteAccessError('Use a gateway ID containing letters, numbers, dots, colons, underscores, or hyphens.', 400);
+  }
+  return raw;
 }
 
 /**
@@ -1041,16 +1284,86 @@ function remoteAccessError(message, status) {
  * by a stale redelivered prepare command. Call only inside the lifecycle
  * transaction below.
  */
-function queueRemoteSupportControl(locationId, action) {
+function queueRemoteSupportControl(locationId, action, { payloadJson = null, configVersion = null } = {}) {
   if (!REMOTE_SUPPORT_CONTROL_ACTIONS.has(action)) {
     throw new Error('Unsupported remote-support control action.');
   }
+  if (action === 'activate') {
+    if (!payloadJson || !Number.isInteger(configVersion) || configVersion < 1) {
+      throw new Error('A versioned activation payload is required for this remote-support control.');
+    }
+  } else if (payloadJson !== null || configVersion !== null) {
+    throw new Error('Only a versioned activation may carry a remote-support payload.');
+  }
   cancelPendingRemoteSupportControls.run(locationId);
-  return Number(insertRemoteSupportControl.run(locationId, action).lastInsertRowid);
+  return Number(insertRemoteSupportControl.run({ locationId, action, payloadJson, configVersion }).lastInsertRowid);
 }
 
 function remoteSupportRevokeIsPending(locationId) {
   return Boolean(pendingRemoteSupportRevoke.get(locationId));
+}
+
+function vpnPeerPayload(peer) {
+  if (!peer) return null;
+  return {
+    locationId: peer.location_id,
+    gatewayId: peer.gateway_id,
+    gatewayName: peer.gateway_name,
+    managementAddress: peer.management_address,
+    // Public keys are non-secret but intentionally only exposed by the
+    // privileged gateway APIs below, never through remoteAccessPayload.
+    routerPublicKey: peer.router_public_key,
+    gatewayPublicKey: peer.gateway_public_key || null,
+    desiredState: peer.desired_state,
+    configVersion: Number(peer.config_version),
+    gatewayPeerId: peer.gateway_peer_id || null,
+    gatewayState: peer.gateway_state,
+    gatewaySyncedAt: peer.gateway_synced_at || null,
+    gatewayError: peer.gateway_error || null,
+    lastHandshakeAt: peer.last_handshake_at || null,
+    createdAt: peer.created_at,
+    updatedAt: peer.updated_at,
+    revokedAt: peer.revoked_at || null,
+  };
+}
+
+// An activation must not cancel the `prepare` that creates the router's
+// disabled WireGuard interface. If a gateway finishes early, its validated
+// payload is retained on the desired peer; acknowledging prepare releases it
+// automatically below. This makes gateway and router timing independent.
+function queueReadyVpnActivation(locationId) {
+  const peer = vpnPeerByLocation.get(locationId);
+  if (!peer || peer.desired_state !== 'active' || peer.gateway_state !== 'ready' || !peer.activation_payload_json) return null;
+  const outstanding = outstandingRemoteSupportControls.all(locationId);
+  if (outstanding.some((control) => control.action === 'prepare' || control.action === 'revoke')) return null;
+  const matching = outstanding.find((control) => control.action === 'activate' && Number(control.config_version) === Number(peer.config_version));
+  if (matching) return Number(matching.id);
+  // A gateway reconciles regularly. Once the router has acknowledged this
+  // exact version, another ordinary gateway heartbeat must not reissue the
+  // same activation forever. A new peer/version, or an unacknowledged
+  // activation after a genuine delivery failure, is still handled above.
+  if (acknowledgedRemoteSupportActivation.get(locationId, Number(peer.config_version))) return null;
+  // A changed desired peer always cancels an earlier activation before it is
+  // reported ready. Leave any unknown future control untouched rather than
+  // silently overriding it.
+  if (outstanding.length) return null;
+  return Number(insertRemoteSupportControl.run({
+    locationId,
+    action: 'activate',
+    payloadJson: peer.activation_payload_json,
+    configVersion: Number(peer.config_version),
+  }).lastInsertRowid);
+}
+
+function revokeVpnPeerDesiredInTransaction(locationId) {
+  const peer = vpnPeerByLocation.get(locationId);
+  if (!peer || peer.desired_state === 'revoked') return peer;
+  // An activate response can be in flight when an owner revokes consent.
+  // Cancelling it prevents later router polls from collecting the old config;
+  // the dedicated revoke control is queued by the caller immediately after.
+  cancelPendingVpnActivationControls.run(locationId);
+  revokeVpnPeerDesired.run(locationId);
+  return vpnPeerByLocation.get(locationId);
 }
 
 function remoteAccessPayload(location, record) {
@@ -1062,6 +1375,14 @@ function remoteAccessPayload(location, record) {
   // A database-only revoke cannot remove a persisted RouterOS interface. Do
   // not allow a fresh consent request to supersede the queued cleanup.
   const revokePending = status === 'revoked' && remoteSupportRevokeIsPending(location.id);
+  // The owner needs a truthful connection state, but never a peer key,
+  // endpoint credential, or a router-management secret. A configured record
+  // with no peer is waiting for the router to create and report its own key;
+  // a ready peer becomes live only after the gateway observes a handshake.
+  const peer = vpnPeerByLocation.get(location.id);
+  const gatewayState = peer
+    ? peer.gateway_state
+    : (record?.vpn_gateway_id && status === 'configured' ? 'preparing_router' : null);
   return {
     locationId: location.id,
     status,
@@ -1072,6 +1393,9 @@ function remoteAccessPayload(location, record) {
     managementAddress: record?.management_address || null,
     hubName: record?.hub_name || null,
     lastHandshakeAt: record?.last_handshake_at || null,
+    gatewayState,
+    gatewaySyncedAt: peer?.gateway_synced_at || null,
+    gatewayError: peer?.gateway_error || null,
     cleanupPending: revokePending,
     canRequest: hasSuccessfulRouterSync && !revokePending && (status === 'not_requested' || status === 'revoked'),
     canRevoke: REMOTE_ACCESS_ACTIVE_STATES.has(status),
@@ -1139,6 +1463,7 @@ function revokeRemoteAccessForBusiness({ locationId, businessId }) {
   return withRemoteAccessTransaction(() => {
     const existing = remoteAccessByLocation.get(location.id);
     if (!existing || existing.status === 'revoked') return remoteAccessPayload(location, existing);
+    revokeVpnPeerDesiredInTransaction(location.id);
     revokeRemoteAccess.run(location.id);
     queueRemoteSupportControl(location.id, 'revoke');
     insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'business', actorId: businessId, action: 'revoked' });
@@ -1166,6 +1491,290 @@ function hubName(value) {
   return raw;
 }
 
+function ipv4Number(value, label = 'IPv4 address') {
+  const raw = String(value || '').trim();
+  const parts = raw.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) {
+    throw remoteAccessError(`Use a valid ${label}.`, 400);
+  }
+  return parts.reduce((number, part) => number * 256 + Number(part), 0);
+}
+
+function ipv4Text(value) {
+  let number = Number(value);
+  const parts = [];
+  for (let index = 0; index < 4; index++) {
+    parts.unshift(String(number % 256));
+    number = Math.floor(number / 256);
+  }
+  return parts.join('.');
+}
+
+function managementCidr(value) {
+  const raw = String(value || '').trim();
+  const match = /^([^/]+)\/(\d{1,2})$/.exec(raw);
+  if (!match) throw remoteAccessError('Use a canonical private 10.x.x.x/16–/30 management CIDR.', 400);
+  const address = ipv4Number(match[1], 'management CIDR');
+  const prefix = Number(match[2]);
+  // Keeping this at /16 through /30 prevents an accidental whole-10/8
+  // scan, while still providing 65,000+ peers on one small gateway.
+  if (!Number.isInteger(prefix) || prefix < 16 || prefix > 30 || Math.floor(address / 256 ** 3) !== 10) {
+    throw remoteAccessError('Use a canonical private 10.x.x.x/16–/30 management CIDR.', 400);
+  }
+  const blockSize = 2 ** (32 - prefix);
+  const network = Math.floor(address / blockSize) * blockSize;
+  if (network !== address) {
+    throw remoteAccessError('Use the network address, not a host address, for the management CIDR.', 400);
+  }
+  return { cidr: `${ipv4Text(network)}/${prefix}`, network, broadcast: network + blockSize - 1 };
+}
+
+function addressIsInCidr(address, cidr) {
+  const number = ipv4Number(address, 'management address');
+  return number > cidr.network && number < cidr.broadcast;
+}
+
+function allocateManagementAddress(cidr, locationId, existingAddress = null) {
+  if (existingAddress) {
+    try {
+      const normalized = managementAddress(existingAddress);
+      if (addressIsInCidr(normalized, cidr)) return normalized;
+    } catch (_) { /* allocate a clean address instead */ }
+  }
+  const used = new Set([
+    ...configuredRemoteAccessManagementAddresses.all().map((row) => row.management_address),
+    ...activeVpnPeerManagementAddresses.all().map((row) => row.management_address),
+  ]);
+  // A location may retain its address while its platform record is being
+  // replayed. It is safe to reuse only that location's existing assignment.
+  if (existingAddress) used.delete(String(existingAddress));
+  for (let value = cidr.network + 2; value < cidr.broadcast; value++) {
+    const candidate = ipv4Text(value);
+    // Keep compatibility with the long-standing management-address guard,
+    // which reserves x.x.x.0 and x.x.x.255 even inside a wider CIDR.
+    const lastOctet = value % 256;
+    if (lastOctet === 0 || lastOctet === 255 || used.has(candidate)) continue;
+    return candidate;
+  }
+  throw remoteAccessError('This VPN management CIDR has no free router addresses.', 409);
+}
+
+function vpnConfigVersion(value) {
+  const version = Number(value);
+  if (!Number.isInteger(version) || version < 1 || version > 2_147_483_647) {
+    throw remoteAccessError('Use a valid positive VPN configuration version.', 400);
+  }
+  return version;
+}
+
+function vpnGatewayPeerId(value) {
+  const raw = String(value || '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(raw)) {
+    throw remoteAccessError('Use a safe gateway peer identifier.', 400);
+  }
+  return raw;
+}
+
+function vpnEndpointHost(value) {
+  const raw = String(value || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!raw || raw.length > 253 || !portalHostname(raw)) {
+    throw remoteAccessError('Use a hostname or IPv4 address for the VPN gateway endpoint.', 400);
+  }
+  return raw;
+}
+
+function vpnEndpointPort(value) {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw remoteAccessError('Use a VPN gateway UDP port between 1 and 65535.', 400);
+  }
+  return port;
+}
+
+function vpnGatewayError(value) {
+  const raw = String(value || '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9 .:_-]{0,239}$/.test(raw) || /private|password|secret|token|credential|key/i.test(raw)) {
+    throw remoteAccessError('Use a short non-secret gateway error code or message.', 400);
+  }
+  return raw;
+}
+
+function vpnTimestamp(value) {
+  if (value === undefined || value === null || value === '') return nowSql(Date.now());
+  const milliseconds = Date.parse(String(value));
+  if (!Number.isFinite(milliseconds) || milliseconds > Date.now() + 5 * 60_000 || milliseconds < Date.now() - 366 * 24 * 60 * 60_000) {
+    throw remoteAccessError('Use a recent valid VPN gateway timestamp.', 400);
+  }
+  return nowSql(milliseconds);
+}
+
+function vpnHostAddress(value, label) {
+  const raw = String(value || '').trim();
+  const match = /^([^/]+)(?:\/32)?$/.exec(raw);
+  if (!match) throw remoteAccessError(`Use a single ${label} IPv4 address (optionally /32).`, 400);
+  return managementAddress(match[1]);
+}
+
+function vpnActivationPayload({ gatewayPublicKey, endpointHost, endpointPort, gatewayAddress }, peer, access) {
+  const gateway = vpnHostAddress(gatewayAddress, 'gateway');
+  const management = managementAddress(peer.management_address);
+  if (gateway === management) {
+    throw remoteAccessError('The gateway and router VPN addresses must be different.', 400);
+  }
+  if (access?.vpn_management_cidr && !addressIsInCidr(gateway, managementCidr(access.vpn_management_cidr))) {
+    throw remoteAccessError('The gateway VPN address must be inside the assigned management CIDR.', 400);
+  }
+  // This exact whitelist is the safety boundary for payload_json. It gives
+  // RouterOS just the public peer material needed for a management-only
+  // tunnel; it cannot carry a private key, default route, firewall rule, or
+  // arbitrary RouterOS source text.
+  return {
+    version: 1,
+    gatewayPublicKey: wireGuardPublicKey(gatewayPublicKey),
+    endpointHost: vpnEndpointHost(endpointHost),
+    endpointPort: vpnEndpointPort(endpointPort),
+    managementAddress: `${management}/32`,
+    gatewayAddress: `${gateway}/32`,
+  };
+}
+
+function allocateDesiredVpnPeerInTransaction({ location, remoteAccess, gatewayId: selectedGatewayId, gatewayName: selectedGatewayName }) {
+  if (!remoteAccess || remoteAccess.status !== 'configured' || !remoteAccess.router_public_key || !remoteAccess.management_address) {
+    throw remoteAccessError('The router must finish approved remote-support enrollment before a VPN peer can be allocated.', 409);
+  }
+  const resolvedGatewayId = gatewayId(selectedGatewayId || remoteAccess.vpn_gateway_id);
+  const resolvedGatewayName = hubName(selectedGatewayName || remoteAccess.hub_name);
+  const address = managementAddress(remoteAccess.management_address);
+  const routerPublicKey = wireGuardPublicKey(remoteAccess.router_public_key);
+  const assigned = activeVpnPeerByManagementAddress.get(address);
+  if (assigned && assigned.location_id !== location.id) {
+    throw remoteAccessError('That VPN management address is already assigned to another router.', 409);
+  }
+  const keyAssigned = activeVpnPeerByRouterPublicKey.get(routerPublicKey);
+  if (keyAssigned && keyAssigned.location_id !== location.id) {
+    throw remoteAccessError('That router WireGuard identity is already assigned to another active location. Revoke the previous remote connection before reusing this router.', 409);
+  }
+  const existing = vpnPeerByLocation.get(location.id);
+  if (existing && existing.desired_state === 'active' &&
+      existing.gateway_id === resolvedGatewayId && existing.gateway_name === resolvedGatewayName &&
+      existing.management_address === address && existing.router_public_key === routerPublicKey) {
+    return existing;
+  }
+  const nextVersion = existing ? Number(existing.config_version) + 1 : 1;
+  if (existing) {
+    cancelPendingVpnActivationControls.run(location.id);
+    updateVpnPeerDesired.run({ locationId: location.id, gatewayId: resolvedGatewayId, gatewayName: resolvedGatewayName,
+      managementAddress: address, routerPublicKey, configVersion: nextVersion });
+  } else {
+    insertVpnPeer.run({ locationId: location.id, gatewayId: resolvedGatewayId, gatewayName: resolvedGatewayName,
+      managementAddress: address, routerPublicKey, configVersion: nextVersion });
+  }
+  return vpnPeerByLocation.get(location.id);
+}
+
+/**
+ * Allocate/update the gateway's durable desired peer after an enrolled
+ * router has reported its public WireGuard identity. This API is privileged:
+ * its result is for the gateway worker, not a tenant browser or portal.
+ */
+function allocateDesiredVpnPeer({ locationId, gatewayId: selectedGatewayId, gatewayName: selectedGatewayName }) {
+  const location = locationById.get(locationId);
+  if (!location) return null;
+  return withRemoteAccessTransaction(() => {
+    const remoteAccess = remoteAccessByLocation.get(location.id);
+    const peer = allocateDesiredVpnPeerInTransaction({
+      location,
+      remoteAccess,
+      gatewayId: selectedGatewayId,
+      gatewayName: selectedGatewayName,
+    });
+    return vpnPeerPayload(peer);
+  });
+}
+
+/**
+ * One autonomous platform step for an owner-approved request. It allocates
+ * a management /32, selects the gateway, records the non-secret desired
+ * gateway selection, and queues the existing harmless `prepare` action.
+ * The router still has to create its own key pair; enrollment then creates
+ * the actual desired peer record without exposing a private key to WiFi Fiti.
+ */
+function provisionRemoteVpn({ locationId, gatewayId: selectedGatewayId, gatewayName: selectedGatewayName, managementCidr: requestedManagementCidr, actorId = 'vpn-platform' }) {
+  const location = locationById.get(locationId);
+  if (!location) return null;
+  const resolvedGatewayId = gatewayId(selectedGatewayId);
+  const resolvedGatewayName = hubName(selectedGatewayName);
+  const cidr = managementCidr(requestedManagementCidr);
+
+  return withRemoteAccessTransaction(() => {
+    let remoteAccess = remoteAccessByLocation.get(location.id);
+    if (!remoteAccess) throw remoteAccessError('The business has not requested remote access for this router.', 409);
+    if (remoteAccess.status === 'revoked') {
+      throw remoteAccessError('Remote access was revoked. The owner must request it again before VPN setup can continue.', 409);
+    }
+
+    if (remoteAccess.status === 'requested') {
+      approveRemoteAccess.run(location.id);
+      insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'admin', actorId, action: 'approved' });
+      remoteAccess = remoteAccessByLocation.get(location.id);
+    }
+
+    if (remoteAccess.status === 'approved') {
+      const address = allocateManagementAddress(cidr, location.id);
+      const assigned = remoteAccessByManagementAddress.get(address);
+      if (assigned && assigned.location_id !== location.id) {
+        throw remoteAccessError('The selected VPN management address is already assigned to another router.', 409);
+      }
+      configureRemoteAccessWithGateway.run({
+        locationId: location.id,
+        managementAddress: address,
+        hubName: resolvedGatewayName,
+        gatewayId: resolvedGatewayId,
+        managementCidr: cidr.cidr,
+      });
+      queueRemoteSupportControl(location.id, 'prepare');
+      insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'admin', actorId, action: 'configured' });
+      remoteAccess = remoteAccessByLocation.get(location.id);
+    }
+
+    if (remoteAccess.status !== 'configured') {
+      throw remoteAccessError('Remote access could not be prepared for VPN provisioning.', 409);
+    }
+    // Upgrade a legacy manually configured support record into the durable
+    // gateway model without changing its already allocated router address.
+    if (!remoteAccess.vpn_gateway_id) {
+      if (!addressIsInCidr(remoteAccess.management_address, cidr)) {
+        throw remoteAccessError('The existing remote-support address is outside the requested VPN management CIDR.', 409);
+      }
+      setRemoteAccessVpnGateway.run({ locationId: location.id, hubName: resolvedGatewayName,
+        gatewayId: resolvedGatewayId, managementCidr: cidr.cidr });
+      remoteAccess = remoteAccessByLocation.get(location.id);
+    }
+    if (remoteAccess.vpn_gateway_id && remoteAccess.vpn_gateway_id !== resolvedGatewayId) {
+      throw remoteAccessError('This router is already assigned to a different VPN gateway. Revoke it before moving gateways.', 409);
+    }
+    if (remoteAccess.vpn_management_cidr && remoteAccess.vpn_management_cidr !== cidr.cidr) {
+      throw remoteAccessError('This router is already assigned to a different VPN management network. Revoke it before changing networks.', 409);
+    }
+
+    let peer = null;
+    if (remoteAccess.router_public_key) {
+      peer = allocateDesiredVpnPeerInTransaction({ location, remoteAccess, gatewayId: resolvedGatewayId, gatewayName: resolvedGatewayName });
+    } else if (!outstandingRemoteSupportControls.all(location.id).some((control) => control.action === 'prepare')) {
+      // A router may reboot or lose its local helper after acknowledging a
+      // prepare command but before reporting its key. Re-running this
+      // platform step safely retries preparation without allocating a peer
+      // or changing the selected management address.
+      queueRemoteSupportControl(location.id, 'prepare');
+    }
+    return {
+      remoteAccess: remoteAccessPayload(location, remoteAccess),
+      peer: vpnPeerPayload(peer),
+      managementCidr: cidr.cidr,
+    };
+  });
+}
+
 /** Platform-only lifecycle. `configured` means inventory has been allocated;
  * it deliberately does not assert that a tunnel is live. */
 function manageRemoteAccess({ locationId, action, managementAddress: requestedAddress, hubName: requestedHubName, actorId = 'platform' }) {
@@ -1177,6 +1786,7 @@ function manageRemoteAccess({ locationId, action, managementAddress: requestedAd
     const existing = remoteAccessByLocation.get(location.id);
     if (operation === 'revoke') {
       if (!existing || existing.status === 'revoked') return remoteAccessPayload(location, existing);
+      revokeVpnPeerDesiredInTransaction(location.id);
       revokeRemoteAccess.run(location.id);
       queueRemoteSupportControl(location.id, 'revoke');
       insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'admin', actorId, action: 'revoked' });
@@ -1241,6 +1851,13 @@ function recordRemoteAccessEnrollment({ locationId, publicKey }) {
     // request access again, after which it must receive platform approval.
     if (existing.router_public_key) {
       if (existing.router_public_key === normalizedPublicKey) {
+        // A process may have recorded the router identity just before a
+        // gateway-worker retry. Replaying the same report therefore repairs
+        // a missing desired peer without rotating any key or address.
+        if (existing.vpn_gateway_id) {
+          allocateDesiredVpnPeerInTransaction({ location, remoteAccess: existing,
+            gatewayId: existing.vpn_gateway_id, gatewayName: existing.hub_name });
+        }
         return remoteAccessPayload(location, existing);
       }
       throw remoteAccessError(
@@ -1249,12 +1866,184 @@ function recordRemoteAccessEnrollment({ locationId, publicKey }) {
       );
     }
     saveRemoteAccessEnrollment.run({ locationId: location.id, routerPublicKey: normalizedPublicKey });
+    const enrolled = remoteAccessByLocation.get(location.id);
+    // Autonomous WiFi Fiti VPN provisioning records the selected gateway
+    // before it asks the router to create an interface. Once that interface
+    // reports its public key, create the desired gateway peer immediately.
+    // Legacy prepare/configure flow remains harmless and does not obtain a
+    // peer until a gateway has been explicitly selected.
+    if (enrolled.vpn_gateway_id) {
+      allocateDesiredVpnPeerInTransaction({ location, remoteAccess: enrolled,
+        gatewayId: enrolled.vpn_gateway_id, gatewayName: enrolled.hub_name });
+    }
     // `remoteAccessPayload` intentionally omits the public key. Even though
     // it is non-secret, router identity is control-plane inventory rather
     // than a business-dashboard or portal API field.
-    return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
+    return remoteAccessPayload(location, enrolled);
   });
 }
+
+const desiredVpnPeersByGateway = db.prepare(`
+  SELECT location_id, gateway_id, gateway_name, management_address, router_public_key, gateway_public_key,
+         desired_state, config_version, gateway_peer_id, gateway_state, gateway_synced_at,
+         gateway_error, activation_payload_json, last_handshake_at, created_at, updated_at, revoked_at
+    FROM tenant_vpn_peers
+   WHERE gateway_id=?
+     AND (desired_state='active' OR gateway_state!='revoked')
+   ORDER BY updated_at, location_id
+`);
+
+/** Return only the desired state a trusted gateway needs to reconcile. A
+ * revoked peer remains visible until the gateway confirms deletion. */
+function desiredVpnPeersForGateway({ gatewayId: selectedGatewayId }) {
+  const id = gatewayId(selectedGatewayId);
+  return desiredVpnPeersByGateway.all(id).map(vpnPeerPayload);
+}
+
+function requireGatewayPeer({ locationId, gatewayId: selectedGatewayId, configVersion }) {
+  const location = locationById.get(locationId);
+  if (!location) return { location: null, peer: null };
+  const peer = vpnPeerByLocation.get(location.id);
+  if (!peer) throw remoteAccessError('No WiFi Fiti VPN peer is allocated for this router.', 409);
+  if (peer.gateway_id !== gatewayId(selectedGatewayId)) {
+    throw remoteAccessError('This router belongs to a different VPN gateway.', 409);
+  }
+  if (configVersion !== undefined && Number(peer.config_version) !== vpnConfigVersion(configVersion)) {
+    throw remoteAccessError('This VPN gateway report is for a stale configuration version.', 409);
+  }
+  return { location, peer };
+}
+
+/**
+ * The gateway reports the result of reconciling a desired peer. `ready`
+ * means the gateway has installed the router public key and supplies only
+ * the gateway's public endpoint material. The versioned activation control
+ * is queued only after the router has acknowledged its safe `prepare` step.
+ */
+function reportVpnGatewaySync({
+  locationId,
+  gatewayId: selectedGatewayId,
+  configVersion,
+  status,
+  gatewayPeerId: reportedGatewayPeerId,
+  gatewayPublicKey,
+  endpointHost,
+  endpointPort,
+  gatewayAddress,
+  error,
+}) {
+  const normalizedStatus = String(status || '').trim().toLowerCase() === 'applied'
+    ? 'ready' : String(status || '').trim().toLowerCase();
+  if (!VPN_GATEWAY_STATES.has(normalizedStatus)) {
+    throw remoteAccessError('Use ready, error, or revoked for the VPN gateway sync status.', 400);
+  }
+
+  return withRemoteAccessTransaction(() => {
+    const { location, peer } = requireGatewayPeer({ locationId, gatewayId: selectedGatewayId, configVersion });
+    if (!location) return null;
+    const version = vpnConfigVersion(configVersion);
+
+    if (normalizedStatus === 'ready') {
+      if (peer.desired_state !== 'active') {
+        throw remoteAccessError('A revoked VPN peer cannot be activated.', 409);
+      }
+      const access = remoteAccessByLocation.get(location.id);
+      const activation = vpnActivationPayload({ gatewayPublicKey, endpointHost, endpointPort, gatewayAddress }, peer, access);
+      markVpnPeerGatewayReady.run({
+        locationId: location.id,
+        configVersion: version,
+        gatewayPeerId: vpnGatewayPeerId(reportedGatewayPeerId),
+        gatewayPublicKey: activation.gatewayPublicKey,
+        activationPayloadJson: JSON.stringify(activation),
+      });
+      const activationControlId = queueReadyVpnActivation(location.id);
+      return { ...vpnPeerPayload(vpnPeerByLocation.get(location.id)), activationControlId };
+    }
+
+    if (normalizedStatus === 'error') {
+      if (peer.desired_state !== 'active') {
+        throw remoteAccessError('A revoked VPN peer cannot receive a new gateway error state.', 409);
+      }
+      cancelPendingVpnActivationControls.run(location.id);
+      markVpnPeerGatewayError.run({ locationId: location.id, configVersion: version, gatewayError: vpnGatewayError(error) });
+      return vpnPeerPayload(vpnPeerByLocation.get(location.id));
+    }
+
+    if (peer.desired_state !== 'revoked') {
+      throw remoteAccessError('The gateway may confirm deletion only after WiFi Fiti revokes the desired peer.', 409);
+    }
+    markVpnPeerGatewayRevoked.run({ locationId: location.id, configVersion: version });
+    return vpnPeerPayload(vpnPeerByLocation.get(location.id));
+  });
+}
+
+/** Narrow convenience API for a gateway worker after it has installed a
+ * peer. It keeps public endpoint material out of a generic free-form API. */
+function recordVpnGatewayPeer(options) {
+  return reportVpnGatewaySync({ ...options, status: 'ready' });
+}
+
+function recordVpnGatewayError(options) {
+  return reportVpnGatewaySync({ ...options, status: 'error' });
+}
+
+/** Record a gateway-observed handshake, never a router-provided timestamp.
+ * A stale timestamp cannot make a connection appear newer than the latest
+ * one because both database updates are monotonic. */
+function recordVpnPeerHandshake({ locationId, gatewayId: selectedGatewayId, configVersion, handshakeAt }) {
+  return withRemoteAccessTransaction(() => {
+    const { location, peer } = requireGatewayPeer({ locationId, gatewayId: selectedGatewayId, configVersion });
+    if (!location) return null;
+    if (peer.desired_state !== 'active' || peer.gateway_state !== 'ready') {
+      throw remoteAccessError('A VPN handshake can be recorded only for a ready desired peer.', 409);
+    }
+    const timestamp = vpnTimestamp(handshakeAt);
+    updateVpnPeerHandshake.run({ locationId: location.id, handshakeAt: timestamp });
+    updateRemoteAccessHandshake.run({ locationId: location.id, handshakeAt: timestamp });
+    return vpnPeerPayload(vpnPeerByLocation.get(location.id));
+  });
+}
+
+/**
+ * Platform emergency revoke. It turns desired state off immediately, queues
+ * router cleanup, and withdraws the remote-access lifecycle at the same
+ * time. The gateway learns it must delete the peer through
+ * desiredVpnPeersForGateway until it reports `revoked` for the new version.
+ */
+function revokeVpnPeer({ locationId, actorId = 'vpn-gateway' }) {
+  const location = locationById.get(locationId);
+  if (!location) return null;
+  return withRemoteAccessTransaction(() => {
+    const existingPeer = vpnPeerByLocation.get(location.id);
+    if (!existingPeer) return null;
+    const wasActive = existingPeer.desired_state === 'active';
+    const peer = revokeVpnPeerDesiredInTransaction(location.id);
+    const access = remoteAccessByLocation.get(location.id);
+    if (access && access.status !== 'revoked') {
+      revokeRemoteAccess.run(location.id);
+      queueRemoteSupportControl(location.id, 'revoke');
+      insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'system', actorId, action: 'revoked' });
+    } else if (wasActive && !remoteSupportRevokeIsPending(location.id)) {
+      queueRemoteSupportControl(location.id, 'revoke');
+    }
+    return vpnPeerPayload(peer);
+  });
+}
+
+// Acknowledging prepare may be the final missing event when the gateway has
+// already reconciled its side. Wrap the prepared statement behind the same
+// `.run(id, locationId)` shape used by existing HTTP code so older callers
+// keep working while the autonomous activation becomes timing-safe.
+const markRemoteSupportControlAcked = {
+  run(id, locationId) {
+    return withRemoteAccessTransaction(() => {
+      const control = remoteSupportControlById.get(id, locationId);
+      const result = markRemoteSupportControlAckedStatement.run(id, locationId);
+      if (result.changes && control?.action === 'prepare') queueReadyVpnActivation(locationId);
+      return result;
+    });
+  },
+};
 
 /**
  * Compatibility marker for an already-installed legacy poller. New generated
@@ -1576,7 +2365,7 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
     const hasHistory = Number(location.transaction_count) || Number(location.subscription_count) ||
       Number(location.job_count) || Number(location.device_count) || Number(location.voucher_count) ||
       Number(location.remote_access_count) || Number(location.remote_access_event_count) ||
-      Number(location.remote_control_count) || supportTicketCount;
+      Number(location.remote_control_count) || Number(location.vpn_peer_count) || supportTicketCount;
     if (location.router_status !== 'waiting' || location.last_seen_at || location.last_router_contact_at || location.last_successful_sync_at || hasHistory) {
       const error = new Error('This setup has already been paired or has customer, payment, voucher, router-job, support, or remote-setup history. Keep the location and generate a replacement router kit instead.');
       error.status = 409;
@@ -1867,6 +2656,8 @@ module.exports = {
   tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
   remoteAccessForLocation, remoteAccessForBusiness, requestRemoteAccess, revokeRemoteAccessForBusiness, manageRemoteAccess, recordRemoteAccessEnrollment,
+  provisionRemoteVpn, allocateDesiredVpnPeer, desiredVpnPeersForGateway, reportVpnGatewaySync,
+  recordVpnGatewayPeer, recordVpnGatewayError, recordVpnPeerHandshake, revokeVpnPeer,
   pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,
   packageForLocation, packagesForLocation, insertTransaction, getTransaction,
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,

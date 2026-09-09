@@ -139,7 +139,7 @@ async function main() {
     assert.equal(response.status, 200);
     assert.deepEqual(Object.keys(response.body.remoteAccess).sort(), [
       'approvedAt', 'canRequest', 'canRevoke', 'cleanupPending', 'configuredAt', 'hubName', 'lastHandshakeAt',
-      'locationId', 'managementAddress', 'requestedAt', 'revokedAt', 'status',
+      'gatewayError', 'gatewayState', 'gatewaySyncedAt', 'locationId', 'managementAddress', 'requestedAt', 'revokedAt', 'status',
     ].sort());
     assert.equal(response.body.remoteAccess.status, 'not_requested');
     assert.equal(response.body.remoteAccess.canRequest, false);
@@ -368,8 +368,18 @@ async function main() {
     assert.match(cleanup.text, /:global fitiSupportEnabled "no"/);
     assert.match(cleanup.text, /\/system scheduler disable \$fitiSupportScheduler/);
     assert.match(cleanup.text, /\/interface wireguard remove \$fitiSupportWireguard/);
-    assert.doesNotMatch(cleanup.text, /fiti-poll|\/ip (?:hotspot|address|route|firewall|service)\b/);
-    assert.doesNotMatch(cleanup.text, /(?:wireguard peers|endpoint-address|endpoint-port|persistent-keepalive)/);
+    assert.match(cleanup.text, /\/ip firewall filter remove \$fitiSupportFirewall/,
+      'revoke removes the activation rule only when it carries the WiFi Fiti tag');
+    assert.match(cleanup.text, /\/ip route remove \$fitiSupportRoute/,
+      'revoke removes only the gateway /32 route');
+    assert.match(cleanup.text, /\/ip address remove \$fitiSupportAddress/,
+      'revoke removes only the management /32');
+    assert.match(cleanup.text, /\/interface wireguard peers remove \$fitiSupportPeer/,
+      'revoke removes only the tagged gateway peer before the interface');
+    assert.doesNotMatch(cleanup.text, /fiti-poll|\/ip hotspot|\/ip firewall nat|\/ip service|0\.0\.0\.0\/0/,
+      'remote cleanup cannot affect billing, customer traffic, or public services');
+    assert.doesNotMatch(cleanup.text, /endpoint-address|endpoint-port|persistent-keepalive|private-key/,
+      'revocation contains no reusable gateway connection material');
 
     const cleanupAck = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=&supportAck=${cleanupAckId[1]}`, {
       method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
