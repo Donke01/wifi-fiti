@@ -33,6 +33,7 @@ app.use((req, res, next) => {
 /* ------------------------------------------------------------------ */
 
 const publicDirectory = path.join(__dirname, '..', 'public');
+const vpnGatewayDirectory = path.join(__dirname, '..', 'vpn-gateway');
 
 // Use the raw Host header rather than req.hostname. `trust proxy` is enabled
 // for Railway, so an untrusted X-Forwarded-Host must not decide whether a
@@ -373,6 +374,22 @@ app.use('/api/business/branding/logo', express.json({ limit: '520kb' }));
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(publicDirectory));
+
+// This repository is intentionally private, so a new VPS cannot rely on a
+// public raw-GitHub URL to retrieve its non-secret management agent. Serve the
+// immutable-on-deploy agent and unit from the already trusted application host
+// instead. These files contain no router credential, private key, or gateway
+// secret; the secret is supplied separately in the VPS environment file.
+function sendVpnGatewayBootstrap(res, filename, type) {
+  res.setHeader('Cache-Control', 'no-store');
+  res.type(type);
+  return res.sendFile(path.join(vpnGatewayDirectory, filename));
+}
+
+app.get('/vpn-gateway/agent.js', (req, res) => sendVpnGatewayBootstrap(res, 'agent.js', 'application/javascript'));
+app.get('/vpn-gateway/wifi-fiti-vpn-agent.service', (req, res) =>
+  sendVpnGatewayBootstrap(res, 'wifi-fiti-vpn-agent.service', 'text/plain')
+);
 
 // Limit credential guessing and payment-prompt abuse with a persisted
 // window. A service restart must not reset these limits.

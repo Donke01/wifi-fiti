@@ -105,6 +105,17 @@ async function completeRouterSync(location) {
 }
 
 async function main() {
+  const agentAsset = await api('/vpn-gateway/agent.js');
+  assert.equal(agentAsset.status, 200, agentAsset.text);
+  assert.match(agentAsset.text, /WIFI_FITI_CORE_URL/,
+    'a private source repository must not prevent a new VPS from downloading the non-secret agent');
+  assert.match(agentAsset.text, /wg show .* dump/,
+    'the public agent artifact is the reviewed implementation, not a separate installer copy');
+  const unitAsset = await api('/vpn-gateway/wifi-fiti-vpn-agent.service');
+  assert.equal(unitAsset.status, 200, unitAsset.text);
+  assert.match(unitAsset.text, /InaccessiblePaths=\/etc\/wireguard/,
+    'the bootstrap unit keeps the WireGuard private-key directory inaccessible to the agent');
+
   const businessToken = await registerBusiness();
   const created = await api('/api/business/locations', {
     method: 'POST', token: businessToken, body: { name: 'Gateway Site', routerName: 'hAP lite' },
