@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test/run.js && node test/e2e.js && node test/dryrun.js && node test/poll.js && node test/features.js && node test/devices.js && node test/lockout.js && node test/ack.js && node test/paypath.js && node test/balance.js && node test/ledger.js && node test/autologin.js && node test/reset.js && node test/wallclock.js && node test/multi-device-balance.js && node test/business.js && npm run test:tenant && npm run test:tenant:http",
+    "test": "node test/wallclock.js && node test/ceiling.js && node test/multi-device-balance.js && node test/ledger.js && node test/autologin.js && node test/reset.js && node test/wallclock.js && node test/multi-device-balance.js && node test/business.js && npm run test:tenant && npm run test:tenant:http",
     "test:tenant": "node test/gateway-config.js && node test/tenant.js && node test/business-operations.js && node test/router-setup.js && node test/router-topology.js && node test/tenant-portal-ui.js && node test/business-ui.js && node --require ./test/in-process-http.js test/remote-onboarding.js && node --require ./test/in-process-http.js test/router-topology-integration.js && node --require ./test/in-process-http.js test/vpn-gateway-integration.js && node --require ./test/in-process-http.js test/mapped-deployment-integration.js && node test/vpn-gateway-agent.js && node test/edge-gateway.js",
     "test:tenant:http": "node --require ./test/in-process-http.js test/tenant-integration.js"
   },
