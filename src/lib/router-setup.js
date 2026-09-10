@@ -184,10 +184,16 @@ function fetchTlsOption(url) {
 function routerTrustStoreLines() {
   return [
     ':do {',
-    '  /certificate settings set builtin-trust-store=all',
+    // A scheduler validates its `on-event` source when it is created. Older
+    // RouterOS 7 releases do not recognise builtin-trust-store at that
+    // parse stage, so a normal `:do ... on-error` is too late: the complete
+    // connection kit would be cut short and its remaining lines could be
+    // pasted as separate terminal commands. Parse each version-specific
+    // property only at runtime, inside the error guard.
+    '  ' + deferredRouterCommand('/certificate settings set builtin-trust-store=all'),
     '} on-error={',
     '  :do {',
-    '    /certificate settings set builtin-trust-anchors=trusted',
+    '    ' + deferredRouterCommand('/certificate settings set builtin-trust-anchors=trusted'),
     '  } on-error={',
     '    :log warning "fiti: built-in CA trust store could not be enabled"',
     '  }',
@@ -478,7 +484,7 @@ function newRouterEthernetDetectionLines() {
   ];
 }
 
-function automaticRouterDetectionLines() {
+function automaticRouterDetectionLines(config) {
   return [
     '# Automatic preflight: identify the router before making configuration changes.',
     ':local fitiRouterVersion [/system resource get version]',
@@ -494,6 +500,7 @@ function automaticRouterDetectionLines() {
     ':local fitiPartialRecovered false',
     ':local fitiPartialBridge ""',
     ':local fitiPartialBridgeId ""',
+    ':local fitiPartialExpectedNetwork ' + ros(config.network.cidr),
     ':local fitiPartialBridges [/interface bridge find where comment="WiFi Fiti customer network"]',
     ':if (([:len $fitiHotspots] = 0) && ([:len $fitiBridges] = 1) && ([:len $fitiPartialBridges] = 1)) do={',
     '  :set fitiPartialBridgeId [:pick $fitiPartialBridges 0]',
@@ -532,6 +539,12 @@ function automaticRouterDetectionLines() {
     '  :if ([:len $fitiPartialGateway] > 0) do={',
     '    :if ([:len [/ip dhcp-server network find where gateway=$fitiPartialGateway]] > 0) do={ /ip dhcp-server network remove [find where gateway=$fitiPartialGateway] }',
     '  }',
+    // A previous terminal paste can fail immediately after adding the pool
+    // and DHCP network but before its gateway address. In that case there is
+    // no tagged address from which to derive the gateway. The expected
+    // network comes from this one-time kit, so it is still safe to remove
+    // only that orphaned WiFi Fiti resource before rebuilding it.
+    '  :if ([:len [/ip dhcp-server network find where address=$fitiPartialExpectedNetwork]] > 0) do={ /ip dhcp-server network remove [find where address=$fitiPartialExpectedNetwork] }',
     '  :if ([:len $fitiPartialDhcpServers] > 0) do={ /ip dhcp-server remove $fitiPartialDhcpServers }',
     '  :if ([:len [/ip pool find where name="fiti-pool"]] > 0) do={ /ip pool remove [find where name="fiti-pool"] }',
     '  :if ([:len [/ip hotspot profile find where name="fiti-hsprof"]] > 0) do={ /ip hotspot profile remove [find where name="fiti-hsprof"] }',
@@ -601,7 +614,7 @@ function buildAutomaticRouterKit({ location, token, appUrl, portalUrl, config })
     ':local fitiWanInterface ""',
     ':local fitiWifiInterface ""',
     ':local fitiWifiStack ""',
-    ...automaticRouterDetectionLines(),
+    ...automaticRouterDetectionLines(config),
     ':if ($fitiAutoMode = "existing") do={',
     ...pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDetected: true }),
     '} else={',

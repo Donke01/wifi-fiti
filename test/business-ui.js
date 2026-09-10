@@ -232,7 +232,7 @@ assert.match(html, /\/api\/business\/onboarding\/customer-portal/,
 // keep offering an older saved kit after its bootstrap behavior changes. The
 // owner has to deliberately generate a current replacement; merely loading
 // the dashboard does not rotate the still-pending server-side credential.
-assert.match(html, /var routerKitRevision = 'partial-recovery-v3';/,
+assert.match(html, /var routerKitRevision = 'truststore-parse-v4';/,
   'stored connection kits carry an explicit bootstrap revision');
 assert.match(html, /function storedRouterKitIsCurrent\(setup\) \{ return Boolean\(storedRouterKitHasScript\(setup\) && setup\.kitRevision === routerKitRevision\); \}/,
   'only a script saved with the current bootstrap revision is eligible for copying');

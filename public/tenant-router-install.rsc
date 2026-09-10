@@ -32,10 +32,14 @@
 # an upgrade (especially on small-board devices). Enable them before the
 # first HTTPS request; retain the older property as a safe fallback.
 :do {
-  /certificate settings set builtin-trust-store=all
+  # RouterOS parses scheduler/import source before :do can catch a bad
+  # property. Keep version-specific certificate settings in :parse so an
+  # older RouterOS 7 build reaches the trusted fallback instead of aborting
+  # the whole tenant installer.
+  [:parse "/certificate settings set builtin-trust-store=all"]
 } on-error={
   :do {
-    /certificate settings set builtin-trust-anchors=trusted
+    [:parse "/certificate settings set builtin-trust-anchors=trusted"]
   } on-error={
     :log warning "fiti: built-in CA trust store could not be enabled"
   }

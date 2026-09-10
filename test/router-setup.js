@@ -47,6 +47,10 @@ assert.match(existingKit.script, /builtin-trust-store=all/,
   'the generated kit enables RouterOS built-in CAs before its first HTTPS fetch');
 assert.match(existingKit.script, /builtin-trust-anchors=trusted/,
   'older RouterOS 7 releases receive the legacy trust-store fallback');
+assert.match(existingKit.script, /\[:parse "\/certificate settings set builtin-trust-store=all"\]/,
+  'certificate properties are deferred so an older RouterOS parser cannot abort a nested scheduler source');
+assert.doesNotMatch(existingKit.script, /^\s*\/certificate settings set builtin-trust/m,
+  'no version-specific certificate property is parsed directly while the kit is being pasted or imported');
 assert.doesNotMatch(existingKit.script, /:global fitiSupportEnabled "yes"/);
 assert.match(existingKit.script, /tenant-router-install\.rsc/);
 assert.match(existingKit.script, /\/system scheduler add name="fiti-first-install" start-date=1970-01-01 start-time=00:00:00 interval=15s[\s\S]*on-event=\{/,
@@ -131,6 +135,10 @@ assert.match(installer, /&bridge=.*fitiBridge/,
 assert.match(installer, /check-certificate=yes/);
 assert.match(installer, /builtin-trust-store=all/,
   'the downloaded installer enables built-in CAs before fetching the portal');
+assert.match(installer, /\[:parse "\/certificate settings set builtin-trust-store=all"\]/,
+  'the tenant installer also defers version-specific certificate properties at import time');
+assert.doesNotMatch(installer, /^\s*\/certificate settings set builtin-trust/m,
+  'a legacy RouterOS parser cannot reject the tenant installer before its fallback runs');
 assert.match(installer, /fitiJobError/,
   'polling captures the actual RouterOS parse error instead of hiding it');
 assert.match(installer, /job script failed to run: /,
@@ -402,6 +410,8 @@ assert.match(automaticKit.script, /comment="WiFi Fiti customer network"/,
   'only the bridge explicitly tagged by WiFi Fiti is eligible for automatic recovery');
 assert.match(automaticKit.script, /WiFi Fiti found an interrupted setup; rebuilding only its tagged resources/,
   'a failed earlier kit has a clear, bounded recovery path');
+assert.match(automaticKit.script, /fitiPartialExpectedNetwork/,
+  'a terminal paste that stopped after adding the DHCP network can be rebuilt on the next automatic run');
 assert.match(automaticKit.script, /No automatic cleanup was performed/,
   'unknown addresses, DHCP, lists, or an active pairing service stop recovery safely');
 assert.match(automaticKit.script, /:if \(\$fitiPartialRecovered = true\) do=\{ :set fitiBridge \$fitiPartialBridge \}/,
@@ -433,8 +443,8 @@ assert.match(automaticKit.config.mode === 'auto' ? automaticKit.summary : '', /t
   'automatic setup explains the narrowly scoped recovery behavior');
 assert.match(newKit.script, /block WAN management/);
 assert.match(newKit.script, /\/system scheduler add name="fiti-first-install" start-date=1970-01-01 start-time=00:00:00 interval=15s/);
-assert.match(newKit.script, /on-event=\{\n\s*:do \{\n\s*\/certificate settings set builtin-trust-store=all/,
-  'the first-install scheduler contains the bootstrap source instead of depending on a second RouterOS script');
+assert.match(newKit.script, /on-event=\{\n\s*:do \{\n\s*\[:parse "\/certificate settings set builtin-trust-store=all"\]/,
+  'the first-install scheduler defers a version-specific certificate property instead of breaking an older RouterOS parser');
 assert.doesNotMatch(newKit.script, /\/system script add name="fiti-first-install"/,
   'there is no transient helper script for the scheduler to lose after a partial import');
 assert.doesNotMatch(newKit.script, /on-event="\/system script run fiti-first-install"/,
