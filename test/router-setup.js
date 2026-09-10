@@ -396,6 +396,22 @@ assert.equal(automaticKit.config.mode, 'auto');
 assert.match(automaticKit.script, /automatic RouterOS 7 setup kit/);
 assert.match(automaticKit.script, /Multiple Hotspot servers found/);
 assert.match(automaticKit.script, /A bridge exists but no Hotspot server was found/);
+assert.match(automaticKit.script, /:local fitiPartialRecovered false/,
+  'automatic setup records whether it has found a recoverable WiFi Fiti partial run');
+assert.match(automaticKit.script, /comment="WiFi Fiti customer network"/,
+  'only the bridge explicitly tagged by WiFi Fiti is eligible for automatic recovery');
+assert.match(automaticKit.script, /WiFi Fiti found an interrupted setup; rebuilding only its tagged resources/,
+  'a failed earlier kit has a clear, bounded recovery path');
+assert.match(automaticKit.script, /No automatic cleanup was performed/,
+  'unknown addresses, DHCP, lists, or an active pairing service stop recovery safely');
+assert.match(automaticKit.script, /:if \(\$fitiPartialRecovered = true\) do=\{ :set fitiBridge \$fitiPartialBridge \}/,
+  'a recovered bridge keeps its established name instead of being silently renamed');
+assert.match(automaticKit.script, /:if \(\$fitiPartialRecovered = false\) do=\{ \/interface bridge add name=\$fitiBridge protocol-mode=rstp comment="WiFi Fiti customer network" \} else=\{ \/interface bridge set \[find where name=\$fitiBridge\]/,
+  'recovery reuses the tagged bridge so local management is not deliberately interrupted');
+assert.doesNotMatch(automaticKit.script, /\/interface bridge remove/,
+  'automatic recovery never deletes the customer bridge or performs a hidden reset');
+assert.match(automaticKit.script, /\/ip firewall filter remove \[find where comment="WiFi Fiti guest isolation"\]/,
+  'only exact WiFi Fiti firewall resources are cleared before rebuilding the incomplete setup');
 assert.ok(automaticKit.script.indexOf(':local fitiDeviceFetch') < automaticKit.script.indexOf(':global fitiUrl'),
   'automatic setup checks device mode before recording any new pairing credential');
 assert.match(automaticKit.script, /\[\/interface wireless find\]/,
@@ -413,6 +429,8 @@ assert.match(automaticKit.script, /A DHCP client already exists on another inter
 assert.match(automaticKit.script, /fitiBootstrapHotspots/);
 assert.match(automaticKit.config.mode === 'auto' ? automaticKit.summary : '', /safely chooses the existing-router or fresh-router setup/,
   'automatic setup explains the detection decision');
+assert.match(automaticKit.config.mode === 'auto' ? automaticKit.summary : '', /tagged, incomplete WiFi Fiti setup/,
+  'automatic setup explains the narrowly scoped recovery behavior');
 assert.match(newKit.script, /block WAN management/);
 assert.match(newKit.script, /\/system scheduler add name="fiti-first-install" start-date=1970-01-01 start-time=00:00:00 interval=15s/);
 assert.match(newKit.script, /on-event=\{\n\s*:do \{\n\s*\/certificate settings set builtin-trust-store=all/,
