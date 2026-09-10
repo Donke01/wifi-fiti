@@ -505,6 +505,13 @@ for (const statement of [
   `ALTER TABLE locations ADD COLUMN wifi_ssid TEXT`,
   `ALTER TABLE locations ADD COLUMN customer_ports TEXT`,
   `ALTER TABLE locations ADD COLUMN hotspot_subnet TEXT`,
+  // A generated RouterOS kit contains a one-time pairing credential and can
+  // contain an owner-selected Wi-Fi or PPPoE secret.  Retain it only while
+  // the matching router is unverified, encrypted with the same authenticated
+  // storage used for tenant payment credentials.  This lets WinBox receive a
+  // short fetch/import command instead of a fragile multi-page terminal paste.
+  `ALTER TABLE locations ADD COLUMN router_setup_script_cipher TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_pending_setup_script_cipher TEXT`,
   `ALTER TABLE tenant_transactions ADD COLUMN provisioning_job_id INTEGER`,
   `ALTER TABLE tenant_transactions ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'fiti'`,
   `ALTER TABLE tenant_transactions ADD COLUMN platform_fee INTEGER NOT NULL DEFAULT 0`,
@@ -675,7 +682,7 @@ const createLocationRow = db.prepare(`
      @wanInterface, @wifiInterface, @wifiSsid, @customerPorts, @hotspotSubnet)
 `);
 const locationById = db.prepare(`
-  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_pending_setup_json, l.router_auth_mode, l.router_status, l.last_seen_at, l.last_router_contact_at, l.last_successful_sync_at, l.router_setup_nonce, l.router_pending_setup_nonce, l.router_setup_verified_at, l.router_setup_health, l.router_setup_checked_at, l.portal_setup_completed_at, l.router_portal_update_sent_host, l.router_portal_applied_host,
+  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_pending_setup_json, l.router_setup_script_cipher, l.router_pending_setup_script_cipher, l.router_auth_mode, l.router_status, l.last_seen_at, l.last_router_contact_at, l.last_successful_sync_at, l.router_setup_nonce, l.router_pending_setup_nonce, l.router_setup_verified_at, l.router_setup_health, l.router_setup_checked_at, l.portal_setup_completed_at, l.router_portal_update_sent_host, l.router_portal_applied_host,
          l.setup_mode, l.router_model, l.routeros_version, l.wifi_stack, l.customer_bridge, l.wan_interface, l.wifi_interface, l.wifi_ssid, l.customer_ports, l.hotspot_subnet,
          b.name AS business_name, b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message, b.collection_mode, b.plan AS business_plan,
          b.billing_status, b.billing_expires_at,
@@ -739,7 +746,9 @@ const stageLocationToken = db.prepare(`
      SET router_pending_token_hash=@tokenHash,
          router_pending_token_expires_at=@expiresAt,
          router_pending_setup_nonce=NULL,
-         router_pending_setup_json=@pendingSetupJson
+         router_pending_setup_json=@pendingSetupJson,
+         router_setup_script_cipher=NULL,
+         router_pending_setup_script_cipher=NULL
    WHERE id=@locationId
 `);
 const promotePendingLocationToken = db.prepare(`
@@ -752,6 +761,7 @@ const promotePendingLocationToken = db.prepare(`
          hotspot_subnet=@hotspotSubnet,
          router_pending_token_hash=NULL, router_pending_token_expires_at=NULL,
          router_pending_setup_nonce=NULL, router_pending_setup_json=NULL,
+         router_setup_script_cipher=NULL, router_pending_setup_script_cipher=NULL,
          router_setup_nonce=NULL, router_setup_verified_at=datetime('now'),
          router_setup_health=@health, router_setup_checked_at=datetime('now'),
          router_status='online', last_router_contact_at=datetime('now'), last_seen_at=datetime('now'),
@@ -775,11 +785,26 @@ const setPendingRouterSetupNonce = db.prepare(`
 `);
 const verifyActiveRouterSetup = db.prepare(`
   UPDATE locations
-     SET router_setup_nonce=NULL, router_setup_verified_at=COALESCE(router_setup_verified_at, datetime('now')),
+     SET router_setup_nonce=NULL, router_setup_script_cipher=NULL,
+         router_setup_verified_at=COALESCE(router_setup_verified_at, datetime('now')),
          router_setup_health=@health, router_setup_checked_at=datetime('now'),
          router_status='online', last_router_contact_at=datetime('now'), last_seen_at=datetime('now'),
          last_successful_sync_at=datetime('now')
    WHERE id=@locationId
+`);
+const saveActiveRouterSetupScript = db.prepare(`
+  UPDATE locations
+     SET router_setup_script_cipher=@cipher
+   WHERE id=@locationId
+     AND router_setup_verified_at IS NULL
+     AND (router_pending_token_hash IS NULL OR router_pending_token_expires_at <= datetime('now'))
+`);
+const savePendingRouterSetupScript = db.prepare(`
+  UPDATE locations
+     SET router_pending_setup_script_cipher=@cipher
+   WHERE id=@locationId
+     AND router_pending_token_hash=@tokenHash
+     AND router_pending_token_expires_at > datetime('now')
 `);
 const completeTenantLocationPortalSetup = db.prepare(`
   UPDATE locations
@@ -3163,6 +3188,52 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
   }
 }
 
+function routerSetupScript(source) {
+  const script = typeof source === 'string' ? source : '';
+  return script.length >= 80 && script.length <= 96 * 1024 &&
+    /^:onerror fitiSetupError in=\{\n\s*# WiFi Fiti/.test(script) &&
+    script.includes('WiFi Fiti setup stopped:') &&
+    !script.includes('\0');
+}
+
+/**
+ * Save the exact server-generated kit only until its header-authenticated
+ * router has completed setup.  The browser still receives the full script as
+ * a transparent fallback, but this encrypted copy permits a compact WinBox
+ * fetch/import command and avoids terminal continuation-mode paste failures.
+ */
+function storeRouterSetupScript({ locationId, token, pairing = 'active', script } = {}) {
+  if (!locationId || !token || !routerSetupScript(script) || !secretsKey()) return false;
+  try {
+    const cipher = encryptSecret(script);
+    const result = pairing === 'pending'
+      ? savePendingRouterSetupScript.run({ locationId, tokenHash: tokenHash(token), cipher })
+      : saveActiveRouterSetupScript.run({ locationId, cipher });
+    return Boolean(result.changes);
+  } catch (_) {
+    // The full kit remains usable. Never expose encryption or storage detail
+    // to a browser or a RouterOS terminal.
+    return false;
+  }
+}
+
+/** Return a still-pending, authenticated kit; never resurrect a paired or
+ * superseded installation.  AES-GCM authentication means a changed database
+ * value simply becomes unavailable rather than RouterOS source. */
+function routerSetupScriptFor(location) {
+  if (!location || !secretsKey()) return null;
+  const pending = location.router_pairing_auth === 'pending';
+  if (!pending && (location.router_setup_verified_at || location.router_pending_token_hash)) return null;
+  const cipher = pending ? location.router_pending_setup_script_cipher : location.router_setup_script_cipher;
+  if (!cipher) return null;
+  try {
+    const script = decryptSecret(cipher);
+    return routerSetupScript(script) ? script : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function authenticateRouter(locationId, rawToken, transport = 'header') {
   const location = locationById.get(locationId);
   if (location?.router_auth_mode === 'header' && transport !== 'header') return null;
@@ -3432,7 +3503,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,

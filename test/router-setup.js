@@ -57,6 +57,8 @@ assert.match(existingKit.script, /\/system scheduler add name="fiti-first-instal
   'existing-router pairing also uses the scheduler-owned retry bootstrap');
 assert.doesNotMatch(existingKit.script, /\/system script add name="fiti-first-install"/,
   'existing-router retries do not depend on a helper script that may disappear');
+assert.doesNotMatch(existingKit.script, /\/system script remove \[find where name="fiti-first-install"\]/,
+  'an existing-router retry never deletes an unmarked legacy helper script');
 assert.match(existingKit.script, /selected Hotspot server is not on the selected customer bridge/);
 assert.doesNotMatch(existingKit.script, /\/ip address add|\/system reset-configuration|\/ip service/);
 
@@ -376,6 +378,10 @@ assert.doesNotMatch(newKit.script, /Interface ether[2345] was not found/,
 assert.match(newKit.script, /\/ip hotspot add name=\$fitiHotspotServer/);
 assert.match(newKit.script, /\/ip firewall nat add chain=srcnat/);
 assert.match(newKit.script, /\/ip pool add name="fiti-pool"/);
+assert.match(newKit.script, /\/ip pool add name="fiti-pool" ranges=.*comment="WiFi Fiti customer DHCP pool"/,
+  'a new-router kit marks the DHCP pool as a WiFi Fiti-owned resource');
+assert.match(newKit.script, /\/ip dhcp-server network add address=.*comment="WiFi Fiti customer DHCP network"/,
+  'a new-router kit marks the DHCP network as a WiFi Fiti-owned resource');
 assert.match(newKit.script, /administrator credentials are never changed/);
 assert.doesNotMatch(newKit.script, /\/user set .*password/);
 assert.doesNotMatch(newKit.script, /\/(?:tool mac-server|ip neighbor discovery-settings)\b/,
@@ -388,6 +394,10 @@ assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n\s+\/ip d
   'the kit creates or adopts the WAN DHCP client and honours reachable ISP DNS');
 assert.match(newKit.script, /RouterOS device mode blocks a required WiFi Fiti feature/,
   'a blocked device-mode feature stops before a router can be half-configured');
+assert.match(newKit.script, /\[:parse ":set fitiDeviceFetch \[\/system device-mode get fetch\]"\]/,
+  'device-mode getters are deferred so an older RouterOS parser cannot split a pasted kit');
+assert.match(newKit.script, /\[:parse ":set fitiDeviceScheduler \[\/system device-mode get scheduler\]"\]/,
+  'each required device-mode property is evaluated only at runtime');
 assert.match(newKit.script, /fetch=yes scheduler=yes hotspot=yes/,
   'the kit gives the owner the narrow physical-confirmation command for required features');
 assert.match(newKit.script, /RouterOS has flagged this configuration/,
@@ -422,6 +432,43 @@ assert.doesNotMatch(automaticKit.script, /\/interface bridge remove/,
   'automatic recovery never deletes the customer bridge or performs a hidden reset');
 assert.match(automaticKit.script, /\/ip firewall filter remove \[find where comment="WiFi Fiti guest isolation"\]/,
   'only exact WiFi Fiti firewall resources are cleared before rebuilding the incomplete setup');
+const automaticRecoveryStart = automaticKit.script.indexOf(':local fitiPartialRecovered false');
+const automaticRecoveryEnd = automaticKit.script.indexOf(':if ([:len $fitiHotspots] > 1)', automaticRecoveryStart);
+const automaticRecovery = automaticKit.script.slice(automaticRecoveryStart, automaticRecoveryEnd);
+assert.match(automaticRecovery, /:local fitiPartialSchedulers \[\/system scheduler find where name="fiti-first-install"\]/,
+  'partial recovery first identifies the retry scheduler by its exact name');
+assert.match(automaticRecovery, /scheduler is not owned by WiFi Fiti/,
+  'a similarly named scheduler without WiFi Fiti ownership evidence stops recovery');
+assert.match(automaticRecovery, /\/system scheduler remove \$fitiPartialSchedulers/,
+  'only a scheduler validated during preflight is removed during recovery');
+assert.doesNotMatch(automaticRecovery, /\/system scheduler remove \[find where name="fiti-first-install"\]/,
+  'recovery never broad-deletes a scheduler just because it shares the helper name');
+assert.doesNotMatch(automaticRecovery, /\/system script remove \[find where name="fiti-first-install"\]/,
+  'recovery preserves an unmarked legacy helper rather than deleting a possible customer script');
+assert.match(automaticRecovery, /:local fitiPartialAdminMembers \[\/interface list member find where list="fiti-local-admin"\]/,
+  'recovery inspects every local-administration list member before deletion');
+assert.match(automaticRecovery, /\/interface list member get \$fitiPartialAdminMember interface\] != \$fitiPartialBridge/,
+  'an unrelated local-administration member prevents automatic cleanup');
+assert.match(automaticRecovery, /\/interface list member remove \$fitiPartialAdminMembers/,
+  'only members validated against the recovered bridge are removed');
+assert.doesNotMatch(automaticRecovery, /\/interface list member remove \[find where list="fiti-local-admin"\]/,
+  'recovery does not broad-delete every member of a matching list');
+assert.match(automaticRecovery, /:local fitiPartialNetworks \[\/ip dhcp-server network find where address=\$fitiPartialExpectedNetwork\]/,
+  'the DHCP network is identified by the setup subnet rather than a shared gateway');
+assert.match(automaticRecovery, /matching DHCP network has an unrecognized gateway/,
+  'a DHCP network must retain the expected gateway before recovery can remove it');
+assert.match(automaticRecovery, /matching DHCP network has unrecognized DNS settings/,
+  'a DHCP network must retain the expected DNS before recovery can remove it');
+assert.doesNotMatch(automaticRecovery, /\/ip dhcp-server network remove \[find where gateway=/,
+  'recovery never deletes every DHCP network that happens to use the tagged bridge gateway');
+assert.match(automaticRecovery, /:local fitiPartialPools \[\/ip pool find where name="fiti-pool"\]/,
+  'the DHCP pool is validated by name before cleanup');
+assert.match(automaticRecovery, /fiti-pool range does not match this WiFi Fiti setup/,
+  'a same-named pool with a different range blocks recovery');
+assert.match(automaticKit.script, /\/ip pool add name="fiti-pool" ranges=.*comment="WiFi Fiti customer DHCP pool"/,
+  'new automatic installations mark their DHCP pool for future recovery');
+assert.match(automaticKit.script, /\/ip dhcp-server network add address=.*comment="WiFi Fiti customer DHCP network"/,
+  'new automatic installations mark their DHCP network for future recovery');
 assert.ok(automaticKit.script.indexOf(':local fitiDeviceFetch') < automaticKit.script.indexOf(':global fitiUrl'),
   'automatic setup checks device mode before recording any new pairing credential');
 assert.match(automaticKit.script, /\[\/interface wireless find\]/,
@@ -451,10 +498,8 @@ assert.doesNotMatch(newKit.script, /on-event="\/system script run fiti-first-ins
   'the retry scheduler cannot become an orphan that repeatedly calls a missing script');
 assert.match(newKit.script, /\/system scheduler run \[find where name="fiti-first-install"\]/,
   'the initial pairing attempt exercises the same self-contained scheduler event used by retries');
-assert.ok(
-  newKit.script.indexOf('/system scheduler remove [find where name="fiti-first-install"]') < newKit.script.indexOf('/system script remove [find where name="fiti-first-install"]'),
-  'an older retry scheduler is removed before its legacy helper script, avoiding one last orphaned execution race'
-);
+assert.doesNotMatch(newKit.script, /\/system script remove \[find where name="fiti-first-install"\]/,
+  'the self-contained retry scheduler leaves an unmarked historic helper inert instead of deleting it');
 assert.match(newKit.script, /fiti: cloud pairing retry:/,
   'bootstrap failures retain the RouterOS error instead of being mislabelled as DNS');
 assert.match(newKit.script, /cloud installer imported; waiting for first secure sync/,

@@ -1003,11 +1003,14 @@ app.post('/api/business/router-setup', (req, res) => {
       routerName: requestedRouterName || setup.routerModel, setup });
     const portalUrl = portalUrlForLocation(location);
     const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, portalUrl, input: body });
+    const loader = tenant.storeRouterSetupScript({
+      locationId: location.id, token: location.routerToken, pairing: 'active', script: generated.script,
+    });
     res.status(201).json({
       location,
       portalUrl,
       coreUrl: config.domains.appUrl,
-      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script },
+      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script, loader },
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not create this router setup.' });
@@ -1039,11 +1042,14 @@ app.post('/api/business/locations/:locationId/router-setup', (req, res) => {
     if (!location) return res.status(404).json({ error: 'Location not found.' });
     const portalUrl = portalUrlForLocation(location);
     const generated = buildRouterSetup({ location, token: location.routerToken, appUrl: config.domains.appUrl, portalUrl, input: body });
+    const loader = tenant.storeRouterSetupScript({
+      locationId: location.id, token: location.routerToken, pairing: 'pending', script: generated.script,
+    });
     res.json({
       location,
       portalUrl,
       coreUrl: config.domains.appUrl,
-      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script },
+      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script, loader },
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not create this router setup.' });
@@ -2990,22 +2996,32 @@ function tenantRouterForHeaderRequest(req, res) {
 }
 
 /**
- * A location-specific fetch/import convenience for an existing Hotspot.
- * This is intentionally not a static VPN script: private WireGuard peers
- * are created only after an authenticated first sync and an explicit owner
- * remote-access request. The returned source merely installs the normal
- * outbound WiFi Fiti poller using the header-paired location credential.
+ * A location-specific fetch/import convenience for a still-unverified
+ * router. The browser has already received the transparent full fallback;
+ * this route returns that exact server-generated kit only after header
+ * authentication. The encrypted-at-rest copy is removed on verification.
  */
 app.get('/api/router/v1/bootstrap', (req, res) => {
   const location = tenantRouterForHeaderRequest(req, res);
   if (!location) return;
   try {
-    const script = buildExistingRouterBootstrap({
-      location,
-      token: req.get('X-WiFi-Fiti-Router'),
-      appUrl: config.domains.appUrl,
-      portalUrl: portalUrlForLocation(location),
-    });
+    let script = tenant.routerSetupScriptFor(location);
+    // A narrow compatibility fallback keeps older, unverified
+    // existing-Hotspot kits usable after deployment. It cannot configure a
+    // reset/automatic router and is deliberately unavailable after pairing.
+    if (!script && location.router_pairing_auth !== 'pending' && !location.router_setup_verified_at) {
+      script = buildExistingRouterBootstrap({
+        location,
+        token: req.get('X-WiFi-Fiti-Router'),
+        appUrl: config.domains.appUrl,
+        portalUrl: portalUrlForLocation(location),
+      });
+    }
+    if (!script) {
+      return res.status(409).type('text/plain').send(
+        '# WiFi Fiti bootstrap is unavailable. Generate a fresh connection kit from the dashboard.\n'
+      );
+    }
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);

@@ -138,7 +138,7 @@ async function main() {
   const bootstrapEndpoint = `/api/router/v1/bootstrap?site=${encodeURIComponent(location.id)}`;
   let prepareControlId = null;
 
-  await test('serves a location-bound existing-Hotspot bootstrap only to the header-paired router', async () => {
+  await test('serves an exact location-bound bootstrap only to the header-paired router', async () => {
     const anonymous = await api(bootstrapEndpoint);
     assert.equal(anonymous.status, 403);
     assert.equal(anonymous.text, '# forbidden\n');
@@ -163,6 +163,28 @@ async function main() {
     assert.doesNotMatch(bootstrap.text,
       /\/user\b|password=|private-key|endpoint-address|persistent-keepalive|\/ip service\b|\/ip firewall nat\b|\/ip (?:address|route|dhcp-client|dhcp-server)\s+(?:add|set|remove)|\/interface bridge(?: port)?\s+(?:add|set|remove)|\/interface (?:wifi|wireless)\s+(?:add|set)|\/interface wireguard(?:\s|$)/i,
       'the fetched bootstrap cannot change credentials, WAN/L3, bridge topology, Wi-Fi, NAT, services, or WireGuard peers');
+  });
+
+  await test('serves the exact encrypted automatic kit through the same short authenticated loader', async () => {
+    const created = await api('/api/business/router-setup', {
+      method: 'POST', token: alphaToken,
+      body: {
+        name: 'Alpha Automatic', routerName: 'Automatic test router', mode: 'auto', routerOsVersion: '7', modelProfile: 'auto',
+        customerBridge: 'bridge-hs', hotspotServer: 'hotspot1', wifiSsid: 'Alpha Automatic WiFi',
+        wifiPassword: 'SafeWifiPass9', customerSubnet: '10.5.51.0/24', wanMode: 'dhcp',
+      },
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.equal(created.body.setup.loader, true,
+      'a server with encrypted tenant storage offers a short loader for an automatic kit');
+    const automatic = await api(`/api/router/v1/bootstrap?site=${encodeURIComponent(created.body.location.id)}`, {
+      routerToken: created.body.location.routerToken,
+    });
+    assert.equal(automatic.status, 200, automatic.text);
+    assert.match(automatic.text, /automatic RouterOS 7 setup kit/);
+    assert.match(automatic.text, /\/ip hotspot add name=\$fitiHotspotServer/,
+      'the one-line loader retrieves the exact automatic Hotspot kit, not a generic pairing script');
+    assert.match(automatic.text, /Alpha Automatic WiFi/);
   });
 
   await test('exposes a non-sensitive default state in the owner workspace', async () => {
@@ -211,6 +233,9 @@ async function main() {
     assert.equal(paired.status, 200, paired.text);
     assert.ok(db.prepare('SELECT last_successful_sync_at FROM locations WHERE id=?').get(location.id).last_successful_sync_at,
       'the valid sync stores the dedicated proof used by the owner-consent check');
+    const consumedLoader = await api(bootstrapEndpoint, { routerToken: location.routerToken });
+    assert.equal(consumedLoader.status, 409,
+      'the encrypted short-loader source is removed as soon as the router proves setup');
   });
 
   await test('enforces ownership, records consent once, and exposes status through /me', async () => {

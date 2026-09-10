@@ -229,10 +229,13 @@ function deviceModePreflightLines() {
     ':local fitiDeviceScheduler true',
     ':local fitiDeviceHotspot true',
     ':local fitiDeviceFlagged false',
-    ':do { :set fitiDeviceFetch [/system device-mode get fetch] } on-error={}',
-    ':do { :set fitiDeviceScheduler [/system device-mode get scheduler] } on-error={}',
-    ':do { :set fitiDeviceHotspot [/system device-mode get hotspot] } on-error={}',
-    ':do { :set fitiDeviceFlagged [/system device-mode get flagged] } on-error={}',
+    // Like the Wi-Fi and certificate menus below, device-mode properties
+    // vary across RouterOS 7 releases. Defer each getter so an older parser
+    // cannot reject the whole connection kit before its on-error fallback.
+    ':do { ' + deferredRouterCommand(':set fitiDeviceFetch [/system device-mode get fetch]') + ' } on-error={}',
+    ':do { ' + deferredRouterCommand(':set fitiDeviceScheduler [/system device-mode get scheduler]') + ' } on-error={}',
+    ':do { ' + deferredRouterCommand(':set fitiDeviceHotspot [/system device-mode get hotspot]') + ' } on-error={}',
+    ':do { ' + deferredRouterCommand(':set fitiDeviceFlagged [/system device-mode get flagged]') + ' } on-error={}',
     ':if (($fitiDeviceFetch != true) || ($fitiDeviceScheduler != true) || ($fitiDeviceHotspot != true)) do={ :error "RouterOS device mode blocks a required WiFi Fiti feature. Run /system device-mode update fetch=yes scheduler=yes hotspot=yes, confirm it physically, then import this kit again." }',
     ':if ($fitiDeviceFlagged = true) do={ :error "RouterOS has flagged this configuration. Audit it, then run /system device-mode update flagged=no and confirm it physically before importing this kit." }',
   ];
@@ -315,7 +318,11 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     // self-contained; no missing script can turn a recoverable WAN/DNS delay
     // into a permanent onboarding failure.
     '/system scheduler remove [find where name="fiti-first-install"]',
-    '/system script remove [find where name="fiti-first-install"]',
+    // Older WiFi Fiti releases used this name for a separate helper script.
+    // That helper is inert after the retry scheduler above is removed, but
+    // historic helpers were not consistently marked with an ownership
+    // comment. Preserve one rather than risk deleting a customer script that
+    // happens to share this generic legacy name.
     // A repeating RouterOS scheduler must not use start-time=startup: RouterOS
     // runs that special start time only when interval=0. An epoch base makes
     // this retry due immediately (or within one interval) after a reboot,
@@ -501,11 +508,18 @@ function automaticRouterDetectionLines(config) {
     ':local fitiPartialBridge ""',
     ':local fitiPartialBridgeId ""',
     ':local fitiPartialExpectedNetwork ' + ros(config.network.cidr),
+    ':local fitiPartialExpectedGateway ' + ros(config.network.gateway),
+    ':local fitiPartialExpectedPool ' + ros(config.network.pool),
     ':local fitiPartialBridges [/interface bridge find where comment="WiFi Fiti customer network"]',
     ':if (([:len $fitiHotspots] = 0) && ([:len $fitiBridges] = 1) && ([:len $fitiPartialBridges] = 1)) do={',
     '  :set fitiPartialBridgeId [:pick $fitiPartialBridges 0]',
     '  :set fitiPartialBridge [/interface bridge get $fitiPartialBridgeId name]',
     '  :if (([:len [/system script find where name="fiti-poll"]] > 0) || ([:len [/system script find where name="fiti-boot"]] > 0)) do={ :error "A WiFi Fiti pairing service already exists without a Hotspot. No automatic cleanup was performed." }',
+    '  :local fitiPartialSchedulers [/system scheduler find where name="fiti-first-install"]',
+    '  :if ([:len $fitiPartialSchedulers] > 1) do={ :error "More than one fiti-first-install scheduler exists. No automatic cleanup was performed." }',
+    '  :foreach fitiPartialScheduler in=$fitiPartialSchedulers do={',
+    '    :if ([/system scheduler get $fitiPartialScheduler comment] != "WiFi Fiti: retry cloud installer until paired") do={ :error "The fiti-first-install scheduler is not owned by WiFi Fiti. No automatic cleanup was performed." }',
+    '  }',
     '  :local fitiPartialAddresses [/ip address find where interface=$fitiPartialBridge]',
     '  :if ([:len $fitiPartialAddresses] > 1) do={ :error "The interrupted WiFi Fiti bridge has multiple IP addresses. No automatic cleanup was performed." }',
     '  :foreach fitiPartialAddress in=$fitiPartialAddresses do={',
@@ -515,19 +529,36 @@ function automaticRouterDetectionLines(config) {
     '  :foreach fitiPartialDhcp in=$fitiPartialDhcpServers do={',
     '    :if ([/ip dhcp-server get $fitiPartialDhcp name] != "fiti-dhcp") do={ :error "The interrupted WiFi Fiti bridge has an unrecognized DHCP server. No automatic cleanup was performed." }',
     '  }',
+    '  :local fitiPartialNetworks [/ip dhcp-server network find where address=$fitiPartialExpectedNetwork]',
+    '  :if ([:len $fitiPartialNetworks] > 1) do={ :error "More than one DHCP network matches this WiFi Fiti setup. No automatic cleanup was performed." }',
+    '  :foreach fitiPartialNetwork in=$fitiPartialNetworks do={',
+    '    :if ([/ip dhcp-server network get $fitiPartialNetwork gateway] != $fitiPartialExpectedGateway) do={ :error "The matching DHCP network has an unrecognized gateway. No automatic cleanup was performed." }',
+    '    :if ([/ip dhcp-server network get $fitiPartialNetwork dns-server] != $fitiPartialExpectedGateway) do={ :error "The matching DHCP network has unrecognized DNS settings. No automatic cleanup was performed." }',
+    '    :local fitiPartialNetworkComment [/ip dhcp-server network get $fitiPartialNetwork comment]',
+    '    :if (($fitiPartialNetworkComment != "") && ($fitiPartialNetworkComment != "WiFi Fiti customer DHCP network")) do={ :error "The matching DHCP network is not owned by WiFi Fiti. No automatic cleanup was performed." }',
+    '  }',
+    '  :local fitiPartialPools [/ip pool find where name="fiti-pool"]',
+    '  :if ([:len $fitiPartialPools] > 1) do={ :error "More than one fiti-pool exists. No automatic cleanup was performed." }',
+    '  :foreach fitiPartialPool in=$fitiPartialPools do={',
+    '    :if ([/ip pool get $fitiPartialPool ranges] != $fitiPartialExpectedPool) do={ :error "The fiti-pool range does not match this WiFi Fiti setup. No automatic cleanup was performed." }',
+    '    :local fitiPartialPoolComment [/ip pool get $fitiPartialPool comment]',
+    '    :if (($fitiPartialPoolComment != "") && ($fitiPartialPoolComment != "WiFi Fiti customer DHCP pool")) do={ :error "The fiti-pool is not owned by WiFi Fiti. No automatic cleanup was performed." }',
+    '  }',
     '  :local fitiPartialAdminLists [/interface list find where name="fiti-local-admin"]',
+    '  :local fitiPartialAdminMembers [/interface list member find where list="fiti-local-admin"]',
     '  :if ([:len $fitiPartialAdminLists] > 1) do={ :error "More than one fiti-local-admin list exists. No automatic cleanup was performed." }',
+    '  :if (([:len $fitiPartialAdminLists] = 0) && ([:len $fitiPartialAdminMembers] > 0)) do={ :error "The fiti-local-admin list has orphaned members. No automatic cleanup was performed." }',
     '  :foreach fitiPartialAdminList in=$fitiPartialAdminLists do={',
     '    :if ([/interface list get $fitiPartialAdminList comment] != "WiFi Fiti local administration") do={ :error "The fiti-local-admin list is not owned by WiFi Fiti. No automatic cleanup was performed." }',
     '  }',
-    '  :local fitiPartialGateway ""',
-    '  :if ([:len $fitiPartialAddresses] = 1) do={',
-    '    :local fitiPartialAddressValue [/ip address get [:pick $fitiPartialAddresses 0] address]',
-    '    :set fitiPartialGateway [:pick $fitiPartialAddressValue 0 [:find $fitiPartialAddressValue "/"]]',
+    '  :foreach fitiPartialAdminMember in=$fitiPartialAdminMembers do={',
+    '    :if ([/interface list member get $fitiPartialAdminMember interface] != $fitiPartialBridge) do={ :error "The fiti-local-admin list has an unrecognized member. No automatic cleanup was performed." }',
     '  }',
     '  :put "WiFi Fiti found an interrupted setup; rebuilding only its tagged resources."',
-    '  :if ([:len [/system scheduler find where name="fiti-first-install"]] > 0) do={ /system scheduler remove [find where name="fiti-first-install"] }',
-    '  :if ([:len [/system script find where name="fiti-first-install"]] > 0) do={ /system script remove [find where name="fiti-first-install"] }',
+    '  :if ([:len $fitiPartialSchedulers] > 0) do={ /system scheduler remove $fitiPartialSchedulers }',
+    // Historic fiti-first-install helpers are intentionally preserved. Their
+    // scheduler has just been ownership-checked and removed, and older
+    // helper scripts do not contain a reliable ownership marker.
     '  :if ([:len [/ip firewall filter find where comment="WiFi Fiti established"]] > 0) do={ /ip firewall filter remove [find where comment="WiFi Fiti established"] }',
     '  :if ([:len [/ip firewall filter find where comment="WiFi Fiti invalid input"]] > 0) do={ /ip firewall filter remove [find where comment="WiFi Fiti invalid input"] }',
     '  :if ([:len [/ip firewall filter find where comment="WiFi Fiti WAN DHCP"]] > 0) do={ /ip firewall filter remove [find where comment="WiFi Fiti WAN DHCP"] }',
@@ -536,21 +567,18 @@ function automaticRouterDetectionLines(config) {
     '  :if ([:len [/ip firewall filter find where comment="WiFi Fiti block WAN management"]] > 0) do={ /ip firewall filter remove [find where comment="WiFi Fiti block WAN management"] }',
     '  :if ([:len [/ip firewall filter find where comment="WiFi Fiti guest isolation"]] > 0) do={ /ip firewall filter remove [find where comment="WiFi Fiti guest isolation"] }',
     '  :if ([:len [/ip firewall nat find where comment="WiFi Fiti hotspot NAT"]] > 0) do={ /ip firewall nat remove [find where comment="WiFi Fiti hotspot NAT"] }',
-    '  :if ([:len $fitiPartialGateway] > 0) do={',
-    '    :if ([:len [/ip dhcp-server network find where gateway=$fitiPartialGateway]] > 0) do={ /ip dhcp-server network remove [find where gateway=$fitiPartialGateway] }',
-    '  }',
     // A previous terminal paste can fail immediately after adding the pool
     // and DHCP network but before its gateway address. In that case there is
-    // no tagged address from which to derive the gateway. The expected
-    // network comes from this one-time kit, so it is still safe to remove
-    // only that orphaned WiFi Fiti resource before rebuilding it.
-    '  :if ([:len [/ip dhcp-server network find where address=$fitiPartialExpectedNetwork]] > 0) do={ /ip dhcp-server network remove [find where address=$fitiPartialExpectedNetwork] }',
+    // no tagged address. The exact network, gateway, DNS and (where present)
+    // comment were all verified above, so only that narrowly identified
+    // orphaned WiFi Fiti resource is removed before rebuilding it.
+    '  :if ([:len $fitiPartialNetworks] > 0) do={ /ip dhcp-server network remove $fitiPartialNetworks }',
     '  :if ([:len $fitiPartialDhcpServers] > 0) do={ /ip dhcp-server remove $fitiPartialDhcpServers }',
-    '  :if ([:len [/ip pool find where name="fiti-pool"]] > 0) do={ /ip pool remove [find where name="fiti-pool"] }',
+    '  :if ([:len $fitiPartialPools] > 0) do={ /ip pool remove $fitiPartialPools }',
     '  :if ([:len [/ip hotspot profile find where name="fiti-hsprof"]] > 0) do={ /ip hotspot profile remove [find where name="fiti-hsprof"] }',
     '  :if ([:len $fitiPartialAddresses] > 0) do={ /ip address remove $fitiPartialAddresses }',
     '  :if ([:len [/interface bridge port find where bridge=$fitiPartialBridge]] > 0) do={ /interface bridge port remove [find where bridge=$fitiPartialBridge] }',
-    '  :if ([:len [/interface list member find where list="fiti-local-admin"]] > 0) do={ /interface list member remove [find where list="fiti-local-admin"] }',
+    '  :if ([:len $fitiPartialAdminMembers] > 0) do={ /interface list member remove $fitiPartialAdminMembers }',
     '  :if ([:len $fitiPartialAdminLists] > 0) do={ /interface list remove $fitiPartialAdminLists }',
     '  /interface bridge set $fitiPartialBridgeId protocol-mode=rstp comment="WiFi Fiti customer network"',
     '  :set fitiPartialRecovered true',
@@ -628,9 +656,9 @@ function buildAutomaticRouterKit({ location, token, appUrl, portalUrl, config })
     '/interface bridge port add bridge=$fitiBridge interface=$fitiWifiInterface',
     ...newRouterWanLines({ ...config, wanMode: 'dhcp' }),
     '/ip address add address=' + ros(config.network.gateway + '/24') + ' interface=$fitiBridge comment="WiFi Fiti customer gateway"',
-    '/ip pool add name="fiti-pool" ranges=' + ros(config.network.pool),
+    '/ip pool add name="fiti-pool" ranges=' + ros(config.network.pool) + ' comment="WiFi Fiti customer DHCP pool"',
     '/ip dhcp-server add name="fiti-dhcp" interface=$fitiBridge address-pool="fiti-pool" lease-time=1h disabled=no',
-    '/ip dhcp-server network add address=' + ros(config.network.cidr) + ' gateway=' + ros(config.network.gateway) + ' dns-server=' + ros(config.network.gateway),
+    '/ip dhcp-server network add address=' + ros(config.network.cidr) + ' gateway=' + ros(config.network.gateway) + ' dns-server=' + ros(config.network.gateway) + ' comment="WiFi Fiti customer DHCP network"',
     routerDnsLine({ ...config, wanMode: 'dhcp' }),
     '/ip firewall nat add chain=srcnat out-interface=$fitiWanOut action=masquerade comment="WiFi Fiti hotspot NAT"',
     '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=http-chap,http-pap use-radius=no',
@@ -746,9 +774,9 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     '/interface bridge port add bridge=$fitiBridge interface=$fitiWifiInterface',
     ...newRouterWanLines(config),
     '/ip address add address=' + ros(config.network.gateway + '/24') + ' interface=$fitiBridge comment="WiFi Fiti customer gateway"',
-    '/ip pool add name="fiti-pool" ranges=' + ros(config.network.pool),
+    '/ip pool add name="fiti-pool" ranges=' + ros(config.network.pool) + ' comment="WiFi Fiti customer DHCP pool"',
     '/ip dhcp-server add name="fiti-dhcp" interface=$fitiBridge address-pool="fiti-pool" lease-time=1h disabled=no',
-    '/ip dhcp-server network add address=' + ros(config.network.cidr) + ' gateway=' + ros(config.network.gateway) + ' dns-server=' + ros(config.network.gateway),
+    '/ip dhcp-server network add address=' + ros(config.network.cidr) + ' gateway=' + ros(config.network.gateway) + ' dns-server=' + ros(config.network.gateway) + ' comment="WiFi Fiti customer DHCP network"',
     routerDnsLine(config),
     '/ip firewall nat add chain=srcnat out-interface=$fitiWanOut action=masquerade comment="WiFi Fiti hotspot NAT"',
     '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=http-chap,http-pap use-radius=no',

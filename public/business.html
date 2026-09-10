@@ -179,7 +179,7 @@
       // Router kits are one-time pairing credentials. Bump this whenever the
       // server-side installer changes so the browser cannot re-copy a cached
       // older kit onto a router that needs the current recovery logic.
-      var routerKitRevision = 'truststore-parse-v4';
+      var routerKitRevision = 'one-line-loader-v5';
       var salesPeriod = '30d';
       var state = { workspace: null, dashboard: null, vouchers: [], payment: null, issuedCodes: [], billing: null };
       var billingPollTimer = null;
@@ -252,7 +252,7 @@
         if (!secret || !location || !location.id) return;
         var setups = getSetups();
         var hasGeneratedScript = Boolean(generated && generated.script);
-        setups[String(location.id)] = { id: String(location.id), name: String(location.name || 'New location'), routerName: String(location.routerName || location.router_name || ''), token: secret, portalUrl: String(portalUrl || publicPortal(location)), customerBridge: String(location.customerBridge || location.customer_bridge || ''), hotspotServer: String(location.hotspotServer || location.hotspot_server || ''), kitRevision: hasGeneratedScript ? routerKitRevision : '', setup: hasGeneratedScript ? { mode: generated.mode, summary: generated.summary, warnings: generated.warnings || [], script: generated.script } : null };
+        setups[String(location.id)] = { id: String(location.id), name: String(location.name || 'New location'), routerName: String(location.routerName || location.router_name || ''), token: secret, portalUrl: String(portalUrl || publicPortal(location)), customerBridge: String(location.customerBridge || location.customer_bridge || ''), hotspotServer: String(location.hotspotServer || location.hotspot_server || ''), kitRevision: hasGeneratedScript ? routerKitRevision : '', setup: hasGeneratedScript ? { mode: generated.mode, summary: generated.summary, warnings: generated.warnings || [], script: generated.script, loader: generated.loader === true } : null };
         saveSetups(setups);
       }
       function rosQuote(value) { return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
@@ -281,25 +281,23 @@
           '/import file-name="fiti-tenant-install.rsc"'
         ].join('\n');
       }
-      // The concise installer is deliberately limited to an existing Hotspot
-      // kit. A new/automatic kit contains the owner's chosen Wi-Fi and WAN
-      // shape, so it must remain the full generated script rather than being
-      // guessed from a one-line command.
+      // The short command never invents RouterOS configuration. It fetches
+      // the exact encrypted, one-time kit that the server generated for this
+      // location, using the location token only in an HTTPS request header.
       function routerBootstrapCommand(setup) {
         var locationId = String(setup && setup.id || '');
         var routerToken = String(setup && setup.token || '');
-        var mode = String(setup && setup.setup && setup.setup.mode || '');
-        if (mode !== 'existing' || !/^loc-[A-Za-z0-9_-]{1,96}$/.test(locationId) || !/^[A-Za-z0-9_-]{16,160}$/.test(routerToken)) return '';
+        var loader = Boolean(setup && setup.setup && setup.setup.loader === true);
+        if (!loader || !/^loc-[A-Za-z0-9_-]{1,96}$/.test(locationId) || !/^[A-Za-z0-9_-]{16,160}$/.test(routerToken)) return '';
         var origin = window.location.origin;
         var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId);
         return [
-          ':do { /certificate settings set builtin-trust-store=all } on-error={ :do { /certificate settings set builtin-trust-anchors=trusted } on-error={} }',
+          ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={ :do { [:parse "/certificate settings set builtin-trust-anchors=trusted"] } on-error={} }',
           ':do { /file remove [find where name="wifi-fiti-bootstrap.rsc"] } on-error={}',
           '/tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=yes dst-path="wifi-fiti-bootstrap.rsc" mode=https',
-          ':delay 2s',
+          ':if ([:len [/file find where name="wifi-fiti-bootstrap.rsc"]] != 1) do={ :error "WiFi Fiti kit was not downloaded. Check WAN, DNS and RouterOS certificate trust, then retry." }',
           '/import file-name="wifi-fiti-bootstrap.rsc"',
-          ':delay 1s',
-          '/file remove "wifi-fiti-bootstrap.rsc"'
+          ':do { /file remove "wifi-fiti-bootstrap.rsc" } on-error={}'
         ].join('; ');
       }
       function copyText(value, button) {
@@ -949,7 +947,7 @@
           var script = routerCommands(saved); var bootstrap = routerBootstrapCommand(saved);
           if (bootstrap) {
             add(box, 'h4', '', 'One-line secure installer');
-            add(box, 'p', '', 'Paste this once into a WinBox terminal. It preserves the router’s Wi-Fi, WAN, DHCP, Hotspot and administrator credentials, then starts its secure outbound connection. Private VPN access is assigned only after the router checks in.');
+            add(box, 'p', '', 'Open a new WinBox terminal and paste this one line once. It fetches the exact one-time kit over authenticated HTTPS, then imports it. Your RouterOS administrator password is never changed.');
             var bootstrapDetails = el('details', 'simple-advanced'); bootstrapDetails.open = true; add(bootstrapDetails, 'summary', '', 'Show one-line RouterOS installer'); var bootstrapInner = el('div', 'simple-advanced-inner'); add(bootstrapInner, 'pre', 'kit-script', bootstrap); bootstrapDetails.appendChild(bootstrapInner); box.appendChild(bootstrapDetails);
             var quickActions = el('div', 'buttons'); var quickCopy = setupAction(quickActions, 'Copy one-line installer', '', function () { copyText(bootstrap, quickCopy); }); setupAction(quickActions, 'Download full kit', 'secondary', function () { downloadRouterScript(script); }); setupAction(quickActions, 'Generate a new kit', 'secondary', function () { forgetSetup(location.id); renderOnboarding(); }); box.appendChild(quickActions);
             var fallbackDetails = el('details', 'simple-advanced'); add(fallbackDetails, 'summary', '', 'Show full RouterOS kit (fallback)'); var fallbackInner = el('div', 'simple-advanced-inner'); add(fallbackInner, 'pre', 'kit-script', script); fallbackDetails.appendChild(fallbackInner); box.appendChild(fallbackDetails);
