@@ -394,10 +394,12 @@ assert.match(newKit.script, /:if \(\[:len \$fitiWanDhcp\] = 0\) do=\{\n\s+\/ip d
   'the kit creates or adopts the WAN DHCP client and honours reachable ISP DNS');
 assert.match(newKit.script, /RouterOS device mode blocks a required WiFi Fiti feature/,
   'a blocked device-mode feature stops before a router can be half-configured');
-assert.match(newKit.script, /\[:parse ":set fitiDeviceFetch \[\/system device-mode get fetch\]"\]/,
-  'device-mode getters are deferred so an older RouterOS parser cannot split a pasted kit');
-assert.match(newKit.script, /\[:parse ":set fitiDeviceScheduler \[\/system device-mode get scheduler\]"\]/,
-  'each required device-mode property is evaluated only at runtime');
+for (const [property, variable] of [['fetch', 'fitiDeviceFetch'], ['scheduler', 'fitiDeviceScheduler'], ['hotspot', 'fitiDeviceHotspot'], ['flagged', 'fitiDeviceFlagged']]) {
+  for (const source of [newKit.script, installer]) {
+    assert.ok(source.includes(':local fitiRead [:parse ":return [/system device-mode get ' + property + ']"]; :set ' + variable + ' [$fitiRead]'),
+      'the kit and downloaded agent return device-mode ' + property + ' into the caller scope');
+  }
+}
 assert.match(newKit.script, /fetch=yes scheduler=yes hotspot=yes/,
   'the kit gives the owner the narrow physical-confirmation command for required features');
 assert.match(newKit.script, /RouterOS has flagged this configuration/,
@@ -496,8 +498,24 @@ assert.doesNotMatch(newKit.script, /\/system script add name="fiti-first-install
   'there is no transient helper script for the scheduler to lose after a partial import');
 assert.doesNotMatch(newKit.script, /on-event="\/system script run fiti-first-install"/,
   'the retry scheduler cannot become an orphan that repeatedly calls a missing script');
-assert.match(newKit.script, /\/system scheduler run \[find where name="fiti-first-install"\]/,
-  'the initial pairing attempt exercises the same self-contained scheduler event used by retries');
+for (const generated of [existingKit, newKit, automaticKit]) {
+  assert.doesNotMatch(generated.script, /\/system scheduler run\b/,
+    'no setup path emits the unsupported scheduler run action that aborts parsing');
+  assert.match(generated.script, /:local fitiRunFirstInstall \[:parse \[\/system scheduler get \[find where name="fiti-first-install"\] on-event\]\]; \$fitiRunFirstInstall/,
+    'the first pairing attempt invokes the stored scheduler event as a parsed function');
+  assert.doesNotMatch(generated.script, /\[:parse ":set fiti/,
+    'deferred probes never try to mutate caller locals from a separately parsed function');
+}
+for (const generated of [newKit, automaticKit]) {
+  assert.equal((generated.script.match(/\$fitiConfigureWifi fitiWifiInterface=\$fitiWifiInterface/g) || []).length, 2,
+    'both WiFi configuration functions receive the detected radio as an explicit argument');
+}
+assert.match(automaticKit.script, /:return \[\/interface wireless find\][^\n]*:set fitiWifiIds \[\$fitiRead\]/,
+  'automatic legacy radio discovery returns interface IDs to the installer');
+assert.match(automaticKit.script, /:return \[\/interface wifi find\][^\n]*:set fitiWifiIds \[\$fitiRead\]/,
+  'automatic modern radio discovery returns interface IDs to the installer');
+assert.match(automaticKit.script, /:set fitiWifiInterface \[\/interface get \$fitiWifiId name\]/,
+  'the detected radio name is resolved in the scope holding its ID');
 assert.doesNotMatch(newKit.script, /\/system script remove \[find where name="fiti-first-install"\]/,
   'the self-contained retry scheduler leaves an unmarked historic helper inert instead of deleting it');
 assert.match(newKit.script, /fiti: cloud pairing retry:/,

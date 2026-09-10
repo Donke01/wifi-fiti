@@ -173,6 +173,14 @@ function deferredRouterCommand(source) {
   return `[:parse "${escaped}"]`;
 }
 
+// :parse creates a function with its own scope. Return probe results and
+// assign them in the caller; a :set inside parsed source cannot update a
+// local variable in the surrounding installer.
+function deferredRouterResult(variable, expression) {
+  return ':local fitiRead ' + deferredRouterCommand(':return ' + expression) +
+    '; :set ' + variable + ' [$fitiRead]';
+}
+
 function fetchTlsOption(url) {
   return new URL(url).protocol === 'https:' ? ' check-certificate=yes' : '';
 }
@@ -232,10 +240,10 @@ function deviceModePreflightLines() {
     // Like the Wi-Fi and certificate menus below, device-mode properties
     // vary across RouterOS 7 releases. Defer each getter so an older parser
     // cannot reject the whole connection kit before its on-error fallback.
-    ':do { ' + deferredRouterCommand(':set fitiDeviceFetch [/system device-mode get fetch]') + ' } on-error={}',
-    ':do { ' + deferredRouterCommand(':set fitiDeviceScheduler [/system device-mode get scheduler]') + ' } on-error={}',
-    ':do { ' + deferredRouterCommand(':set fitiDeviceHotspot [/system device-mode get hotspot]') + ' } on-error={}',
-    ':do { ' + deferredRouterCommand(':set fitiDeviceFlagged [/system device-mode get flagged]') + ' } on-error={}',
+    ':do { ' + deferredRouterResult('fitiDeviceFetch', '[/system device-mode get fetch]') + ' } on-error={}',
+    ':do { ' + deferredRouterResult('fitiDeviceScheduler', '[/system device-mode get scheduler]') + ' } on-error={}',
+    ':do { ' + deferredRouterResult('fitiDeviceHotspot', '[/system device-mode get hotspot]') + ' } on-error={}',
+    ':do { ' + deferredRouterResult('fitiDeviceFlagged', '[/system device-mode get flagged]') + ' } on-error={}',
     ':if (($fitiDeviceFetch != true) || ($fitiDeviceScheduler != true) || ($fitiDeviceHotspot != true)) do={ :error "RouterOS device mode blocks a required WiFi Fiti feature. Run /system device-mode update fetch=yes scheduler=yes hotspot=yes, confirm it physically, then import this kit again." }',
     ':if ($fitiDeviceFlagged = true) do={ :error "RouterOS has flagged this configuration. Audit it, then run /system device-mode update flagged=no and confirm it physically before importing this kit." }',
   ];
@@ -330,11 +338,10 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     '/system scheduler add name="fiti-first-install" start-date=1970-01-01 start-time=00:00:00 interval=15s policy=read,write,ftp,policy,test on-event={',
     ...bootstrap,
     '} comment="WiFi Fiti: retry cloud installer until paired"',
-    // Run the scheduler once now. It uses the same self-contained event as
-    // future retries and therefore validates the actual scheduled path. The
-    // guarded fallback is harmless on RouterOS builds that lack this manual
-    // scheduler action: the normal 15-second event still remains enabled.
-    ':do { /system scheduler run [find where name="fiti-first-install"] } on-error={ :log info "fiti: first cloud pairing queued; scheduler will retry shortly" }',
+    // RouterOS has no /system scheduler run action. Parse the event that was
+    // just installed and invoke it as a function for the first attempt.
+    // Later retries execute under the scheduler's own permissions.
+    ':do { :local fitiRunFirstInstall [:parse [/system scheduler get [find where name="fiti-first-install"] on-event]]; $fitiRunFirstInstall } on-error={ :log info "fiti: first cloud pairing queued; scheduler will retry shortly" }',
     ':put "WiFi Fiti setup started. It will retry cloud pairing every 15 seconds until the router checks in."',
   ];
 }
@@ -439,9 +446,11 @@ function newRouterWirelessLines(config) {
   ].join('; ');
   return [
     ':if ($fitiWifiStack = "wireless") do={',
-    '  ' + deferredRouterCommand(legacyWireless),
+    '  :local fitiConfigureWifi ' + deferredRouterCommand(legacyWireless),
+    '  $fitiConfigureWifi fitiWifiInterface=$fitiWifiInterface',
     '} else={',
-    '  ' + deferredRouterCommand(modernWifi),
+    '  :local fitiConfigureWifi ' + deferredRouterCommand(modernWifi),
+    '  $fitiConfigureWifi fitiWifiInterface=$fitiWifiInterface',
     '}',
   ];
 }
@@ -455,14 +464,14 @@ function newRouterWirelessDetectionLines(config) {
     // selected name and both supported menus before changing anything.
     ':local fitiWifiId ""',
     ':local fitiWifiStack ""',
-    ':do { ' + deferredRouterCommand(':set fitiWifiId [/interface wireless find where name=' + expected + ']') + ' } on-error={ :set fitiWifiId "" }',
+    ':do { ' + deferredRouterResult('fitiWifiId', '[/interface wireless find where name=' + expected + ']') + ' } on-error={ :set fitiWifiId "" }',
     ':if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wireless" } else={',
-    '  :do { ' + deferredRouterCommand(':set fitiWifiId [/interface wifi find where name=' + expected + ']') + ' } on-error={ :set fitiWifiId "" }',
+    '  :do { ' + deferredRouterResult('fitiWifiId', '[/interface wifi find where name=' + expected + ']') + ' } on-error={ :set fitiWifiId "" }',
     '  :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wifi" } else={',
     '    :set fitiWifiInterface ' + ros(alternate),
-    '    :do { ' + deferredRouterCommand(':set fitiWifiId [/interface wireless find where name=$fitiWifiInterface]') + ' } on-error={ :set fitiWifiId "" }',
+    '    :do { ' + deferredRouterResult('fitiWifiId', '[/interface wireless find where name=' + ros(alternate) + ']') + ' } on-error={ :set fitiWifiId "" }',
     '    :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wireless" } else={',
-    '      :do { ' + deferredRouterCommand(':set fitiWifiId [/interface wifi find where name=$fitiWifiInterface]') + ' } on-error={ :set fitiWifiId "" }',
+    '      :do { ' + deferredRouterResult('fitiWifiId', '[/interface wifi find where name=' + ros(alternate) + ']') + ' } on-error={ :set fitiWifiId "" }',
     '      :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wifi" }',
     '    }',
     '  }',
@@ -613,16 +622,16 @@ function automaticRouterDetectionLines(config) {
     // A no-defaults reset leaves a physical radio disabled. Discover it
     // anyway; the fresh-router branch explicitly enables it after setting
     // its security profile and SSID.
-    '  :do { ' + deferredRouterCommand(':set fitiWifiIds [/interface wireless find]') + ' } on-error={}',
+    '  :do { ' + deferredRouterResult('fitiWifiIds', '[/interface wireless find]') + ' } on-error={}',
     '  :if ([:len $fitiWifiIds] > 0) do={',
     '    :set fitiWifiId [:pick $fitiWifiIds 0]',
-    '    ' + deferredRouterCommand(':set fitiWifiInterface [/interface wireless get $fitiWifiId name]'),
+    '    :set fitiWifiInterface [/interface get $fitiWifiId name]',
     '    :set fitiWifiStack "wireless"',
     '  } else={',
-    '    :do { ' + deferredRouterCommand(':set fitiWifiIds [/interface wifi find]') + ' } on-error={}',
+    '    :do { ' + deferredRouterResult('fitiWifiIds', '[/interface wifi find]') + ' } on-error={}',
     '    :if ([:len $fitiWifiIds] > 0) do={',
     '      :set fitiWifiId [:pick $fitiWifiIds 0]',
-    '      ' + deferredRouterCommand(':set fitiWifiInterface [/interface wifi get $fitiWifiId name]'),
+    '      :set fitiWifiInterface [/interface get $fitiWifiId name]',
     '      :set fitiWifiStack "wifi"',
     '    }',
     '  }',

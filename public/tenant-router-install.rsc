@@ -80,10 +80,11 @@
 :local fitiDeviceScheduler true
 :local fitiDeviceHotspot true
 :local fitiDeviceFlagged false
-:do { :set fitiDeviceFetch [/system device-mode get fetch] } on-error={}
-:do { :set fitiDeviceScheduler [/system device-mode get scheduler] } on-error={}
-:do { :set fitiDeviceHotspot [/system device-mode get hotspot] } on-error={}
-:do { :set fitiDeviceFlagged [/system device-mode get flagged] } on-error={}
+# Defer optional properties while returning values into this script's scope.
+:do { :local fitiRead [:parse ":return [/system device-mode get fetch]"]; :set fitiDeviceFetch [$fitiRead] } on-error={}
+:do { :local fitiRead [:parse ":return [/system device-mode get scheduler]"]; :set fitiDeviceScheduler [$fitiRead] } on-error={}
+:do { :local fitiRead [:parse ":return [/system device-mode get hotspot]"]; :set fitiDeviceHotspot [$fitiRead] } on-error={}
+:do { :local fitiRead [:parse ":return [/system device-mode get flagged]"]; :set fitiDeviceFlagged [$fitiRead] } on-error={}
 :if (($fitiDeviceFetch != true) || ($fitiDeviceScheduler != true) || ($fitiDeviceHotspot != true)) do={
   :error "RouterOS device mode blocks a required WiFi Fiti feature. Run /system device-mode update fetch=yes scheduler=yes hotspot=yes, confirm it physically, then import this kit again."
 }
