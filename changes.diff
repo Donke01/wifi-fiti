@@ -1,0 +1,177 @@
+diff --git a/src/lib/tenant.js b/src/lib/tenant.js
+index 186c83a..e0c4679 100644
+--- a/src/lib/tenant.js
++++ b/src/lib/tenant.js
+@@ -2991,6 +2991,61 @@ function autoCompleteCustomerPortal(locationId) {
+   }
+ }
+ 
++/**
++ * Mirrors autoCompleteCustomerPortal directly above: once a router's setup
++ * is independently verified, request remote support on the owner's behalf
++ * automatically, using the exact same requestRemoteAccess/provisionRemoteVpn
++ * path the manual "Remote setup" dashboard button already calls.
++ *
++ * This does NOT remove the safety gate in /api/router/support-enroll that
++ * requires router_pairing_auth==='active' and router_setup_verified_at - a
++ * router still has to prove itself through the normal, verified poll path
++ * first. It only removes the requirement that a human click a button
++ * *after* that proof already exists. The owner can still revoke remote
++ * access at any time through the existing endpoint.
++ *
++ * Both functions this calls are idempotent reconcile-toward-desired-state
++ * steps (confirmed by reading allocateDesiredVpnPeerInTransaction, which
++ * short-circuits when nothing has changed) - so this is safe to call on
++ * every single sync from an already-configured router, not just the first
++ * time. It intentionally swallows its own errors: hotspot billing must
++ * keep working even if VPN provisioning hits a problem, since remote
++ * support is a secondary feature layered on top of it, not the other way
++ * round.
++ */
++function autoRequestRemoteAccess(location) {
++  if (!location || !location.router_setup_verified_at) return location;
++  try {
++    tenant_requestRemoteAccessInternal(location);
++  } catch (error) {
++    // A router that syncs again before it has acknowledged a pending
++    // revoke is routine, not a failure - it resolves itself on a later
++    // sync once the ack arrives, and can recur every cycle in between.
++    // Warn only for anything else, so this expected state does not drown
++    // out a genuine problem in production logs.
++    if (error && error.status === 409 && remoteSupportRevokeIsPending(location.id)) {
++      return locationById.get(location.id) || location;
++    }
++    console.warn(`[remote-access] auto-request failed for ${location.id}: ${error.message}`);
++  }
++  return locationById.get(location.id) || location;
++}
++
++// Split out so the try/catch above stays simple to read - this is the part
++// that can legitimately throw (e.g. a revoked-but-cleanup-pending state).
++function tenant_requestRemoteAccessInternal(location) {
++  requestRemoteAccess({ locationId: location.id, businessId: location.business_id });
++  if (config.vpnGateway && config.vpnGateway.enabled) {
++    provisionRemoteVpn({
++      locationId: location.id,
++      gatewayId: config.vpnGateway.id,
++      gatewayName: 'WiFi Fiti secure gateway',
++      managementCidr: config.vpnGateway.managementCidr,
++      actorId: 'platform:auto-onboarding',
++    });
++  }
++}
++
+ function setManagedPortalHostname({ locationId, businessId, slug }) {
+   if (!config.domains.portalGatewayEnabled) {
+     const error = new Error('Tenant portal addresses will be available after WiFi Fiti finishes the Cloudflare gateway setup.');
+@@ -3432,7 +3487,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } =
+ }
+ 
+ module.exports = {
+-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
++  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, autoRequestRemoteAccess, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
+   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
+   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
+diff --git a/src/server.js b/src/server.js
+index 3059578..aad7473 100644
+--- a/src/server.js
++++ b/src/server.js
+@@ -3293,6 +3293,7 @@ app.post('/api/router/sync', (req, res) => {
+       return res.type('text/plain').send(routerSetupReceiptScript(receipt.challenge));
+     }
+     let readyLocation = tenant.autoCompleteCustomerPortal(receipt.location.id) || receipt.location;
++    readyLocation = tenant.autoRequestRemoteAccess(readyLocation) || readyLocation;
+     // Automatic kits discover the live Hotspot and customer bridge on the
+     // router. Persist those detected names before emitting queued jobs so a
+     // custom Hotspot is never addressed as the default `hotspot1`.
+diff --git a/test/mapped-deployment-integration.js b/test/mapped-deployment-integration.js
+index 567d6e2..36eaefd 100644
+--- a/test/mapped-deployment-integration.js
++++ b/test/mapped-deployment-integration.js
+@@ -121,17 +121,20 @@ function map(location, token) {
+   });
+ }
+ 
+-async function enableAndHandshakeVpn(location, token) {
++async function enableAndHandshakeVpn(location, token, pairedSyncResponse) {
+   const remoteEndpoint = `/api/business/locations/${encodeURIComponent(location.id)}/remote-access`;
+   const supportEndpoint = `/api/router/support-enroll?site=${encodeURIComponent(location.id)}`;
+   const gatewayEndpoint = '/api/internal/vpn-gateways/primary/sync';
+   const requested = await api(remoteEndpoint, { method: 'POST', token, body: { consent: true } });
+   assert.equal(requested.status, 200, JSON.stringify(requested.body));
+-  const prepare = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
+-    method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
+-  });
+-  const prepareAck = prepare.text.match(/:global fitiSupportAck "(\d+)"/);
+-  assert.ok(prepareAck, 'remote access queues the separate harmless prepare control');
++  // Remote access is now requested automatically the moment a router's
++  // setup is independently verified - see autoRequestRemoteAccess. The
++  // prepare acknowledgement therefore already arrived in the sync response
++  // where that verification completed, not in a fresh one issued after
++  // this consent call.
++  const prepareAck = pairedSyncResponse.text.match(/:global fitiSupportAck "(\d+)"/);
++  assert.ok(prepareAck,
++    'automatic remote-access request should have queued router preparation on the verified sync');
+   const enrolled = await api(supportEndpoint, {
+     method: 'POST', routerToken: location.routerToken, body: supportEnrollment(location.id), contentType: 'text/plain',
+   });
+@@ -198,7 +201,7 @@ async function main() {
+   assert.equal(beforeVpn.status, 409, 'a current map alone cannot authorize remote deployment');
+   assert.match(beforeVpn.body.error, /secure remote access|VPN/i);
+ 
+-  await enableAndHandshakeVpn(location, ownerToken);
++  await enableAndHandshakeVpn(location, ownerToken, paired);
+   const ready = await api(deploymentEndpoint, { token: ownerToken });
+   assert.equal(ready.status, 200, JSON.stringify(ready.body));
+   assert.equal(ready.body.canRequest, true);
+diff --git a/test/vpn-gateway-integration.js b/test/vpn-gateway-integration.js
+index 9cf6eea..2e49260 100644
+--- a/test/vpn-gateway-integration.js
++++ b/test/vpn-gateway-integration.js
+@@ -128,6 +128,16 @@ async function main() {
+ 
+   const paired = await completeRouterSync(location);
+   assert.equal(paired.status, 200, paired.text);
++  // Remote access is now requested automatically the moment a router's
++  // setup is independently verified - see autoRequestRemoteAccess. So the
++  // prepare acknowledgement appears in THIS response, not a later one that
++  // only follows an explicit owner click.
++  const prepareAck = paired.text.match(/:global fitiSupportAck "(\d+)"/);
++  assert.ok(prepareAck,
++    'automatic remote-access request should queue router preparation on first verified sync');
++  assert.match(paired.text, /\/system script run \$fitiSupportBootstrap/);
++  assert.doesNotMatch(paired.text, /endpoint-address|private-key|0\.0\.0\.0\/0|\/ip hotspot|\/ip firewall nat/i,
++    'automatic preparation must stay exactly as harmless as the manual path was');
+ 
+   const unauthorized = await api(gatewayEndpoint, { method: 'POST', body: {} });
+   assert.equal(unauthorized.status, 404, 'the internal gateway endpoint stays invisible without its separate secret');
+@@ -136,6 +146,12 @@ async function main() {
+   });
+   assert.equal(malformed.status, 400, 'the gateway route refuses malformed peer observations');
+ 
++  // The owner can still explicitly confirm consent at any time. With
++  // automatic requesting already having driven this to 'configured', this
++  // call now exercises the idempotent no-op path instead of the original
++  // transition - both are already covered by requestRemoteAccess's own
++  // unit tests, so this checks the two integrate correctly rather than
++  // re-proving idempotency here.
+   const requested = await api(remoteEndpoint, { method: 'POST', token: businessToken, body: { consent: true } });
+   assert.equal(requested.status, 200, JSON.stringify(requested.body));
+   assert.equal(requested.body.remoteAccess.status, 'configured', 'gateway-enabled consent moves directly to harmless router preparation');
+@@ -143,15 +159,6 @@ async function main() {
+   assert.equal(requested.body.remoteAccess.gatewayState, 'preparing_router');
+   assert.equal(JSON.stringify(requested.body).includes(routerPublicKey), false, 'owner output never exposes a router identity');
+ 
+-  const prepare = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
+-    method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
+-  });
+-  assert.equal(prepare.status, 200, prepare.text);
+-  const prepareAck = prepare.text.match(/:global fitiSupportAck "(\d+)"/);
+-  assert.ok(prepareAck, 'the router receives a separate, safe WireGuard preparation acknowledgement');
+-  assert.match(prepare.text, /\/system script run \$fitiSupportBootstrap/);
+-  assert.doesNotMatch(prepare.text, /endpoint-address|private-key|0\.0\.0\.0\/0|\/ip hotspot|\/ip firewall nat/i);
+-
+   const enrolled = await api(supportEndpoint, {
+     method: 'POST', routerToken: location.routerToken, body: supportEnrollment(location.id), contentType: 'text/plain',
+   });
