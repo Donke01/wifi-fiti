@@ -349,7 +349,12 @@ assert.match(newKit.script, /\} do=\{/,
   'a setup error is caught and printed instead of leaving a silent partial import');
 assert.match(newKit.script, /WiFi Fiti setup stopped: /,
   'the exact RouterOS failure is visible in the terminal and log');
-assert.match(newKit.script, /\/interface wireless set/);
+assert.match(newKit.script, /\[:parse "[^\n]*\/interface wireless set/,
+  'legacy wireless commands are deferred until RouterOS confirms that legacy menu exists');
+assert.match(newKit.script, /\[:parse "[^\n]*\/interface wifi set/,
+  'modern WiFi commands are deferred until RouterOS confirms that modern menu exists');
+assert.doesNotMatch(newKit.script, /^\s*\/interface (?:wifi|wireless)\b/m,
+  'an imported kit never asks RouterOS to parse the absent WiFi stack at top level');
 assert.match(newKit.script, /fitiWifiStack/);
 assert.match(newKit.script, /No supported WiFi interface found/);
 assert.doesNotMatch(newKit.script, /Interface wlan1 was not found/,
@@ -395,6 +400,8 @@ assert.match(automaticKit.script, /\[\/interface wireless find\]/,
   'automatic setup discovers a reset radio even while RouterOS leaves it disabled');
 assert.match(automaticKit.script, /\[\/interface wifi find\]/,
   'automatic setup discovers a reset modern WiFi radio even while it is disabled');
+assert.doesNotMatch(automaticKit.script, /^\s*\/interface (?:wifi|wireless)\b/m,
+  'automatic setup defers both incompatible WiFi menus until after runtime detection');
 assert.doesNotMatch(automaticKit.script, /find where disabled=no/,
   'a no-defaults reset must not be rejected just because its WiFi interface starts disabled');
 assert.match(automaticKit.script, /customer Ethernet ports:/);
@@ -439,7 +446,7 @@ assert.match(installer, /RouterOS device mode blocks a required WiFi Fiti featur
   'the downloaded installer also fails clearly before a partial Hotspot change on a blocked router');
 
 const modernKit = kit({ ...newRouter, modelProfile: 'modern-wifi', routerModel: 'Modern WiFi router', wifiInterface: 'wifi1' });
-assert.match(modernKit.script, /\/interface wifi set/);
+assert.match(modernKit.script, /\[:parse "[^\n]*\/interface wifi set/);
 assert.match(modernKit.script, /\/interface wireless find/,
   'the modern kit probes both RouterOS Wi-Fi stacks before selecting the right one');
 

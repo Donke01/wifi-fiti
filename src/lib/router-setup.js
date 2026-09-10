@@ -155,6 +155,24 @@ function ros(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
+// RouterOS validates every command in an imported .rsc file, including a
+// command in an :if branch that will not run. That is a problem for Wi-Fi:
+// legacy devices expose /interface wireless, while newer devices expose
+// /interface wifi. Keep stack-specific commands inside :parse so they are
+// parsed only after runtime detection chooses the menu that exists.
+//
+// `:parse` receives a RouterOS string, so its inner quote, backslash and
+// dollar characters must survive the outer parser unchanged. In particular,
+// \$ stops the outer parser interpolating a runtime variable before the inner
+// command is executed.
+function deferredRouterCommand(source) {
+  const escaped = String(source)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, '\\$');
+  return `[:parse "${escaped}"]`;
+}
+
 function fetchTlsOption(url) {
   return new URL(url).protocol === 'https:' ? ' check-certificate=yes' : '';
 }
@@ -391,22 +409,26 @@ function buildExistingRouterBootstrap({ location, token, appUrl, portalUrl }) {
 }
 
 function newRouterWirelessLines(config) {
+  const legacyWireless = [
+    ':if ([:len [/interface wireless security-profiles find where name="fiti-wifi-security"]] = 0) do={ /interface wireless security-profiles add name="fiti-wifi-security" mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key=' + ros(config.wifiPassword) + ' }',
+    '/interface wireless security-profiles set [find where name="fiti-wifi-security"] authentication-types=wpa2-psk',
+    '/interface wireless security-profiles set [find where name="fiti-wifi-security"] wpa2-pre-shared-key=' + ros(config.wifiPassword),
+    '/interface wireless security-profiles set [find where name="fiti-wifi-security"] supplicant-identity=MikroTik',
+    '/interface wireless set [find where name=$fitiWifiInterface] mode=ap-bridge band=2ghz-b/g/n',
+    '/interface wireless set [find where name=$fitiWifiInterface] ssid=' + ros(config.wifiSsid) + ' security-profile="fiti-wifi-security"',
+    '/interface wireless set [find where name=$fitiWifiInterface] country=kenya disabled=no',
+  ].join('; ');
+  const modernWifi = [
+    '/interface wifi set [find where name=$fitiWifiInterface] configuration.mode=ap configuration.country=Kenya',
+    '/interface wifi set [find where name=$fitiWifiInterface] configuration.ssid=' + ros(config.wifiSsid) + ' disabled=no',
+    '/interface wifi set [find where name=$fitiWifiInterface] security.authentication-types=wpa2-psk',
+    '/interface wifi set [find where name=$fitiWifiInterface] security.passphrase=' + ros(config.wifiPassword),
+  ].join('; ');
   return [
     ':if ($fitiWifiStack = "wireless") do={',
-    '  :if ([:len [/interface wireless security-profiles find where name="fiti-wifi-security"]] = 0) do={',
-    '    /interface wireless security-profiles add name="fiti-wifi-security" mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key=' + ros(config.wifiPassword),
-    '  }',
-    '  /interface wireless security-profiles set [find where name="fiti-wifi-security"] authentication-types=wpa2-psk',
-    '  /interface wireless security-profiles set [find where name="fiti-wifi-security"] wpa2-pre-shared-key=' + ros(config.wifiPassword),
-    '  /interface wireless security-profiles set [find where name="fiti-wifi-security"] supplicant-identity=MikroTik',
-    '  /interface wireless set [find where name=$fitiWifiInterface] mode=ap-bridge band=2ghz-b/g/n',
-    '  /interface wireless set [find where name=$fitiWifiInterface] ssid=' + ros(config.wifiSsid) + ' security-profile="fiti-wifi-security"',
-    '  /interface wireless set [find where name=$fitiWifiInterface] country=kenya disabled=no',
+    '  ' + deferredRouterCommand(legacyWireless),
     '} else={',
-    '  /interface wifi set [find where name=$fitiWifiInterface] configuration.mode=ap configuration.country=Kenya',
-    '  /interface wifi set [find where name=$fitiWifiInterface] configuration.ssid=' + ros(config.wifiSsid) + ' disabled=no',
-    '  /interface wifi set [find where name=$fitiWifiInterface] security.authentication-types=wpa2-psk',
-    '  /interface wifi set [find where name=$fitiWifiInterface] security.passphrase=' + ros(config.wifiPassword),
+    '  ' + deferredRouterCommand(modernWifi),
     '}',
   ];
 }
@@ -420,14 +442,14 @@ function newRouterWirelessDetectionLines(config) {
     // selected name and both supported menus before changing anything.
     ':local fitiWifiId ""',
     ':local fitiWifiStack ""',
-    ':do { :set fitiWifiId [/interface wireless find where name=' + expected + '] } on-error={ :set fitiWifiId "" }',
+    ':do { ' + deferredRouterCommand(':set fitiWifiId [/interface wireless find where name=' + expected + ']') + ' } on-error={ :set fitiWifiId "" }',
     ':if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wireless" } else={',
-    '  :do { :set fitiWifiId [/interface wifi find where name=' + expected + '] } on-error={ :set fitiWifiId "" }',
+    '  :do { ' + deferredRouterCommand(':set fitiWifiId [/interface wifi find where name=' + expected + ']') + ' } on-error={ :set fitiWifiId "" }',
     '  :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wifi" } else={',
     '    :set fitiWifiInterface ' + ros(alternate),
-    '    :do { :set fitiWifiId [/interface wireless find where name=$fitiWifiInterface] } on-error={ :set fitiWifiId "" }',
+    '    :do { ' + deferredRouterCommand(':set fitiWifiId [/interface wireless find where name=$fitiWifiInterface]') + ' } on-error={ :set fitiWifiId "" }',
     '    :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wireless" } else={',
-    '      :do { :set fitiWifiId [/interface wifi find where name=$fitiWifiInterface] } on-error={ :set fitiWifiId "" }',
+    '      :do { ' + deferredRouterCommand(':set fitiWifiId [/interface wifi find where name=$fitiWifiInterface]') + ' } on-error={ :set fitiWifiId "" }',
     '      :if ([:len $fitiWifiId] = 1) do={ :set fitiWifiStack "wifi" }',
     '    }',
     '  }',
@@ -493,10 +515,18 @@ function automaticRouterDetectionLines() {
     // A no-defaults reset leaves a physical radio disabled. Discover it
     // anyway; the fresh-router branch explicitly enables it after setting
     // its security profile and SSID.
-    '  :do { :set fitiWifiIds [/interface wireless find] } on-error={}',
-    '  :if ([:len $fitiWifiIds] > 0) do={ :set fitiWifiId [:pick $fitiWifiIds 0]; :set fitiWifiInterface [/interface wireless get $fitiWifiId name]; :set fitiWifiStack "wireless" } else={',
-    '    :do { :set fitiWifiIds [/interface wifi find] } on-error={}',
-    '    :if ([:len $fitiWifiIds] > 0) do={ :set fitiWifiId [:pick $fitiWifiIds 0]; :set fitiWifiInterface [/interface wifi get $fitiWifiId name]; :set fitiWifiStack "wifi" }',
+    '  :do { ' + deferredRouterCommand(':set fitiWifiIds [/interface wireless find]') + ' } on-error={}',
+    '  :if ([:len $fitiWifiIds] > 0) do={',
+    '    :set fitiWifiId [:pick $fitiWifiIds 0]',
+    '    ' + deferredRouterCommand(':set fitiWifiInterface [/interface wireless get $fitiWifiId name]'),
+    '    :set fitiWifiStack "wireless"',
+    '  } else={',
+    '    :do { ' + deferredRouterCommand(':set fitiWifiIds [/interface wifi find]') + ' } on-error={}',
+    '    :if ([:len $fitiWifiIds] > 0) do={',
+    '      :set fitiWifiId [:pick $fitiWifiIds 0]',
+    '      ' + deferredRouterCommand(':set fitiWifiInterface [/interface wifi get $fitiWifiId name]'),
+    '      :set fitiWifiStack "wifi"',
+    '    }',
     '  }',
     '  :if ([:len $fitiWifiStack] = 0) do={ :error "No wireless or WiFi interface was found. Check the installed RouterOS Wi-Fi package." }',
     '  :put ("WiFi Fiti detected fresh board " . [/system resource get board-name] . "; WAN " . $fitiWanInterface . "; WiFi " . $fitiWifiInterface . " (" . $fitiWifiStack . ")")',
