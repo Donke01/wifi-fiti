@@ -1010,7 +1010,8 @@ app.post('/api/business/router-setup', (req, res) => {
       location,
       portalUrl,
       coreUrl: config.domains.appUrl,
-      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script, loader },
+      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script, loader,
+        loaderStatus: loader ? 'ready' : (process.env.TENANT_SECRETS_KEY ? 'unavailable' : 'storage_not_configured') },
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not create this router setup.' });
@@ -1049,7 +1050,8 @@ app.post('/api/business/locations/:locationId/router-setup', (req, res) => {
       location,
       portalUrl,
       coreUrl: config.domains.appUrl,
-      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script, loader },
+      setup: { mode: generated.config.mode, summary: generated.summary, warnings: generated.warnings, script: generated.script, loader,
+        loaderStatus: loader ? 'ready' : (process.env.TENANT_SECRETS_KEY ? 'unavailable' : 'storage_not_configured') },
     });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not create this router setup.' });

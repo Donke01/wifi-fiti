@@ -396,6 +396,11 @@ Generate the tenant key once with `openssl rand -base64 48`. Keep it in
 Railway's secret variables, never in Git, and do not rotate it casually: it
 encrypts connected businesses' Daraja credentials and changing it without a
 credential-migration process would make those connections unreadable.
+The same key encrypts temporary router setup kits for the **Copy one-line
+installer** action. If it is absent, the dashboard explains that secure
+installer storage is unavailable and offers the full `.rsc` download.
+After adding the key, redeploy and generate a fresh connection kit. Existing
+saved kits do not automatically become downloadable through the short installer.
 
 Also set the platform `MPESA_*` values to real production Daraja credentials
 before offering WiFi Fiti collection or automated business-plan billing. The

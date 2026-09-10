@@ -271,4 +271,66 @@ assert.doesNotMatch(html, /\/system device-mode update mode=advanced/,
 
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
+// Exercise all three public result screens: a button present somewhere in
+// the HTML is not enough if owners enter through a different setup screen.
+const vm = require('node:vm');
+class TestElement {
+  constructor(tag) { this.tagName = tag; this.children = []; this.textContent = ''; this.listeners = {}; this.classList = { add() {}, remove() {} }; }
+  appendChild(child) { this.children.push(child); return child; }
+  replaceChildren() { this.children = []; }
+  setAttribute(name, value) { this[name] = value; }
+  addEventListener(event, handler) { this.listeners[event] = handler; }
+}
+function descendants(element) { return [element, ...element.children.flatMap(descendants)]; }
+let savedKits = {};
+let copiedCommand = '';
+const elements = new Map();
+const uiLocation = { id: 'loc-installer-test', name: 'Test router', routerToken: 'test-pairing-token-1234567890' };
+const context = vm.createContext({
+  document: { createElement: tag => new TestElement(tag) },
+  window: { location: { origin: 'https://cloud.example.test' } },
+  $: id => { if (!elements.has(id)) elements.set(id, new TestElement('div')); return elements.get(id); },
+  routerKitRevision: html.match(/var routerKitRevision = '([^']+)'/)[1],
+  state: { workspace: { business: {}, locations: [uiLocation] } },
+  getSetups: () => savedKits,
+  saveSetups: value => { savedKits = value; },
+  copyText: value => { copiedCommand = value; },
+  publicPortal: () => 'https://cloud.example.test/p/loc-installer-test',
+  setConnectionPhase() {}, mergeLocation() {}, rememberOnboardingLocation() {},
+  onboardingModel: () => ({}), onboardingFlowState: () => ({ active: false }),
+  advanceOnboardingStage() {}, renderLocations() {}, downloadRouterScript() {},
+});
+for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands',
+  'routerBootstrapCommand', 'storedRouterKitHasScript', 'storedRouterKitIsCurrent', 'storedRouterKitIsStale',
+  'appendRouterInstaller', 'appendSimpleRouterSetup', 'renderPairingKits', 'showRouterSetup']) {
+  const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
+  assert.ok(declaration, name + ' is available to exercise');
+  vm.runInContext(declaration[0], context);
+}
+for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', '']) {
+  const generated = { mode: 'auto', script: '# Test full kit\n:put "test"', loader: loaderStatus === 'ready', loaderStatus };
+  context.showRouterSetup({ location: uiLocation, portalUrl: context.publicPortal(), setup: generated });
+  const guided = new TestElement('div'); context.appendSimpleRouterSetup(guided, { location: uiLocation });
+  for (const [screen, root] of [['setup result', elements.get('router-setup-output')], ['saved kits', elements.get('setup-list')], ['guided setup', guided]]) {
+    const nodes = descendants(root);
+    const buttons = nodes.filter(node => node.tagName === 'button' && node.textContent === 'Copy one-line installer');
+    assert.equal(buttons.length, 1, screen + ' always identifies the one-line installer');
+    assert.equal(buttons[0].disabled, !generated.loader, screen + ' enables copying only for an available installer');
+    if (generated.loader) {
+      copiedCommand = ''; buttons[0].listeners.click();
+      assert.ok(copiedCommand.includes('/api/router/v1/bootstrap?site=' + uiLocation.id), screen + ' copies the selected router installer');
+      assert.ok(copiedCommand.includes('X-WiFi-Fiti-Router: ' + uiLocation.routerToken));
+      assert.ok(!copiedCommand.includes('\n'), screen + ' copies a single line');
+      assert.notEqual(copiedCommand, generated.script, screen + ' does not copy the full kit through the short-command button');
+    } else {
+      const message = loaderStatus === 'storage_not_configured' ? 'secure installer storage has not been configured' : 'could not prepare the one-line installer';
+      assert.ok(nodes.some(node => node.textContent.includes(message)), screen + ' explains installer unavailability');
+      assert.ok(nodes.some(node => node.tagName === 'button' && node.textContent === 'Download .rsc'), screen + ' keeps the full kit available');
+    }
+  }
+}
+const stale = new TestElement('div');
+context.appendRouterInstaller(stale, { ...savedKits[uiLocation.id], kitRevision: 'old' });
+assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a stale kit');
+
 console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');

@@ -126,6 +126,7 @@ async function main() {
     },
   });
   assert.equal(created.status, 201, JSON.stringify(created.body));
+  assert.equal(created.body.setup.loaderStatus, 'ready');
   const location = created.body.location;
   const bravoLocationCreated = await api('/api/business/locations', {
     method: 'POST', token: bravoToken,
@@ -177,6 +178,7 @@ async function main() {
     assert.equal(created.status, 201, JSON.stringify(created.body));
     assert.equal(created.body.setup.loader, true,
       'a server with encrypted tenant storage offers a short loader for an automatic kit');
+    assert.equal(created.body.setup.loaderStatus, 'ready');
     const automatic = await api(`/api/router/v1/bootstrap?site=${encodeURIComponent(created.body.location.id)}`, {
       routerToken: created.body.location.routerToken,
     });
@@ -185,6 +187,37 @@ async function main() {
     assert.match(automatic.text, /\/ip hotspot add name=\$fitiHotspotServer/,
       'the one-line loader retrieves the exact automatic Hotspot kit, not a generic pairing script');
     assert.match(automatic.text, /Alpha Automatic WiFi/);
+  });
+
+  await test('explains missing secure installer storage for new and replacement kits', async () => {
+    const ownerToken = await createBusiness('no-storage-remote@example.test');
+    const storageKey = process.env.TENANT_SECRETS_KEY;
+    const input = { name: 'Storage test', mode: 'auto', routerOsVersion: '7', modelProfile: 'auto',
+      customerBridge: 'bridge-hs', hotspotServer: 'hotspot1', wifiSsid: 'Test WiFi',
+      wifiPassword: 'SafeWifiPass9', customerSubnet: '10.5.51.0/24', wanMode: 'dhcp' };
+    try {
+      delete process.env.TENANT_SECRETS_KEY;
+      const first = await api('/api/business/router-setup', { method: 'POST', token: ownerToken, body: input });
+      assert.equal(first.status, 201, JSON.stringify(first.body));
+      assert.equal(first.body.setup.loader, false);
+      assert.equal(first.body.setup.loaderStatus, 'storage_not_configured');
+      assert.ok(first.body.setup.script.includes('automatic RouterOS 7 setup kit'), 'the full kit remains available');
+      const setupUrl = `/api/business/locations/${first.body.location.id}/router-setup`;
+      const replacement = await api(setupUrl, { method: 'POST', token: ownerToken, body: input });
+      assert.equal(replacement.status, 200, JSON.stringify(replacement.body));
+      assert.equal(replacement.body.setup.loader, false);
+      assert.equal(replacement.body.setup.loaderStatus, 'storage_not_configured');
+      process.env.TENANT_SECRETS_KEY = storageKey;
+      const ready = await api(setupUrl, { method: 'POST', token: ownerToken, body: input });
+      assert.equal(ready.status, 200, JSON.stringify(ready.body));
+      assert.equal(ready.body.setup.loader, true);
+      assert.equal(ready.body.setup.loaderStatus, 'ready');
+      const downloaded = await api(`/api/router/v1/bootstrap?site=${first.body.location.id}`, { routerToken: ready.body.location.routerToken });
+      assert.equal(downloaded.status, 200);
+      assert.equal(downloaded.text, ready.body.setup.script, 'regenerating after storage is configured enables the exact installer');
+    } finally {
+      process.env.TENANT_SECRETS_KEY = storageKey;
+    }
   });
 
   await test('exposes a non-sensitive default state in the owner workspace', async () => {
