@@ -630,13 +630,14 @@ function newRouterSecurityLines() {
 }
 
 function newRouterMacSecurityLines() {
-  // These services can interrupt an active MAC WinBox terminal. Run them
-  // after the pairing script has been installed and started, so a console
-  // restart cannot leave a router half-configured.
+  // Do not change MAC WinBox, MAC server or neighbour-discovery access during
+  // first-time onboarding. A new/reset router is commonly configured through
+  // a MAC WinBox session; restricting those services here immediately drops
+  // that owner session before cloud pairing has been verified. MAC access is
+  // layer-2 only and must be hardened later through an explicit, owner-led
+  // management action rather than silently during installation.
   return [
-    '/tool mac-server set allowed-interface-list="fiti-local-admin"',
-    '/tool mac-server mac-winbox set allowed-interface-list="fiti-local-admin"',
-    '/ip neighbor discovery-settings set discover-interface-list="fiti-local-admin"',
+    '# WiFi Fiti leaves local MAC management unchanged during onboarding.',
   ];
 }
 

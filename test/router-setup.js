@@ -370,6 +370,8 @@ assert.match(newKit.script, /\/ip firewall nat add chain=srcnat/);
 assert.match(newKit.script, /\/ip pool add name="fiti-pool"/);
 assert.match(newKit.script, /administrator credentials are never changed/);
 assert.doesNotMatch(newKit.script, /\/user set .*password/);
+assert.doesNotMatch(newKit.script, /\/(?:tool mac-server|ip neighbor discovery-settings)\b/,
+  'first-time onboarding does not drop an owner MAC WinBox session while pairing is still unverified');
 assert.doesNotMatch(newKit.script, /interface="ether5"/,
   'the hAP lite profile never receives a non-existent ether5 port');
 assert.match(newKit.script, /:local fitiWanDhcp \[\/ip dhcp-client find where interface=\$fitiWanInterface\]/,
@@ -437,8 +439,6 @@ assert.ok(newKit.script.indexOf('/file remove [find where name="fiti-tenant-inst
   'retained installer cleanup happens before the first cloud fetch');
 assert.ok(newKit.script.indexOf('Fresh WiFi Fiti cloud installer was not downloaded') < newKit.script.indexOf('/import file-name="fiti-tenant-install.rsc"'),
   'the retry verifies that a fresh file exists before it imports anything');
-assert.ok(newKit.script.indexOf('/system scheduler run [find where name="fiti-first-install"]') < newKit.script.indexOf('/tool mac-server set'),
-  'MAC management restrictions run only after the critical pairing scheduler is installed and started');
 assert.doesNotMatch(newKit.script, /\/system reset-configuration|\/ip service|\/user add/);
 assert.match(installer, /\/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=5s disabled=no/,
   'the installed polling agent starts from a clock-safe epoch schedule after every reboot');
