@@ -173,7 +173,10 @@
       // Older stored entries have no revision and are deliberately treated as
       // stale; their server-side pending token is left untouched until the
       // owner explicitly creates a replacement kit.
-      var routerKitRevision = 'bootstrap-endpoint-v1';
+      // Bump this whenever router-side source changes. A generated kit lives
+      // only in this browser session, so the revision prevents an older
+      // cached script being copied after its server-side safety rules change.
+      var routerKitRevision = 'wifi-stack-safe-v2';
       var salesPeriod = '30d';
       var state = { workspace: null, dashboard: null, vouchers: [], payment: null, issuedCodes: [], billing: null };
       var billingPollTimer = null;
