@@ -1269,6 +1269,24 @@
           });
         }).catch(function (error) { $('location-error').textContent = error.message; }).finally(function () { setBusy(button, false); });
       }
+      function offboardLocation(location, button) {
+        var name = location.name || 'this location';
+        var first = window.confirm('Offboard and reset the router at "' + name + '"? This removes its cloud pairing, router settings, topology, portal address, remote-access state and pending jobs. Customer/payment history stays for reporting, but active access on this router is stopped.');
+        if (!first) return;
+        var confirmation = window.prompt('This cannot be undone. Type OFFBOARD ROUTER to confirm.');
+        if (confirmation !== 'OFFBOARD ROUTER') {
+          if (confirmation !== null) $('location-error').textContent = 'Nothing was changed. Type OFFBOARD ROUTER exactly to confirm.';
+          return;
+        }
+        setBusy(button, true, 'Removing…');
+        api('/api/business/locations/' + encodeURIComponent(location.id) + '/offboard', { method: 'POST', body: JSON.stringify({ confirm: 'OFFBOARD ROUTER' }) }).then(function () {
+          forgetSetup(location.id); clearFreshRouterSetup(location); clearRouterProgress(location);
+          clearOnboardingLocation((state.workspace && state.workspace.business) || {});
+          return load();
+        }).then(function () {
+          $('location-error').textContent = 'Router offboarded. Start router setup again to generate a completely new pairing kit.';
+        }).catch(function (error) { $('location-error').textContent = error.message; }).finally(function () { setBusy(button, false); });
+      }
       function renderLocations() {
         var root = $('locations'); var locations = (state.workspace && state.workspace.locations) || []; clear(root);
         if (!locations.length) { var empty = el('div', 'empty'); add(empty, 'strong', '', 'No locations yet'); add(empty, 'span', '', 'Add your first site to receive a unique pairing kit and customer portal address.'); root.appendChild(empty); return; }
@@ -1282,7 +1300,9 @@
           var restart = el('button', 'quiet', 'Start router setup again'); restart.type = 'button'; restart.addEventListener('click', function () { startRouterSetupAgain(location); }); actions.appendChild(restart);
           var remoteSetup = el('button', 'quiet', 'Remote setup'); remoteSetup.type = 'button'; remoteSetup.addEventListener('click', function () { openRemoteAccess(location, card, remoteSetup); }); actions.appendChild(remoteSetup);
           var edit = el('button', 'quiet', 'Portal & router settings'); edit.type = 'button'; edit.addEventListener('click', function () { renderLocationEditor(location, card); }); actions.appendChild(edit);
-          var rotate = el('button', 'danger quiet', 'Rotate router token'); rotate.type = 'button'; rotate.addEventListener('click', function () { rotateLocationToken(location, rotate); }); actions.appendChild(rotate); card.appendChild(actions); root.appendChild(card);
+          var rotate = el('button', 'danger quiet', 'Rotate router token'); rotate.type = 'button'; rotate.addEventListener('click', function () { rotateLocationToken(location, rotate); }); actions.appendChild(rotate);
+          var offboard = el('button', 'danger quiet', 'Offboard / remove router'); offboard.type = 'button'; offboard.addEventListener('click', function () { offboardLocation(location, offboard); }); actions.appendChild(offboard);
+          card.appendChild(actions); root.appendChild(card);
         });
       }
 

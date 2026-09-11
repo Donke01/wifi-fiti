@@ -972,6 +972,59 @@ const unusedLocationForDiscard = db.prepare(`
    WHERE l.id=@locationId AND l.business_id=@businessId
 `);
 const deletePortalDomainsForLocation = db.prepare(`DELETE FROM tenant_portal_domains WHERE location_id=?`);
+const deleteMappedDeploymentsForLocation = db.prepare(`DELETE FROM tenant_mapped_deployments WHERE location_id=?`);
+const deleteRemoteSupportControlsForLocation = db.prepare(`DELETE FROM tenant_remote_support_controls WHERE location_id=?`);
+const deleteRemoteAccessEventsForLocation = db.prepare(`DELETE FROM tenant_remote_access_events WHERE location_id=?`);
+const deleteRemoteAccessForLocation = db.prepare(`DELETE FROM tenant_remote_access WHERE location_id=?`);
+const deleteVpnPeerForLocation = db.prepare(`DELETE FROM tenant_vpn_peers WHERE location_id=?`);
+const deleteProvisioningJobsForLocation = db.prepare(`DELETE FROM tenant_jobs WHERE location_id=?`);
+const deleteDevicesForLocation = db.prepare(`DELETE FROM tenant_devices WHERE location_id=?`);
+const cancelPendingTransactionsForLocation = db.prepare(`
+  UPDATE tenant_transactions
+     SET status='cancelled', result_desc='Router offboarded before provisioning', updated_at=datetime('now')
+   WHERE location_id=? AND status='pending'
+`);
+const deactivateSubscriptionsForLocation = db.prepare(`
+  UPDATE tenant_subscriptions
+     SET is_active=0, updated_at=datetime('now')
+   WHERE location_id=? AND is_active=1
+`);
+const resetLocationForOffboard = db.prepare(`
+  UPDATE locations SET
+    router_token=@routerTokenMarker,
+    router_token_hash=@routerTokenHash,
+    router_pending_token_hash=NULL,
+    router_pending_token_expires_at=NULL,
+    router_auth_mode='header',
+    router_status='waiting',
+    last_seen_at=NULL,
+    last_router_contact_at=NULL,
+    last_successful_sync_at=NULL,
+    router_setup_nonce=NULL,
+    router_pending_setup_nonce=NULL,
+    router_setup_verified_at=NULL,
+    router_setup_health=NULL,
+    router_setup_checked_at=NULL,
+    router_pending_setup_json=NULL,
+    router_setup_script_cipher=NULL,
+    router_pending_setup_script_cipher=NULL,
+    portal_setup_completed_at=NULL,
+    router_portal_update_sent_host=NULL,
+    router_portal_applied_host=NULL,
+    router_name=NULL,
+    hotspot_server=NULL,
+    setup_mode=NULL,
+    router_model=NULL,
+    routeros_version=NULL,
+    wifi_stack=NULL,
+    customer_bridge=NULL,
+    wan_interface=NULL,
+    wifi_interface=NULL,
+    wifi_ssid=NULL,
+    customer_ports=NULL,
+    hotspot_subnet=NULL
+   WHERE id=@locationId AND business_id=@businessId
+`);
 const deleteLocationForBusiness = db.prepare(`DELETE FROM locations WHERE id=? AND business_id=?`);
 const databaseTableExists = db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`);
 
@@ -3195,6 +3248,55 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
   }
 }
 
+/**
+ * Hard-offboard a location without deleting the business ledger. This is the
+ * explicit owner escape hatch for a router that is being replaced or started
+ * over: router credentials, observed topology, remote-access state, pending
+ * jobs and portal aliases are removed, while payment/customer history remains
+ * available for accounting. Active subscriptions are deactivated so the next
+ * router cannot inherit access from the previous physical device.
+ */
+function offboardLocation({ locationId, businessId, confirm } = {}) {
+  if (confirm !== 'OFFBOARD ROUTER') {
+    const error = new Error('Type OFFBOARD ROUTER to remove this router and reset its setup state.');
+    error.status = 400;
+    throw error;
+  }
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  const routerToken = crypto.randomBytes(24).toString('base64url');
+  const hash = tokenHash(routerToken);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // Delete the most dependent router-operational rows first. None of these
+    // deletes touch the transaction ledger, packages or business account.
+    deleteMappedDeploymentsForLocation.run(locationId);
+    deleteRouterMapping.run(locationId);
+    deleteRouterTopology.run(locationId);
+    deleteVpnPeerForLocation.run(locationId);
+    deleteRemoteSupportControlsForLocation.run(locationId);
+    deleteRemoteAccessEventsForLocation.run(locationId);
+    deleteRemoteAccessForLocation.run(locationId);
+    deleteProvisioningJobsForLocation.run(locationId);
+    deleteDevicesForLocation.run(locationId);
+    cancelPendingTransactionsForLocation.run(locationId);
+    deactivateSubscriptionsForLocation.run(locationId);
+    deletePortalDomainsForLocation.run(locationId);
+    const reset = resetLocationForOffboard.run({
+      locationId, businessId, routerTokenMarker: tokenMarker(routerToken), routerTokenHash: hash,
+    });
+    if (!reset.changes) {
+      db.exec('ROLLBACK');
+      return null;
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+  return { ...locationForBusiness.get(locationId, businessId), routerToken, offboarded: true };
+}
+
 function routerSetupScript(source) {
   const script = typeof source === 'string' ? source : '';
   return script.length >= 80 && script.length <= 96 * 1024 &&
@@ -3525,7 +3627,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, offboardLocation, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,

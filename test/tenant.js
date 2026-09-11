@@ -687,5 +687,20 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   assert.strictEqual(billedBusiness.plan, 'growth');
   assert.strictEqual(billedBusiness.billing_status, 'active');
 
+  // Offboarding resets router-operational state without erasing the business
+  // ledger, and requires an unmistakable typed confirmation.
+  assert.throws(
+    () => tenant.offboardLocation({ locationId: alpha.id, businessId: 'business-a', confirm: 'DELETE' }),
+    (error) => error && error.status === 400 && /OFFBOARD ROUTER/.test(error.message),
+    'offboarding requires its own explicit confirmation phrase'
+  );
+  const offboarded = tenant.offboardLocation({ locationId: alpha.id, businessId: 'business-a', confirm: 'OFFBOARD ROUTER' });
+  assert.strictEqual(offboarded.router_status, 'waiting');
+  assert.strictEqual(offboarded.router_name, null);
+  assert.strictEqual(offboarded.portal_hostname, null);
+  assert.ok(offboarded.routerToken && offboarded.routerToken !== alpha.routerToken);
+  assert.strictEqual(legacy.db.prepare('SELECT COUNT(*) AS count FROM tenant_jobs WHERE location_id=?').get(alpha.id).count, 0);
+  assert.ok(tenant.locationForBusiness.get(alpha.id, 'business-a'), 'offboarding keeps the location ledger for reporting');
+
   console.log('\nTenant core\n  ok   isolation, subscriptions, router jobs, TV access, vouchers, encrypted collection and billing');
 })();
