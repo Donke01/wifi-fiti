@@ -551,7 +551,11 @@ assert.doesNotMatch(staticKit.script, /servers=1\.1\.1\.1,8\.8\.8\.8/);
 expectInvalid({ ...existing, customerBridge: 'bridge-hs; /system reboot' }, 'RouterOS injection is rejected');
 expectInvalid({ ...newRouter, wanInterface: 'ether2' }, 'WAN cannot be a customer port');
 expectInvalid({ ...newRouter, customerSubnet: '8.8.8.0/24' }, 'Customer network must be private');
-expectInvalid({ ...newRouter, wifiPassword: 'has spaces' }, 'WiFi secret must be shell-safe');
+assert.doesNotThrow(() => validateRouterSetup({ ...newRouter, wifiPassword: 'ignored' }),
+  'the public customer SSID no longer requires a Wi-Fi password');
+assert.match(newKit.script, /security-profiles set/,
+  'fresh legacy-wireless routers use an open customer SSID for captive-portal access');
+assert.match(newKit.script, /mode=none/);
 expectInvalid({ ...newRouter, freshRouterConfirmed: 'no' }, 'fresh router setup requires explicit confirmation');
 expectInvalid({ ...newRouter, wanMode: 'static', staticWanAddress: '192.168.1.2/24', staticWanGateway: '192.168.2.1', dnsServers: '1.1.1.1' }, 'static gateway must share its subnet');
 expectInvalid({ ...newRouter, wanMode: 'static', staticWanAddress: '10.5.50.2/24', staticWanGateway: '10.5.50.1', dnsServers: '1.1.1.1' }, 'static WAN must not overlap the Hotspot network');

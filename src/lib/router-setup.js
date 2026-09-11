@@ -430,10 +430,10 @@ function buildExistingRouterBootstrap({ location, token, appUrl, portalUrl }) {
 
 function newRouterWirelessLines(config) {
   const legacyWireless = [
-    ':if ([:len [/interface wireless security-profiles find where name="fiti-wifi-security"]] = 0) do={ /interface wireless security-profiles add name="fiti-wifi-security" mode=dynamic-keys authentication-types=wpa2-psk wpa2-pre-shared-key=' + ros(config.wifiPassword) + ' }',
-    '/interface wireless security-profiles set [find where name="fiti-wifi-security"] authentication-types=wpa2-psk',
-    '/interface wireless security-profiles set [find where name="fiti-wifi-security"] wpa2-pre-shared-key=' + ros(config.wifiPassword),
-    '/interface wireless security-profiles set [find where name="fiti-wifi-security"] supplicant-identity=MikroTik',
+    // The public SSID is intentionally open: the captive HotSpot is the
+    // access gate and must be reachable before a customer has purchased.
+    ':if ([:len [/interface wireless security-profiles find where name="fiti-wifi-security"]] = 0) do={ /interface wireless security-profiles add name="fiti-wifi-security" mode=none }',
+    '/interface wireless security-profiles set [find where name="fiti-wifi-security"] mode=none authentication-types="" wpa2-pre-shared-key=""',
     '/interface wireless set [find where name=$fitiWifiInterface] mode=ap-bridge band=2ghz-b/g/n',
     '/interface wireless set [find where name=$fitiWifiInterface] ssid=' + ros(config.wifiSsid) + ' security-profile="fiti-wifi-security"',
     '/interface wireless set [find where name=$fitiWifiInterface] country=kenya disabled=no',
@@ -441,8 +441,7 @@ function newRouterWirelessLines(config) {
   const modernWifi = [
     '/interface wifi set [find where name=$fitiWifiInterface] configuration.mode=ap configuration.country=Kenya',
     '/interface wifi set [find where name=$fitiWifiInterface] configuration.ssid=' + ros(config.wifiSsid) + ' disabled=no',
-    '/interface wifi set [find where name=$fitiWifiInterface] security.authentication-types=wpa2-psk',
-    '/interface wifi set [find where name=$fitiWifiInterface] security.passphrase=' + ros(config.wifiPassword),
+    '/interface wifi set [find where name=$fitiWifiInterface] security.authentication-types="" security.passphrase=""',
   ].join('; ');
   return [
     ':if ($fitiWifiStack = "wireless") do={',
@@ -830,7 +829,6 @@ function validateRouterSetup(input) {
     // actual physical Ethernet layout on the router before bridging it.
     customerPorts: mode === 'new' ? [...fallback.customerPorts] : mode === 'auto' ? [] : requestedCustomerPorts,
     wifiSsid: '',
-    wifiPassword: '',
     customerSubnet: '',
     wanMode: '',
     wan: null,
@@ -843,7 +841,6 @@ function validateRouterSetup(input) {
   if (mode === 'auto' || mode === 'new') {
     config.wifiSsid = text(input && input.wifiSsid, 'WiFi name', 32, true);
     if (!config.wifiSsid || /["\\$\r\n]/.test(config.wifiSsid)) throw invalid('WiFi name cannot contain quotes, backslashes, dollar signs, or line breaks.');
-    config.wifiPassword = routerString(input && input.wifiPassword, 'WiFi password', 8, 63);
     config.network = customerNetwork(input && input.customerSubnet);
     config.customerSubnet = config.network.cidr;
     config.wanMode = String(input && input.wanMode || 'dhcp').trim();

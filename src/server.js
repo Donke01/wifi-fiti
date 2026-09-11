@@ -3181,6 +3181,29 @@ function tenantPollTuningScript() {
   ].join('\n') + '\n';
 }
 
+function tenantOpenWifiScript(location) {
+  const stack = String(location && location.wifi_stack || '').trim();
+  const iface = String(location && location.wifi_interface || '').trim();
+  if (!/^(?:wireless|wifi)$/.test(stack) || !/^[A-Za-z0-9_-]{1,32}$/.test(iface)) return '';
+  if (stack === 'wireless') {
+    const command = `/interface wireless security-profiles add name="fiti-wifi-security" mode=none; /interface wireless security-profiles set [find where name="fiti-wifi-security"] mode=none authentication-types="" wpa2-pre-shared-key=""; /interface wireless set [find where name="${iface}"] security-profile="fiti-wifi-security"`;
+    return [
+      ':do {',
+      `  [:parse ${JSON.stringify(command)}]`,
+      '} on-error={',
+      '  :do { [:parse "/interface wireless security-profiles set [find default=yes] mode=none"] } on-error={}',
+      `  :do { [:parse ${JSON.stringify(`/interface wireless set [find where name="${iface}"] security-profile=default`)}] } on-error={}`,
+      '}',
+    ].join('\n') + '\n';
+  }
+  const command = `/interface wifi set [find where name="${iface}"] security.authentication-types="" security.passphrase=""`;
+  return [
+    ':do {',
+    `  [:parse ${JSON.stringify(command)}]`,
+    '} on-error={}',
+  ].join('\n') + '\n';
+}
+
 function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
   // A candidate replacement must not collect jobs or acknowledge old work
   // before it has completed the receipt challenge. This protects a live
@@ -3201,8 +3224,9 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   // support control cannot touch the customer poller. The tuning command is
   // retried on the next ordinary sync once the control is acknowledged.
   const pollTuning = controls.length ? '' : tenantPollTuningScript();
+  const openWifi = controls.length ? '' : tenantOpenWifiScript(location);
   if (!jobs.length && !controls.length && !deployment) {
-    return { script: [pollTuning, portal].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
+    return { script: [pollTuning, openWifi, portal].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
 
   // Support controls always use their own queue and ACK global. They are
@@ -3229,7 +3253,7 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   }
 
   if (!jobs.length) {
-    return { script: [pollTuning, portal, support.script, mapped.script].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
+    return { script: [pollTuning, openWifi, portal, support.script, mapped.script].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
   }
 
   const { script, emitted, rejected } = buildScript({
@@ -3242,7 +3266,7 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   }
   if (emitted.length) console.log(`[tenant router] ${location.id} collected job(s) ${emitted.join(', ')}`);
   return {
-    script: [pollTuning, portal, support.script, mapped.script, script].filter(Boolean).join('\n'),
+    script: [pollTuning, openWifi, portal, support.script, mapped.script, script].filter(Boolean).join('\n'),
     emitted,
     rejected,
     supportEmitted: support.emitted,
