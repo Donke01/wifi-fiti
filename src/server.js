@@ -567,10 +567,14 @@ function organisationIsComplete(business) {
 
 function onboardingState(business, locations = []) {
   const organisationComplete = organisationIsComplete(business);
+  // A router that has been offboarded is retained as a quarantine record until
+  // it reconnects and receives the reset. It must not block the owner's next
+  // onboarding step or consume plan capacity while it is waiting offline.
+  const activeLocations = locations.filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   return {
     organisationComplete,
     hotspotName: business && business.hotspot_name || null,
-    nextStep: !organisationComplete ? 'organisation' : !locations.length ? 'router' : 'setup',
+    nextStep: !organisationComplete ? 'organisation' : !activeLocations.length ? 'router' : 'setup',
   };
 }
 
@@ -592,7 +596,8 @@ function locationDraftInput(body, { routerNameRequired = false } = {}) {
 
 function canAddLocation(business, res) {
   const plan = BUSINESS_PLANS[business.plan];
-  const existing = tenant.locationsForBusiness.all(business.id);
+  const existing = tenant.locationsForBusiness.all(business.id)
+    .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   if (plan.routerLimit && existing.length >= plan.routerLimit) {
     res.status(402).json({
       error: `${plan.name} includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Choose a larger plan before adding another location.`,
@@ -864,7 +869,9 @@ app.post('/api/business/billing/checkout', async (req, res) => {
   const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
   if (!definition || !definition.monthlyKes) return res.status(400).json({ error: 'Custom plans are arranged with WiFi Fiti directly.' });
   if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay for this plan.' });
-  if (definition.routerLimit && tenant.locationsForBusiness.all(business.id).length > definition.routerLimit) {
+  const activeLocations = tenant.locationsForBusiness.all(business.id)
+    .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
+  if (definition.routerLimit && activeLocations.length > definition.routerLimit) {
     return res.status(409).json({ error: 'This plan does not cover your existing routers. Choose a plan with enough router capacity.' });
   }
   const pending = db.db.prepare(`SELECT checkout_request_id FROM business_billing_transactions

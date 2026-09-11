@@ -695,11 +695,9 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'offboarding requires its own explicit confirmation phrase'
   );
   const offboarded = tenant.offboardLocation({ locationId: alpha.id, businessId: 'business-a', confirm: 'OFFBOARD ROUTER' });
-  assert.strictEqual(offboarded.router_status, 'waiting');
-  assert.strictEqual(offboarded.router_name, null);
-  assert.strictEqual(offboarded.portal_hostname, null);
-  assert.ok(offboarded.routerToken && offboarded.routerToken !== alpha.routerToken);
-  assert.strictEqual(legacy.db.prepare('SELECT COUNT(*) AS count FROM tenant_jobs WHERE location_id=?').get(alpha.id).count, 0);
+  assert.strictEqual(offboarded.router_status, 'offboarding');
+  assert.ok(offboarded.router_name, 'quarantined router keeps its display name until reset is delivered');
+  assert.strictEqual(legacy.db.prepare("SELECT COUNT(*) AS count FROM tenant_jobs WHERE location_id=? AND action='offboard-lockdown'").get(alpha.id).count, 1);
   assert.ok(tenant.locationForBusiness.get(alpha.id, 'business-a'), 'offboarding keeps the location ledger for reporting');
 
   console.log('\nTenant core\n  ok   isolation, subscriptions, router jobs, TV access, vouchers, encrypted collection and billing');
