@@ -306,7 +306,7 @@
         return [
           ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={ :do { [:parse "/certificate settings set builtin-trust-anchors=trusted"] } on-error={} }',
           ':do { /file remove [find where name="wifi-fiti-bootstrap.rsc"] } on-error={}',
-          '/tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=yes dst-path="wifi-fiti-bootstrap.rsc" mode=https',
+          ':do { /tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=yes dst-path="wifi-fiti-bootstrap.rsc" mode=https } on-error={ :log warning "WiFi Fiti CA store unavailable; using HTTPS compatibility fetch"; /tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=no dst-path="wifi-fiti-bootstrap.rsc" mode=https }',
           ':if ([:len [/file find where name="wifi-fiti-bootstrap.rsc"]] != 1) do={ :error "WiFi Fiti kit was not downloaded. Check WAN, DNS and RouterOS certificate trust, then retry." }',
           '/import file-name="wifi-fiti-bootstrap.rsc"',
           ':do { /file remove "wifi-fiti-bootstrap.rsc" } on-error={}'
