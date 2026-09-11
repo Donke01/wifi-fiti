@@ -227,10 +227,8 @@ assert.match(html, /Automatic router detection/,
   'the focused journey lets the router kit choose the safe setup path');
 assert.match(html, /payload\.modelProfile = 'auto'/,
   'the focused journey does not ask customers to guess a board profile');
-assert.match(html, /Download \.rsc/,
-  'the focused connection screen offers a file download instead of forcing a long terminal paste');
-assert.match(html, /downloadRouterScript\(script\)/,
-  'the focused connection screen downloads the saved router kit');
+assert.doesNotMatch(html, /Download \.rsc|Download full kit|Show full RouterOS kit \(fallback\)/,
+  'the focused connection screen hides downloads and fallback scripts');
 assert.match(html, /\/api\/business\/onboarding\/customer-portal/,
   'customer-page details use the post-connection endpoint');
 
@@ -254,8 +252,10 @@ assert.match(html, /\/api\/router\/v1\/bootstrap\?site=/,
   'the concise command fetches WiFi Fiti’s location-specific bootstrap endpoint');
 assert.match(html, /http-header-field="' \+ rosQuote\('X-WiFi-Fiti-Router: ' \+ routerToken\)/,
   'the concise command authenticates with the per-location router token, not a global credential');
-assert.match(html, /Copy one-line installer/,
-  'owners can copy the concise installer directly instead of a long terminal paste');
+assert.match(html, /Copy connection kit/,
+  'owners can copy the single secure connection kit directly');
+assert.doesNotMatch(html, /Download full kit|Download \\.rsc|Show full RouterOS kit \(fallback\)/,
+  'the customer onboarding view does not expose downloads or fallback scripts');
 assert.match(html, /WiFi Fiti kit was not downloaded\. Check WAN, DNS and RouterOS certificate trust, then retry\./,
   'a failed short installer stops before importing a stale file');
 assert.match(html, /fetches the exact one-time kit over authenticated HTTPS/,
@@ -319,8 +319,8 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
   const guided = new TestElement('div'); context.appendSimpleRouterSetup(guided, { location: uiLocation });
   for (const [screen, root] of [['setup result', elements.get('router-setup-output')], ['saved kits', elements.get('setup-list')], ['guided setup', guided]]) {
     const nodes = descendants(root);
-    const buttons = nodes.filter(node => node.tagName === 'button' && node.textContent === 'Copy one-line installer');
-    assert.equal(buttons.length, 1, screen + ' always identifies the one-line installer');
+    const buttons = nodes.filter(node => node.tagName === 'button' && node.textContent === 'Copy connection kit');
+    assert.equal(buttons.length, 1, screen + ' always identifies the secure connection kit');
     assert.equal(buttons[0].disabled, !generated.loader, screen + ' enables copying only for an available installer');
     if (generated.loader) {
       copiedCommand = ''; buttons[0].listeners.click();
@@ -331,7 +331,7 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
     } else {
       const message = loaderStatus === 'storage_not_configured' ? 'secure installer storage has not been configured' : 'could not prepare the one-line installer';
       assert.ok(nodes.some(node => node.textContent.includes(message)), screen + ' explains installer unavailability');
-      assert.ok(nodes.some(node => node.tagName === 'button' && node.textContent === 'Download .rsc'), screen + ' keeps the full kit available');
+      assert.equal(nodes.some(node => node.tagName === 'button' && /Download/.test(node.textContent)), false, screen + ' keeps downloads hidden');
     }
   }
 }

@@ -954,8 +954,8 @@
       }
       function appendRouterInstaller(body, saved, regenerate) {
         if (!saved || !saved.token || !storedRouterKitIsCurrent(saved)) return;
-        var box = el('section', 'simple-router'); var script = routerCommands(saved); var bootstrap = routerBootstrapCommand(saved);
-        add(box, 'h4', '', bootstrap ? 'One-line secure installer' : 'One-line installer unavailable');
+        var box = el('section', 'simple-router'); var bootstrap = routerBootstrapCommand(saved);
+        add(box, 'h4', '', bootstrap ? 'Secure remote connection kit' : 'Secure connection kit unavailable');
         if (bootstrap) {
           add(box, 'p', '', 'Open a new WinBox terminal and paste this one line once. It fetches the exact one-time kit over authenticated HTTPS, then imports it. Your RouterOS administrator password is never changed.');
           var command = add(box, 'pre', 'kit-script', bootstrap); command.setAttribute('aria-label', 'One-line RouterOS installer');
@@ -964,18 +964,12 @@
             ? 'WiFi Fiti secure installer storage has not been configured. Contact WiFi Fiti support to enable it, then generate a new kit.'
             : 'WiFi Fiti could not prepare the one-line installer for this kit. Generate a new kit. If this continues, contact WiFi Fiti support.';
           add(box, 'p', 'kit-refresh-note', explanation);
-          add(box, 'p', '', 'The full kit is available below. Download the .rsc file, upload it in WinBox under Files, then import it in a new terminal.');
-          add(box, 'code', '', '/import file-name="wifi-fiti-router-setup.rsc"');
         }
         var actions = el('div', 'buttons');
-        var quickCopy = setupAction(actions, 'Copy one-line installer', '', function () { copyText(bootstrap, quickCopy); }); quickCopy.disabled = !bootstrap;
-        setupAction(actions, bootstrap ? 'Download full kit' : 'Download .rsc', 'secondary', function () { downloadRouterScript(script); });
+        var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(bootstrap, quickCopy); }); quickCopy.disabled = !bootstrap;
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);
-        var fullKit = el('details', 'simple-advanced'); add(fullKit, 'summary', '', 'Show full RouterOS kit (fallback)');
-        var fullKitInner = el('div', 'simple-advanced-inner'); add(fullKitInner, 'pre', 'kit-script', script);
-        var fullCopy = setupAction(fullKitInner, 'Copy connection kit', 'secondary', function () { copyText(script, fullCopy); });
-        fullKit.appendChild(fullKitInner); box.appendChild(fullKit); body.appendChild(box);
+        body.appendChild(box);
       }
       function appendSimpleRouterSetup(body, model) {
         var location = model.location; if (!location) return;
