@@ -202,17 +202,18 @@
   .alt button{
     flex:1;min-width:calc(50% - 5px);
     background:var(--glass);border:1px solid var(--edge);border-radius:var(--r);
-    font-family:var(--sans);font-size:14px;font-weight:700;color:var(--ice);
-    padding:13px 9px;cursor:pointer;transition:background .15s,border-color .15s,transform .15s;
+    font-family:"Arial Narrow","Roboto Condensed",var(--sans);font-size:16px;font-weight:850;color:var(--ice);
+    padding:16px 9px;cursor:pointer;transition:background .15s,border-color .15s,transform .15s;
     -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
   }
   .alt button:hover{background:var(--glass-2);border-color:var(--edge-2)}
   .action-btn{display:flex;align-items:center;justify-content:flex-start;gap:10px;text-align:left}
   .action-icon{
-    width:31px;height:31px;border-radius:10px;display:grid;place-items:center;flex:none;
+    width:40px;height:40px;border-radius:11px;display:grid;place-items:center;flex:none;
     box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 6px 14px rgba(0,0,0,.18);
   }
-  .action-icon svg{width:18px;height:18px;display:block}
+  .action-icon svg{width:24px;height:24px;display:block}
+  .action-btn>span:last-child{white-space:nowrap;text-transform:uppercase;font-family:"Arial Narrow","Roboto Condensed",var(--sans);letter-spacing:-.025em}
   .icon-voucher{color:#231700;background:linear-gradient(145deg,#FFE56A,#FFB92E)}
   .icon-time{color:#051D2A;background:linear-gradient(145deg,#69E6FF,#38BDF8)}
   .icon-tv{color:#fff;background:linear-gradient(145deg,#9B7BFF,#6D4DF4)}
@@ -455,6 +456,8 @@
   .btn{border-radius:15px;box-shadow:0 12px 24px rgba(25,103,217,.20);color:#fff}
   .btn-main{background:linear-gradient(102deg,var(--blue-deep),var(--blue-brand) 54%,#3987EA)}
   .btn-main:hover:not(:disabled){filter:brightness(1.04)}
+  .btn-mpesa{display:flex;align-items:center;justify-content:center;gap:10px;color:#1e9b46!important;background:#fff!important;border:2px solid #37b957!important;box-shadow:0 10px 22px rgba(33,163,73,.16)!important;text-shadow:none!important}
+  .btn-mpesa svg{width:35px;height:35px;flex:none}
   .btn:focus-visible{outline-color:var(--blue-brand)}
   .alt button{
     color:var(--body);background:#fff;border-color:var(--line-light);
@@ -499,7 +502,7 @@
     .screen.on > *:nth-child(4){animation-delay:.165s}.screen.on > *:nth-child(5){animation-delay:.22s}
   }
   @keyframes tileEnter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  @media (max-width:380px){.brand-logo{width:96px;height:96px}.bar b{font-size:39px}}
+  @media (max-width:380px){.brand-logo{width:96px;height:96px}.bar b{font-size:39px}.alt{gap:7px}.alt button{font-size:12px;padding:12px 5px;gap:6px}.action-icon{width:34px;height:34px}.action-icon svg{width:20px;height:20px}}
 </style>
 </head>
 <body>
@@ -556,7 +559,7 @@
       <input type="tel" id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX" maxlength="15">
     </div>
 
-    <button class="btn btn-main" id="pay">LIPA NA M-PESA</button>
+    <button class="btn btn-mpesa" id="pay"><svg viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="13" y="3" width="14" height="34" rx="5" fill="#dce8d8"/><path d="M8 22c8 4 13 3 24-6" stroke="#e5232b" stroke-width="4" stroke-linecap="round"/><path d="M4 25c12 5 22 3 32-6" stroke="#31ad4b" stroke-width="3" stroke-linecap="round"/></svg><span class="pay-label">LIPA NA M-PESA</span></button>
 
     <div class="callout" id="existing-wrap" hidden>
       <b>Active package found</b>
@@ -903,6 +906,7 @@
 
   /* ---- pay ---- */
   var purchaseChecked = false, transferChoice = null;
+  function setPayText(text) { var label = $('pay').querySelector('.pay-label'); if (label) label.textContent = text; else $('pay').textContent = text; }
   $('phone').addEventListener('input', function () {
     purchaseChecked = false; transferChoice = null; $('existing-wrap').hidden = true;
   });
@@ -913,11 +917,11 @@
     if (!chosen) return warn($('err'), 'Choose a package first.');
     if (phone.replace(/\D/g, '').length < 9) return warn($('err'), 'Enter your M-Pesa number, e.g. 0712 345 678.');
     if (!purchaseChecked) {
-      $('pay').disabled = true; $('pay').textContent = 'CHECKING…';
+      $('pay').disabled = true; setPayText('CHECKING…');
       return fetch('/api/subscriptions/check', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: phone }) }).then(function (r) { return r.json(); })
         .then(function (s) {
-          $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
+          $('pay').disabled = false; setPayText('LIPA NA M-PESA');
           if (!s.found) { purchaseChecked = true; $('pay').click(); return; }
           $('existing-list').innerHTML = s.subscriptions.map(function (x, i) {
             return '<button class="drow existing-choice" data-user="' + esc(x.username) + '">' +
@@ -933,16 +937,16 @@
             };
           });
         }).catch(function () {
-          $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
+          $('pay').disabled = false; setPayText('LIPA NA M-PESA');
           warn($('err'), 'Could not check existing packages. Try again.');
         });
     }
-    $('pay').disabled = true; $('pay').textContent = 'SENDING…';
+    $('pay').disabled = true; setPayText('SENDING…');
     fetch('/api/pay', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ packageId: chosen.value, phone: phone, mac: MAC, ip: IP }) })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
       .then(function (res) {
-        $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
+        $('pay').disabled = false; setPayText('LIPA NA M-PESA');
         if (!res.ok) return warn($('err'), res.body.error || 'Payment could not start.');
         st.checkoutId = res.body.checkoutRequestId;
         savePending({ checkoutId: st.checkoutId, phone: phone.replace(/\D/g, ''),
@@ -954,7 +958,7 @@
         show('s-wait'); runClock(); startPolling();
       })
       .catch(function () {
-        $('pay').disabled = false; $('pay').textContent = 'LIPA NA M-PESA';
+        $('pay').disabled = false; setPayText('LIPA NA M-PESA');
         warn($('err'), 'Network problem. Try again.');
       });
   });
