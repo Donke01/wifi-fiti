@@ -775,7 +775,7 @@
         onboardingPanel = panel || ''; renderOnboarding();
       }
       function startNewOnboardingFlow(business, panel) { saveOnboardingProgress(business || {}, { active: true, stage: 1, unlocked: 1 }); onboardingPanel = panel || ''; renderOnboarding(); }
-      function completeOnboarding(model) { var current = model || onboardingModel(); saveOnboardingProgress(current.business, { active: false, stage: 3, unlocked: 3 }); onboardingPanel = ''; moduleView = 'overview'; renderOnboarding(); activateDashboardModule('overview', { silent: true }); }
+      function completeOnboarding(model) { var current = model || onboardingModel(); saveOnboardingProgress(current.business, { active: false, stage: 3, unlocked: 3 }); clearPairingSecrets(); onboardingPanel = ''; moduleView = 'overview'; renderOnboarding(); activateDashboardModule('overview', { silent: true }); }
       function startAdditionalRouter() { var model = onboardingModel(); clearOnboardingLocation(model.business); clearRouterSetupForm(null); startNewOnboardingFlow(model.business, 'router-new'); setTimeout(openRouterDraftModal, 0); }
       function resumeRouterMapping(model) {
         var current = model || onboardingModel();
@@ -1205,7 +1205,7 @@
       function downloadRouterScript(script) { if (!script) return; var blob = new Blob([script], { type: 'text/plain;charset=utf-8' }); var url = URL.createObjectURL(blob); var link = document.createElement('a'); link.href = url; link.download = 'wifi-fiti-router-setup.rsc'; document.body.appendChild(link); link.click(); link.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000); }
 
       function renderPairingKits() {
-        var list = $('setup-list'); var section = $('location-setup-section'); var setups = getSetups(); var locations = new Map(((state.workspace && state.workspace.locations) || []).map(function (location) { return [String(location.id), location]; }));
+        var list = $('setup-list'); var section = $('location-setup-section'); var onboardingModelState = state.workspace && onboardingModel(); if (onboardingModelState && onboardingModelState.configured && onboardingModelState.syncHealthy && onboardingModelState.mappingConfirmed) { clear(list); section.classList.add('hidden'); return; } var setups = getSetups(); var locations = new Map(((state.workspace && state.workspace.locations) || []).map(function (location) { return [String(location.id), location]; }));
         var items = Object.keys(setups).filter(function (id) { return locations.has(id); }).map(function (id) { var item = setups[id]; var location = locations.get(id); return Object.assign({}, item, { name: location.name, routerName: location.router_name || item.routerName }); }).filter(function (item) { return item && item.token && storedRouterKitIsCurrent(item); });
         clear(list); if (!items.length) { section.classList.add('hidden'); return; }
         items.forEach(function (item) {
