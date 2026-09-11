@@ -212,7 +212,12 @@
             // manual refresh. If this is not a captive-portal redirect (for
             // example a normal browser visit), keep the API reconnect as the
             // fallback.
-            if (result.deviceType !== 'tv' && !signIn(result.username, result.password)) reconnect();
+            if (result.deviceType !== 'tv') {
+              // Match the proven legacy portal flow: let the confirmation
+              // view paint before navigating the captive mini-browser.
+              if (loginUrl || referrerLoginUrl) setTimeout(function () { signIn(result.username, result.password); }, 600);
+              else reconnect();
+            }
             return;
           }
           if (result.status === 'failed' || result.status === 'transferred') {
