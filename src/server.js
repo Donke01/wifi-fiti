@@ -1576,6 +1576,20 @@ app.get('/p/:locationId', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'tenant-portal.html'));
 });
 
+// Each tenant gets an installable app whose start URL stays on that tenant's
+// portal. The manifest is deliberately public, just like the portal itself;
+// it contains no account or payment data.
+app.get('/api/tenant/:locationId/manifest.webmanifest', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const name = String(location.portal_name || location.business_name || 'WiFi Fiti').trim().slice(0, 80);
+  const start = `/p/${encodeURIComponent(location.id)}`;
+  res.type('application/manifest+json').set('Cache-Control', 'public, max-age=300').json({
+    name: `${name} WiFi`, short_name: name.slice(0, 24), start_url: start,
+    scope: start + '/', display: 'standalone', background_color: '#f6f8fc',
+    theme_color: '#1769d8', icons: [{ src: '/wifi-fiti-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
+  });
+});
+
 app.get('/api/tenant/:locationId/config', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const assetOrigin = edgePortalOriginForRequest(req, location) || config.domains.appUrl;
