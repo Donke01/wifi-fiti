@@ -1566,8 +1566,10 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
     support_phone: location.support_phone, brand_primary_color: location.brand_primary_color,
     brand_logo_path: location.brand_logo_path, portal_message: location.portal_message,
   }, { assetOrigin });
+  const payment = tenant.paymentConnectionSummary.get(location.business_id);
   res.json({ location: { id: location.id, name: location.name, businessName: branding.name }, branding,
-    packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone });
+    packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone,
+    paybill: payment ? { shortcode: payment.shortcode, transactionType: payment.transaction_type } : null });
 });
 
 app.get('/api/tenant/:locationId/session', (req, res) => {
