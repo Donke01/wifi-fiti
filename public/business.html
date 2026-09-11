@@ -71,6 +71,9 @@
     .remote-state.failed{color:var(--bad)}
     @media(max-width:650px){.mapped-deployment .remote-details{grid-template-columns:1fr}}
     @media(max-width:650px){.organisation-screen{padding-top:24px}.organisation-card{padding:25px 20px}.router-draft-card{padding:24px 19px}.preparation-commands,.connection-milestones,.connection-methods,.simple-mode,.map-choice-grid{grid-template-columns:1fr}.customer-page .address-field{grid-template-columns:1fr}.customer-page .address-suffix{min-height:0;padding:0 0 3px}.device-mode-note{display:block}.device-mode-note .quiet{margin-top:10px}.router-draft-card .buttons{justify-content:stretch}.router-draft-card .buttons>*{flex:1}.router-map-board-head{display:block}.router-map-key{margin-top:10px}}
+    /* Keep the secure bootstrap inside its card on narrow screens. Long
+       RouterOS URLs must wrap instead of pushing the onboarding layout wide. */
+    .simple-kit .kit-script { display:block; box-sizing:border-box; width:100%; max-width:100%; overflow-wrap:anywhere; word-break:break-word; }
   </style>
   <style id="module-navigation-styles">
     .nav-label{margin:11px 10px 2px;color:#8b9bb0;font-size:10px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}
