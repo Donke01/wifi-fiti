@@ -127,10 +127,14 @@ function jobToScript(job, hotspotServer) {
   // IP receive the same best-effort direct login; the browser never posts
   // hotspot credentials itself.
   if (ip || username.endsWith('-tv') || job.action === 'transfer' || job.action === 'tv-upsert') {
-    const args = ['user=$u', 'password=$p'];
-    if (mac) args.push(`mac-address=${mac}`);
-    if (ip) args.push(`ip=${ip}`);
-    lines.push(`:do { /ip hotspot active login ${args.join(' ')} } on-error={}`);
+    // RouterOS versions differ in how strictly they validate the optional
+    // client identity. Keep one bad/stale IP from cancelling the entire
+    // login: try the MAC and IP independently, then fall back to credentials
+    // alone. Every attempt is best-effort and the provisioning above remains
+    // authoritative.
+    if (mac) lines.push(`:do { /ip hotspot active login user=$u password=$p mac-address=${mac} } on-error={}`);
+    if (ip) lines.push(`:do { /ip hotspot active login user=$u password=$p ip=${ip} } on-error={}`);
+    if (!mac && !ip) lines.push(':do { /ip hotspot active login user=$u password=$p } on-error={}');
   }
 
   return lines.join('\n');
