@@ -37,7 +37,7 @@
     .spinner{border-color:#dbe5f0;border-top-color:var(--blue)}.elapsed{color:var(--muted)}.active-card:after{background:radial-gradient(circle,#d4e6ff,transparent 65%)}.active-kicker{color:var(--blue)}.clock{color:var(--ink)}.notice{border-color:#cfe1f6;color:#355374;background:#f3f8ff}.notice strong{color:var(--ink)}.remaining{color:var(--good)}.existing{border-color:var(--line);background:#fff}.existing.active{border-color:var(--blue);background:#eef5ff}.footer{color:#8292a7}
     @media (prefers-reduced-motion:no-preference){.card:not(.hidden){animation:fitiTileIn .48s cubic-bezier(.2,.8,.2,1) both}.plan{animation:fitiTileIn .45s cubic-bezier(.2,.8,.2,1) both}.plan:nth-child(2){animation-delay:.05s}.plan:nth-child(3){animation-delay:.1s}.plan:nth-child(4){animation-delay:.15s}}
     @keyframes fitiBrandFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}@keyframes fitiTileIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-    @media(max-width:480px){.utilities{grid-template-columns:1fr}.utility{min-height:92px}.utilities .utility{grid-column:auto!important;grid-row:auto!important}}
+    @media(max-width:480px){.utilities{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.utility{min-height:100px;padding:12px 8px}.utility b{font-size:15px}.utility small{font-size:12px}.utility-icon{width:28px;height:28px}.utility-icon svg{width:17px;height:17px}}
     @media(max-width:400px){.shell{padding:18px 13px 40px}.brand-mark{width:92px;height:92px}.brand-name{font-size:42px}.card{padding:19px}}
   </style>
 </head>
