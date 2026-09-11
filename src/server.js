@@ -1856,7 +1856,11 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
   const header = req.get('X-WiFi-Fiti-Router');
   const location = tenant.authenticateRouter(req.params.locationId, header || req.query.token, header ? 'header' : 'query');
   if (!location) return res.status(403).type('text/plain').send('forbidden');
-  const portal = `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only-esc)&link-orig=$(link-orig-esc)`;
+  // RouterOS exposes `link-login-only` and `link-orig-esc`; there is no
+  // `link-login-only-esc` variable. Using the latter leaves the customer
+  // portal with a literal, unusable form action, so payment succeeds but the
+  // captive browser never authenticates until the page is refreshed.
+  const portal = `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
 });
