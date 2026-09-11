@@ -31,10 +31,13 @@
     #open-voucher{border-color:#f0d8ad;background:linear-gradient(145deg,#fffdf8,#fff6e6)}#open-voucher b{color:#a26100}
     #open-paybill{border-color:#bfe7c5;background:linear-gradient(145deg,#fbfffa,#edfaef)}#open-paybill b{color:#23843b}
     #buy-tv-start .utility-icon{color:#255eb7;background:#dceaff}#check-time .utility-icon{color:#087c70;background:#d8f4ed}#open-voucher .utility-icon{color:#a26100;background:#ffedc7}#open-paybill .utility-icon{color:#23843b;background:#dff4e1}
+    .utilities{gap:0;border:1px solid #d2deeb;border-radius:20px;overflow:hidden;background:#fff;box-shadow:0 8px 22px rgba(32,57,86,.08)}
+    .utilities .utility{border:0!important;border-right:1px solid #d2deeb!important;border-bottom:1px solid #d2deeb!important;border-radius:0}
+    .utilities .utility:nth-child(2n){border-right:0!important}.utilities .utility:nth-child(n+3){border-bottom:0!important}
     .spinner{border-color:#dbe5f0;border-top-color:var(--blue)}.elapsed{color:var(--muted)}.active-card:after{background:radial-gradient(circle,#d4e6ff,transparent 65%)}.active-kicker{color:var(--blue)}.clock{color:var(--ink)}.notice{border-color:#cfe1f6;color:#355374;background:#f3f8ff}.notice strong{color:var(--ink)}.remaining{color:var(--good)}.existing{border-color:var(--line);background:#fff}.existing.active{border-color:var(--blue);background:#eef5ff}.footer{color:#8292a7}
     @media (prefers-reduced-motion:no-preference){.card:not(.hidden){animation:fitiTileIn .48s cubic-bezier(.2,.8,.2,1) both}.plan{animation:fitiTileIn .45s cubic-bezier(.2,.8,.2,1) both}.plan:nth-child(2){animation-delay:.05s}.plan:nth-child(3){animation-delay:.1s}.plan:nth-child(4){animation-delay:.15s}}
     @keyframes fitiBrandFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}@keyframes fitiTileIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-    @media(max-width:480px){.utilities{grid-template-columns:1fr}.utility{min-height:92px}}
+    @media(max-width:480px){.utilities{grid-template-columns:1fr}.utility{min-height:92px}.utilities .utility,.utilities .utility:nth-child(2n){border-right:0!important}.utilities .utility:nth-child(n+3){border-bottom:1px solid #d2deeb!important}.utilities .utility:last-child{border-bottom:0!important}}
     @media(max-width:400px){.shell{padding:18px 13px 40px}.brand-mark{width:92px;height:92px}.brand-name{font-size:42px}.card{padding:19px}}
   </style>
 </head>
