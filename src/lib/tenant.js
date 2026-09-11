@@ -489,6 +489,7 @@ for (const statement of [
   // header so the secret never lands in RouterOS fetch URLs or web logs.
   `ALTER TABLE locations ADD COLUMN router_auth_mode TEXT NOT NULL DEFAULT 'query'`,
   `ALTER TABLE locations ADD COLUMN router_status TEXT NOT NULL DEFAULT 'waiting'`,
+  `ALTER TABLE locations ADD COLUMN offboarding_started_at TEXT`,
   `ALTER TABLE locations ADD COLUMN last_seen_at TEXT`,
   // `last_seen_at` is router-health telemetry: any authenticated router
   // endpoint may update it. Remote-support consent has a stronger
@@ -978,7 +979,8 @@ const deleteRemoteAccessEventsForLocation = db.prepare(`DELETE FROM tenant_remot
 const deleteRemoteAccessForLocation = db.prepare(`DELETE FROM tenant_remote_access WHERE location_id=?`);
 const deleteVpnPeerForLocation = db.prepare(`DELETE FROM tenant_vpn_peers WHERE location_id=?`);
 const deleteProvisioningJobsForLocation = db.prepare(`DELETE FROM tenant_jobs WHERE location_id=?`);
-const setLocationOffboarding = db.prepare(`UPDATE locations SET router_status='offboarding', router_setup_health='offboarding' WHERE id=? AND business_id=?`);
+const setLocationOffboarding = db.prepare(`UPDATE locations SET router_status='offboarding', router_setup_health='offboarding', offboarding_started_at=datetime('now') WHERE id=? AND business_id=?`);
+const staleOffboardingLocations = db.prepare(`SELECT id, business_id FROM locations WHERE router_status='offboarding' AND offboarding_started_at IS NOT NULL AND offboarding_started_at <= datetime('now','-7 days')`);
 const offboardLockdownJob = db.prepare(`SELECT id, action, acked_at FROM tenant_jobs WHERE location_id=? AND action='offboard-lockdown' ORDER BY id DESC LIMIT 1`);
 const offboardResetJob = db.prepare(`SELECT id, action, delivered_at, acked_at FROM tenant_jobs WHERE location_id=? AND action='offboard-reset' ORDER BY id DESC LIMIT 1`);
 const deleteDevicesForLocation = db.prepare(`DELETE FROM tenant_devices WHERE location_id=?`);
@@ -3299,6 +3301,12 @@ function finalizeOffboardLocation(locationId, businessId) {
   const location = locationForBusiness.get(locationId, businessId);
   const reset = offboardResetJob.get(locationId);
   if (!location || location.router_status !== 'offboarding' || !reset || !reset.delivered_at) return null;
+  return deleteOffboardedLocation(locationId, businessId, location);
+}
+
+function deleteOffboardedLocation(locationId, businessId, knownLocation) {
+  const location = knownLocation || locationForBusiness.get(locationId, businessId);
+  if (!location || location.router_status !== 'offboarding') return null;
   db.exec('BEGIN IMMEDIATE');
   try {
     deleteMappedDeploymentsForLocation.run(locationId); deleteRouterMapping.run(locationId); deleteRouterTopology.run(locationId);
@@ -3307,6 +3315,19 @@ function finalizeOffboardLocation(locationId, businessId) {
     deletePortalDomainsForLocation.run(locationId); deleteLocationForBusiness.run(locationId, businessId); db.exec('COMMIT');
     return { id: locationId, name: location.name, offboarded: true };
   } catch (error) { try { db.exec('ROLLBACK'); } catch (_) {} throw error; }
+}
+
+/** Permanently remove routers that stayed quarantined offline for seven days.
+ * This is intentionally independent of router contact: the business may
+ * replace the device immediately, while old operational state is retained
+ * only for this bounded recovery window. Customer/payment history is kept. */
+function purgeExpiredOffboardedLocations() {
+  const expired = staleOffboardingLocations.all();
+  let removed = 0;
+  for (const row of expired) {
+    if (deleteOffboardedLocation(row.id, row.business_id)) removed += 1;
+  }
+  return removed;
 }
 
 function routerSetupScript(source) {
@@ -3639,7 +3660,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, offboardLocation, queueOffboardReset, finalizeOffboardLocation, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,

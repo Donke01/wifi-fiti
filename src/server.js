@@ -423,6 +423,18 @@ app.use((req, res, next) => {
   next();
 });
 setInterval(() => tenantAccess.purge(), 60 * 60_000).unref();
+// Quarantine is a bounded recovery window. If an offboarded router never
+// reconnects, remove its operational record after seven days so it cannot
+// accumulate indefinitely; customer and payment history remains untouched.
+setInterval(() => {
+  try {
+    const removed = tenant.purgeExpiredOffboardedLocations();
+    if (removed) console.log(`[tenant] permanently removed ${removed} expired router quarantine record(s)`);
+  } catch (error) {
+    console.error('[tenant] expired router quarantine cleanup failed:', error.message);
+  }
+}, 60 * 60_000).unref();
+try { tenant.purgeExpiredOffboardedLocations(); } catch (error) { console.error('[tenant] initial router quarantine cleanup failed:', error.message); }
 
 /* ------------------------------------------------------------------ */
 /* Throttle                                                            */
