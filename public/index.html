@@ -458,7 +458,7 @@
   .btn-main:hover:not(:disabled){filter:brightness(1.04)}
   .btn-mpesa{display:flex;align-items:center;justify-content:center;gap:10px;color:#1e9b46!important;background:#fff!important;border:2px solid #37b957!important;box-shadow:0 10px 22px rgba(33,163,73,.16)!important;text-shadow:none!important}
   .btn-mpesa svg{width:35px;height:35px;flex:none}
-  .btn-mpesa .mpesa-word{display:inline-flex;align-items:center;font-family:"Arial Narrow","Roboto Condensed",var(--sans);font-size:24px;font-weight:950;letter-spacing:-.06em;line-height:1}.btn-mpesa .mpesa-logo{width:34px;height:43px;margin:0 1px}.btn-mpesa .pay-label{margin-left:12px;font-size:19px;font-weight:900}
+  .btn-mpesa .mpesa-word{display:inline-flex;align-items:center;font-family:"Arial Narrow","Roboto Condensed",var(--sans);font-size:24px;font-weight:950;letter-spacing:-.06em;line-height:1}.btn-mpesa .mpesa-logo{width:34px;height:43px;margin:0 1px}.btn-mpesa .pay-label{margin-right:12px;font-size:19px;font-weight:900}
   .btn:focus-visible{outline-color:var(--blue-brand)}
   .alt button{
     color:var(--body);background:#fff;border-color:var(--line-light);
@@ -560,7 +560,7 @@
       <input type="tel" id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX" maxlength="15">
     </div>
 
-    <button class="btn btn-mpesa" id="pay"><span class="mpesa-word">M<svg class="mpesa-logo" viewBox="0 0 40 48" fill="none" aria-hidden="true"><rect x="8" y="2" width="24" height="44" rx="7" fill="#dce8d8"/><rect x="12" y="8" width="16" height="23" rx="3" fill="#f5f8f1"/><path d="m13 14 7 6 7-6" stroke="#e5232b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 14v10h14V14" stroke="#e5232b" stroke-width="2" stroke-linejoin="round"/></svg>PESA</span><span class="pay-label">LIPA NA M-PESA</span></button>
+    <button class="btn btn-mpesa" id="pay"><span class="pay-label">LIPA NA</span><span class="mpesa-word">M<svg class="mpesa-logo" viewBox="0 0 40 48" fill="none" aria-hidden="true"><rect x="8" y="2" width="24" height="44" rx="7" fill="#dce8d8"/><rect x="12" y="8" width="16" height="23" rx="3" fill="#f5f8f1"/><path d="m13 14 7 6 7-6" stroke="#e5232b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 14v10h14V14" stroke="#e5232b" stroke-width="2" stroke-linejoin="round"/></svg>PESA</span></button>
 
     <div class="callout" id="existing-wrap" hidden>
       <b>Active package found</b>
@@ -907,7 +907,7 @@
 
   /* ---- pay ---- */
   var purchaseChecked = false, transferChoice = null;
-  function setPayText(text) { var label = $('pay').querySelector('.pay-label'); if (label) label.textContent = text; else $('pay').textContent = text; }
+  function setPayText(text) { var label = $('pay').querySelector('.pay-label'); if (label) label.textContent = text === 'LIPA NA M-PESA' ? 'LIPA NA' : text; else $('pay').textContent = text; }
   $('phone').addEventListener('input', function () {
     purchaseChecked = false; transferChoice = null; $('existing-wrap').hidden = true;
   });
