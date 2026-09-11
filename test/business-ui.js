@@ -258,8 +258,8 @@ assert.doesNotMatch(html, /Download full kit|Download \\.rsc|Show full RouterOS 
   'the customer onboarding view does not expose downloads or fallback scripts');
 assert.match(html, /WiFi Fiti kit was not downloaded\. Check WAN, DNS and RouterOS certificate trust, then retry\./,
   'a failed short installer stops before importing a stale file');
-assert.match(html, /fetches the exact one-time kit over authenticated HTTPS/,
-  'the dashboard explains that the short command fetches rather than guesses the selected setup');
+assert.match(html, /paste this complete kit once/,
+  'the dashboard explains that the copied connection kit is complete');
 const compactKitUi = html.match(/function appendSimpleRouterSetup\(body, model\) \{[\s\S]*?\n\s*function selectedMode\(\)/);
 assert.ok(compactKitUi, 'the compact connection-kit UI is present');
 assert.match(compactKitUi[0], /saved && saved\.token && storedRouterKitIsCurrent\(saved\)/,
@@ -321,18 +321,11 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
     const nodes = descendants(root);
     const buttons = nodes.filter(node => node.tagName === 'button' && node.textContent === 'Copy connection kit');
     assert.equal(buttons.length, 1, screen + ' always identifies the secure connection kit');
-    assert.equal(buttons[0].disabled, !generated.loader, screen + ' enables copying only for an available installer');
-    if (generated.loader) {
-      copiedCommand = ''; buttons[0].listeners.click();
-      assert.ok(copiedCommand.includes('/api/router/v1/bootstrap?site=' + uiLocation.id), screen + ' copies the selected router installer');
-      assert.ok(copiedCommand.includes('X-WiFi-Fiti-Router: ' + uiLocation.routerToken));
-      assert.ok(!copiedCommand.includes('\n'), screen + ' copies a single line');
-      assert.notEqual(copiedCommand, generated.script, screen + ' does not copy the full kit through the short-command button');
-    } else {
-      const message = loaderStatus === 'storage_not_configured' ? 'secure installer storage has not been configured' : 'could not prepare the one-line installer';
-      assert.ok(nodes.some(node => node.textContent.includes(message)), screen + ' explains installer unavailability');
-      assert.equal(nodes.some(node => node.tagName === 'button' && /Download/.test(node.textContent)), false, screen + ' keeps downloads hidden');
-    }
+    assert.equal(buttons[0].disabled, false, screen + ' enables copying the complete kit');
+    copiedCommand = ''; buttons[0].listeners.click();
+    assert.equal(copiedCommand, generated.script, screen + ' copies the complete RouterOS kit');
+    assert.ok(copiedCommand.includes('\n'), screen + ' copies the multi-line kit');
+    assert.equal(nodes.some(node => node.tagName === 'button' && /Download/.test(node.textContent)), false, screen + ' keeps downloads hidden');
   }
 }
 const stale = new TestElement('div');

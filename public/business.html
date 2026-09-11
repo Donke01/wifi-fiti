@@ -954,19 +954,16 @@
       }
       function appendRouterInstaller(body, saved, regenerate) {
         if (!saved || !saved.token || !storedRouterKitIsCurrent(saved)) return;
-        var box = el('section', 'simple-router'); var bootstrap = routerBootstrapCommand(saved);
-        add(box, 'h4', '', bootstrap ? 'Secure remote connection kit' : 'Secure connection kit unavailable');
-        if (bootstrap) {
-          add(box, 'p', '', 'Open a new WinBox terminal and paste this one line once. It fetches the exact one-time kit over authenticated HTTPS, then imports it. Your RouterOS administrator password is never changed.');
-          var command = add(box, 'pre', 'kit-script', bootstrap); command.setAttribute('aria-label', 'One-line RouterOS installer');
+        var box = el('section', 'simple-router'); var script = routerCommands(saved);
+        add(box, 'h4', '', script ? 'Secure remote connection kit' : 'Secure connection kit unavailable');
+        if (script) {
+          add(box, 'p', '', 'Open a new WinBox terminal and paste this complete kit once. It detects the router, installs the secure remote connection, and imports the customer portal. Your RouterOS administrator password is never changed.');
+          var command = add(box, 'pre', 'kit-script', script); command.setAttribute('aria-label', 'Complete RouterOS connection kit');
         } else {
-          var explanation = saved.setup.loaderStatus === 'storage_not_configured'
-            ? 'WiFi Fiti secure installer storage has not been configured. Contact WiFi Fiti support to enable it, then generate a new kit.'
-            : 'WiFi Fiti could not prepare the one-line installer for this kit. Generate a new kit. If this continues, contact WiFi Fiti support.';
-          add(box, 'p', 'kit-refresh-note', explanation);
+          add(box, 'p', 'kit-refresh-note', 'WiFi Fiti could not prepare the complete connection kit. Generate a new kit. If this continues, contact WiFi Fiti support.');
         }
         var actions = el('div', 'buttons');
-        var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(bootstrap, quickCopy); }); quickCopy.disabled = !bootstrap;
+        var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(script, quickCopy); }); quickCopy.disabled = !script;
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);
         body.appendChild(box);
