@@ -1,7 +1,7 @@
 # =====================================================================
 #  WiFi Fiti for Business - router-side polling, usage reporting and acknowledgement
 #
-#  Every 5 seconds the router does ONE round trip that carries: which
+#  Every 2 seconds the router does ONE round trip that carries: which
 #  jobs it ran last cycle and a request for new work. The server also sends
 #  disconnect commands for wall-clock subscriptions that have expired.
 #  Nothing inbound is ever opened.
@@ -410,14 +410,14 @@
   comment="WiFi Fiti: restore settings after reboot"
 
 # A repeating task with start-time=startup does not run on reboot in RouterOS.
-# Anchor it at the epoch instead, so it becomes due within five seconds even
+# Anchor it at the epoch instead, so it becomes due within two seconds even
 # on a freshly reset router whose clock is not trustworthy yet.
-/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=5s disabled=no \
+/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=2s disabled=no \
   policy=read,write,ftp,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 
 :put ""
-:put "Business router paired. Polling is active."
+:put "Business router paired. Polling is active (2s)."
 :put "Test now:      /system script run fiti-poll"
 :put "Check logs:    /log print where message~\"fiti\""
 :put "Granted users: /ip hotspot user print detail"

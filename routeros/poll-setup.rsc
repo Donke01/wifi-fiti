@@ -1,7 +1,7 @@
 # =====================================================================
 #  WiFi Fiti - router-side polling, usage reporting and acknowledgement
 #
-#  Every 5 seconds the router does ONE round trip that carries: which
+#  Every 2 seconds the router does ONE round trip that carries: which
 #  jobs it ran last cycle and a request for new work. The server also sends
 #  disconnect commands for wall-clock subscriptions that have expired.
 #  Nothing inbound is ever opened.
@@ -108,12 +108,12 @@
   policy=read,write,test,policy on-event="/system script run fiti-boot" \
   comment="WiFi Fiti: restore settings after reboot"
 
-/system scheduler add name=fiti-poll interval=5s \
+/system scheduler add name=fiti-poll interval=2s \
   policy=read,write,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 
 :put ""
-:put "Installed. Polling every 5s, settings restored at boot."
+:put "Installed. Polling every 2s, settings restored at boot."
 :put "Test now:      /system script run fiti-poll"
 :put "Check logs:    /log print where message~\"fiti\""
 :put "Granted users: /ip hotspot user print detail"

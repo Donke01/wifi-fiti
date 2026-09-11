@@ -3163,6 +3163,24 @@ function hydratedRemoteSupportControls(controls) {
   return { controls: hydrated, rejected };
 }
 
+// Provisioning is delivered over the router's outbound poll. Keep the
+// interval short enough that a paid customer is not left waiting for the
+// next five-second cycle (and the following acknowledgement cycle). This is
+// emitted as an idempotent, ownership-checked command so already-paired
+// routers adopt the faster interval on their next successful sync without a
+// manual re-import or a second installer.
+function tenantPollTuningScript() {
+  return [
+    ':local fitiPollSchedulers [/system scheduler find where name="fiti-poll"]',
+    ':foreach fitiPollSchedulerId in=$fitiPollSchedulers do={',
+    '  :local fitiPollSchedulerComment [/system scheduler get $fitiPollSchedulerId comment]',
+    '  :if ([:typeof [:find $fitiPollSchedulerComment "WiFi Fiti: sync usage, ack jobs, collect work"]] != "nil") do={',
+    '    /system scheduler set $fitiPollSchedulerId interval=2s',
+    '  }',
+    '}',
+  ].join('\n') + '\n';
+}
+
 function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
   // A candidate replacement must not collect jobs or acknowledge old work
   // before it has completed the receipt challenge. This protects a live
@@ -3178,8 +3196,13 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   // re-enrollment must never race a map-bound service selector update.
   const deployment = controls.length ? null : tenant.pendingMappedDeploymentForRouter(location);
   const portal = routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost });
+  // Keep remote-support responses narrowly scoped: the cleanup/activation
+  // tests (and, more importantly, operators) must be able to see that a
+  // support control cannot touch the customer poller. The tuning command is
+  // retried on the next ordinary sync once the control is acknowledged.
+  const pollTuning = controls.length ? '' : tenantPollTuningScript();
   if (!jobs.length && !controls.length && !deployment) {
-    return { script: portal, emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
+    return { script: [pollTuning, portal].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
 
   // Support controls always use their own queue and ACK global. They are
@@ -3206,7 +3229,7 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   }
 
   if (!jobs.length) {
-    return { script: [portal, support.script, mapped.script].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
+    return { script: [pollTuning, portal, support.script, mapped.script].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
   }
 
   const { script, emitted, rejected } = buildScript({
@@ -3219,7 +3242,7 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   }
   if (emitted.length) console.log(`[tenant router] ${location.id} collected job(s) ${emitted.join(', ')}`);
   return {
-    script: [portal, support.script, mapped.script, script].filter(Boolean).join('\n'),
+    script: [pollTuning, portal, support.script, mapped.script, script].filter(Boolean).join('\n'),
     emitted,
     rejected,
     supportEmitted: support.emitted,

@@ -531,7 +531,7 @@ assert.ok(newKit.script.indexOf('/file remove [find where name="fiti-tenant-inst
 assert.ok(newKit.script.indexOf('Fresh WiFi Fiti cloud installer was not downloaded') < newKit.script.indexOf('/import file-name="fiti-tenant-install.rsc"'),
   'the retry verifies that a fresh file exists before it imports anything');
 assert.doesNotMatch(newKit.script, /\/system reset-configuration|\/ip service|\/user add/);
-assert.match(installer, /\/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=5s disabled=no/,
+assert.match(installer, /\/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=2s disabled=no/,
   'the installed polling agent starts from a clock-safe epoch schedule after every reboot');
 assert.match(installer, /RouterOS device mode blocks a required WiFi Fiti feature/,
   'the downloaded installer also fails clearly before a partial Hotspot change on a blocked router');
