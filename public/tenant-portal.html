@@ -176,11 +176,13 @@
           if (result.status === 'paid') {
             checkout = null; write('_checkout', null); active(result);
             // The router has applied the package, but the captive-portal
-            // browser still needs its session login. Do this immediately so
-            // the customer never has to refresh the page or press Connect.
-            // A TV purchase belongs to the TV MAC and must not log in the
-            // phone that initiated the payment.
-            if (result.deviceType !== 'tv') reconnect();
+            // browser still needs its session login. Submit RouterOS's
+            // native login form as soon as payment is confirmed. Waiting for
+            // a second reconnect job here made the page appear stuck until a
+            // manual refresh. If this is not a captive-portal redirect (for
+            // example a normal browser visit), keep the API reconnect as the
+            // fallback.
+            if (result.deviceType !== 'tv' && !signIn(result.username, result.password)) reconnect();
             return;
           }
           if (result.status === 'failed' || result.status === 'transferred') {
