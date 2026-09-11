@@ -375,6 +375,14 @@ app.use('/api/internal/vpn-gateways', express.json({ limit: '4mb' }));
 app.use('/api/business/branding/logo', express.json({ limit: '520kb' }));
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false }));
+// Compatibility installer for older RouterOS CA stores. It contains no
+// location secret; the authenticated bootstrap decides when to reference it.
+app.get('/tenant-router-install-compat.rsc', (req, res) => {
+  try {
+    const source = fs.readFileSync(path.join(publicDirectory, 'tenant-router-install.rsc'), 'utf8');
+    res.type('text/plain').send(source.replace(/check-certificate=yes/g, 'check-certificate=no'));
+  } catch (_) { res.status(404).type('text/plain').send('# installer unavailable\n'); }
+});
 app.use(express.static(publicDirectory));
 
 // This repository is intentionally private, so a new VPS cannot rely on a
@@ -3099,7 +3107,9 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     // Keep the normal kit certificate-verified. The explicit compatibility
     // option is only for older RouterOS boards with an empty CA store and does not
     // change the encrypted kit retained at rest.
-    if (String(req.query.compat || '') === '1') script = script.replace(/check-certificate=yes/g, 'check-certificate=no');
+    if (String(req.query.compat || '') === '1') script = script
+      .replace(/check-certificate=yes/g, 'check-certificate=no')
+      .replace(/tenant-router-install\.rsc/g, 'tenant-router-install-compat.rsc');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);
