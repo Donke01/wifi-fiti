@@ -1289,7 +1289,7 @@
           clearOnboardingLocation((state.workspace && state.workspace.business) || {});
           return load();
         }).then(function () {
-          $('location-error').textContent = 'Router offboarded. Start router setup again to generate a completely new pairing kit.';
+          $('location-error').textContent = 'Reset queued. Customer access is locked now; keep the router online until it receives the reset, then it will disappear from this dashboard.';
         }).catch(function (error) { $('location-error').textContent = error.message; }).finally(function () { setBusy(button, false); });
       }
       function renderLocations() {

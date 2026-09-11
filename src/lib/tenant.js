@@ -978,6 +978,9 @@ const deleteRemoteAccessEventsForLocation = db.prepare(`DELETE FROM tenant_remot
 const deleteRemoteAccessForLocation = db.prepare(`DELETE FROM tenant_remote_access WHERE location_id=?`);
 const deleteVpnPeerForLocation = db.prepare(`DELETE FROM tenant_vpn_peers WHERE location_id=?`);
 const deleteProvisioningJobsForLocation = db.prepare(`DELETE FROM tenant_jobs WHERE location_id=?`);
+const setLocationOffboarding = db.prepare(`UPDATE locations SET router_status='offboarding', router_setup_health='offboarding' WHERE id=? AND business_id=?`);
+const offboardLockdownJob = db.prepare(`SELECT id, action, acked_at FROM tenant_jobs WHERE location_id=? AND action='offboard-lockdown' ORDER BY id DESC LIMIT 1`);
+const offboardResetJob = db.prepare(`SELECT id, action, delivered_at, acked_at FROM tenant_jobs WHERE location_id=? AND action='offboard-reset' ORDER BY id DESC LIMIT 1`);
 const deleteDevicesForLocation = db.prepare(`DELETE FROM tenant_devices WHERE location_id=?`);
 const cancelPendingTransactionsForLocation = db.prepare(`
   UPDATE tenant_transactions
@@ -3264,37 +3267,46 @@ function offboardLocation({ locationId, businessId, confirm } = {}) {
   }
   const location = locationForBusiness.get(locationId, businessId);
   if (!location) return null;
-  const routerToken = crypto.randomBytes(24).toString('base64url');
-  const hash = tokenHash(routerToken);
+  if (location.router_status === 'offboarding') return { ...location, offboarding: true, offboarded: false };
   db.exec('BEGIN IMMEDIATE');
   try {
-    // Delete the most dependent router-operational rows first. None of these
-    // deletes touch the transaction ledger, packages or business account.
-    deleteMappedDeploymentsForLocation.run(locationId);
-    deleteRouterMapping.run(locationId);
-    deleteRouterTopology.run(locationId);
-    deleteVpnPeerForLocation.run(locationId);
-    deleteRemoteSupportControlsForLocation.run(locationId);
-    deleteRemoteAccessEventsForLocation.run(locationId);
-    deleteRemoteAccessForLocation.run(locationId);
     deleteProvisioningJobsForLocation.run(locationId);
-    deleteDevicesForLocation.run(locationId);
     cancelPendingTransactionsForLocation.run(locationId);
     deactivateSubscriptionsForLocation.run(locationId);
-    deletePortalDomainsForLocation.run(locationId);
-    const reset = resetLocationForOffboard.run({
-      locationId, businessId, routerTokenMarker: tokenMarker(routerToken), routerTokenHash: hash,
-    });
-    if (!reset.changes) {
+    if (!setLocationOffboarding.run(locationId, businessId).changes) {
       db.exec('ROLLBACK');
       return null;
     }
+    insertJob.run({ locationId, username: 'offboard', password: '2222', profile: 'standard', totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'offboard-lockdown' });
     db.exec('COMMIT');
   } catch (error) {
     try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
     throw error;
   }
-  return { ...locationForBusiness.get(locationId, businessId), routerToken, offboarded: true };
+  return { ...locationForBusiness.get(locationId, businessId), offboarding: true, offboarded: false };
+}
+
+function queueOffboardReset(locationId) {
+  const location = locationById.get(locationId);
+  if (!location || location.router_status !== 'offboarding') return false;
+  const lock = offboardLockdownJob.get(locationId);
+  if (!lock || !lock.acked_at || offboardResetJob.get(locationId)) return false;
+  insertJob.run({ locationId, username: 'offboard-reset', password: '2222', profile: 'standard', totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'offboard-reset' });
+  return true;
+}
+
+function finalizeOffboardLocation(locationId, businessId) {
+  const location = locationForBusiness.get(locationId, businessId);
+  const reset = offboardResetJob.get(locationId);
+  if (!location || location.router_status !== 'offboarding' || !reset || !reset.delivered_at) return null;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    deleteMappedDeploymentsForLocation.run(locationId); deleteRouterMapping.run(locationId); deleteRouterTopology.run(locationId);
+    deleteVpnPeerForLocation.run(locationId); deleteRemoteSupportControlsForLocation.run(locationId); deleteRemoteAccessEventsForLocation.run(locationId);
+    deleteRemoteAccessForLocation.run(locationId); deleteProvisioningJobsForLocation.run(locationId); deleteDevicesForLocation.run(locationId);
+    deletePortalDomainsForLocation.run(locationId); deleteLocationForBusiness.run(locationId, businessId); db.exec('COMMIT');
+    return { id: locationId, name: location.name, offboarded: true };
+  } catch (error) { try { db.exec('ROLLBACK'); } catch (_) {} throw error; }
 }
 
 function routerSetupScript(source) {
@@ -3627,7 +3639,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, offboardLocation, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, offboardLocation, queueOffboardReset, finalizeOffboardLocation, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,

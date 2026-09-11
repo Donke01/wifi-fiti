@@ -60,6 +60,18 @@ function rateProfileName(rateLimit) {
  */
 function jobToScript(job, hotspotServer) {
   const username = safe('username', job.username);
+  if (job.action === 'offboard-lockdown') {
+    return [
+      ':foreach fitiActive in=[/ip hotspot active find] do={ /ip hotspot active remove $fitiActive }',
+      ':foreach fitiUser in=[/ip hotspot user find] do={ /ip hotspot user disable $fitiUser }',
+      ':foreach fitiServer in=[/ip hotspot find] do={ /ip hotspot disable $fitiServer }',
+      ':foreach fitiNat in=[/ip firewall nat find where comment="WiFi Fiti hotspot NAT"] do={ /ip firewall nat disable $fitiNat }',
+      ':log warning "WiFi Fiti offboarding: customer access locked; router reset will follow"',
+    ].join('\n');
+  }
+  if (job.action === 'offboard-reset') {
+    return ':delay 1s\n/system reset-configuration no-defaults=yes skip-backup=yes';
+  }
   if (job.action === 'revoke') {
     if (!username) return null;
     return `:local u "${username}"\n` +

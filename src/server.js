@@ -3433,12 +3433,17 @@ app.post('/api/router/sync', (req, res) => {
     // therefore marked stale instead of being recorded as deployed.
     ingestTenantTopology(readyLocation, req.body);
     acknowledgeTenantRouterJobs(readyLocation, req.query.ack);
+    // Offboarding is two-phase: the first poll locks customer access, then
+    // the next response carries the destructive reset. The location is
+    // deleted only after that reset script has actually been delivered.
+    tenant.queueOffboardReset(readyLocation.id);
     acknowledgeTenantRemoteSupportControls(readyLocation, req.query.supportAck);
     ingestTenantUsage(readyLocation, req.body);
     const response = tenantRouterScript(readyLocation, {
       reportedPortalAppliedHost: req.query.portalApplied,
       reportedPortalHost: req.query.portal,
     }).script;
+    if (readyLocation.router_status === 'offboarding') tenant.finalizeOffboardLocation(readyLocation.id, readyLocation.business_id);
     return res.type('text/plain').send(response);
   }
 
