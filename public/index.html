@@ -465,6 +465,9 @@
     box-shadow:0 5px 14px rgba(31,54,84,.045);-webkit-backdrop-filter:none;backdrop-filter:none;
   }
   .alt button:hover{background:#F4F8FE;border-color:#B9CBE4;transform:translateY(-1px)}
+  #s-buy > .alt{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:stretch}
+  #s-buy > .alt .action-btn{min-width:0;min-height:92px;width:100%;padding:12px 8px;flex-direction:column;align-items:center;justify-content:center;gap:7px;text-align:center}
+  #s-buy > .alt .action-btn>span:last-child{font-size:14px;line-height:1.15;white-space:normal;overflow-wrap:break-word;word-break:normal;text-align:center}
   #s-buy .lab-note{display:none}
   .action-icon{box-shadow:none}
   .icon-voucher{color:#704500;background:#FFEAB1}
@@ -504,7 +507,7 @@
     .screen.on > *:nth-child(4){animation-delay:.165s}.screen.on > *:nth-child(5){animation-delay:.22s}
   }
   @keyframes tileEnter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  @media (max-width:380px){.brand-logo{width:96px;height:96px}.bar b{font-size:39px}.alt{gap:7px}.alt button{font-size:12px;padding:12px 5px;gap:6px}.action-icon{width:34px;height:34px}.action-icon svg{width:20px;height:20px}.btn-mpesa .mpesa-word{font-size:21px}.btn-mpesa .pay-label{font-size:16px}.btn-mpesa .mpesa-logo{width:30px;height:38px}}
+  @media (max-width:380px){.brand-logo{width:96px;height:96px}.bar b{font-size:39px}.alt{gap:7px}.alt button{font-size:12px;padding:12px 5px;gap:6px}.action-icon{width:34px;height:34px}.action-icon svg{width:20px;height:20px}.btn-mpesa .mpesa-word{font-size:21px}.btn-mpesa .pay-label{font-size:16px}.btn-mpesa .mpesa-logo{width:30px;height:38px}#s-buy > .alt .action-btn{min-height:84px;padding:10px 5px;gap:6px}#s-buy > .alt .action-btn>span:last-child{font-size:12.5px;line-height:1.1}}
 </style>
 </head>
 <body>
