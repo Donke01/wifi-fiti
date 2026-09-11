@@ -20,9 +20,18 @@
     label{color:#47617e}input{color:var(--ink);border-color:#cdd9e8;background:#fff;box-shadow:inset 0 1px 2px #193d7108}input::placeholder{color:#91a0b3}
     .primary{color:#fff;background:linear-gradient(110deg,#1157ba,#1769d8 55%,#3187e6);box-shadow:0 12px 25px #1769d826}.secondary{color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px #193d7108}.text-button{color:var(--blue)}
     .utility{color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px #193d7108}.utility b{color:var(--blue)}.utility small{color:var(--muted)}.error{color:var(--bad)}
+    .utilities{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}
+    .utility{display:flex;min-height:102px;flex-direction:column;align-items:flex-start;justify-content:center;gap:7px;padding:16px 15px;text-align:left;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+    .utility:hover{transform:translateY(-3px);box-shadow:0 10px 22px rgba(32,57,86,.12)}
+    .utility b{margin:0;font-size:16px;line-height:1.15;letter-spacing:-.025em}
+    .utility small{font-size:13px;line-height:1.35}
+    #buy-tv-start{border-color:#c6d8f7;background:linear-gradient(145deg,#f7faff,#edf4ff)}#buy-tv-start b{color:#255eb7}
+    #check-time{border-color:#bfe6dc;background:linear-gradient(145deg,#f7fffd,#eafaf5)}#check-time b{color:#087c70}
+    #open-voucher{border-color:#f0d8ad;background:linear-gradient(145deg,#fffdf8,#fff6e6)}#open-voucher b{color:#a26100}
     .spinner{border-color:#dbe5f0;border-top-color:var(--blue)}.elapsed{color:var(--muted)}.active-card:after{background:radial-gradient(circle,#d4e6ff,transparent 65%)}.active-kicker{color:var(--blue)}.clock{color:var(--ink)}.notice{border-color:#cfe1f6;color:#355374;background:#f3f8ff}.notice strong{color:var(--ink)}.remaining{color:var(--good)}.existing{border-color:var(--line);background:#fff}.existing.active{border-color:var(--blue);background:#eef5ff}.footer{color:#8292a7}
     @media (prefers-reduced-motion:no-preference){.card:not(.hidden){animation:fitiTileIn .48s cubic-bezier(.2,.8,.2,1) both}.plan{animation:fitiTileIn .45s cubic-bezier(.2,.8,.2,1) both}.plan:nth-child(2){animation-delay:.05s}.plan:nth-child(3){animation-delay:.1s}.plan:nth-child(4){animation-delay:.15s}}
     @keyframes fitiBrandFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}@keyframes fitiTileIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    @media(max-width:480px){.utilities{grid-template-columns:1fr}.utility{min-height:82px}}
     @media(max-width:400px){.shell{padding:18px 13px 40px}.brand-mark{width:92px;height:92px}.brand-name{font-size:42px}.card{padding:19px}}
   </style>
 </head>
