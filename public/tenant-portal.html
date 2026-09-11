@@ -164,7 +164,16 @@
         try {
           var result = await api('/status/' + encodeURIComponent(checkout.checkoutRequestId));
           if (version !== generation) return;
-          if (result.status === 'paid') { checkout = null; write('_checkout', null); active(result); return; }
+          if (result.status === 'paid') {
+            checkout = null; write('_checkout', null); active(result);
+            // The router has applied the package, but the captive-portal
+            // browser still needs its session login. Do this immediately so
+            // the customer never has to refresh the page or press Connect.
+            // A TV purchase belongs to the TV MAC and must not log in the
+            // phone that initiated the payment.
+            if (result.deviceType !== 'tv') reconnect();
+            return;
+          }
           if (result.status === 'failed' || result.status === 'transferred') {
             checkout = null; write('_checkout', null); stop(); show('buy');
             message('error', result.reason || 'This payment was not completed.'); return;
