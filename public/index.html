@@ -907,6 +907,16 @@
     });
     document.body.appendChild(f); f.submit(); return true;
   }
+  function connectAfterAck(u, p) {
+    if (!LOGIN_URL) return false;
+    var attempts = 0;
+    function attempt() {
+      signIn(u, p);
+      if (++attempts < 3) setTimeout(attempt, 900);
+    }
+    attempt();
+    return true;
+  }
 
   /* ---- pay ---- */
   var purchaseChecked = false, transferChoice = null;
@@ -1050,11 +1060,11 @@
         $('done-connect').onclick = function () { signIn(s.username, s.password); };
         // Give the customer time to see confirmation and the live countdown,
         // then complete the RouterOS login without requiring another tap.
-        setTimeout(function () { signIn(s.username, s.password); }, 3000);
+        setTimeout(function () { connectAfterAck(s.username, s.password); }, 300);
       }
     } else {
       $('done-title').textContent = "You're connected";
-      setTimeout(function () { signIn(s.username, s.password); }, 600);
+      setTimeout(function () { connectAfterAck(s.username, s.password); }, 300);
     }
   }
 

@@ -194,6 +194,22 @@
       });
       document.body.appendChild(form); form.submit(); return true;
     }
+    // Captive-portal mini-browsers can discard the first navigation while the
+    // router is switching the client from unauthorised to authorised. Retry
+    // the native login briefly, then use the authenticated reconnect endpoint
+    // as a fallback. The server only returns this result after router ACK.
+    function connectAfterAck(result) {
+      var attempts = 0;
+      function attempt() {
+        if (loginUrl || referrerLoginUrl) {
+          signIn(result.username, result.password);
+          if (++attempts < 3) setTimeout(attempt, 900);
+        } else {
+          reconnect();
+        }
+      }
+      attempt();
+    }
     async function pollPayment() {
       if (!checkout || !checkout.portalToken) return;
       stop(); var version = generation, attempts = 0;
@@ -215,8 +231,7 @@
             if (result.deviceType !== 'tv') {
               // Match the proven legacy portal flow: let the confirmation
               // view paint before navigating the captive mini-browser.
-              if (loginUrl || referrerLoginUrl) setTimeout(function () { signIn(result.username, result.password); }, 600);
-              else reconnect();
+              setTimeout(function () { connectAfterAck(result); }, 300);
             }
             return;
           }
