@@ -954,13 +954,18 @@
       }
       function appendRouterInstaller(body, saved, regenerate) {
         if (!saved || !saved.token || !storedRouterKitIsCurrent(saved)) return;
-        var box = el('section', 'simple-router'); var script = routerCommands(saved);
-        add(box, 'h4', '', script ? 'Secure remote connection kit' : 'Secure connection kit unavailable');
+        var box = el('section', 'simple-router');
+        // Keep the customer-facing onboarding surface to one short command.
+        // The server returns the exact encrypted kit only after authenticating
+        // this location-specific header token; the full RouterOS source stays
+        // out of the browser UI and remains an internal fallback.
+        var script = routerBootstrapCommand(saved);
+        add(box, 'h4', '', script ? 'Secure bootstrap command' : 'Secure bootstrap unavailable');
         if (script) {
-          add(box, 'p', '', 'Open a new WinBox terminal and paste this complete kit once. It detects the router, installs the secure remote connection, and imports the customer portal. Your RouterOS administrator password is never changed.');
-          var command = add(box, 'pre', 'kit-script', script); command.setAttribute('aria-label', 'Complete RouterOS connection kit');
+          add(box, 'p', '', 'paste this complete kit once as one short command in a new WinBox terminal. It securely downloads the exact router kit over HTTPS, imports it locally, and removes the temporary file. Your administrator password is never requested.');
+          var command = add(box, 'pre', 'kit-script', script); command.setAttribute('aria-label', 'Secure WiFi Fiti bootstrap command');
         } else {
-          add(box, 'p', 'kit-refresh-note', 'WiFi Fiti could not prepare the complete connection kit. Generate a new kit. If this continues, contact WiFi Fiti support.');
+          add(box, 'p', 'kit-refresh-note', 'WiFi Fiti could not prepare the secure bootstrap. Generate a new kit.');
         }
         var actions = el('div', 'buttons');
         var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(script, quickCopy); }); quickCopy.disabled = !script;
