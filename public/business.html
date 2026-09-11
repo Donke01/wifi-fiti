@@ -974,8 +974,8 @@
         }
         var actions = el('div', 'buttons');
         var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(script, quickCopy); }); quickCopy.disabled = !script;
-        var compatibilityCopy = setupAction(actions, 'Copy hAP lite CA-free kit', 'secondary', function () { copyText(compatibilityScript, compatibilityCopy); }); compatibilityCopy.disabled = !compatibilityScript;
-        add(box, 'small', 'form-note', 'Use the hAP lite option only when RouterOS reports “no trusted CA certificate found”. All other routers should use the standard connection kit.');
+        var compatibilityCopy = setupAction(actions, 'Copy CA compatibility kit', 'secondary', function () { copyText(compatibilityScript, compatibilityCopy); }); compatibilityCopy.disabled = !compatibilityScript;
+        add(box, 'small', 'form-note', 'Use this only when RouterOS reports “no trusted CA certificate found”. All other routers should use the standard connection kit.');
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);
         body.appendChild(box);
