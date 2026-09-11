@@ -1697,6 +1697,8 @@ function publicTenantSubscription(locationId, subscription) {
     remainingSeconds,
     rateLimit: subscription.rate_limit || null,
     expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z',
+    deviceType: subscription.device_type || 'phone',
+    deviceLabel: subscription.device_label || '',
     device: device ? { mac: device.mac, label: device.label } : null,
   };
 }
