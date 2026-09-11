@@ -296,17 +296,17 @@
       // The short command never invents RouterOS configuration. It fetches
       // the exact encrypted, one-time kit that the server generated for this
       // location, using the location token only in an HTTPS request header.
-      function routerBootstrapCommand(setup) {
+      function routerBootstrapCommand(setup, compatibility) {
         var locationId = String(setup && setup.id || '');
         var routerToken = String(setup && setup.token || '');
         var loader = Boolean(setup && setup.setup && setup.setup.loader === true);
         if (!loader || !/^loc-[A-Za-z0-9_-]{1,96}$/.test(locationId) || !/^[A-Za-z0-9_-]{16,160}$/.test(routerToken)) return '';
         var origin = window.location.origin;
-        var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId);
+        var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId) + (compatibility ? '&compat=1' : '');
         return [
           ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={ :do { [:parse "/certificate settings set builtin-trust-anchors=trusted"] } on-error={} }',
           ':do { /file remove [find where name="wifi-fiti-bootstrap.rsc"] } on-error={}',
-          '/tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=yes dst-path="wifi-fiti-bootstrap.rsc" mode=https',
+          '/tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=' + (compatibility ? 'no' : 'yes') + ' dst-path="wifi-fiti-bootstrap.rsc" mode=https',
           ':if ([:len [/file find where name="wifi-fiti-bootstrap.rsc"]] != 1) do={ :error "WiFi Fiti kit was not downloaded. Check WAN, DNS and RouterOS certificate trust, then retry." }',
           '/import file-name="wifi-fiti-bootstrap.rsc"',
           ':do { /file remove "wifi-fiti-bootstrap.rsc" } on-error={}'
@@ -963,6 +963,7 @@
         // this location-specific header token; the full RouterOS source stays
         // out of the browser UI and remains an internal fallback.
         var script = routerBootstrapCommand(saved);
+        var compatibilityScript = routerBootstrapCommand(saved, true);
         add(box, 'h4', '', script ? 'Secure bootstrap command' : 'Secure bootstrap unavailable');
         if (script) {
           add(box, 'p', '', 'paste this complete kit once as one short command in a new WinBox terminal. It securely downloads the exact router kit over HTTPS, imports it locally, and removes the temporary file. Your administrator password is never requested.');
@@ -973,6 +974,8 @@
         }
         var actions = el('div', 'buttons');
         var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(script, quickCopy); }); quickCopy.disabled = !script;
+        var compatibilityCopy = setupAction(actions, 'Copy hAP lite CA-free kit', 'secondary', function () { copyText(compatibilityScript, compatibilityCopy); }); compatibilityCopy.disabled = !compatibilityScript;
+        add(box, 'small', 'form-note', 'Use the hAP lite option only when RouterOS reports “no trusted CA certificate found”. All other routers should use the standard connection kit.');
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);
         body.appendChild(box);

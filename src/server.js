@@ -3096,6 +3096,10 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
         '# WiFi Fiti bootstrap is unavailable. Generate a fresh connection kit from the dashboard.\n'
       );
     }
+    // Keep the normal kit certificate-verified. The explicit compatibility
+    // option is only for older boards with an empty CA store and does not
+    // change the encrypted kit retained at rest.
+    if (String(req.query.compat || '') === '1') script = script.replace(/check-certificate=yes/g, 'check-certificate=no');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);
