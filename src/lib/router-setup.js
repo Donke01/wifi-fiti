@@ -209,6 +209,17 @@ function routerTrustStoreLines() {
   ];
 }
 
+// TLS validation is impossible while a reset board still has an old clock.
+// Ask RouterOS to enable its NTP client before the first cloud fetch. The
+// command is deferred so older 7.x parsers can ignore unsupported properties;
+// the kit never changes the router administrator account and never reboots.
+function routerClockSyncLines() {
+  return [
+    ':do { ' + deferredRouterCommand('/system ntp client set enabled=yes servers=pool.ntp.org') + ' } on-error={ :do { ' + deferredRouterCommand('/system ntp client set enabled=yes') + ' } on-error={} }',
+    ':delay 5s',
+  ];
+}
+
 // RouterOS terminal paste executes each top-level line as its own command.
 // Keep the generated kit inside one :onerror block so :local values survive
 // the paste and a failure is printed with its actual RouterOS error. This is
@@ -283,6 +294,7 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
   const portalHost = new URL(portalOrigin).hostname;
   const bootstrap = [
     ...routerTrustStoreLines(),
+    ...routerClockSyncLines(),
     ...(preserveDetected ? [
       ':local fitiBootstrapHotspots [/ip hotspot find]',
       ':if ([:len $fitiBootstrapHotspots] = 1) do={ :local fitiBootstrapHotspot [:pick $fitiBootstrapHotspots 0]; :global fitiHotspotServer; :global fitiBridge; :set fitiHotspotServer [/ip hotspot get $fitiBootstrapHotspot name]; :set fitiBridge [/ip hotspot get $fitiBootstrapHotspot interface] }',

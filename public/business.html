@@ -304,6 +304,7 @@
         var origin = window.location.origin;
         var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId);
         return [
+          ':do { [:parse "/system ntp client set enabled=yes servers=pool.ntp.org"] } on-error={ :do { [:parse "/system ntp client set enabled=yes"] } on-error={} }; :delay 5s',
           ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={ :do { [:parse "/certificate settings set builtin-trust-anchors=trusted"] } on-error={} }',
           ':do { /file remove [find where name="wifi-fiti-bootstrap.rsc"] } on-error={}',
           '/tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=yes dst-path="wifi-fiti-bootstrap.rsc" mode=https',
