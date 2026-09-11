@@ -126,7 +126,7 @@ function jobToScript(job, hotspotServer) {
   // identity in as soon as it is provisioned. Phones with a captive-portal
   // IP receive the same best-effort direct login; the browser never posts
   // hotspot credentials itself.
-  if (ip || username.endsWith('-tv') || job.action === 'transfer') {
+  if (ip || username.endsWith('-tv') || job.action === 'transfer' || job.action === 'tv-upsert') {
     const args = ['user=$u', 'password=$p'];
     if (mac) args.push(`mac-address=${mac}`);
     if (ip) args.push(`ip=${ip}`);
