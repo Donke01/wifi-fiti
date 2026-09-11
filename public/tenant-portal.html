@@ -34,7 +34,7 @@
     <section class="card active-card hidden" id="active" aria-live="polite"><div class="active-kicker" id="active-kicker">YOUR WIFI PACKAGE</div><h1 id="active-title">You have Wi‑Fi time</h1><div class="clock" id="clock">—</div><p class="expiry" id="expiry"></p><div class="notice"><strong>Save your WiFi recovery code</strong><p class="section-copy">Use this code and the paying number to restore your package or move it to another phone.</p><p id="recovery-code" style="font:800 24px ui-monospace,monospace;letter-spacing:.12em;margin:12px 0;overflow-wrap:anywhere"></p><button class="text-button" id="copy-recovery" type="button">Copy recovery code</button><p class="section-copy" id="active-phone"></p></div><div class="error" id="active-error" aria-live="polite"></div><div class="active-actions"><button class="primary" type="button" id="connect">RECONNECT THIS DEVICE</button><button class="secondary" type="button" id="manage-tv">CONNECT YOUR TV</button></div><button class="primary" type="button" id="top-up">BUY MORE TIME</button></section>
     <section class="section hidden" id="existing-section"><div class="card"><div class="section-title"><h2>Existing package found</h2><button class="text-button" type="button" id="buy-anyway">Continue with purchase</button></div><p class="section-copy">Choose the package to check its balance. To move its remaining time to this device, enter the WiFi recovery code; the previous phone will be disconnected.</p><div id="existing-list" class="existing-list"></div><label for="transfer-password">WiFi recovery code</label><input id="transfer-password" autocomplete="off" autocapitalize="characters" placeholder="Code saved on your WiFi countdown page"><div class="error" id="transfer-error" aria-live="polite"></div><button class="primary" type="button" id="transfer">CONNECT THIS PACKAGE</button></div></section>
     <section class="section hidden" id="voucher-section"><div class="card"><div class="section-title"><h2>Use a voucher</h2><button class="text-button" type="button" id="close-voucher">Close</button></div><p class="section-copy">Enter the voucher code and the phone number that should own the package.</p><label for="voucher-code">Voucher code</label><input id="voucher-code" autocomplete="off" autocapitalize="characters" placeholder="FITI…"><div class="error" id="voucher-error" aria-live="polite"></div><button class="primary" type="button" id="redeem">REDEEM VOUCHER</button></div></section>
-    <section class="section hidden" id="tv-section"><div class="card"><div class="section-title"><h2>Connect your TV</h2><button class="text-button" type="button" id="close-tv">Close</button></div><p class="section-copy">One TV or streaming device can share this package. Remove an existing TV before replacing it.</p><p class="notice" id="tv-existing"></p><button type="button" id="remove-tv" class="secondary hidden">REMOVE LINKED TV</button><label for="tv-name">Device name</label><input id="tv-name" autocomplete="off" value="TV" maxlength="24"><label for="tv-mac">TV MAC address</label><input id="tv-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><button class="primary" type="button" id="add-tv">CONNECT TV</button><div class="error" id="tv-error" aria-live="polite"></div></div></section>
+    <section class="section hidden" id="tv-section"><div class="card"><div class="section-title"><h2>Buy for your TV</h2><button class="text-button" type="button" id="close-tv">Close</button></div><p class="section-copy">Choose a package separately. It is locked to one TV MAC address and does not use your phone’s package.</p><p class="notice" id="tv-existing"></p><label for="tv-name">Device name</label><input id="tv-name" autocomplete="off" value="TV" maxlength="24"><label for="tv-mac">TV MAC address</label><input id="tv-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><button class="primary" type="button" id="add-tv">LIPA NA M-PESA FOR TV</button><div class="error" id="tv-error" aria-live="polite"></div></div></section>
     <button class="primary hidden" type="button" id="resume-payment">RESUME PAYMENT</button>
     <p class="footer" id="support">© <span id="year"></span> Customer Wi‑Fi</p>
   </main>
@@ -245,7 +245,7 @@
       var button = $('pay'); button.disabled = true; message('error', '');
       try {
         if (!bypassLookup && await checkExisting(true)) return;
-        checkout = await api('/pay', { packageId: selected, phone: phone(), mac: mac, ip: ip });
+        checkout = await api('/pay', { packageId: selected, phone: phone(), mac: mac, ip: ip, deviceType: 'phone' });
         checkout.startedAt = Date.now(); write('_checkout', checkout); bypassLookup = false; pollPayment();
       } catch (error) { show('buy'); message('error', error.message); }
       finally { button.disabled = false; }
@@ -270,9 +270,7 @@
     }
     function tvDetails() {
       if (!current) return;
-      message('tv-existing', current.device ? 'Linked device: ' + current.device.label + ' · ' + current.device.mac : 'No TV is linked yet.');
-      $('remove-tv').classList.toggle('hidden', !current.device);
-      if (current.device) { $('tv-name').value = current.device.label; $('tv-mac').value = current.device.mac; }
+      message('tv-existing', current.device ? 'A historical linked TV is still active: ' + current.device.label + ' · ' + current.device.mac : 'TV access requires its own package.');
       show('active', 'tv-section');
     }
     async function refreshSession() {
@@ -284,12 +282,11 @@
       if (!current) return;
       var button = $('add-tv'); button.disabled = true; message('tv-error', '');
       try {
-        var result = await api('/devices/add', { phone: current.payerPhone, subscriptionId: current.subscriptionId,
-          password: current.password, mac: $('tv-mac').value.trim(), label: $('tv-name').value.trim() || 'TV' });
-        var prior = current;
-        waitForRouter(Object.assign({}, prior, result), function () {
-          refreshSession().then(function (session) { active(session); tvDetails(); }).catch(function (error) { active(prior); message('expiry', error.message); });
-        });
+        var targetMac = $('tv-mac').value.trim();
+        if (targetMac.replace(/[^0-9A-F]/ig, '').length !== 12) throw new Error('Enter the full 12-character TV MAC address.');
+        checkout = await api('/pay', { packageId: selected, phone: current.payerPhone, mac: targetMac,
+          deviceType: 'tv', deviceLabel: $('tv-name').value.trim() || 'TV' });
+        checkout.startedAt = Date.now(); write('_checkout', checkout); pollPayment();
       } catch (error) { message('tv-error', error.message); }
       finally { button.disabled = false; }
     }
@@ -319,7 +316,7 @@
     }
     $('pay').onclick = pay; $('connect').onclick = reconnect;
     $('check-time').onclick = function () { checkExisting(false).catch(function () {}); };
-    $('transfer').onclick = transfer; $('redeem').onclick = redeem; $('add-tv').onclick = addTv; $('remove-tv').onclick = removeTv;
+    $('transfer').onclick = transfer; $('redeem').onclick = redeem; $('add-tv').onclick = addTv;
     $('open-voucher').onclick = function () { show('buy', 'voucher-section'); };
     $('close-voucher').onclick = function () { show('buy'); };
     $('buy-anyway').onclick = function () { bypassLookup = true; show('buy'); message('error', 'You can continue with another purchase.'); };

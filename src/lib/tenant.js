@@ -8,6 +8,7 @@
 const crypto = require('crypto');
 const { db } = require('./db');
 const config = require('../config');
+const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./device-purchase');
 const {
   topologyFreshAt,
   validateRouterMapping,
@@ -519,6 +520,10 @@ for (const statement of [
   `ALTER TABLE tenant_transactions ADD COLUMN portal_token_hash TEXT`,
   `ALTER TABLE tenant_transactions ADD COLUMN portal_token_expires_at TEXT`,
   `ALTER TABLE tenant_transactions ADD COLUMN rate_limit TEXT`,
+  `ALTER TABLE tenant_transactions ADD COLUMN device_type TEXT NOT NULL DEFAULT 'phone'`,
+  `ALTER TABLE tenant_transactions ADD COLUMN device_label TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE tenant_subscriptions ADD COLUMN device_type TEXT NOT NULL DEFAULT 'phone'`,
+  `ALTER TABLE tenant_subscriptions ADD COLUMN device_label TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE tenant_subscriptions ADD COLUMN expiry_job_id INTEGER`,
   `ALTER TABLE tenant_subscriptions ADD COLUMN rate_limit TEXT`,
   `ALTER TABLE tenant_jobs ADD COLUMN rate_limit TEXT`,
@@ -1195,6 +1200,8 @@ const insertTransaction = db.prepare(`
           @packageName, @amount, @seconds, @rateLimit, @mac, @ip)
 `);
 const getTransaction = db.prepare(`SELECT * FROM tenant_transactions WHERE checkout_request_id = ?`);
+const setTransactionDevice = db.prepare(`UPDATE tenant_transactions SET device_type=@deviceType, device_label=@deviceLabel WHERE checkout_request_id=@checkoutRequestId`);
+const setSubscriptionDevice = db.prepare(`UPDATE tenant_subscriptions SET device_type=@deviceType, device_label=@deviceLabel WHERE id=@id AND location_id=@locationId`);
 const setTransactionResult = db.prepare(`
   UPDATE tenant_transactions SET status=@status, result_code=@resultCode, result_desc=@resultDesc,
     mpesa_receipt=COALESCE(@receipt, mpesa_receipt), updated_at=datetime('now')
@@ -3269,6 +3276,14 @@ function usernameFor({ locationId, payerPhone, mac }) {
 }
 
 function grantSubscription({ transaction, profile = 'standard' }) {
+  const deviceType = purchaseDeviceType(transaction.device_type);
+  const targetMac = deviceType === 'tv' ? normaliseTvMac(transaction.mac) : transaction.mac;
+  if (!deviceType || (deviceType === 'tv' && !targetMac)) throw new Error('TV access requires a valid TV MAC address.');
+  const existingBinding = subscriptionByMac.get(transaction.location_id, targetMac);
+  if (existingBinding && ((existingBinding.device_type || 'phone') !== deviceType || existingBinding.payer_phone !== transaction.phone)) {
+    throw new Error('This MAC address is already assigned to another device package.');
+  }
+  if (deviceByMac.get(transaction.location_id, targetMac)) throw new Error('Remove the existing linked TV before buying a separate package.');
   const existing = subscriptionByMac.get(transaction.location_id, transaction.mac);
   const id = existing?.id || `sub-${crypto.randomBytes(10).toString('hex')}`;
   const routerUsername = usernameFor({ locationId: transaction.location_id, payerPhone: transaction.phone, mac: transaction.mac });
@@ -3282,9 +3297,13 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   const expiresAt = nowSql(Math.max(Date.now(), Number.isFinite(oldExpiry) ? oldExpiry : 0) + transaction.seconds * 1000);
   upsertSubscription.run({ id, businessId: transaction.business_id, locationId: transaction.location_id,
     routerUsername, payerPhone: transaction.phone, mac: transaction.mac, password, totalSeconds, rateLimit, expiresAt });
+  setSubscriptionDevice.run({ id, locationId: transaction.location_id, deviceType,
+    deviceLabel: normaliseDeviceLabel(transaction.device_label, deviceType) });
   meterDevice.run(transaction.business_id, transaction.mac);
   const job = insertJob.run({ locationId: transaction.location_id, username: routerUsername, password, profile,
-    totalSeconds, rateLimit, mac: transaction.mac, ip: transaction.ip || null, action: 'upsert' });
+    totalSeconds, rateLimit, mac: transaction.mac,
+    ip: deviceType === 'tv' ? null : (transaction.ip || null),
+    action: deviceType === 'tv' ? 'tv-upsert' : 'upsert' });
   // A top-up must refresh the TV's RouterOS ceiling too. Otherwise the
   // phone receives the extension but its paired TV disconnects early.
   for (const device of devicesForSubscription.all(transaction.location_id, id)) {
@@ -3303,6 +3322,7 @@ function transferSubscription({ locationId, payerPhone, subscriptionId, password
   if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) return false;
   const expiry = new Date(subscription.expires_at.replace(' ', 'T') + 'Z').getTime();
   if (!Number.isFinite(expiry) || expiry <= Date.now()) return false;
+  if (subscription.device_type === 'tv' && subscription.mac !== mac) return { error: 'device_locked' };
   const occupying = subscriptionByMac.get(locationId, mac);
   if (occupying && occupying.id !== subscription.id) return { error: 'occupied' };
   if (deviceByMac.get(locationId, mac)) return { error: 'occupied' };
@@ -3310,7 +3330,9 @@ function transferSubscription({ locationId, payerPhone, subscriptionId, password
   meterDevice.run(subscription.business_id, mac);
   setSubscriptionMac.run({ id: subscription.id, locationId, mac });
   const job = insertJob.run({ locationId, username: subscription.router_username, password: subscription.password,
-    profile, totalSeconds: subscription.total_seconds, rateLimit: subscription.rate_limit, mac, ip: ip || null, action: 'transfer' });
+    profile, totalSeconds: subscription.total_seconds, rateLimit: subscription.rate_limit, mac,
+    ip: subscription.device_type === 'tv' ? null : (ip || null),
+    action: subscription.device_type === 'tv' ? 'tv-upsert' : 'transfer' });
   return { ...subscription, mac, provisioningJobId: Number(job.lastInsertRowid) };
 }
 
@@ -3512,7 +3534,7 @@ module.exports = {
   provisionRemoteVpn, allocateDesiredVpnPeer, desiredVpnPeersForGateway, reportVpnGatewaySync,
   recordVpnGatewayPeer, recordVpnGatewayError, recordVpnPeerHandshake, revokeVpnPeer,
   pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,
-  packageForLocation, packagesForLocation, insertTransaction, getTransaction,
+  packageForLocation, packagesForLocation, insertTransaction, getTransaction, setTransactionDevice,
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, setSubscriptionMac,
   grantSubscription, provisionPaidTransaction, recordUsage, expiredSubscriptions, activeMeter,

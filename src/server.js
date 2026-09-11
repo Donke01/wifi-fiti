@@ -14,6 +14,7 @@ const { fulfil } = require('./lib/fulfil');
 const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup } = require('./lib/router-setup');
 const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
+const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1455,6 +1456,9 @@ function tenantSessionPayload(subscription, issueToken = false) {
     rateLimit: subscription.rate_limit || null,
     expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z',
     device: tenant.deviceForSubscription.get(subscription.location_id, subscription.id) || null,
+    deviceType: subscription.device_type || 'phone',
+    deviceLabel: subscription.device_label || '',
+    mac: subscription.mac,
     awaitingRouter: Boolean(tenant.pendingProvisioningJobForUsername.get(subscription.location_id, subscription.router_username)),
     ...(issueToken ? { sessionToken: tenantAccess.issue(subscription) } : {}) };
 }
@@ -1588,7 +1592,9 @@ app.post('/api/tenant/:locationId/session/connect', (req, res) => {
   const ip = cleanIp(req.body && req.body.ip);
   const job = tenant.insertJob.run({ locationId: location.id, username: subscription.router_username,
     password: subscription.password, profile: 'standard', totalSeconds: subscription.total_seconds,
-    rateLimit: subscription.rate_limit, mac: subscription.mac, ip, action: 'upsert' });
+    rateLimit: subscription.rate_limit, mac: subscription.mac,
+    ip: subscription.device_type === 'tv' ? null : ip,
+    action: subscription.device_type === 'tv' ? 'tv-upsert' : 'upsert' });
   res.json({ ...tenantSessionPayload(subscription), status: 'pending', provisioningJobId: Number(job.lastInsertRowid) });
 });
 
@@ -1598,9 +1604,11 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   if (salesBlocked) return res.status(402).json({ error: salesBlocked });
   const pkg = tenant.packageForLocation.get(Number(req.body && req.body.packageId), location.id);
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
-  const mac = cleanMac(req.body && req.body.mac);
+  const deviceType = purchaseDeviceType(req.body && req.body.deviceType);
+  const mac = deviceType === 'tv' ? normaliseTvMac(req.body && req.body.mac) : cleanMac(req.body && req.body.mac);
+  const deviceLabel = normaliseDeviceLabel(req.body && req.body.deviceLabel, deviceType);
   const ip = cleanIp(req.body && req.body.ip);
-  if (!pkg || !phone || !mac) return res.status(400).json({ error: 'Choose a package, enter a valid number, and reconnect to this WiFi.' });
+  if (!pkg || !phone || !mac || !deviceType) return res.status(400).json({ error: 'Choose a package, enter a valid number, and select the device.' });
   const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
   const existingSubscription = tenant.subscriptionByMac.get(location.id, mac);
   if (!existingSubscription && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
@@ -1643,14 +1651,15 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
     tenant.insertTransaction.run({ checkoutRequestId: pushed.checkoutRequestId,
       merchantRequestId: pushed.merchantRequestId, businessId: location.business_id, locationId: location.id,
       phone, packageId: pkg.id, packageName: pkg.name, amount: pkg.price, seconds: pkg.seconds,
-      rateLimit: pkg.rate_limit, mac, ip });
+      rateLimit: pkg.rate_limit, mac, ip: deviceType === 'tv' ? null : ip });
+    tenant.setTransactionDevice.run({ checkoutRequestId: pushed.checkoutRequestId, deviceType, deviceLabel });
     tenant.setTransactionTerms.run({ checkoutRequestId: pushed.checkoutRequestId, paymentSource, platformFee });
     tenant.setTransactionPortalCapability.run({
       checkoutRequestId: pushed.checkoutRequestId,
       portalTokenHash: tenant.tokenHash(portalToken),
       portalTokenExpiresAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''),
     });
-    res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price, phoneDisplay: mpesa.displayPhone(phone) });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price, phoneDisplay: mpesa.displayPhone(phone), deviceType, deviceLabel, mac });
   } catch (err) {
     lastPush.delete(throttleKey);
     console.error('[tenant pay] STK push failed:', err.message);
@@ -1720,6 +1729,9 @@ app.post('/api/tenant/:locationId/subscriptions/transfer', (req, res) => {
   if (moved && moved.error === 'occupied') {
     return res.status(409).json({ error: 'This device already has another active package. Use that package or wait for it to end before moving this one.' });
   }
+  if (moved && moved.error === 'device_locked') {
+    return res.status(409).json({ code: 'device_locked', error: 'A TV package is locked to its original TV MAC address.' });
+  }
   if (!moved) return res.status(403).json({ error: 'That package has ended or its WiFi password is not correct.' });
   tenantAccess.revoke.run(moved.id);
   const movedSession = tenant.subscriptionById.get(moved.id, location.id);
@@ -1753,6 +1765,7 @@ app.post('/api/tenant/:locationId/devices/list', (req, res) => {
 
 app.post('/api/tenant/:locationId/devices/add', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
+  return res.status(402).json({ error: 'TV access requires a separate package. Choose Buy for TV.' });
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
   const subscriptionId = String(req.body && req.body.subscriptionId || '');
   const mac = deviceMac(req.body && req.body.mac);
