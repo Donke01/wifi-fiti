@@ -308,11 +308,7 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     // it could contain a different router credential or an obsolete agent.
     ':do { /file remove [find where name="fiti-tenant-install.rsc"] } on-error={}',
     ':onerror fitiBootstrapError in={',
-    // Some older RouterOS boards (notably hAP lite images) have no trusted
-    // CA store even though HTTPS itself works. Try certificate validation
-    // first, then use encrypted HTTPS without CA validation as a narrow
-    // compatibility fallback so those routers can still finish onboarding.
-    '  :do { /tool fetch url=' + ros(origin + '/tenant-router-install.rsc') + ' check-certificate=yes dst-path="fiti-tenant-install.rsc" } on-error={ :log warning "fiti: CA store unavailable; using HTTPS compatibility fetch"; /tool fetch url=' + ros(origin + '/tenant-router-install.rsc') + ' check-certificate=no dst-path="fiti-tenant-install.rsc" }',
+    '  /tool fetch url=' + ros(origin + '/tenant-router-install.rsc') + fetchTlsOption(origin) + ' dst-path="fiti-tenant-install.rsc"',
     '  :if ([:len [/file find where name="fiti-tenant-install.rsc"]] != 1) do={ :error "Fresh WiFi Fiti cloud installer was not downloaded" }',
     '  /import file-name="fiti-tenant-install.rsc"',
     '  :do { /file remove [find where name="fiti-tenant-install.rsc"] } on-error={}',
