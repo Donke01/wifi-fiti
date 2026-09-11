@@ -213,18 +213,19 @@
       if (!packages.length) { message('error', 'This operator has not added packages yet.'); $('pay').disabled = true; return; }
       packages.forEach(function (pkg, index) {
         var button = document.createElement('button'), left = document.createElement('span'), name = document.createElement('span'), price = document.createElement('span');
-        button.type = 'button'; button.className = 'plan' + (index === 0 ? ' active' : ''); if (button.setAttribute) button.setAttribute('aria-pressed', index === 0 ? 'true' : 'false');
+        button.type = 'button'; button.className = 'plan' + (index === 0 ? ' active' : ''); if (button.setAttribute) { button.setAttribute('data-package-id', String(pkg.id)); button.setAttribute('aria-pressed', index === 0 ? 'true' : 'false'); }
         name.className = 'plan-title'; name.textContent = pkg.name;
         price.className = 'price'; price.textContent = 'KES ' + Number(pkg.price).toLocaleString();
         var duration = document.createElement('span'); duration.className = 'plan-detail'; duration.textContent = formatSeconds(pkg.seconds) + (pkg.rate_limit ? ' · Device speed ' + pkg.rate_limit : '');
         left.append(name, duration); button.append(left, price);
-        button.onclick = function () {
-          selected = Number(pkg.id);
+        button.onclick = function (event) {
+          if (event && event.preventDefault) event.preventDefault();
+          selected = String(pkg.id);
           root.querySelectorAll('.plan').forEach(function (item) { var isSelected = item === button; item.classList.toggle('active', isSelected); if (item.setAttribute) item.setAttribute('aria-pressed', isSelected ? 'true' : 'false'); });
         };
         root.appendChild(button);
       });
-      selected = Number(packages[0].id);
+      selected = String(packages[0].id);
     }
     function renderExisting(subscriptions) {
       var root = $('existing-list'); root.replaceChildren(); selectedSubscription = subscriptions[0] || null;
