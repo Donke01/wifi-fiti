@@ -64,6 +64,7 @@
     var site = decodeURIComponent(String(injectedSite || location.pathname.split('/').filter(Boolean).pop() || ''));
     var params = new URLSearchParams(location.search);
     var mac = (params.get('mac') || '').toUpperCase(), ip = params.get('ip') || '';
+    var loginUrl = params.get('link-login-only') || '', loginDestination = params.get('link-orig') || 'http://neverssl.com';
     var key = 'fiti_' + site + '_' + mac, current = null, checkout = null, selected = null;
     var selectedSubscription = null, timer = null, clockTimer = null, generation = 0, bypassLookup = false;
     var $ = function (id) { return document.getElementById(id); };
@@ -155,6 +156,14 @@
       message('waiting-copy', text); $('retry-waiting').classList.remove('hidden');
       $('retry-waiting').onclick = retry;
     }
+    function signIn(username, password) {
+      if (!loginUrl || !username) return false;
+      var form = document.createElement('form'); form.method = 'POST'; form.action = loginUrl; form.style.display = 'none';
+      [['username', username], ['password', password || ''], ['dst', loginDestination]].forEach(function (pair) {
+        var input = document.createElement('input'); input.type = 'hidden'; input.name = pair[0]; input.value = pair[1]; form.appendChild(input);
+      });
+      document.body.appendChild(form); form.submit(); return true;
+    }
     async function pollPayment() {
       if (!checkout || !checkout.portalToken) return;
       stop(); var version = generation, attempts = 0;
@@ -202,7 +211,11 @@
         try {
           var job = await api('/router-jobs/' + encodeURIComponent(result.provisioningJobId));
           if (version !== generation) return;
-          if (job.ready) { if (complete) complete(); else active(result); return; }
+          if (job.ready) {
+            if (complete) complete();
+            else { active(result); signIn(result.username, result.password); }
+            return;
+          }
         } catch (error) {
           if ([401,403,404].indexOf(error.status) !== -1) { pauseWait(error.message, function () { waitForRouter(result, complete); }); return; }
         }
