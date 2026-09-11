@@ -967,7 +967,6 @@
         add(box, 'h4', '', script ? 'Secure bootstrap command' : 'Secure bootstrap unavailable');
         if (script) {
           add(box, 'p', '', 'paste this complete kit once as one short command in a new WinBox terminal. It securely downloads the exact router kit over HTTPS, imports it locally, and removes the temporary file. Your administrator password is never requested.');
-          var caHelp = el('p', 'form-note'); add(caHelp, 'strong', '', 'No trusted CA certificate found? '); add(caHelp, 'code', '', '/certificate settings set builtin-trust-store=all'); add(caHelp, 'span', '', ' then run the connection kit again.'); box.appendChild(caHelp);
           var command = add(box, 'pre', 'kit-script', script); command.setAttribute('aria-label', 'Secure WiFi Fiti bootstrap command');
         } else {
           add(box, 'p', 'kit-refresh-note', 'WiFi Fiti could not prepare the secure bootstrap. Generate a new kit.');
