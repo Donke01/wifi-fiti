@@ -194,6 +194,15 @@
       });
       document.body.appendChild(form); form.submit(); return true;
     }
+    function signInIosFallback(username, password) {
+      var action = loginUrl || referrerLoginUrl;
+      if (!action || !username || !/iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return;
+      try {
+        var url = new URL(action, location.href);
+        url.searchParams.set('username', username); url.searchParams.set('password', password || '');
+        url.searchParams.set('dst', loginDestination); location.replace(url.toString());
+      } catch (_) { /* native POST remains the primary path */ }
+    }
     // Ask the router for one final idempotent connect job before navigating
     // away. This makes the browser handoff independent of captive-portal
     // timing: the native login is submitted only after this fresh job is
@@ -201,6 +210,7 @@
     function connectAfterAck(result) {
       if (result.deviceType === 'tv') return;
       reconnect();
+      setTimeout(function () { signInIosFallback(result.username, result.password); }, 2200);
     }
     async function pollPayment() {
       if (!checkout || !checkout.portalToken) return;

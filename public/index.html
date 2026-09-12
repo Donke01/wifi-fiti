@@ -917,6 +917,14 @@
     attempt();
     return true;
   }
+  function signInIosFallback(u, p) {
+    if (!LOGIN_URL || !/iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return;
+    try {
+      var url = new URL(LOGIN_URL, location.href);
+      url.searchParams.set('username', u); url.searchParams.set('password', p || ''); url.searchParams.set('dst', ORIG);
+      location.replace(url.toString());
+    } catch (_) {}
+  }
 
   /* ---- pay ---- */
   var purchaseChecked = false, transferChoice = null;
@@ -1060,11 +1068,11 @@
         $('done-connect').onclick = function () { signIn(s.username, s.password); };
         // Give the customer time to see confirmation and the live countdown,
         // then complete the RouterOS login without requiring another tap.
-        setTimeout(function () { connectAfterAck(s.username, s.password); }, 300);
+        setTimeout(function () { connectAfterAck(s.username, s.password); setTimeout(function () { signInIosFallback(s.username, s.password); }, 2200); }, 300);
       }
     } else {
       $('done-title').textContent = "You're connected";
-      setTimeout(function () { connectAfterAck(s.username, s.password); }, 300);
+      setTimeout(function () { connectAfterAck(s.username, s.password); setTimeout(function () { signInIosFallback(s.username, s.password); }, 2200); }, 300);
     }
   }
 
