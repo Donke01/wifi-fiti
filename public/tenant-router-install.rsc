@@ -412,7 +412,7 @@
 # A repeating task with start-time=startup does not run on reboot in RouterOS.
 # Anchor it at the epoch instead, so it becomes due within two seconds even
 # on a freshly reset router whose clock is not trustworthy yet.
-/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=2s disabled=no \
+/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=1s disabled=no \
   policy=read,write,ftp,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 

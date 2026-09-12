@@ -267,7 +267,7 @@
           pauseWait('The router has not checked in yet. Your package is saved. Try again when the WiFi is available.',
             function () { waitForRouter(result, complete); }); return;
         }
-        timer = setTimeout(check, 2500);
+        timer = setTimeout(check, 1000);
       }
       check();
     }
