@@ -3226,7 +3226,7 @@ function tenantPollTuningScript() {
     ':foreach fitiPollSchedulerId in=$fitiPollSchedulers do={',
     '  :local fitiPollSchedulerComment [/system scheduler get $fitiPollSchedulerId comment]',
     '  :if ([:typeof [:find $fitiPollSchedulerComment "WiFi Fiti: sync usage, ack jobs, collect work"]] != "nil") do={',
-    '    /system scheduler set $fitiPollSchedulerId interval=1s',
+    '    /system scheduler set $fitiPollSchedulerId interval=1s disabled=no',
     '  }',
     '}',
   ].join('\n') + '\n';

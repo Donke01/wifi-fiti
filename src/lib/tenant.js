@@ -1347,16 +1347,16 @@ const insertJob = db.prepare(`
 `);
 const pendingJobs = db.prepare(`
   SELECT * FROM tenant_jobs j WHERE location_id=? AND acked_at IS NULL
-    AND (delivered_at IS NULL OR delivered_at <= datetime('now','-60 seconds'))
+    -- Retry a lost poll response quickly enough for payment provisioning.
+    -- This is server-side queue timing only; the router installer is unchanged.
+    AND (delivered_at IS NULL OR delivered_at <= datetime('now','-3 seconds'))
     AND NOT EXISTS (SELECT 1 FROM tenant_jobs newer
       WHERE newer.location_id=j.location_id AND newer.username=j.username AND newer.id>j.id)
   ORDER BY id LIMIT 25
 `);
 const markDelivered = db.prepare(`UPDATE tenant_jobs SET delivered_at=datetime('now') WHERE id=?`);
 const markAcked = db.prepare(`UPDATE tenant_jobs SET acked_at=datetime('now') WHERE id=? AND location_id=?`);
-const jobById = db.prepare(`SELECT j.id, j.location_id,
-  (SELECT current.acked_at FROM tenant_jobs current WHERE current.location_id=j.location_id
-   AND current.username=j.username ORDER BY current.id DESC LIMIT 1) AS acked_at
+const jobById = db.prepare(`SELECT j.id, j.location_id, j.acked_at
   FROM tenant_jobs j WHERE j.id=? AND j.location_id=?`);
 // A reopened captive window must not offer a newly-created credential until
 // the router has acknowledged the work that creates or moves that identity.
