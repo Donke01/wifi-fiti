@@ -3006,6 +3006,17 @@ function processRouterSetupReceipt(location, { protocol, ack, health } = {}) {
     return { verified: true, portalRepair: true, challenge: null, location: locationById.get(location.id) };
   }
 
+  // The setup receipt is a one-time promotion proof. Once an active router
+  // has completed it, `router_setup_nonce` is intentionally cleared. Do not
+  // challenge that router again on every ordinary billing poll: doing so
+  // made RouterOS receive HTTP 200 while the server stopped refreshing its
+  // successful-sync timestamp, causing the dashboard to fall back to
+  // "needs to reconnect" after a few minutes.
+  if (pairing === 'active' && location.router_setup_verified_at && !location.router_setup_nonce) {
+    verifyActiveRouterSetup.run({ locationId: location.id, health: reportedHealth });
+    return { verified: true, challenge: null, location: locationById.get(location.id) };
+  }
+
   // Existing field deployments did not send the receipt fields. Preserve
   // their active connection, but never use that compatibility path to switch
   // a staged credential to a new router.
