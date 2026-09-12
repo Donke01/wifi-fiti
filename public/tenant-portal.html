@@ -194,21 +194,13 @@
       });
       document.body.appendChild(form); form.submit(); return true;
     }
-    // Captive-portal mini-browsers can discard the first navigation while the
-    // router is switching the client from unauthorised to authorised. Retry
-    // the native login briefly, then use the authenticated reconnect endpoint
-    // as a fallback. The server only returns this result after router ACK.
+    // Ask the router for one final idempotent connect job before navigating
+    // away. This makes the browser handoff independent of captive-portal
+    // timing: the native login is submitted only after this fresh job is
+    // acknowledged by the router.
     function connectAfterAck(result) {
-      var attempts = 0;
-      function attempt() {
-        if (loginUrl || referrerLoginUrl) {
-          signIn(result.username, result.password);
-          if (++attempts < 3) setTimeout(attempt, 900);
-        } else {
-          reconnect();
-        }
-      }
-      attempt();
+      if (result.deviceType === 'tv') return;
+      reconnect();
     }
     async function pollPayment() {
       if (!checkout || !checkout.portalToken) return;
