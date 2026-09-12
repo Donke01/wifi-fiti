@@ -63,7 +63,11 @@ function jobToScript(job, hotspotServer) {
   if (job.action === 'offboard-lockdown') {
     return [
       ':foreach fitiActive in=[/ip hotspot active find] do={ /ip hotspot active remove $fitiActive }',
-      ':foreach fitiUser in=[/ip hotspot user find] do={ /ip hotspot user disable $fitiUser }',
+      // RouterOS protects its built-in `default-trial` identity: attempting
+      // to disable it aborts the whole job with "only limits and routes can
+      // be changed". Exclude that system record while locking every other
+      // HotSpot account, including all WiFi Fiti customer users.
+      ':foreach fitiUser in=[/ip hotspot user find where name!="default-trial"] do={ /ip hotspot user disable $fitiUser }',
       ':foreach fitiServer in=[/ip hotspot find] do={ /ip hotspot disable $fitiServer }',
       ':foreach fitiNat in=[/ip firewall nat find where comment="WiFi Fiti hotspot NAT"] do={ /ip firewall nat disable $fitiNat }',
       ':log warning "WiFi Fiti offboarding: customer access locked; router reset will follow"',

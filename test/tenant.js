@@ -544,6 +544,9 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'a normal-speed package must return the customer to the router standard profile');
   assert.ok(!normalSpeedScript.includes('rate-limit='),
     'RouterOS v7 does not accept rate-limit on /ip hotspot user records');
+  const lockdownScript = require('../src/lib/rsc').jobToScript({ action: 'offboard-lockdown' }, 'hotspot1');
+  assert.match(lockdownScript, /name!="default-trial"/,
+    'offboarding leaves RouterOS built-in default-trial untouched so the lock script cannot abort');
   const limitedSpeedScript = require('../src/lib/rsc').jobToScript({ ...alphaJobs[0], rate_limit: '2M/5M' }, 'hotspot1');
   assert.ok(limitedSpeedScript.includes('/ip hotspot user profile add'),
     'a package speed must create a dedicated HotSpot user profile');
