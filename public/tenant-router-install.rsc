@@ -416,6 +416,11 @@
   policy=read,write,ftp,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 
+# Initialize the globals immediately. Do not wait for the first reboot/startup
+# event; a newly installed router must send its first cloud pairing sync now.
+:do { /system script run fiti-boot } on-error={ :log warning "fiti: boot globals could not be initialized" }
+:do { /system script run fiti-poll } on-error={ :log warning "fiti: initial cloud sync failed; poll scheduler will retry" }
+
 :put ""
 :put "Business router paired. Polling is active (2s)."
 :put "Test now:      /system script run fiti-poll"
