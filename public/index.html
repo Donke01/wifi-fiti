@@ -736,7 +736,7 @@
   var LOGIN_URL = qs.get('link-login-only') || '', ORIG = qs.get('link-orig') || 'http://neverssl.com';
 
   var $ = function (id) { return document.getElementById(id); };
-  var st = { checkoutId: null, poll: null, clock: null, countdown: null, resync: null };
+  var st = { checkoutId: null, poll: null, clock: null, countdown: null, resync: null, autoConnectStarted: false };
   var PENDING_KEY = 'wifiFitiPendingPayment';
   var ARC = 2 * Math.PI * 55;
   $('arc').style.strokeDasharray = ARC;
@@ -909,6 +909,8 @@
   }
   function connectAfterAck(u, p) {
     if (!LOGIN_URL) return false;
+    if (st.autoConnectStarted) return true;
+    st.autoConnectStarted = true;
     var attempts = 0;
     function attempt() {
       signIn(u, p);
@@ -970,6 +972,7 @@
       .then(function (res) {
         $('pay').disabled = false; setPayText('LIPA NA M-PESA');
         if (!res.ok) return warn($('err'), res.body.error || 'Payment could not start.');
+        st.autoConnectStarted = false;
         st.checkoutId = res.body.checkoutRequestId;
         savePending({ checkoutId: st.checkoutId, phone: phone.replace(/\D/g, ''),
           amount: res.body.amount, startedAt: Date.now() });
@@ -1062,17 +1065,17 @@
     show('s-done');
     if (s.manualLogin) {
       $('done-title').textContent = 'Payment confirmed';
-      $('done-line').textContent = 'Your package is active. Connecting you automatically…';
+      $('done-line').textContent = 'Payment confirmed. Your password is shown above; connecting you automatically…';
       if (LOGIN_URL) {
         $('done-connect').hidden = false;
         $('done-connect').onclick = function () { signIn(s.username, s.password); };
         // Give the customer time to see confirmation and the live countdown,
         // then complete the RouterOS login without requiring another tap.
-        setTimeout(function () { connectAfterAck(s.username, s.password); setTimeout(function () { signInIosFallback(s.username, s.password); }, 2200); }, 300);
+        setTimeout(function () { connectAfterAck(s.username, s.password); setTimeout(function () { signInIosFallback(s.username, s.password); }, 2200); }, 1800);
       }
     } else {
       $('done-title').textContent = "You're connected";
-      setTimeout(function () { connectAfterAck(s.username, s.password); setTimeout(function () { signInIosFallback(s.username, s.password); }, 2200); }, 300);
+      setTimeout(function () { connectAfterAck(s.username, s.password); setTimeout(function () { signInIosFallback(s.username, s.password); }, 2200); }, 1800);
     }
   }
 

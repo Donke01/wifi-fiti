@@ -81,7 +81,7 @@
       if (/^(http:|https:)$/.test(referrer.protocol) && referrer.hostname) referrerLoginUrl = referrer.origin + '/login';
     } catch (_) { /* no referrer in a normal browser */ }
     var key = 'fiti_' + site + '_' + mac, current = null, checkout = null, selected = null;
-    var selectedSubscription = null, timer = null, clockTimer = null, generation = 0, bypassLookup = false;
+    var selectedSubscription = null, timer = null, clockTimer = null, generation = 0, bypassLookup = false, autoConnectStarted = false;
     var $ = function (id) { return document.getElementById(id); };
     function read(name) {
       // Captive-portal browsers sometimes block one storage area but not the
@@ -209,6 +209,8 @@
     // acknowledged by the router.
     function connectAfterAck(result) {
       if (result.deviceType === 'tv') return;
+      if (autoConnectStarted) return;
+      autoConnectStarted = true;
       reconnect();
       setTimeout(function () { signInIosFallback(result.username, result.password); }, 2200);
     }
@@ -233,7 +235,9 @@
             if (result.deviceType !== 'tv') {
               // Match the proven legacy portal flow: let the confirmation
               // view paint before navigating the captive mini-browser.
-              setTimeout(function () { connectAfterAck(result); }, 300);
+              message('active-kicker', 'PAYMENT CONFIRMED · PASSWORD READY');
+              message('active-title', 'Your Wi‑Fi is connected');
+              setTimeout(function () { connectAfterAck(result); }, 1800);
             }
             return;
           }
@@ -341,6 +345,7 @@
       var button = $('pay'); button.disabled = true; message('error', '');
       try {
         if (!bypassLookup && await checkExisting(true)) return;
+        autoConnectStarted = false;
         checkout = await api('/pay', { packageId: selected, phone: phone(), mac: mac, ip: ip, deviceType: 'phone' });
         checkout.startedAt = Date.now(); write('_checkout', checkout); bypassLookup = false; pollPayment();
       } catch (error) { show('buy'); message('error', error.message); }
@@ -387,6 +392,7 @@
         if (targetMac.replace(/[^0-9A-F]/ig, '').length !== 12) throw new Error('Enter the full 12-character TV MAC address.');
         var payerPhone = current && current.payerPhone ? current.payerPhone : $('tv-phone').value.trim();
         if (!payerPhone) throw new Error('Enter the M-Pesa number that will pay for the TV package.');
+        autoConnectStarted = false;
         checkout = await api('/pay', { packageId: selected, phone: payerPhone, mac: targetMac,
           deviceType: 'tv', deviceLabel: $('tv-name').value.trim() || 'TV' });
         checkout.startedAt = Date.now(); write('_checkout', checkout); pollPayment();
