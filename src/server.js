@@ -3461,6 +3461,15 @@ app.post('/api/router/sync', (req, res) => {
     if (appliedHost && appliedHost === edgeHostname(readyLocation.portal_hostname)) {
       readyLocation = tenant.recordRouterPortalApplied(readyLocation.id, appliedHost);
     }
+    // New kits write the customer portal login page during installation and
+    // report the desired host on their first verified sync. Treat that as an
+    // applied portal immediately; older kits still receive the queued refresh
+    // script below and must report portalApplied after downloading the page.
+    const reportedPortalHost = edgeHostname(req.query.portal);
+    const desiredPortalHost = edgeHostname(readyLocation.portal_hostname);
+    if (!appliedHost && reportedPortalHost && desiredPortalHost && reportedPortalHost === desiredPortalHost && String(req.query.health || '') !== 'portal-missing') {
+      readyLocation = tenant.recordRouterPortalApplied(readyLocation.id, reportedPortalHost);
+    }
     // Refresh the narrow map snapshot before accepting a map-bound action
     // receipt. A router that changed ports since the action was issued is
     // therefore marked stale instead of being recorded as deployed.
