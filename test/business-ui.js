@@ -44,10 +44,10 @@ assert.doesNotMatch(html, /Offboard \/ remove router|\/offboard|OFFBOARD ROUTER/
   'remote router offboarding is temporarily hidden from the dashboard');
 assert.match(html, /Clear setup form/,
   'the setup wizard can clear only unsaved form choices');
-assert.match(html, /Delete unused setup/,
-  'a pristine location exposes a clearly scoped discard action');
-assert.match(html, /confirm:\s*'DELETE'/,
-  'the UI sends the explicit deletion confirmation required by the API');
+assert.match(html, /Delete router/,
+  'a location exposes an explicit router configuration deletion action');
+assert.match(html, /DELETE ROUTER/,
+  'the UI sends the explicit router deletion confirmation required by the API');
 assert.match(html, /function routerCanBeRemoved\(location\)/,
   'the guided journey uses a conservative local check before exposing router removal');
 assert.match(html, /function removeOnboardingRouter\(model, button\)/,

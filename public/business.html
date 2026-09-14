@@ -1325,32 +1325,28 @@
         add(form, 'p', 'form-note', 'This is a WiFi Fiti managed address. A domain you already own is not connected here yet.');
         var error = el('div', 'error'); error.setAttribute('aria-live', 'polite');
         var actions = el('div', 'buttons'); var save = el('button', '', 'Save settings'); save.type = 'submit'; var cancel = el('button', 'secondary', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', function () { form.remove(); }); actions.appendChild(save); actions.appendChild(cancel);
-        if (String(location.router_status || 'waiting').toLowerCase() === 'waiting' && !location.last_seen_at && !location.last_successful_sync_at) {
-          var discard = el('button', 'danger quiet', 'Delete unused setup'); discard.type = 'button';
-          discard.addEventListener('click', function () { discardUnusedLocation(location, discard, error); });
-          actions.appendChild(discard);
-          add(form, 'p', 'form-note', 'Delete unused setup removes this unpaired location and its one-time router token. It does not reset a router.');
-        } else {
-          add(form, 'p', 'form-note', 'This location has already been paired. To start again, use Start router setup again; your customers and records stay protected.');
-        }
+        var discard = el('button', 'danger quiet', 'Delete router'); discard.type = 'button';
+        discard.addEventListener('click', function () { deleteRouterLocation(location, discard, error); });
+        actions.appendChild(discard);
+        add(form, 'p', 'form-note', 'Deletes this router configuration from WiFi Fiti. The next setup starts as a new location; the physical router is not factory-reset.');
         form.appendChild(actions); form.appendChild(error);
         form.addEventListener('submit', function (event) { event.preventDefault(); error.textContent = ''; setBusy(save, true, 'Saving…'); var body = values(form); var requestedPortalSlug = String(body.portalSlug || '').trim().toLowerCase(); delete body.portalSlug; var changesPortalAddress = addressing.enabled && requestedPortalSlug && requestedPortalSlug !== currentPortalSlug; api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'PATCH', body: JSON.stringify(body) }).then(function (result) { mergeLocation(result.location); if (changesPortalAddress) return api('/api/business/locations/' + encodeURIComponent(location.id) + '/portal-address', { method: 'PATCH', body: JSON.stringify({ slug: requestedPortalSlug }) }); return result; }).then(function (result) { if (result && result.location) mergeLocation(result.location); renderLocations(); renderPairingKits(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(save, false); }); });
         card.appendChild(form);
       }
-      function discardUnusedLocation(location, button, error) {
+      function deleteRouterLocation(location, button, error) {
         var name = location.name || 'this location';
-        var confirmation = window.prompt('Delete the unused setup for "' + name + '"? This removes its pairing token and managed portal address. Type DELETE to confirm.');
-        if (confirmation !== 'DELETE') {
-          if (confirmation !== null) error.textContent = 'Nothing was deleted. Type DELETE exactly to confirm.';
+        var confirmation = window.prompt('Delete the router configuration for "' + name + '"? Customer/payment history remains, but pairing, portal and operational settings are removed. Type DELETE ROUTER to confirm.');
+        if (confirmation !== 'DELETE ROUTER') {
+          if (confirmation !== null) error.textContent = 'Nothing was deleted. Type DELETE ROUTER exactly to confirm.';
           return;
         }
         error.textContent = ''; setBusy(button, true, 'Deleting…');
-        api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }).then(function () {
-          forgetSetup(location.id); clearRouterProgress(location);
+        api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE ROUTER' }) }).then(function () {
+          forgetSetup(location.id); clearFreshRouterSetup(location); clearRouterProgress(location);
           clearOnboardingLocation((state.workspace && state.workspace.business) || {});
           return load();
         }).then(function () {
-          $('location-error').textContent = 'Unused setup deleted. Its router token and portal address are no longer active.';
+          $('location-error').textContent = 'Router deleted. Add it again to create a fresh location and pairing token.';
         }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(button, false); });
       }
       function rotateLocationToken(location, button) {

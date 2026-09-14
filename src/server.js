@@ -1466,13 +1466,12 @@ app.patch('/api/business/locations/:locationId', (req, res) => {
   res.json({ location });
 });
 
-// This intentionally removes only a pristine, unpaired setup draft. It is
-// not a shortcut for deleting customer records or remotely factory-resetting
-// a router; established locations use the staged replacement-kit flow.
+// Remove a router's cloud configuration. This does not factory-reset the
+// physical device; the next onboarding creates a fresh location and token.
 app.delete('/api/business/locations/:locationId', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   try {
-    const location = tenant.discardUnusedLocation({
+    const location = tenant.deleteRouterLocation({
       locationId: String(req.params.locationId),
       businessId: business.id,
       confirm: String(req.body && req.body.confirm || ''),
@@ -1480,7 +1479,7 @@ app.delete('/api/business/locations/:locationId', (req, res) => {
     if (!location) return res.status(404).json({ error: 'Location not found.' });
     res.json({ deleted: true, locationId: location.id });
   } catch (error) {
-    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not delete this setup.' });
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not delete this router.' });
   }
 });
 

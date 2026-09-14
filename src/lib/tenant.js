@@ -3318,6 +3318,38 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
   }
 }
 
+/** Delete a router's operational configuration so the next onboarding starts fresh. */
+function deleteRouterLocation({ locationId, businessId, confirm } = {}) {
+  if (confirm !== 'DELETE ROUTER') {
+    const error = new Error('Type DELETE ROUTER to remove this router configuration.');
+    error.status = 400;
+    throw error;
+  }
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    deleteMappedDeploymentsForLocation.run(locationId);
+    deleteRouterMapping.run(locationId);
+    deleteRouterTopology.run(locationId);
+    deleteVpnPeerForLocation.run(locationId);
+    deleteRemoteSupportControlsForLocation.run(locationId);
+    deleteRemoteAccessEventsForLocation.run(locationId);
+    deleteRemoteAccessForLocation.run(locationId);
+    deleteProvisioningJobsForLocation.run(locationId);
+    deleteDevicesForLocation.run(locationId);
+    cancelPendingTransactionsForLocation.run(locationId);
+    deactivateSubscriptionsForLocation.run(locationId);
+    deletePortalDomainsForLocation.run(locationId);
+    deleteLocationForBusiness.run(locationId, businessId);
+    db.exec('COMMIT');
+    return { id: location.id, name: location.name, deleted: true };
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+}
+
 /**
  * Hard-offboard a location without deleting the business ledger. This is the
  * explicit owner escape hatch for a router that is being replaced or started
@@ -3725,7 +3757,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteRouterLocation, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
