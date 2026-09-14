@@ -109,7 +109,14 @@ async function reportTopologyAfterPairing(location, body) {
   });
   assert.equal(first.status, 200, first.text);
   const challenge = first.text.match(/:set fitiSetupAck "([^"]+)"/);
-  assert.ok(challenge, 'the current poll receives its receipt challenge');
+  // Fresh/pending routers receive the one-time receipt challenge. An already
+  // verified active router deliberately does not get challenged again on
+  // every billing poll; send its topology on the next ordinary poll instead.
+  if (!challenge) {
+    return api(`/api/router/sync?${query}`, {
+      method: 'POST', routerToken: location.routerToken, body, contentType: 'text/plain',
+    });
+  }
   return api(`/api/router/sync?${query}&setupAck=${encodeURIComponent(challenge[1])}`, {
     method: 'POST', routerToken: location.routerToken, body, contentType: 'text/plain',
   });
@@ -182,9 +189,9 @@ async function main() {
   const refreshedInventory = await api(topologyEndpoint, { token: alphaToken });
   assert.equal(refreshedInventory.body.mapping.status, 'confirmed');
 
-  // A staged token keeps the outgoing router online while a replacement kit
-  // is pasted. Its inventory must not be shown as the replacement's map,
-  // and a late poll from the outgoing token must not repopulate it.
+  // A staged token starts a fresh pairing transaction. The outgoing router
+  // loses cloud authentication immediately, so its inventory cannot be shown
+  // as the replacement's map or repopulate it after the new kit is generated.
   const oldRouterToken = location.routerToken;
   const staged = await api(`/api/business/locations/${encodeURIComponent(location.id)}/router-token`, {
     method: 'POST', token: alphaToken, body: {},
@@ -192,6 +199,11 @@ async function main() {
   assert.equal(staged.status, 200, JSON.stringify(staged.body));
   const replacementToken = staged.body.location.routerToken;
   assert.ok(replacementToken);
+  const retiredOutgoingTopology = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=&protocol=2&health=ready`, {
+    method: 'POST', routerToken: oldRouterToken, body: topology(), contentType: 'text/plain',
+  });
+  assert.equal(retiredOutgoingTopology.status, 403,
+    'a previous router cannot keep polling after a fresh kit is generated');
   const waitingWorkspace = await api('/api/business/me', { token: alphaToken });
   assert.equal(waitingWorkspace.body.locations[0].routerMapping.status, 'waiting_for_inventory');
   const waitingTopology = await api(topologyEndpoint, { token: alphaToken });
@@ -204,8 +216,10 @@ async function main() {
   });
   assert.equal(pendingConfirmation.status, 409,
     'the owner cannot confirm a replacement from the outgoing router map');
-  const outgoingTopology = await reportTopologyAfterPairing({ ...location, routerToken: oldRouterToken }, topology());
-  assert.equal(outgoingTopology.status, 200);
+  const outgoingTopology = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=&protocol=2&health=ready`, {
+    method: 'POST', routerToken: oldRouterToken, body: topology(), contentType: 'text/plain',
+  });
+  assert.equal(outgoingTopology.status, 403);
   const stillWaiting = await api(topologyEndpoint, { token: alphaToken });
   assert.equal(stillWaiting.body.mapping.status, 'waiting_for_inventory',
     'an outgoing router poll cannot refill cleared replacement metadata');

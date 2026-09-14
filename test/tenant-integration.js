@@ -517,8 +517,8 @@ async function main() {
     assert.equal(pendingCustomerPage.status, 409, JSON.stringify(pendingCustomerPage.body));
     assert.match(pendingCustomerPage.body.error, /Finish router setup/,
       'a staged replacement cannot complete customer-page setup from the old router’s sync');
-    assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 200,
-      'the active router stays connected while a re-pairing kit waits to be pasted');
+    assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 403,
+      'the previous router token is retired as soon as a fresh re-pairing kit is generated');
     assert.equal((await routerSync(created.body.location, { token: staged.body.location.routerToken })).status, 200,
       'the new kit promotes itself by checking in');
     assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 403,

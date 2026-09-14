@@ -749,7 +749,17 @@ const markRouterPortalApplied = db.prepare(`
 `);
 const stageLocationToken = db.prepare(`
   UPDATE locations
-     SET router_pending_token_hash=@tokenHash,
+     SET router_token_hash=NULL,
+         router_setup_verified_at=NULL,
+         router_setup_nonce=NULL,
+         router_status='waiting',
+         last_seen_at=NULL,
+         last_successful_sync_at=NULL,
+         router_setup_health=NULL,
+         router_setup_checked_at=NULL,
+         router_portal_update_sent_host=NULL,
+         router_portal_applied_host=NULL,
+         router_pending_token_hash=@tokenHash,
          router_pending_token_expires_at=@expiresAt,
          router_pending_setup_nonce=NULL,
          router_pending_setup_json=@pendingSetupJson,
@@ -3149,9 +3159,11 @@ function rotateLocationToken({ locationId, businessId, pendingSetup } = {}) {
   if (!location) return null;
   const routerToken = crypto.randomBytes(24).toString('base64url');
   const hash = tokenHash(routerToken);
-  // Staging keeps the live router online until the replacement has completed
-  // a two-poll receipt handshake. A pasted-but-never-imported kit therefore
-  // cannot interrupt paid customers or alter their active configuration.
+  // Every generated kit starts a fresh pairing transaction. The previous
+  // router token is invalidated immediately, so an old router can never keep
+  // checking in or make the dashboard look paired while a new receipt is
+  // pending. Customer/payment history remains intact; only router control
+  // authentication is rotated.
   const pendingSetupJson = pendingSetup ? JSON.stringify(pendingSetup) : null;
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -3192,10 +3204,9 @@ function updateLocationSettings({ locationId, businessId, name, routerName, hots
   return locationForBusiness.get(locationId, businessId);
 }
 
-/** Stage a replacement kit and its future settings together. The active
- * router keeps both its token and its Hotspot settings until the new router
- * acknowledges the receipt challenge, at which point this snapshot promotes
- * atomically with the credential. */
+/** Stage a replacement kit and its future settings together. Generating the
+ * kit retires the previous router credential immediately; the new snapshot
+ * promotes atomically only after its one-time receipt challenge is echoed. */
 function stageLocationReplacement({ locationId, businessId, name, routerName, hotspotServer, setup }) {
   const current = locationForBusiness.get(locationId, businessId);
   if (!current) return null;

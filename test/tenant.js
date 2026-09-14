@@ -463,8 +463,8 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'the owner workspace reports a replacement-router pairing only while its staged token is valid');
   assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_sync_healthy, false,
     'a prior router sync is not presented as healthy while a replacement router is still pending');
-  assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken).business_id, 'business-a',
-    'the live router stays online until the replacement kit checks in');
+  assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken), null,
+    'generating a replacement kit immediately retires the previous router credential');
   const pendingRouter = tenant.authenticateRouter(alpha.id, staged.routerToken);
   assert.strictEqual(pendingRouter.business_id, 'business-a');
   const challenge = tenant.processRouterSetupReceipt(pendingRouter, { protocol: '2', health: 'portal-missing' });
