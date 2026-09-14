@@ -111,13 +111,10 @@
 # existing server.  Re-enable only this verified customer Hotspot so captive
 # portal redirects work immediately after pairing.
 /ip hotspot enable [find where name=$fitiHotspotServer]
-:local previousBoot [/system script find where name="fiti-boot"]
-:if ([:len $previousBoot] > 0) do={
-  :local previous [/system script get $previousBoot source]
-  :if ([:typeof [:find $previous $fitiSite]] = "nil") do={
-    :error "This router is paired to a different WiFi Fiti site. Complete a deliberate migration before pairing it here."
-  }
-}
+# The authenticated one-time kit authorizes replacement of an older WiFi Fiti
+# pairing. This is required when a router is re-onboarded after testing or
+# offboarding; the existing WAN, bridge and Hotspot checks above still run
+# before any managed scripts are replaced.
 
 # Keep the private router credential out of request URLs.
 :local profileId [/ip hotspot get [find where name=$fitiHotspotServer] profile]
