@@ -303,6 +303,10 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     ':local fitiPortalHost ' + ros(portalHost),
     ':if ([:len [/ip hotspot walled-garden find where dst-host=$fitiHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiHost comment="WiFi Fiti cloud API" }',
     ':if ($fitiPortalHost != $fitiHost) do={ :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiPortalHost comment="WiFi Fiti customer portal" } }',
+    // A paired router may have had its HotSpot disabled by an earlier
+    // offboarding/test action. Re-enable only the detected/configured server
+    // so captive-portal redirects are available immediately after onboarding.
+    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ /ip hotspot enable [find where name=$fitiHotspotServer] }',
     // A no-defaults reset deliberately leaves files behind. Never allow a
     // failed fetch to import an older WiFi Fiti installer from that storage:
     // it could contain a different router credential or an obsolete agent.
@@ -356,6 +360,11 @@ function assertExistingHotspotLines(config) {
     ':if ([:len [/interface bridge find where name=$fitiCheckBridge]] != 1) do={ :error "Customer bridge not found. Check its name before importing." }',
     ':local fitiHotspotBridge [/ip hotspot get [find where name=$fitiCheckHotspot] interface]',
     ':if ($fitiHotspotBridge != $fitiCheckBridge) do={ :error "The selected Hotspot server is not on the selected customer bridge." }',
+    // Pairing must leave the customer captive portal available.  A previous
+    // offboarding or interrupted test can leave the existing server disabled;
+    // enabling only the explicitly selected server is safe and avoids the
+    // manual `/ip hotspot enable [find]` step during onboarding.
+    '/ip hotspot enable [find where name=$fitiCheckHotspot]',
   ];
 }
 
