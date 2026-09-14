@@ -454,8 +454,10 @@ const googleOAuthStates = new Map();
 function googleOAuthConfig() {
   const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
   const clientSecret = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
-  const validClientId = /^[0-9A-Za-z_-]+\.apps\.googleusercontent\.com$/.test(clientId);
-  const validClientSecret = clientSecret.length >= 16 && clientSecret !== '...';
+  const validClientId = /^[0-9A-Za-z_-]+\.apps\.googleusercontent\.com$/.test(clientId)
+    && !clientId.startsWith('your-client-id.');
+  const validClientSecret = clientSecret.length >= 16
+    && !['...', 'your-client-secret'].includes(clientSecret);
   return validClientId && validClientSecret ? { clientId, clientSecret } : null;
 }
 
