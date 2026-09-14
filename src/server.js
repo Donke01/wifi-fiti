@@ -3310,7 +3310,7 @@ function tenantPollTuningScript(intervalSeconds = 5) {
     ':foreach fitiPollSchedulerId in=$fitiPollSchedulers do={',
     '  :local fitiPollSchedulerComment [/system scheduler get $fitiPollSchedulerId comment]',
     '  :if ([:typeof [:find $fitiPollSchedulerComment "WiFi Fiti: sync usage, ack jobs, collect work"]] != "nil") do={',
-    `    /system scheduler set $fitiPollSchedulerId interval=${interval} disabled=no`,
+    `    /system scheduler set $fitiPollSchedulerId interval=${interval} disabled=no start-date=1970-01-01 start-time=00:00:00`,
     '  }',
     '}',
   ].join('\n') + '\n';
