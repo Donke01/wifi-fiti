@@ -130,6 +130,8 @@ assert.match(installer, /:global fitiSupportAck ""/);
 assert.match(installer, /:global fitiSetupAck ""/);
 assert.match(installer, /:global fitiSetupProtocol/);
 assert.match(installer, /fitiPortalAppliedHost/);
+assert.doesNotMatch(installer, /paired to a different WiFi Fiti site/,
+  'an authenticated kit may replace a previous WiFi Fiti pairing during re-onboarding');
 assert.match(installer, /&hotspot=.*fitiHotspotServer/,
   'router sync reports an automatically detected Hotspot name');
 assert.match(installer, /&bridge=.*fitiBridge/,
