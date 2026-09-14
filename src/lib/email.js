@@ -18,7 +18,7 @@ async function sendEmail({ to, subject, html, text }) {
 }
 
 function verificationEmail(code, purpose) {
-  const action = purpose === 'register' ? 'create your WiFi Fiti account' : 'sign in to WiFi Fiti';
+  const action = purpose === 'register' ? 'create your WiFi Fiti account' : purpose === 'reset' ? 'reset your WiFi Fiti password' : 'sign in to WiFi Fiti';
   return {
     subject: `${code} is your WiFi Fiti verification code`,
     text: `Use ${code} to ${action}. This code expires in 10 minutes. If you did not request it, ignore this email.`,

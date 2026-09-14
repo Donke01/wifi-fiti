@@ -759,6 +759,29 @@ app.post('/api/business/verify-login', (req, res) => {
   } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not verify the sign-in.' }); }
 });
 
+app.post('/api/business/forgot-password', async (req, res) => {
+  const email = String(req.body && req.body.email || '').trim().toLowerCase();
+  const generic = { message: 'If that email belongs to a WiFi Fiti account, a password reset code has been sent.' };
+  if (!/^\S+@\S+\.\S+$/.test(email) || !emailVerificationEnabled()) return res.json(generic);
+  const business = db.businessByEmail.get(email);
+  if (!business) return res.json(generic);
+  try {
+    const verificationId = await beginEmailVerification({ email, purpose: 'reset', businessIdValue: business.id, businessId: business.id });
+    res.json({ ...generic, verificationRequired: true, verificationId, email });
+  } catch (error) { res.status(error.status || 502).json({ error: error.message || 'The reset email could not be sent.' }); }
+});
+
+app.post('/api/business/reset-password', (req, res) => {
+  try {
+    const password = String(req.body && req.body.password || '');
+    if (password.length < 8) throw Object.assign(new Error('Use a password with at least 8 characters.'), { status: 400 });
+    const row = consumeEmailVerification(String(req.body && req.body.verificationId || ''), req.body && req.body.code, 'reset');
+    if (!row.business_id) throw Object.assign(new Error('This reset request is invalid.'), { status: 400 });
+    db.setBusinessPassword.run(hashPassword(password), row.business_id);
+    res.json({ message: 'Password updated. You can now sign in.' });
+  } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not reset the password.' }); }
+});
+
 app.post('/api/business/logout', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');

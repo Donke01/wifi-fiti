@@ -624,6 +624,7 @@ const addEmailVerification = db.prepare(`
 const emailVerificationById = db.prepare(`SELECT * FROM business_email_verifications WHERE id=?`);
 const deleteEmailVerifications = db.prepare(`DELETE FROM business_email_verifications WHERE email=? AND purpose=?`);
 const updateEmailVerificationAttempt = db.prepare(`UPDATE business_email_verifications SET attempts=attempts+1 WHERE id=?`);
+const setBusinessPassword = db.prepare(`UPDATE businesses SET password_hash=? WHERE id=?`);
 const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at,
   onboarding_state, organisation_completed_at, hotspot_name,
   portal_name, portal_setup_completed_at, support_phone, brand_primary_color, brand_logo_path, portal_message, created_at
@@ -750,6 +751,7 @@ module.exports = {
   emailVerificationById,
   deleteEmailVerifications,
   updateEmailVerificationAttempt,
+  setBusinessPassword,
   businessById,
   addBusinessSession,
   businessForSession,
