@@ -83,6 +83,31 @@
     #welcome .error{color:#ff9aa6}
     @media(max-width:880px){#welcome{padding-top:10px}#welcome .auth-top{margin-bottom:24px}#welcome .auth-layout{grid-template-columns:1fr;gap:22px}#welcome .auth-copy{min-height:0;padding:32px 25px;border-radius:24px}#welcome .auth-copy h1{font-size:clamp(42px,10vw,62px)}#welcome .auth-card{max-width:600px}}
     @media(max-width:650px){#welcome{min-height:100vh;padding:12px 0 30px}#welcome .auth-top{padding:0 14px;margin-bottom:16px}#welcome .auth-top>span{display:none}#welcome .auth-top .brand{font-size:27px}#welcome .auth-top .mark{width:47px;height:47px}#welcome .auth-copy{display:none}#welcome .auth-layout{padding:0 13px}#welcome .auth-card{padding:22px 18px;border-radius:20px}}
+    /* WiFi Fiti brand palette: white space, clear blue, and teal accents. */
+    #welcome{background:radial-gradient(circle at 5% 8%,#dceeff 0,transparent 28rem),radial-gradient(circle at 96% 90%,#dff8f2 0,transparent 30rem)}
+    #welcome .auth-top .brand{color:#132742}
+    #welcome .auth-top .brand small{color:#078d9b}
+    #welcome .auth-top>span{color:#64768f}
+    #welcome .auth-copy{border-color:#c8def2;background:linear-gradient(145deg,#f8fcff,#eaf5ff 58%,#e8faf6);box-shadow:0 24px 65px rgba(32,57,86,.13)}
+    #welcome .auth-copy:before{border-color:#1769d82b;box-shadow:0 0 0 35px #1769d812,0 0 0 72px #078d9b0c,0 0 0 112px #078d9b07}
+    #welcome .auth-copy:after{background:radial-gradient(circle,#61d9c03d,transparent 69%)}
+    #welcome .auth-copy .eyebrow{color:#1769d8}
+    #welcome .auth-copy h1{color:#132742;text-shadow:none}
+    #welcome .auth-copy .lede{color:#64768f}
+    #welcome .auth-copy .promise li{color:#294765}
+    #welcome .auth-copy .promise li:before{background:#078d9b;box-shadow:0 0 0 5px #078d9b18}
+    #welcome .auth-card{border-color:#dce5f0;background:rgba(255,255,255,.97);box-shadow:0 22px 58px rgba(32,57,86,.14)}
+    #welcome .tabs{border-color:#dce5f0;background:#f4f7fb}
+    #welcome .tabs button{color:#64768f}
+    #welcome .tabs button[aria-selected=true]{color:#1769d8;background:#fff;box-shadow:0 2px 8px rgba(25,61,113,.1)}
+    #welcome h2{color:#132742}
+    #welcome .subcopy{color:#64768f}
+    #welcome label{color:#45607e}
+    #welcome input{color:#132742;border-color:#cfdbe9;background:#fff;box-shadow:inset 0 1px 2px rgba(25,61,113,.03)}
+    #welcome input:focus{border-color:#1769d8;box-shadow:0 0 0 4px #1769d81c}
+    #welcome input::placeholder{color:#91a0b3}
+    #welcome form>button{color:#fff;background:linear-gradient(105deg,#1157ba,#1769d8 55%,#078d9b);box-shadow:0 13px 28px #1769d82e}
+    #welcome .error{color:#bd3852}
     /* Keep every onboarding tile inside its grid track. Flex/grid children
        otherwise retain their content width, which makes long labels overlap
        the neighbouring tile at narrow desktop and tablet widths. */
