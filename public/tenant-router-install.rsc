@@ -167,6 +167,7 @@
 \n:global fitiSetupProtocol\r\
 \n:global fitiSupportAck\r\
 \n:global fitiTopologyTick\r\
+\n:if ([:len \$fitiToken] < 9) do={ :do { /system script run fiti-boot } on-error={ :log warning "fiti: startup settings restore failed" } }\r\
 \n:if ([:len \$fitiToken] > 8) do={\r\
 \n  :local report \"\"\r\
 \n  :local reportCount 0\r\
@@ -406,7 +407,7 @@
 }
 
 /system scheduler add name=fiti-globals start-time=startup interval=0 \
-  policy=read,write,ftp,test,policy on-event="/system script run fiti-boot" \
+  policy=read,write,ftp,test,policy on-event="/system script run fiti-boot; /system script run fiti-poll" \
   comment="WiFi Fiti: restore settings after reboot"
 
 # A repeating task with start-time=startup does not run on reboot in RouterOS.

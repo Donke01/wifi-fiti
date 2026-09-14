@@ -105,7 +105,7 @@
 \n"
 
 /system scheduler add name=fiti-globals start-time=startup interval=0 \
-  policy=read,write,test,policy on-event="/system script run fiti-boot" \
+  policy=read,write,test,policy on-event="/system script run fiti-boot; /system script run fiti-poll" \
   comment="WiFi Fiti: restore settings after reboot"
 
 /system scheduler add name=fiti-poll interval=2s \
