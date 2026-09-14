@@ -107,6 +107,10 @@
 :if ($fitiHotspotBridge != $fitiBridge) do={
   :error "The selected Hotspot server is not on fitiBridge. Correct the bridge or Hotspot name before importing."
 }
+# Onboarding may follow an earlier offboarding/test run that disabled the
+# existing server.  Re-enable only this verified customer Hotspot so captive
+# portal redirects work immediately after pairing.
+/ip hotspot enable [find where name=$fitiHotspotServer]
 :local previousBoot [/system script find where name="fiti-boot"]
 :if ([:len $previousBoot] > 0) do={
   :local previous [/system script get $previousBoot source]

@@ -219,6 +219,11 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     `:local fitiDesiredPortalHost "${desiredHost}"`,
     `:local fitiDesiredPortalUrl "${desiredUrl}"`,
     ':if ($fitiPortalAppliedHost != $fitiDesiredPortalHost) do={',
+    // A router can remain paired while its HotSpot was disabled by a prior
+    // offboard/test action.  Re-enable only the configured customer server as
+    // part of the portal refresh; offboarding removes/locks the router and is
+    // handled separately by the command queue.
+    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ /ip hotspot enable [find where name=$fitiHotspotServer] }',
     '  :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiDesiredPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiDesiredPortalHost comment="WiFi Fiti customer portal" }',
     '  :if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={',
     '    :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]',
