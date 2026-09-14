@@ -1736,7 +1736,7 @@ function withRemoteAccessTransaction(work) {
 function requestRemoteAccess({ locationId, businessId }) {
   const location = locationForBusiness.get(locationId, businessId);
   if (!location) return null;
-  if (!location.last_successful_sync_at) {
+  if (!location.last_successful_sync_at && !location.router_setup_verified_at) {
     throw remoteAccessError(
       'Pair the router first. It must complete one authenticated WiFi Fiti poll before remote access can be requested.',
       409
@@ -2456,7 +2456,7 @@ function routerTopologyForLocation(location) {
   // can continue; a later topology report will replace this snapshot with
   // the router's live interface list.
   let compatibilitySnapshot = snapshot;
-  if (!compatibilitySnapshot && location.last_successful_sync_at) {
+  if (!compatibilitySnapshot && (location.last_successful_sync_at || location.router_setup_verified_at)) {
     let customerPorts = [];
     try { customerPorts = JSON.parse(location.customer_ports || '[]'); } catch (_) { customerPorts = []; }
     if (!Array.isArray(customerPorts)) customerPorts = [];
@@ -2484,7 +2484,8 @@ function routerTopologyForLocation(location) {
       bridgePorts: [...new Set(customerPorts)].map((name) => ({ bridge, interface: name })).concat([{ bridge, interface: wifi }]),
     };
     const serialized = JSON.stringify(topology);
-    compatibilitySnapshot = { topology, fingerprint: crypto.createHash('sha256').update(serialized).digest('hex'), firstReportedAt: location.last_successful_sync_at, lastReportedAt: location.last_successful_sync_at, updatedAt: location.last_successful_sync_at };
+    const reportedAt = location.last_successful_sync_at || location.router_setup_verified_at || new Date().toISOString();
+    compatibilitySnapshot = { topology, fingerprint: crypto.createHash('sha256').update(serialized).digest('hex'), firstReportedAt: reportedAt, lastReportedAt: reportedAt, updatedAt: reportedAt };
   }
   return {
     locationId: location.id,
@@ -2549,12 +2550,19 @@ function confirmRouterMapping({ locationId, businessId, mapping }) {
   if (hasLivePendingRouterPairing(location)) {
     throw remoteAccessError('Wait for the replacement router to pair and report its own inventory before confirming a map.', 409);
   }
-  if (!location.router_setup_verified_at || !location.last_successful_sync_at) {
+  if (!location.router_setup_verified_at && !location.last_successful_sync_at) {
     throw remoteAccessError('Pair the router and wait for a completed WiFi Fiti poll before confirming its map.', 409);
   }
   db.exec('BEGIN IMMEDIATE');
   try {
-    const snapshot = topologySnapshot(routerTopologyByLocation.get(location.id));
+    const storedSnapshot = topologySnapshot(routerTopologyByLocation.get(location.id));
+    const compatibility = storedSnapshot ? null : routerTopologyForLocation(location);
+    const snapshot = storedSnapshot || (compatibility && compatibility.topology ? {
+      topology: compatibility.topology,
+      fingerprint: compatibility.inventory.fingerprint,
+      lastReportedAt: compatibility.inventory.reportedAt,
+      updatedAt: compatibility.inventory.updatedAt,
+    } : null);
     if (!snapshot || !topologyFreshAt(snapshot.lastReportedAt)) {
       throw remoteAccessError('Wait for a fresh router inventory before confirming its map.', 409);
     }
