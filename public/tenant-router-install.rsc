@@ -414,10 +414,13 @@
   policy=read,write,ftp,test,policy on-event="/system script run fiti-boot; /system script run fiti-poll" \
   comment="WiFi Fiti: restore settings after reboot"
 
-# A repeating task with start-time=startup does not run on reboot in RouterOS.
-# Anchor it at the epoch instead, so it becomes due within two seconds even
-# on a freshly reset router whose clock is not trustworthy yet.
-/system scheduler add name=fiti-poll start-date=1970-01-01 start-time=00:00:00 interval=1s disabled=no \
+# Anchor the repeating task to the router's current clock. Some RouterOS
+# builds accept an epoch start date but never execute the scheduler (run-count
+# stays zero); a current timestamp makes the first run deterministic. The
+# startup scheduler above still performs an immediate sync after reboot.
+:local fitiPollStartDate [/system clock get date]
+:local fitiPollStartTime [/system clock get time]
+/system scheduler add name=fiti-poll start-date=$fitiPollStartDate start-time=$fitiPollStartTime interval=1s disabled=no \
   policy=read,write,ftp,test,policy on-event="/system script run fiti-poll" \
   comment="WiFi Fiti: sync usage, ack jobs, collect work"
 

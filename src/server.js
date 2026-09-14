@@ -3333,7 +3333,18 @@ function tenantPollTuningScript(intervalSeconds = 5) {
     ':foreach fitiPollSchedulerId in=$fitiPollSchedulers do={',
     '  :local fitiPollSchedulerComment [/system scheduler get $fitiPollSchedulerId comment]',
     '  :if ([:typeof [:find $fitiPollSchedulerComment "WiFi Fiti: sync usage, ack jobs, collect work"]] != "nil") do={',
-    `    /system scheduler set $fitiPollSchedulerId interval=${interval} disabled=no start-date=1970-01-01 start-time=00:00:00`,
+    '    :local fitiPollRunCount [/system scheduler get $fitiPollSchedulerId run-count]',
+    // Do not rewrite start-date/start-time here. On RouterOS, resetting the
+    // start timestamp on every sync can postpone the next run indefinitely;
+    // the installer anchors it once to the router's current clock. For an
+    // already-installed scheduler that never fired (run-count=0), repair the
+    // stale start timestamp exactly once on the next successful sync.
+    `    /system scheduler set $fitiPollSchedulerId interval=${interval} disabled=no`,
+    '    :if ($fitiPollRunCount = 0) do={',
+    '      :local fitiPollStartDate [/system clock get date]',
+    '      :local fitiPollStartTime [/system clock get time]',
+    '      /system scheduler set $fitiPollSchedulerId start-date=$fitiPollStartDate start-time=$fitiPollStartTime',
+    '    }',
     '  }',
     '}',
   ].join('\n') + '\n';
