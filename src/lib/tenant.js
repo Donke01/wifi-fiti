@@ -2460,6 +2460,15 @@ function routerTopologyForLocation(location) {
     let customerPorts = [];
     try { customerPorts = JSON.parse(location.customer_ports || '[]'); } catch (_) { customerPorts = []; }
     if (!Array.isArray(customerPorts)) customerPorts = [];
+    // Some older kits never persisted the port list. Preserve the common
+    // MikroTik layouts as a compatibility fallback so a verified router is
+    // not blocked at the map screen merely because its first kit predates
+    // live topology reporting.
+    if (!customerPorts.length) {
+      const model = String(location.router_model || '').toLowerCase();
+      const lastPort = /hap\s*lite|h\s*ap\s*lite/.test(model) ? 4 : 5;
+      customerPorts = Array.from({ length: lastPort - 1 }, (_, index) => `ether${index + 2}`);
+    }
     const bridge = String(location.customer_bridge || 'bridge-hs');
     const wan = String(location.wan_interface || 'ether1');
     const wifi = String(location.wifi_interface || 'wlan1');
