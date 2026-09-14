@@ -143,6 +143,8 @@ assert.doesNotMatch(installer, /^\s*\/certificate settings set builtin-trust/m,
   'a legacy RouterOS parser cannot reject the tenant installer before its fallback runs');
 assert.match(installer, /fitiJobError/,
   'polling captures the actual RouterOS parse error instead of hiding it');
+assert.doesNotMatch(installer, /fitiToken\\] < 9.*system script run fiti-boot/,
+  'the poller does not contain the parser-fragile nested startup shortcut');
 assert.match(installer, /job script failed to run: /,
   'polling includes the captured parse error in the router log');
 assert.match(installer, /&supportAck=/);

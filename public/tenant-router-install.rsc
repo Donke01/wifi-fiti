@@ -171,7 +171,6 @@
 \n:global fitiSetupProtocol\r\
 \n:global fitiSupportAck\r\
 \n:global fitiTopologyTick\r\
-\n:if ([:len \$fitiToken] < 9) do={ :do { /system script run fiti-boot } on-error={ :log warning "fiti: startup settings restore failed" } }\r\
 \n:if ([:len \$fitiToken] > 8) do={\r\
 \n  :local report \"\"\r\
 \n  :local reportCount 0\r\
