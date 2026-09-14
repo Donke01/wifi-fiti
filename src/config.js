@@ -244,4 +244,9 @@ module.exports = {
   databasePath: process.env.DATABASE_PATH || './data/hotspot.db',
   brandName: process.env.BRAND_NAME || 'WiFi Fiti',
   supportPhone: process.env.SUPPORT_PHONE || '',
+  email: {
+    provider: process.env.RESEND_API_KEY ? 'resend' : 'disabled',
+    apiKey: process.env.RESEND_API_KEY || '',
+    from: process.env.EMAIL_FROM || 'WiFi Fiti <accounts@wififiti.co.ke>',
+  },
 };

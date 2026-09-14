@@ -138,6 +138,21 @@ db.exec(`
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS business_email_verifications (
+    id              TEXT PRIMARY KEY,
+    email           TEXT NOT NULL,
+    purpose         TEXT NOT NULL,
+    business_id     TEXT,
+    payload_json    TEXT,
+    code_hash       TEXT NOT NULL,
+    expires_at      TEXT NOT NULL,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    last_sent_at    TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_business_email_verifications_lookup
+    ON business_email_verifications(email, purpose, expires_at);
+
   CREATE TABLE IF NOT EXISTS locations (
     id              TEXT PRIMARY KEY,
     business_id     TEXT NOT NULL REFERENCES businesses(id),
@@ -601,6 +616,14 @@ const addBusiness = db.prepare(`
      COALESCE(@onboardingState, 'complete'), @organisationCompletedAt, @hotspotName)
 `);
 const businessByEmail = db.prepare(`SELECT * FROM businesses WHERE email = ?`);
+const addEmailVerification = db.prepare(`
+  INSERT INTO business_email_verifications
+    (id, email, purpose, business_id, payload_json, code_hash, expires_at, last_sent_at)
+  VALUES (@id, @email, @purpose, @businessId, @payloadJson, @codeHash, @expiresAt, @lastSentAt)
+`);
+const emailVerificationById = db.prepare(`SELECT * FROM business_email_verifications WHERE id=?`);
+const deleteEmailVerifications = db.prepare(`DELETE FROM business_email_verifications WHERE email=? AND purpose=?`);
+const updateEmailVerificationAttempt = db.prepare(`UPDATE business_email_verifications SET attempts=attempts+1 WHERE id=?`);
 const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at,
   onboarding_state, organisation_completed_at, hotspot_name,
   portal_name, portal_setup_completed_at, support_phone, brand_primary_color, brand_logo_path, portal_message, created_at
@@ -723,6 +746,10 @@ module.exports = {
   devicesToKeepOnline,
   addBusiness,
   businessByEmail,
+  addEmailVerification,
+  emailVerificationById,
+  deleteEmailVerifications,
+  updateEmailVerificationAttempt,
   businessById,
   addBusinessSession,
   businessForSession,

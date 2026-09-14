@@ -15,6 +15,7 @@ const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup } = 
 const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
+const { sendEmail, verificationEmail } = require('./lib/email');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -634,7 +635,33 @@ function createLocationDraft(business, body, res, { routerNameRequired = false }
   return { location, portalUrl: portalUrlForLocation(location), coreUrl: config.domains.appUrl };
 }
 
-app.post('/api/business/register', (req, res) => {
+function emailVerificationEnabled() { return config.email.provider === 'resend'; }
+function verificationHash(code) { return crypto.createHash('sha256').update(String(code)).digest('hex'); }
+function verificationExpiry() { return new Date(Date.now() + 10 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''); }
+async function beginEmailVerification({ email, purpose, businessId: businessIdValue = null, payload = null }) {
+  const last = db.db.prepare(`SELECT last_sent_at FROM business_email_verifications WHERE email=? AND purpose=? ORDER BY created_at DESC LIMIT 1`).get(email, purpose);
+  if (last && Date.now() - Date.parse(String(last.last_sent_at).replace(' ', 'T') + 'Z') < 60_000) {
+    throw Object.assign(new Error('A verification code was already sent. Wait one minute before requesting another.'), { status: 429 });
+  }
+  const code = String(crypto.randomInt(100000, 1000000));
+  const id = businessId('verify');
+  db.deleteEmailVerifications.run(email, purpose);
+  db.addEmailVerification.run({ id, email, purpose, businessId: businessIdValue, payloadJson: payload ? JSON.stringify(payload) : null, codeHash: verificationHash(code), expiresAt: verificationExpiry(), lastSentAt: new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+  try { await sendEmail({ to: email, ...verificationEmail(code, purpose) }); }
+  catch (error) { db.db.prepare('DELETE FROM business_email_verifications WHERE id=?').run(id); throw error; }
+  return id;
+}
+
+function consumeEmailVerification(id, code, purpose) {
+  const row = db.emailVerificationById.get(id);
+  if (!row || row.purpose !== purpose || row.expires_at <= new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')) throw Object.assign(new Error('That verification code has expired. Request a new one.'), { status: 400 });
+  if (row.attempts >= 5) throw Object.assign(new Error('Too many incorrect codes. Request a new one.'), { status: 429 });
+  if (verificationHash(String(code || '').trim()) !== row.code_hash) { db.updateEmailVerificationAttempt.run(id); throw Object.assign(new Error('The verification code is incorrect.'), { status: 400 }); }
+  db.db.prepare('DELETE FROM business_email_verifications WHERE id=?').run(id);
+  return row;
+}
+
+app.post('/api/business/register', async (req, res) => {
   const body = req.body || {};
   const rawName = String(body.name || '').trim();
   const rawOwnerName = String(body.ownerName || '').trim();
@@ -656,6 +683,12 @@ app.post('/api/business/register', (req, res) => {
   }
   if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid WiFi Fiti plan.' });
   if (db.businessByEmail.get(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
+  if (emailVerificationEnabled()) {
+    try {
+      const verificationId = await beginEmailVerification({ email, purpose: 'register', payload: { name, ownerName, ownerPhone, passwordHash: hashPassword(password), plan: plan === 'custom' ? 'starter' : plan, collectionMode, registrationIsComplete: hasOrganisationFields, hotspotName: rawHotspotName ? textField(rawHotspotName, 'hotspot name', 80, true) : null, requestedCustom: plan === 'custom' } });
+      return res.status(202).json({ verificationRequired: true, verificationId, email, message: 'Enter the verification code sent to your email.' });
+    } catch (error) { return res.status(error.status || 502).json({ error: error.message || 'Verification email could not be sent.' }); }
+  }
   const id = businessId('biz');
   const registrationIsComplete = hasOrganisationFields;
   try {
@@ -687,16 +720,43 @@ app.post('/api/business/register', (req, res) => {
   }
 });
 
-app.post('/api/business/login', (req, res) => {
+app.post('/api/business/verify-registration', (req, res) => {
+  try {
+    const row = consumeEmailVerification(String(req.body && req.body.verificationId || ''), req.body && req.body.code, 'register');
+    const payload = JSON.parse(row.payload_json || '{}');
+    const id = businessId('biz');
+    db.addBusiness.run({ id, name: payload.registrationIsComplete ? payload.name : '', ownerName: payload.registrationIsComplete ? payload.ownerName : '', ownerPhone: payload.registrationIsComplete ? payload.ownerPhone : '', email: row.email, passwordHash: payload.passwordHash, plan: payload.plan, collectionMode: payload.collectionMode, onboardingState: payload.registrationIsComplete ? 'complete' : 'organisation', organisationCompletedAt: payload.registrationIsComplete ? new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : null, hotspotName: payload.hotspotName });
+    db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+    const account = db.businessById.get(id);
+    res.status(201).json({ token: issueBusinessSession(id), business: account, onboarding: onboardingState(account), requestedCustom: payload.requestedCustom });
+  } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not verify the account.' }); }
+});
+
+app.post('/api/business/login', async (req, res) => {
   const email = String(req.body && req.body.email || '').trim().toLowerCase();
   const password = String(req.body && req.body.password || '');
   const business = db.businessByEmail.get(email);
   if (!business || !passwordMatches(password, business.password_hash)) {
     return res.status(401).json({ error: 'Email or password is incorrect.' });
   }
+  if (emailVerificationEnabled()) {
+    try {
+      const verificationId = await beginEmailVerification({ email, purpose: 'login', businessId: business.id });
+      return res.status(202).json({ verificationRequired: true, verificationId, email, message: 'Enter the verification code sent to your email.' });
+    } catch (error) { return res.status(error.status || 502).json({ error: error.message || 'Verification email could not be sent.' }); }
+  }
   const account = db.businessById.get(business.id);
   res.json({ token: issueBusinessSession(business.id), business: account,
     onboarding: onboardingState(account, tenant.locationsForBusiness.all(business.id)) });
+});
+
+app.post('/api/business/verify-login', (req, res) => {
+  try {
+    const row = consumeEmailVerification(String(req.body && req.body.verificationId || ''), req.body && req.body.code, 'login');
+    const account = db.businessById.get(row.business_id);
+    if (!account) throw Object.assign(new Error('Account no longer exists.'), { status: 404 });
+    res.json({ token: issueBusinessSession(account.id), business: account, onboarding: onboardingState(account, tenant.locationsForBusiness.all(account.id)) });
+  } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not verify the sign-in.' }); }
 });
 
 app.post('/api/business/logout', (req, res) => {
