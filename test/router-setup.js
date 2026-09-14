@@ -53,7 +53,7 @@ assert.doesNotMatch(existingKit.script, /^\s*\/certificate settings set builtin-
   'no version-specific certificate property is parsed directly while the kit is being pasted or imported');
 assert.doesNotMatch(existingKit.script, /:global fitiSupportEnabled "yes"/);
 assert.match(existingKit.script, /tenant-router-install\.rsc/);
-assert.match(existingKit.script, /\/system scheduler add name="fiti-first-install" start-date=1970-01-01 start-time=00:00:00 interval=15s[\s\S]*on-event=\{/,
+assert.match(existingKit.script, /:local fitiFirstInstallStartDate \[\/system clock get date\][\s\S]*\/system scheduler add name="fiti-first-install" start-date=\$fitiFirstInstallStartDate start-time=\$fitiFirstInstallStartTime interval=15s[\s\S]*on-event=\{/,
   'existing-router pairing also uses the scheduler-owned retry bootstrap');
 assert.doesNotMatch(existingKit.script, /\/system script add name="fiti-first-install"/,
   'existing-router retries do not depend on a helper script that may disappear');
@@ -491,7 +491,7 @@ assert.match(automaticKit.config.mode === 'auto' ? automaticKit.summary : '', /s
 assert.match(automaticKit.config.mode === 'auto' ? automaticKit.summary : '', /tagged, incomplete WiFi Fiti setup/,
   'automatic setup explains the narrowly scoped recovery behavior');
 assert.match(newKit.script, /block WAN management/);
-assert.match(newKit.script, /\/system scheduler add name="fiti-first-install" start-date=1970-01-01 start-time=00:00:00 interval=15s/);
+assert.match(newKit.script, /:local fitiFirstInstallStartDate \[\/system clock get date\][\s\S]*\/system scheduler add name="fiti-first-install" start-date=\$fitiFirstInstallStartDate start-time=\$fitiFirstInstallStartTime interval=15s/);
 assert.match(newKit.script, /on-event=\{\n\s*:do \{\n\s*\[:parse "\/certificate settings set builtin-trust-store=all"\]/,
   'the first-install scheduler defers a version-specific certificate property instead of breaking an older RouterOS parser');
 assert.doesNotMatch(newKit.script, /\/system script add name="fiti-first-install"/,

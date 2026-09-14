@@ -336,10 +336,12 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     // comment. Preserve one rather than risk deleting a customer script that
     // happens to share this generic legacy name.
     // A repeating RouterOS scheduler must not use start-time=startup: RouterOS
-    // runs that special start time only when interval=0. An epoch base makes
-    // this retry due immediately (or within one interval) after a reboot,
-    // including when a reset board has not yet obtained accurate time.
-    '/system scheduler add name="fiti-first-install" start-date=1970-01-01 start-time=00:00:00 interval=15s policy=read,write,ftp,policy,test on-event={',
+    // runs that special start time only when interval=0. Anchor this retry to
+    // the router's current clock; some RouterOS builds accept an epoch date
+    // but never execute it (run-count remains zero).
+    ':local fitiFirstInstallStartDate [/system clock get date]',
+    ':local fitiFirstInstallStartTime [/system clock get time]',
+    '/system scheduler add name="fiti-first-install" start-date=$fitiFirstInstallStartDate start-time=$fitiFirstInstallStartTime interval=15s policy=read,write,ftp,policy,test on-event={',
     ...bootstrap,
     '} comment="WiFi Fiti: retry cloud installer until paired"',
     // RouterOS has no /system scheduler run action. Parse the event that was
