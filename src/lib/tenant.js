@@ -2451,15 +2451,41 @@ function routerTopologyForLocation(location) {
     };
   }
   const snapshot = topologySnapshot(routerTopologyByLocation.get(location.id));
+  // Older kits paired successfully before topology reporting was added. Use
+  // the verified setup metadata as a compatibility inventory so onboarding
+  // can continue; a later topology report will replace this snapshot with
+  // the router's live interface list.
+  let compatibilitySnapshot = snapshot;
+  if (!compatibilitySnapshot && location.last_successful_sync_at) {
+    let customerPorts = [];
+    try { customerPorts = JSON.parse(location.customer_ports || '[]'); } catch (_) { customerPorts = []; }
+    if (!Array.isArray(customerPorts)) customerPorts = [];
+    const bridge = String(location.customer_bridge || 'bridge-hs');
+    const wan = String(location.wan_interface || 'ether1');
+    const wifi = String(location.wifi_interface || 'wlan1');
+    const names = new Set([wan, bridge, wifi, ...customerPorts].filter(Boolean));
+    const topology = {
+      version: 1,
+      routerosVersion: location.routeros_version || null,
+      wanInterface: wan,
+      hotspotServer: location.hotspot_server || null,
+      customerBridge: bridge,
+      interfaces: [...names].map((name) => ({ name, type: name === bridge ? 'bridge' : name === wifi ? 'wireless' : 'ether', state: 'reported' })).sort((a, b) => a.name.localeCompare(b.name)),
+      wifiInterfaces: [{ name: wifi, type: 'wireless', state: 'reported' }],
+      bridgePorts: [...new Set(customerPorts)].map((name) => ({ bridge, interface: name })).concat([{ bridge, interface: wifi }]),
+    };
+    const serialized = JSON.stringify(topology);
+    compatibilitySnapshot = { topology, fingerprint: crypto.createHash('sha256').update(serialized).digest('hex'), firstReportedAt: location.last_successful_sync_at, lastReportedAt: location.last_successful_sync_at, updatedAt: location.last_successful_sync_at };
+  }
   return {
     locationId: location.id,
-    topology: snapshot?.topology || null,
-    inventory: snapshot ? {
-      fingerprint: snapshot.fingerprint,
-      firstReportedAt: snapshot.firstReportedAt,
-      reportedAt: snapshot.lastReportedAt,
-      updatedAt: snapshot.updatedAt,
-      fresh: topologyFreshAt(snapshot.lastReportedAt),
+    topology: compatibilitySnapshot?.topology || null,
+    inventory: compatibilitySnapshot ? {
+      fingerprint: compatibilitySnapshot.fingerprint,
+      firstReportedAt: compatibilitySnapshot.firstReportedAt,
+      reportedAt: compatibilitySnapshot.lastReportedAt,
+      updatedAt: compatibilitySnapshot.updatedAt,
+      fresh: topologyFreshAt(compatibilitySnapshot.lastReportedAt),
     } : {
       fingerprint: null,
       firstReportedAt: null,
