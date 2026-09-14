@@ -1,11 +1,15 @@
 require('dotenv').config();
 
+const mpesaEnv = String(process.env.MPESA_ENV || 'sandbox').toLowerCase();
+const mpesaDisabled = mpesaEnv === 'disabled';
 const required = [
   'PUBLIC_URL',
-  'MPESA_CONSUMER_KEY',
-  'MPESA_CONSUMER_SECRET',
-  'MPESA_SHORTCODE',
-  'MPESA_PASSKEY',
+  ...(mpesaDisabled ? [] : [
+    'MPESA_CONSUMER_KEY',
+    'MPESA_CONSUMER_SECRET',
+    'MPESA_SHORTCODE',
+    'MPESA_PASSKEY',
+  ]),
 ];
 
 // The router is deliberately NOT required. You should be able to prove the
@@ -24,7 +28,7 @@ if (missing.length) {
   process.exit(1);
 }
 
-const env = process.env.MPESA_ENV === 'production' ? 'production' : 'sandbox';
+const env = mpesaEnv === 'production' ? 'production' : mpesaDisabled ? 'disabled' : 'sandbox';
 
 function localHttpHost(host) {
   const value = String(host || '').toLowerCase();
