@@ -601,7 +601,28 @@ function automaticRouterDetectionLines(config) {
     '  :set fitiPartialRecovered true',
     '  :put ("WiFi Fiti recovered bridge " . $fitiPartialBridge . "; continuing with fresh Hotspot setup.")',
     '}',
-    ':if ([:len $fitiHotspots] > 1) do={ :error "Multiple Hotspot servers found. Choose the customer Hotspot explicitly in advanced setup." }',
+    // Test routers are commonly reset and onboarded repeatedly. If a prior
+    // WiFi Fiti run left duplicate HotSpot servers behind, reclaim only those
+    // that carry our owned profile/comment and keep one for reuse. Any
+    // unrelated HotSpot remains a hard stop so onboarding cannot damage a
+    // customer's existing network.
+    ':if ([:len $fitiHotspots] > 1) do={',
+    '  :local fitiOwnedHotspots 0',
+    '  :local fitiKeepHotspot ""',
+    '  :foreach fitiCandidate in=$fitiHotspots do={',
+    '    :local fitiCandidateProfile [/ip hotspot get $fitiCandidate profile]',
+    '    :local fitiCandidateComment [/ip hotspot get $fitiCandidate comment]',
+    '    :if (($fitiCandidateProfile = "fiti-hsprof") || ([:typeof [:find $fitiCandidateComment "WiFi Fiti"]] != "nil")) do={',
+    '      :set fitiOwnedHotspots ($fitiOwnedHotspots + 1)',
+    '      :if ([:len $fitiKeepHotspot] = 0) do={ :set fitiKeepHotspot $fitiCandidate }',
+    '    }',
+    '  }',
+    '  :if (($fitiOwnedHotspots = [:len $fitiHotspots]) && ([:len $fitiKeepHotspot] = 1)) do={',
+    '    :foreach fitiCandidate in=$fitiHotspots do={ :if ($fitiCandidate != $fitiKeepHotspot) do={ /ip hotspot remove $fitiCandidate } }',
+    '    :set fitiHotspots [/ip hotspot find]',
+    '    :put "WiFi Fiti reclaimed duplicate owned HotSpot servers for repeat testing."',
+    '  } else={ :error "Multiple Hotspot servers found, including an unowned server. Choose the customer Hotspot explicitly in advanced setup." }',
+    '}',
     ':if ([:len $fitiHotspots] = 1) do={ :set fitiAutoMode "existing" } else={',
     '  :if (([:len $fitiBridges] = 0) || ($fitiPartialRecovered = true)) do={ :set fitiAutoMode "new" } else={ :error "A bridge exists but no Hotspot server was found. Finish the Hotspot setup or reset with no defaults, then retry." }',
     '}',
@@ -679,7 +700,7 @@ function buildAutomaticRouterKit({ location, token, appUrl, portalUrl, config })
     routerDnsLine({ ...config, wanMode: 'dhcp' }),
     '/ip firewall nat add chain=srcnat out-interface=$fitiWanOut action=masquerade comment="WiFi Fiti hotspot NAT"',
     '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=http-chap,http-pap use-radius=no',
-    '/ip hotspot add name=$fitiHotspotServer interface=$fitiBridge address-pool="fiti-pool" profile="fiti-hsprof" addresses-per-mac=1 idle-timeout=10m keepalive-timeout=5m disabled=no',
+    '/ip hotspot add name=$fitiHotspotServer interface=$fitiBridge address-pool="fiti-pool" profile="fiti-hsprof" addresses-per-mac=1 idle-timeout=10m keepalive-timeout=5m disabled=no comment="WiFi Fiti customer HotSpot"',
     ':if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={ /ip hotspot user profile add name="standard" shared-users=1 add-mac-cookie=yes mac-cookie-timeout=1d status-autorefresh=1m transparent-proxy=no }',
     ...newRouterSecurityLines(),
     // Read the just-created Hotspot when pairing. This also preserves a
@@ -797,7 +818,7 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     routerDnsLine(config),
     '/ip firewall nat add chain=srcnat out-interface=$fitiWanOut action=masquerade comment="WiFi Fiti hotspot NAT"',
     '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=http-chap,http-pap use-radius=no',
-    '/ip hotspot add name=$fitiHotspotServer interface=$fitiBridge address-pool="fiti-pool" profile="fiti-hsprof" addresses-per-mac=1 idle-timeout=10m keepalive-timeout=5m disabled=no',
+    '/ip hotspot add name=$fitiHotspotServer interface=$fitiBridge address-pool="fiti-pool" profile="fiti-hsprof" addresses-per-mac=1 idle-timeout=10m keepalive-timeout=5m disabled=no comment="WiFi Fiti customer HotSpot"',
     ':if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={ /ip hotspot user profile add name="standard" shared-users=1 add-mac-cookie=yes mac-cookie-timeout=1d status-autorefresh=1m transparent-proxy=no }',
     ...newRouterSecurityLines(),
     ...pairingSuffix({ appUrl, portalUrl, location, token, config }),
