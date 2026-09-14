@@ -3214,19 +3214,20 @@ function hydratedRemoteSupportControls(controls) {
   return { controls: hydrated, rejected };
 }
 
-// Provisioning is delivered over the router's outbound poll. Keep the
-// interval short enough that a paid customer is not left waiting for the
-// next five-second cycle (and the following acknowledgement cycle). This is
-// emitted as an idempotent, ownership-checked command so already-paired
-// routers adopt the faster interval on their next successful sync without a
-// manual re-import or a second installer.
-function tenantPollTuningScript() {
+// Provisioning is delivered over the router's outbound poll. Idle routers
+// use a five-second heartbeat; a response carrying a queued job or deployment
+// temporarily switches that same scheduler to one second so payment access
+// is acknowledged quickly. The next empty response restores five seconds.
+// This is emitted as an idempotent, ownership-checked command, so existing
+// routers adopt the policy without a manual re-import or second installer.
+function tenantPollTuningScript(intervalSeconds = 5) {
+  const interval = intervalSeconds === 1 ? '1s' : '5s';
   return [
     ':local fitiPollSchedulers [/system scheduler find where name="fiti-poll"]',
     ':foreach fitiPollSchedulerId in=$fitiPollSchedulers do={',
     '  :local fitiPollSchedulerComment [/system scheduler get $fitiPollSchedulerId comment]',
     '  :if ([:typeof [:find $fitiPollSchedulerComment "WiFi Fiti: sync usage, ack jobs, collect work"]] != "nil") do={',
-    '    /system scheduler set $fitiPollSchedulerId interval=1s disabled=no',
+    `    /system scheduler set $fitiPollSchedulerId interval=${interval} disabled=no`,
     '  }',
     '}',
   ].join('\n') + '\n';
@@ -3274,7 +3275,8 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   // tests (and, more importantly, operators) must be able to see that a
   // support control cannot touch the customer poller. The tuning command is
   // retried on the next ordinary sync once the control is acknowledged.
-  const pollTuning = controls.length ? '' : tenantPollTuningScript();
+  const fastPoll = Boolean(jobs.length || deployment || portal);
+  const pollTuning = controls.length ? '' : tenantPollTuningScript(fastPoll ? 1 : 5);
   const openWifi = controls.length ? '' : tenantOpenWifiScript(location);
   if (!jobs.length && !controls.length && !deployment) {
     return { script: [pollTuning, openWifi, portal].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
