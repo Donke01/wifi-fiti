@@ -437,18 +437,6 @@ app.use((req, res, next) => {
   next();
 });
 setInterval(() => tenantAccess.purge(), 60 * 60_000).unref();
-// Quarantine is a bounded recovery window. If an offboarded router never
-// reconnects, remove its operational record after seven days so it cannot
-// accumulate indefinitely; customer and payment history remains untouched.
-setInterval(() => {
-  try {
-    const removed = tenant.purgeExpiredOffboardedLocations();
-    if (removed) console.log(`[tenant] permanently removed ${removed} expired router quarantine record(s)`);
-  } catch (error) {
-    console.error('[tenant] expired router quarantine cleanup failed:', error.message);
-  }
-}, 60 * 60_000).unref();
-try { tenant.purgeExpiredOffboardedLocations(); } catch (error) { console.error('[tenant] initial router quarantine cleanup failed:', error.message); }
 
 /* ------------------------------------------------------------------ */
 /* Throttle                                                            */
@@ -1493,24 +1481,6 @@ app.delete('/api/business/locations/:locationId', (req, res) => {
     res.json({ deleted: true, locationId: location.id });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not delete this setup.' });
-  }
-});
-
-// Offboarding is deliberately separate from deleting an unused draft. It
-// resets this router's cloud pairing and operational state while retaining the
-// business ledger for audit and reporting. A typed confirmation is required.
-app.post('/api/business/locations/:locationId/offboard', (req, res) => {
-  const business = businessAuth(req, res); if (!business) return;
-  try {
-    const location = tenant.offboardLocation({
-      locationId: String(req.params.locationId),
-      businessId: business.id,
-      confirm: String(req.body && req.body.confirm || ''),
-    });
-    if (!location) return res.status(404).json({ error: 'Location not found.' });
-    res.json({ offboarded: true, location, portalUrl: null });
-  } catch (error) {
-    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not offboard this router.' });
   }
 });
 
@@ -3565,17 +3535,12 @@ app.post('/api/router/sync', (req, res) => {
     // therefore marked stale instead of being recorded as deployed.
     ingestTenantTopology(readyLocation, req.body);
     acknowledgeTenantRouterJobs(readyLocation, req.query.ack);
-    // Offboarding is two-phase: the first poll locks customer access, then
-    // the next response carries the destructive reset. The location is
-    // deleted only after that reset script has actually been delivered.
-    tenant.queueOffboardReset(readyLocation.id);
     acknowledgeTenantRemoteSupportControls(readyLocation, req.query.supportAck);
     ingestTenantUsage(readyLocation, req.body);
     const response = tenantRouterScript(readyLocation, {
       reportedPortalAppliedHost: req.query.portalApplied,
       reportedPortalHost: req.query.portal,
     }).script;
-    if (readyLocation.router_status === 'offboarding') tenant.finalizeOffboardLocation(readyLocation.id, readyLocation.business_id);
     return res.type('text/plain').send(response);
   }
 

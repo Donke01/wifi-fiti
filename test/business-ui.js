@@ -40,12 +40,8 @@ assert.match(locationEditor[0], /A replacement router is waiting for its secure 
 // never sent to a router by WiFi Fiti.
 assert.match(html, /Start router setup again/,
   'each location offers a safe way to begin its router setup again');
-assert.match(html, /Offboard \/ remove router/,
-  'each location exposes an explicit router offboarding action');
-assert.match(html, /\/offboard/,
-  'the dashboard calls the location-scoped offboarding endpoint');
-assert.match(html, /OFFBOARD ROUTER/,
-  'router offboarding requires a typed destructive confirmation');
+assert.doesNotMatch(html, /Offboard \/ remove router|\/offboard|OFFBOARD ROUTER/,
+  'remote router offboarding is temporarily hidden from the dashboard');
 assert.match(html, /Clear setup form/,
   'the setup wizard can clear only unsaved form choices');
 assert.match(html, /Delete unused setup/,
