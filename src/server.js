@@ -449,6 +449,7 @@ setInterval(() => tenantAccess.purge(), 60 * 60_000).unref();
  */
 const lastPush = new Map();
 const PUSH_COOLDOWN_MS = 30_000;
+const googleOAuthStates = new Map();
 
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60_000;
@@ -741,6 +742,54 @@ app.post('/api/business/login', async (req, res) => {
   const account = db.businessById.get(business.id);
   res.json({ token: issueBusinessSession(business.id), business: account,
     onboarding: onboardingState(account, tenant.locationsForBusiness.all(business.id)) });
+});
+
+// Google OAuth is intentionally configuration-gated. The controls are shown
+// consistently on login and registration, but no redirect is attempted until
+// the deployment has a Google client id, secret and callback configured.
+app.get('/api/business/google/start', (req, res) => {
+  const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  if (!clientId || !clientSecret) {
+    return res.redirect(`${config.domains.appUrl}/business.html?google_error=${encodeURIComponent('Google sign-in is not configured on this deployment yet. Use email sign-in.')}`);
+  }
+  const mode = String(req.query.mode || 'login') === 'register' ? 'register' : 'login';
+  const state = crypto.randomBytes(24).toString('base64url');
+  googleOAuthStates.set(state, { mode, expiresAt: Date.now() + 10 * 60_000 });
+  const redirectUri = `${config.domains.appUrl}/api/business/google/callback`;
+  const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: 'openid email profile', access_type: 'online', state, prompt: 'select_account' });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+app.get('/api/business/google/callback', async (req, res) => {
+  const state = googleOAuthStates.get(String(req.query.state || ''));
+  googleOAuthStates.delete(String(req.query.state || ''));
+  if (!state || state.expiresAt < Date.now() || !req.query.code) return res.status(400).send('Google sign-in expired. Return to WiFi Fiti and try again.');
+  try {
+    const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+    const clientSecret = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    const redirectUri = `${config.domains.appUrl}/api/business/google/callback`;
+    const exchange = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code: String(req.query.code), client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: 'authorization_code' }) });
+    if (!exchange.ok) throw new Error('Google token exchange failed');
+    const tokens = await exchange.json();
+    const profileResponse = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(String(tokens.id_token || '')));
+    if (!profileResponse.ok) throw new Error('Google identity verification failed');
+    const profile = await profileResponse.json();
+    if (profile.aud !== clientId || profile.email_verified !== 'true' || !/^\S+@\S+\.\S+$/.test(String(profile.email || ''))) throw new Error('Google account email could not be verified');
+    const email = String(profile.email).toLowerCase();
+    let account = db.businessByEmail.get(email);
+    if (!account) {
+      const id = businessId('biz');
+      db.addBusiness.run({ id, name: '', ownerName: String(profile.name || email.split('@')[0]).slice(0, 80), ownerPhone: '', email, passwordHash: hashPassword(crypto.randomBytes(32).toString('hex')), plan: 'starter', collectionMode: 'own', onboardingState: 'organisation', organisationCompletedAt: null, hotspotName: null });
+      db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+      account = db.businessById.get(id);
+    }
+    const token = issueBusinessSession(account.id);
+    res.redirect(`${config.domains.appUrl}/business.html?google_token=${encodeURIComponent(token)}`);
+  } catch (error) {
+    console.error('[business] Google sign-in failed:', error.message);
+    res.status(502).send('Google sign-in could not be completed. Return to WiFi Fiti and use email sign-in.');
+  }
 });
 
 app.post('/api/business/verify-login', (req, res) => {
