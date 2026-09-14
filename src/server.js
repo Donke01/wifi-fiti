@@ -451,6 +451,21 @@ const lastPush = new Map();
 const PUSH_COOLDOWN_MS = 30_000;
 const googleOAuthStates = new Map();
 
+function googleOAuthConfig() {
+  const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  const validClientId = /^[0-9A-Za-z_-]+\.apps\.googleusercontent\.com$/.test(clientId);
+  const validClientSecret = clientSecret.length >= 16 && clientSecret !== '...';
+  return validClientId && validClientSecret ? { clientId, clientSecret } : null;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [state, value] of googleOAuthStates) {
+    if (!value || value.expiresAt <= now) googleOAuthStates.delete(state);
+  }
+}, 60_000).unref();
+
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60_000;
   for (const [k, t] of lastPush) if (t < cutoff) lastPush.delete(k);
@@ -748,11 +763,11 @@ app.post('/api/business/login', async (req, res) => {
 // consistently on login and registration, but no redirect is attempted until
 // the deployment has a Google client id, secret and callback configured.
 app.get('/api/business/google/start', (req, res) => {
-  const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
-  const clientSecret = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
-  if (!clientId || !clientSecret) {
+  const oauth = googleOAuthConfig();
+  if (!oauth) {
     return res.redirect(`${config.domains.appUrl}/business.html?google_error=${encodeURIComponent('Google sign-in is not configured on this deployment yet. Use email sign-in.')}`);
   }
+  const { clientId } = oauth;
   const mode = String(req.query.mode || 'login') === 'register' ? 'register' : 'login';
   const state = crypto.randomBytes(24).toString('base64url');
   googleOAuthStates.set(state, { mode, expiresAt: Date.now() + 10 * 60_000 });
@@ -766,8 +781,9 @@ app.get('/api/business/google/callback', async (req, res) => {
   googleOAuthStates.delete(String(req.query.state || ''));
   if (!state || state.expiresAt < Date.now() || !req.query.code) return res.status(400).send('Google sign-in expired. Return to WiFi Fiti and try again.');
   try {
-    const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
-    const clientSecret = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    const oauth = googleOAuthConfig();
+    if (!oauth) throw new Error('Google OAuth is not configured');
+    const { clientId, clientSecret } = oauth;
     const redirectUri = `${config.domains.appUrl}/api/business/google/callback`;
     const exchange = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code: String(req.query.code), client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: 'authorization_code' }) });
     if (!exchange.ok) throw new Error('Google token exchange failed');
