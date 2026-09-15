@@ -1775,6 +1775,28 @@ app.get('/api/tenant/:locationId/session', (req, res) => {
     expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z' });
 });
 
+// Receipts are rendered by the server rather than assembled as a browser Blob.
+// This keeps downloads usable in captive browsers and on iOS Files, while the
+// session token remains in an HTTPS POST body instead of a URL.
+app.post('/api/tenant/:locationId/receipt/:subscriptionId', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const subscription = tenantAccess.authenticate(location.id, String(req.body && req.body.sessionToken || ''), '');
+  if (!subscription || subscription.id !== req.params.subscriptionId) return res.status(403).type('text/plain').send('Receipt access expired. Reconnect and try again.');
+  const payment = tenant.latestPaidTransactionForSubscription.get(subscription.id, subscription.location_id);
+  const assetOrigin = config.domains.appUrl;
+  const branding = brandingPayload({
+    id: location.business_id, name: location.business_name, portal_name: location.portal_name,
+    support_phone: location.support_phone, brand_primary_color: location.brand_primary_color,
+    brand_logo_path: location.brand_logo_path, portal_message: location.portal_message,
+  }, { assetOrigin });
+  const portal = portalUrlForLocation(location);
+  const logo = branding.logoUrl || `${assetOrigin}/assets/wifi-fiti-logo.png`;
+  const esc = escapeHtml;
+  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WiFi receipt · ${esc(branding.name)}</title><style>body{font:16px Arial,sans-serif;color:#122740;max-width:640px;margin:0 auto;padding:32px 22px}img{width:84px;height:84px;object-fit:contain;display:block;margin-bottom:14px}h1{color:#1769d8;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin:24px 0}td{padding:12px 0;border-bottom:1px solid #dce5f0}td:first-child{color:#687a91;width:42%}.code{font:800 24px monospace;letter-spacing:.12em;color:#168c62}.note{padding:15px;background:#f3f8ff;border-radius:10px;line-height:1.5}a{color:#1769d8;overflow-wrap:anywhere}</style><img src="${esc(logo)}" alt="${esc(branding.name)}"><h1>${esc(branding.name)}</h1><p>Payment receipt · WiFi access</p><table><tr><td>Customer portal</td><td><a href="${esc(portal)}">${esc(portal)}</a></td></tr><tr><td>Payment reference</td><td>${esc(payment ? (payment.mpesa_receipt || payment.checkout_request_id) : 'Pending reference')}</td></tr><tr><td>Package</td><td>${esc(payment && payment.package_name || 'WiFi package')}</td></tr><tr><td>Amount paid</td><td>KES ${esc(payment && payment.amount == null ? '' : payment ? Number(payment.amount).toLocaleString() : '')}</td></tr><tr><td>Paying number</td><td>${esc(subscription.payer_phone)}</td></tr><tr><td>Valid until</td><td>${esc(new Date(subscription.expires_at.replace(' ', 'T') + 'Z').toLocaleString())}</td></tr><tr><td>Recovery code</td><td class="code">${esc(subscription.password)}</td></tr></table><div class="note"><strong>Keep this receipt.</strong><br>Use the recovery code and paying number on the customer portal to check balance or move this package to another phone.</div><p>Generated ${esc(new Date().toLocaleString())}</p></html>`;
+  res.set('Content-Disposition', `attachment; filename="wifi-fiti-receipt-${subscription.id}.html"`);
+  res.type('html').send(html);
+});
+
 app.post('/api/tenant/:locationId/session/connect', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const subscription = tenantSessionForRequest(location, req);
