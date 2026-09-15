@@ -22,7 +22,7 @@ assert.match(html, /It never changes WAN, bridge membership, Wi‑Fi name or pas
 // A customer address is intentionally deferred until the router has proved
 // its WiFi Fiti connection. The normal dashboard must not tease an owner
 // with a setting that the server will correctly refuse.
-const locationEditor = html.match(/function renderLocationEditor\(location, card\) \{[\s\S]*?\n\s*function rotateLocationToken/);
+const locationEditor = html.match(/function renderLocationEditor\(location, card\) \{[\s\S]*?\n\s*function renderLocations/);
 assert.ok(locationEditor, 'the location editor remains a distinct dashboard surface');
 assert.match(locationEditor[0], /field\('Customer portal address',\s*'portalSlug'/,
   'the location editor has a managed portal-address field for connected routers');
@@ -44,10 +44,12 @@ assert.doesNotMatch(html, /Offboard \/ remove router|\/offboard|OFFBOARD ROUTER/
   'remote router offboarding is temporarily hidden from the dashboard');
 assert.match(html, /Clear setup form/,
   'the setup wizard can clear only unsaved form choices');
-assert.match(html, /Delete router/,
-  'a location exposes an explicit router configuration deletion action');
-assert.match(html, /DELETE ROUTER/,
-  'the UI sends the explicit router deletion confirmation required by the API');
+assert.match(html, /Remove unused setup/,
+  'a location exposes only an explicit unused-draft removal action');
+assert.match(html, /function discardUnusedRouterSetup\(location, button, error\)/,
+  'the editor uses the same draft-only removal path as the focused onboarding flow');
+assert.doesNotMatch(html, /DELETE ROUTER|Rotate router token/,
+  'the dashboard does not expose a broad live-router deletion or unactionable token-rotation control');
 assert.match(html, /function routerCanBeRemoved\(location\)/,
   'the guided journey uses a conservative local check before exposing router removal');
 assert.match(html, /function removeOnboardingRouter\(model, button\)/,
@@ -223,6 +225,10 @@ assert.match(html, /Automatic router detection/,
   'the focused journey lets the router kit choose the safe setup path');
 assert.match(html, /payload\.modelProfile = 'auto'/,
   'the focused journey does not ask customers to guess a board profile');
+assert.match(html, /payload\.autoRouterConfirmed = 'yes'/,
+  'automatic kits require the owner to acknowledge their fresh-router capability');
+assert.match(html, /It may configure a fresh\/reset router after checking the device/,
+  'automatic-kit confirmation explains the possible router mutation before generation');
 assert.doesNotMatch(html, /Download \.rsc|Download full kit|Show full RouterOS kit \(fallback\)/,
   'the focused connection screen hides downloads and fallback scripts');
 assert.match(html, /\/api\/business\/onboarding\/customer-portal/,
@@ -240,7 +246,7 @@ assert.match(html, /kitRevision: hasGeneratedScript \? routerKitRevision : ''/,
   'only freshly generated full scripts are marked current in session storage');
 assert.match(html, /script: generated\.script, loader: generated\.loader === true/,
   'the browser retains the server approval for a one-line loader with the current kit');
-assert.match(html, /function routerBootstrapCommand\(setup\)/,
+assert.match(html, /function routerBootstrapCommand\(setup, compatibility\)/,
   'current connection kits can render a concise cloud-bootstrap command');
 assert.match(html, /setup\.setup\.loader === true/,
   'the concise command is offered only when the server retained the exact one-time kit');
@@ -250,6 +256,8 @@ assert.match(html, /http-header-field="' \+ rosQuote\('X-WiFi-Fiti-Router: ' \+ 
   'the concise command authenticates with the per-location router token, not a global credential');
 assert.match(html, /Copy connection kit/,
   'owners can copy the single secure connection kit directly');
+assert.match(html, /This recovery kit disables HTTPS certificate verification for its initial download/,
+  'the CA recovery kit requires an explicit security acknowledgement before copying');
 assert.doesNotMatch(html, /Download full kit|Download \\.rsc|Show full RouterOS kit \(fallback\)/,
   'the customer onboarding view does not expose downloads or fallback scripts');
 assert.match(html, /WiFi Fiti kit was not downloaded\. Check WAN, DNS and RouterOS certificate trust, then retry\./,
@@ -317,10 +325,19 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
     const nodes = descendants(root);
     const buttons = nodes.filter(node => node.tagName === 'button' && node.textContent === 'Copy connection kit');
     assert.equal(buttons.length, 1, screen + ' always identifies the secure connection kit');
-    assert.equal(buttons[0].disabled, false, screen + ' enables copying the complete kit');
-    copiedCommand = ''; buttons[0].listeners.click();
-    assert.equal(copiedCommand, generated.script, screen + ' copies the complete RouterOS kit');
-    assert.ok(copiedCommand.includes('\n'), screen + ' copies the multi-line kit');
+    var loaderReady = loaderStatus === 'ready';
+    assert.equal(Boolean(buttons[0].disabled), !loaderReady,
+      screen + (loaderReady ? ' enables the server-retained secure bootstrap' : ' blocks copying when the secure bootstrap is unavailable'));
+    copiedCommand = '';
+    if (loaderReady) {
+      buttons[0].listeners.click();
+      assert.match(copiedCommand, /\/api\/router\/v1\/bootstrap\?site=loc-installer-test/,
+        screen + ' copies the authenticated short bootstrap rather than exposing full RouterOS source');
+      assert.match(copiedCommand, /check-certificate=yes/,
+        screen + ' keeps certificate verification enabled in the standard bootstrap');
+    }
+    assert.equal(copiedCommand === '', !loaderReady,
+      screen + ' does not expose a browser fallback when the encrypted kit is unavailable');
     assert.equal(nodes.some(node => node.tagName === 'button' && /Download/.test(node.textContent)), false, screen + ' keeps downloads hidden');
   }
 }

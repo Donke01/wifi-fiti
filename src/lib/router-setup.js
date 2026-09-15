@@ -842,6 +842,9 @@ function validateRouterSetup(input) {
   if (mode === 'new' && String(input && input.freshRouterConfirmed || '') !== 'yes') {
     throw invalid('Confirm that this is a fresh/reset router before generating its setup kit.');
   }
+  if (mode === 'auto' && String(input && input.autoRouterConfirmed || '') !== 'yes') {
+    throw invalid('Confirm that the automatic kit may configure a fresh/reset router before generating it.');
+  }
   const fallback = profile || MODEL_PROFILES['legacy-wireless'];
   const customerBridge = identifier(input && input.customerBridge, 'customer bridge', fallback.bridge);
   const hotspotServer = identifier(input && input.hotspotServer, 'Hotspot server name', 'hotspot1');

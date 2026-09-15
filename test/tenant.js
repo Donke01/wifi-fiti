@@ -463,8 +463,8 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'the owner workspace reports a replacement-router pairing only while its staged token is valid');
   assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_sync_healthy, false,
     'a prior router sync is not presented as healthy while a replacement router is still pending');
-  assert.strictEqual(tenant.authenticateRouter(alpha.id, alpha.routerToken), null,
-    'generating a replacement kit immediately retires the previous router credential');
+  assert.ok(tenant.authenticateRouter(alpha.id, alpha.routerToken),
+    'generating a replacement kit keeps the currently serving router authenticated until promotion');
   const pendingRouter = tenant.authenticateRouter(alpha.id, staged.routerToken);
   assert.strictEqual(pendingRouter.business_id, 'business-a');
   const challenge = tenant.processRouterSetupReceipt(pendingRouter, { protocol: '2', health: 'portal-missing' });
@@ -489,6 +489,8 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'an expired replacement token is never presented as a pending router pairing');
   assert.strictEqual(tenant.authenticateRouter(bravo.id, expiring.routerToken), null,
     'an expired replacement token cannot promote itself');
+  assert.ok(tenant.authenticateRouter(bravo.id, bravo.routerToken),
+    'an expired replacement leaves the current router credential intact');
   legacy.db.prepare(`UPDATE locations SET last_successful_sync_at=datetime('now','-91 seconds') WHERE id=?`).run(alpha.id);
   assert.strictEqual(tenant.locationsForBusiness.all('business-a').find((location) => location.id === alpha.id).router_sync_healthy, false,
     'a historical successful sync older than ninety seconds is never reported healthy');

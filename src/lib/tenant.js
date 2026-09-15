@@ -750,21 +750,10 @@ const markRouterPortalApplied = db.prepare(`
 `);
 const stageLocationToken = db.prepare(`
   UPDATE locations
-     SET router_token_hash=NULL,
-         router_setup_verified_at=NULL,
-         router_setup_nonce=NULL,
-         router_status='waiting',
-         last_seen_at=NULL,
-         last_successful_sync_at=NULL,
-         router_setup_health=NULL,
-         router_setup_checked_at=NULL,
-         router_portal_update_sent_host=NULL,
-         router_portal_applied_host=NULL,
-         router_pending_token_hash=@tokenHash,
+     SET router_pending_token_hash=@tokenHash,
          router_pending_token_expires_at=@expiresAt,
          router_pending_setup_nonce=NULL,
          router_pending_setup_json=@pendingSetupJson,
-         router_setup_script_cipher=NULL,
          router_pending_setup_script_cipher=NULL
    WHERE id=@locationId
 `);
@@ -3227,11 +3216,12 @@ function rotateLocationToken({ locationId, businessId, pendingSetup } = {}) {
   if (!location) return null;
   const routerToken = crypto.randomBytes(24).toString('base64url');
   const hash = tokenHash(routerToken);
-  // Every generated kit starts a fresh pairing transaction. The previous
-  // router token is invalidated immediately, so an old router can never keep
-  // checking in or make the dashboard look paired while a new receipt is
-  // pending. Customer/payment history remains intact; only router control
-  // authentication is rotated.
+  // Every generated kit starts a fresh pairing transaction. The pending
+  // credential is deliberately separate from the active one: the router that
+  // is already serving customers must keep polling until the replacement
+  // proves itself with its own receipt. Dashboard state still marks the
+  // replacement as pending, so an old successful sync cannot unlock the new
+  // router's mapping or customer-page steps.
   const pendingSetupJson = pendingSetup ? JSON.stringify(pendingSetup) : null;
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -3272,9 +3262,9 @@ function updateLocationSettings({ locationId, businessId, name, routerName, hots
   return locationForBusiness.get(locationId, businessId);
 }
 
-/** Stage a replacement kit and its future settings together. Generating the
- * kit retires the previous router credential immediately; the new snapshot
- * promotes atomically only after its one-time receipt challenge is echoed. */
+/** Stage a replacement kit and its future settings together. The active
+ * credential remains usable until the new snapshot promotes atomically after
+ * its one-time receipt challenge is echoed. */
 function stageLocationReplacement({ locationId, businessId, name, routerName, hotspotServer, setup }) {
   const current = locationForBusiness.get(locationId, businessId);
   if (!current) return null;
@@ -3337,38 +3327,6 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
     deleteLocationForBusiness.run(location.id, businessId);
     db.exec('COMMIT');
     return { id: location.id, name: location.name };
-  } catch (error) {
-    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
-    throw error;
-  }
-}
-
-/** Delete a router's operational configuration so the next onboarding starts fresh. */
-function deleteRouterLocation({ locationId, businessId, confirm } = {}) {
-  if (confirm !== 'DELETE ROUTER') {
-    const error = new Error('Type DELETE ROUTER to remove this router configuration.');
-    error.status = 400;
-    throw error;
-  }
-  const location = locationForBusiness.get(locationId, businessId);
-  if (!location) return null;
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    deleteMappedDeploymentsForLocation.run(locationId);
-    deleteRouterMapping.run(locationId);
-    deleteRouterTopology.run(locationId);
-    deleteVpnPeerForLocation.run(locationId);
-    deleteRemoteSupportControlsForLocation.run(locationId);
-    deleteRemoteAccessEventsForLocation.run(locationId);
-    deleteRemoteAccessForLocation.run(locationId);
-    deleteProvisioningJobsForLocation.run(locationId);
-    deleteDevicesForLocation.run(locationId);
-    cancelPendingTransactionsForLocation.run(locationId);
-    deactivateSubscriptionsForLocation.run(locationId);
-    deletePortalDomainsForLocation.run(locationId);
-    deleteLocationForBusiness.run(locationId, businessId);
-    db.exec('COMMIT');
-    return { id: location.id, name: location.name, deleted: true };
   } catch (error) {
     try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
     throw error;
@@ -3782,7 +3740,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteRouterLocation, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,

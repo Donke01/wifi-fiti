@@ -1084,8 +1084,11 @@
         }
         var actions = el('div', 'buttons');
         var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(script, quickCopy); }); quickCopy.disabled = !script;
-        var compatibilityCopy = setupAction(actions, 'Copy CA compatibility kit', 'secondary', function () { copyText(compatibilityScript, compatibilityCopy); }); compatibilityCopy.disabled = !compatibilityScript;
-        add(box, 'small', 'form-note', 'Use this only when RouterOS reports “no trusted CA certificate found”. All other routers should use the standard connection kit.');
+        var compatibilityCopy = setupAction(actions, 'Copy CA compatibility kit', 'secondary', function () {
+          if (!window.confirm('This recovery kit disables HTTPS certificate verification for its initial download. Use it only after RouterOS reports “no trusted CA certificate found”. Continue?')) return;
+          copyText(compatibilityScript, compatibilityCopy);
+        }); compatibilityCopy.disabled = !compatibilityScript;
+        add(box, 'small', 'form-note', 'CA compatibility is a recovery option only. It disables certificate verification for the initial download; all other routers must use the standard connection kit.');
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);
         body.appendChild(box);
@@ -1124,9 +1127,14 @@
         refreshMode();
         form.addEventListener('submit', function (event) {
           event.preventDefault(); error.textContent = ''; var payload = values(form); var mode = selectedMode(); var selectedProfile = routerProfiles[payload.modelProfile] || routerProfiles['hap-lite'];
+          var replacing = Boolean(location.last_successful_sync_at);
+          var confirmation = replacing
+            ? 'Create an automatic replacement kit? The current router keeps serving customers until the new kit completes its secure check-in. The kit may configure a fresh/reset router.'
+            : 'Create this automatic kit? It may configure a fresh/reset router after checking the device. Do not run it on a router that serves customers unless you intend to replace that setup.';
+          if (!window.confirm(confirmation)) return;
           payload.mode = mode; payload.routerOsVersion = '7'; payload.name = location.name; payload.routerName = location.router_name || location.router_model || ''; payload.customerBridge = payload.customerBridge || 'bridge-hs'; payload.hotspotServer = payload.hotspotServer || 'hotspot1'; payload.wanInterface = payload.wanInterface || 'ether1'; payload.customerSubnet = payload.customerSubnet || '10.5.50.0/24'; payload.wifiInterface = selectedProfile.wifi; payload.customerPorts = selectedProfile.ports;
-          if (mode === 'auto' && location.last_successful_sync_at && !window.confirm('Prepare an automatic replacement kit? The current router stays online until the replacement checks in, then it is retired.')) return;
-          if (mode === 'auto' && location.last_successful_sync_at) payload.replaceRouter = 'yes';
+          payload.autoRouterConfirmed = 'yes';
+          if (replacing) payload.replaceRouter = 'yes';
           payload.modelProfile = 'auto'; payload.routerModel = ''; payload.wifiInterface = ''; payload.customerPorts = '';
           setBusy(submit, true, 'Creating…'); api('/api/business/locations/' + encodeURIComponent(location.id) + '/router-setup', { method: 'POST', body: JSON.stringify(payload) }).then(function (result) { clearFreshRouterSetup(location); saveSetup(result.location, result.portalUrl, result.setup); setConnectionPhase(result.location, 'install'); mergeLocation(result.location); rememberOnboardingLocation((state.workspace && state.workspace.business) || {}, result.location); return load(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(submit, false); });
         });
@@ -1365,43 +1373,33 @@
         add(form, 'p', 'form-note', 'This is a WiFi Fiti managed address. A domain you already own is not connected here yet.');
         var error = el('div', 'error'); error.setAttribute('aria-live', 'polite');
         var actions = el('div', 'buttons'); var save = el('button', '', 'Save settings'); save.type = 'submit'; var cancel = el('button', 'secondary', 'Cancel'); cancel.type = 'button'; cancel.addEventListener('click', function () { form.remove(); }); actions.appendChild(save); actions.appendChild(cancel);
-        var discard = el('button', 'danger quiet', 'Delete router'); discard.type = 'button';
-        discard.addEventListener('click', function () { deleteRouterLocation(location, discard, error); });
-        actions.appendChild(discard);
-        add(form, 'p', 'form-note', 'Deletes this router configuration from WiFi Fiti. The next setup starts as a new location; the physical router is not factory-reset.');
+        if (routerCanBeRemoved(location)) {
+          var discard = el('button', 'danger quiet', 'Remove unused setup'); discard.type = 'button';
+          discard.addEventListener('click', function () { discardUnusedRouterSetup(location, discard, error); });
+          actions.appendChild(discard);
+          add(form, 'p', 'form-note', 'Removes only this unused cloud draft and pairing credential. It never resets the physical router.');
+        } else {
+          add(form, 'p', 'form-note', 'This router has connected or has operational history, so it cannot be deleted here. Use Start router setup again to stage a replacement without interrupting customer records.');
+        }
         form.appendChild(actions); form.appendChild(error);
         form.addEventListener('submit', function (event) { event.preventDefault(); error.textContent = ''; setBusy(save, true, 'Saving…'); var body = values(form); var requestedPortalSlug = String(body.portalSlug || '').trim().toLowerCase(); delete body.portalSlug; var changesPortalAddress = addressing.enabled && requestedPortalSlug && requestedPortalSlug !== currentPortalSlug; api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'PATCH', body: JSON.stringify(body) }).then(function (result) { mergeLocation(result.location); if (changesPortalAddress) return api('/api/business/locations/' + encodeURIComponent(location.id) + '/portal-address', { method: 'PATCH', body: JSON.stringify({ slug: requestedPortalSlug }) }); return result; }).then(function (result) { if (result && result.location) mergeLocation(result.location); renderLocations(); renderPairingKits(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(save, false); }); });
         card.appendChild(form);
       }
-      function deleteRouterLocation(location, button, error) {
+      function discardUnusedRouterSetup(location, button, error) {
         var name = location.name || 'this location';
-        var confirmation = window.prompt('Delete the router configuration for "' + name + '"? Customer/payment history remains, but pairing, portal and operational settings are removed. Type DELETE ROUTER to confirm.');
-        if (confirmation !== 'DELETE ROUTER') {
-          if (confirmation !== null) error.textContent = 'Nothing was deleted. Type DELETE ROUTER exactly to confirm.';
+        var confirmation = window.prompt('Remove the unused setup for "' + name + '"? This deletes only its WiFi Fiti cloud draft and pairing credential. It never resets the physical router. Type DELETE to confirm.');
+        if (confirmation !== 'DELETE') {
+          if (confirmation !== null) error.textContent = 'Nothing was removed. Type DELETE exactly to confirm.';
           return;
         }
-        error.textContent = ''; setBusy(button, true, 'Deleting…');
-        api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE ROUTER' }) }).then(function () {
+        error.textContent = ''; setBusy(button, true, 'Removing…');
+        api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }).then(function () {
           forgetSetup(location.id); clearFreshRouterSetup(location); clearRouterProgress(location);
           clearOnboardingLocation((state.workspace && state.workspace.business) || {});
           return load();
         }).then(function () {
-          $('location-error').textContent = 'Router deleted. Add it again to create a fresh location and pairing token.';
+          $('location-error').textContent = 'Unused router setup removed. Add the router again when you are ready.';
         }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(button, false); });
-      }
-      function rotateLocationToken(location, button) {
-        if (!window.confirm('Stage a new pairing token? The current router stays online until the new kit successfully checks in.')) return;
-        setBusy(button, true, 'Rotating…'); api('/api/business/locations/' + encodeURIComponent(location.id) + '/router-token', { method: 'POST', body: '{}' }).then(function (result) {
-          saveSetup(result.location, result.portalUrl); rememberOnboardingLocation((state.workspace && state.workspace.business) || {}, result.location);
-          // The replacement response intentionally contains no readiness
-          // claim. Reload the location before moving on so a previous
-          // router's fresh sync can never unlock the new router's stage.
-          return load().then(function () {
-            renderPairingKits(); renderLocations();
-            if (state.workspace) { advanceOnboardingStage(onboardingModel(), 2, 'connect'); moveToSetupSection('onboarding-section'); }
-            else $('location-setup-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
-          });
-        }).catch(function (error) { $('location-error').textContent = error.message; }).finally(function () { setBusy(button, false); });
       }
       function renderLocations() {
         var root = $('locations'); var locations = (state.workspace && state.workspace.locations) || []; clear(root);
@@ -1416,7 +1414,6 @@
           var restart = el('button', 'quiet', 'Start router setup again'); restart.type = 'button'; restart.addEventListener('click', function () { startRouterSetupAgain(location); }); actions.appendChild(restart);
           var remoteSetup = el('button', 'quiet', 'Remote setup'); remoteSetup.type = 'button'; remoteSetup.addEventListener('click', function () { openRemoteAccess(location, card, remoteSetup); }); actions.appendChild(remoteSetup);
           var edit = el('button', 'quiet', 'Portal & router settings'); edit.type = 'button'; edit.addEventListener('click', function () { renderLocationEditor(location, card); }); actions.appendChild(edit);
-          var rotate = el('button', 'danger quiet', 'Rotate router token'); rotate.type = 'button'; rotate.addEventListener('click', function () { rotateLocationToken(location, rotate); }); actions.appendChild(rotate);
           card.appendChild(actions); root.appendChild(card);
         });
       }
@@ -1652,8 +1649,9 @@
         $('router-setup-error').textContent = '';
         var freshRouter = selectedRouterMode() === 'new';
         if (freshRouter && !window.confirm('Only continue if this router has been reset with no default configuration. WiFi Fiti will not change its administrator password.')) return;
-        var replacement = Boolean(locationId && selectedRouterMode() === 'new');
-        var prompt = replacement ? 'Prepare this reset-router replacement? The current router stays online until the replacement kit checks in, then it is retired.' : 'Stage this re-pairing kit? The current router stays online until the new kit checks in.';
+        var targetLocation = locationId && state.workspace && (state.workspace.locations || []).find(function (item) { return String(item.id) === String(locationId); });
+        var replacement = Boolean(targetLocation && targetLocation.last_successful_sync_at);
+        var prompt = replacement ? 'Prepare this replacement kit? The current router keeps serving customers until the replacement kit completes its secure check-in.' : 'Stage this re-pairing kit? It will become active only after its secure check-in.';
         if (locationId && !window.confirm(prompt)) return;
         setBusy(button, true, 'Generating…');
         var endpoint = locationId ? '/api/business/locations/' + encodeURIComponent(locationId) + '/router-setup' : '/api/business/router-setup';

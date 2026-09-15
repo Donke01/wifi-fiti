@@ -33,6 +33,11 @@ const newRouter = {
   wifiSsid: 'Fiti Guest WiFi', wifiPassword: 'SafeWifiPass9', freshRouterConfirmed: 'yes', customerSubnet: '10.5.50.0/24', wanMode: 'dhcp',
 };
 
+expectInvalid({
+  mode: 'auto', routerOsVersion: '7', wifiSsid: 'Automatic Guest WiFi',
+  customerSubnet: '10.5.52.0/24', wanMode: 'dhcp',
+}, 'automatic setup requires an explicit acknowledgement because it may configure a fresh router');
+
 const existingKit = kit(existing);
 assert.equal(existingKit.config.mode, 'existing');
 assert.match(existingKit.script, /existing-router pairing kit/);
@@ -415,7 +420,7 @@ assert.doesNotMatch(newKit.script, /servers=1\.1\.1\.1,8\.8\.8\.8/,
 assert.doesNotMatch(newKit.script, /XenFi WAN/,
   'generated router configuration remains WiFi Fiti-branded after WAN preparation');
 
-const automaticKit = kit({ mode: 'auto', routerOsVersion: '7', wifiSsid: 'Automatic Guest WiFi', wifiPassword: 'SafeWifiPass9', customerSubnet: '10.5.52.0/24', wanMode: 'dhcp' });
+const automaticKit = kit({ mode: 'auto', routerOsVersion: '7', autoRouterConfirmed: 'yes', wifiSsid: 'Automatic Guest WiFi', wifiPassword: 'SafeWifiPass9', customerSubnet: '10.5.52.0/24', wanMode: 'dhcp' });
 assert.equal(automaticKit.config.mode, 'auto');
 assert.match(automaticKit.script, /automatic RouterOS 7 setup kit/);
 assert.match(automaticKit.script, /Multiple Hotspot servers found/);

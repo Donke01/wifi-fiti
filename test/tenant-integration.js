@@ -323,6 +323,12 @@ async function main() {
       body: { confirm: 'DELETE' } });
     assert.equal(foreignDiscard.status, 404, 'one business cannot discard another business\'s draft');
 
+    const unconfirmedRotation = await api(`${discardPath}/router-token`, { method: 'POST', token: alpha.token,
+      body: {} });
+    assert.equal(unconfirmedRotation.status, 400, JSON.stringify(unconfirmedRotation.body));
+    assert.match(unconfirmedRotation.body.error, /ROTATE ROUTER TOKEN/,
+      'replacement credentials require their own explicit confirmation');
+
     const discarded = await api(discardPath, { method: 'DELETE', token: alpha.token,
       body: { confirm: 'DELETE' } });
     assert.equal(discarded.status, 200, JSON.stringify(discarded.body));
@@ -506,9 +512,18 @@ async function main() {
       'a Worker-served portal loads its logo through its own customer hostname');
 
     const oldToken = created.body.location.routerToken;
-    const staged = await api(`/api/business/locations/${created.body.location.id}/router-setup`, { method: 'POST', token: alpha.token, body: {
+    const replacementInput = {
       name: 'Alpha Second Site', routerName: 'Fresh hAP lite', mode: 'existing', routerOsVersion: '7',
       modelProfile: 'hap-lite', customerBridge: 'bridge-hs', hotspotServer: 'hotspot1',
+    };
+    const unconfirmedReplacement = await api(`/api/business/locations/${created.body.location.id}/router-setup`, {
+      method: 'POST', token: alpha.token, body: replacementInput,
+    });
+    assert.equal(unconfirmedReplacement.status, 400, JSON.stringify(unconfirmedReplacement.body));
+    assert.match(unconfirmedReplacement.body.error, /Confirm .*replacing/i,
+      'all replacement-kit modes require explicit confirmation after a router has checked in');
+    const staged = await api(`/api/business/locations/${created.body.location.id}/router-setup`, { method: 'POST', token: alpha.token, body: {
+      ...replacementInput, replaceRouter: 'yes',
     } });
     assert.equal(staged.status, 200, JSON.stringify(staged.body));
     const pendingCustomerPage = await api('/api/business/onboarding/customer-portal', {
@@ -517,8 +532,8 @@ async function main() {
     assert.equal(pendingCustomerPage.status, 409, JSON.stringify(pendingCustomerPage.body));
     assert.match(pendingCustomerPage.body.error, /Finish router setup/,
       'a staged replacement cannot complete customer-page setup from the old router’s sync');
-    assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 403,
-      'the previous router token is retired as soon as a fresh re-pairing kit is generated');
+    assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 200,
+      'the previous router keeps polling while a replacement kit is waiting to prove itself');
     assert.equal((await routerSync(created.body.location, { token: staged.body.location.routerToken })).status, 200,
       'the new kit promotes itself by checking in');
     assert.equal((await routerSync(created.body.location, { token: oldToken })).status, 403,

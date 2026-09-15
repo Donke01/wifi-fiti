@@ -170,7 +170,7 @@ async function main() {
     const created = await api('/api/business/router-setup', {
       method: 'POST', token: alphaToken,
       body: {
-        name: 'Alpha Automatic', routerName: 'Automatic test router', mode: 'auto', routerOsVersion: '7', modelProfile: 'auto',
+        name: 'Alpha Automatic', routerName: 'Automatic test router', mode: 'auto', routerOsVersion: '7', modelProfile: 'auto', autoRouterConfirmed: 'yes',
         customerBridge: 'bridge-hs', hotspotServer: 'hotspot1', wifiSsid: 'Alpha Automatic WiFi',
         wifiPassword: 'SafeWifiPass9', customerSubnet: '10.5.51.0/24', wanMode: 'dhcp',
       },
@@ -192,7 +192,7 @@ async function main() {
   await test('explains missing secure installer storage for new and replacement kits', async () => {
     const ownerToken = await createBusiness('no-storage-remote@example.test');
     const storageKey = process.env.TENANT_SECRETS_KEY;
-    const input = { name: 'Storage test', mode: 'auto', routerOsVersion: '7', modelProfile: 'auto',
+    const input = { name: 'Storage test', mode: 'auto', routerOsVersion: '7', modelProfile: 'auto', autoRouterConfirmed: 'yes',
       customerBridge: 'bridge-hs', hotspotServer: 'hotspot1', wifiSsid: 'Test WiFi',
       wifiPassword: 'SafeWifiPass9', customerSubnet: '10.5.51.0/24', wanMode: 'dhcp' };
     try {
