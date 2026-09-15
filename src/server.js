@@ -3785,6 +3785,9 @@ app.get('/api/health', async (req, res) => {
 });
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk });
+// FitiSignal is an isolated platform-admin SMS read model. It does not alter
+// router, captive-portal, or payment provisioning flows.
+require('./lib/fiti-signal-admin').attachFitiSignalAdmin(app, { db, adminOk });
 
 app.listen(config.port, () => {
   console.log(`${config.brandName} hotspot billing on :${config.port}`);
