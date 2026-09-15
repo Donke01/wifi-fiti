@@ -48,6 +48,7 @@
     @media(max-width:400px){.shell{padding:18px 13px 40px}.brand-mark{width:92px;height:92px}.brand-name{font-size:42px}.card{padding:19px}}
     #buy > h1{text-align:center;text-transform:uppercase;font-weight:950;letter-spacing:-.06em}
     .receipt-button{width:100%;margin-top:10px}
+    .receipt-prompt{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px;background:#07132299}.receipt-prompt.hidden{display:none}.receipt-prompt-card{width:min(440px,100%);padding:24px;border:1px solid var(--line);border-radius:22px;background:var(--glass);box-shadow:0 24px 70px #0005}.receipt-prompt-card h2{margin:0 0 8px}.receipt-prompt-card p{color:var(--muted);line-height:1.5}.receipt-prompt-actions{display:grid;gap:10px;margin-top:18px}.receipt-exit{min-height:38px!important;background:transparent!important;border:0!important;color:var(--muted)!important;box-shadow:none!important}
   </style>
 </head>
 <body>
@@ -60,6 +61,7 @@
     <section class="section hidden" id="voucher-section"><div class="card"><div class="section-title"><h2>Use a voucher</h2><button class="text-button" type="button" id="close-voucher">Close</button></div><p class="section-copy">Enter the voucher code and the phone number that should own the package.</p><label for="voucher-code">Voucher code</label><input id="voucher-code" autocomplete="off" autocapitalize="characters" placeholder="FITI…"><div class="error" id="voucher-error" aria-live="polite"></div><button class="primary" type="button" id="redeem">REDEEM VOUCHER</button></div></section>
     <section class="section hidden" id="paybill-section"><div class="card"><div class="section-title"><h2>Lipa na PayBill</h2><button class="text-button" type="button" id="close-paybill">Close</button></div><p class="section-copy">Open M‑Pesa, choose Lipa na PayBill, and use your phone number as the account reference.</p><p class="notice" id="paybill-details">PayBill details are provided by this WiFi operator.</p></div></section>
     <section class="section hidden" id="tv-section"><div class="card"><div class="section-title"><h2>Buy for your TV</h2><button class="text-button" type="button" id="close-tv">Close</button></div><p class="section-copy">This is a separate package. It is locked to one TV MAC address and does not use your phone’s package.</p><p class="notice" id="tv-existing"></p><label for="tv-phone">M‑Pesa number</label><input id="tv-phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><label for="tv-name">Device name</label><input id="tv-name" autocomplete="off" value="TV" maxlength="24"><label for="tv-mac">TV MAC address</label><input id="tv-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><button class="primary" type="button" id="add-tv">LIPA NA M-PESA FOR TV</button><div class="error" id="tv-error" aria-live="polite"></div></div></section>
+    <div class="receipt-prompt hidden" id="receipt-prompt" role="dialog" aria-modal="true" aria-labelledby="receipt-prompt-title"><div class="receipt-prompt-card"><h2 id="receipt-prompt-title">Save your Wi‑Fi receipt</h2><p>Your connection is ready. Download the receipt to keep your portal link, payment reference, expiry date, and recovery code.</p><div class="receipt-prompt-actions"><button class="primary" type="button" id="prompt-download-receipt">DOWNLOAD RECEIPT</button><button class="receipt-exit" type="button" id="prompt-exit-receipt">EXIT</button></div></div></div>
     <button class="primary hidden" type="button" id="resume-payment">RESUME PAYMENT</button>
     <p class="footer" id="support">© <span id="year"></span> Customer Wi‑Fi</p>
   </main>
@@ -179,8 +181,9 @@
     function receiptEscape(value) { return String(value == null ? '' : value).replace(/[&<>\"']/g, function (ch) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'})[ch]; }); }
     function downloadReceipt() {
       if (!current) return;
-      var payment = current.payment || {}, brand = portalConfig && portalConfig.branding || {}, name = brand.name || (portalConfig && portalConfig.location && portalConfig.location.businessName) || 'Customer Wi‑Fi', logo = brand.logoUrl || (location.origin + '/assets/wifi-fiti-logo.png');
+      var payment = current.payment || {}, brand = portalConfig && portalConfig.branding || {}, name = brand.name || (portalConfig && portalConfig.location && portalConfig.location.businessName) || 'Customer Wi‑Fi', logo = brand.logoUrl || (location.origin + '/assets/wifi-fiti-logo.png'), portalUrl = location.origin + location.pathname;
       var html = '<!doctype html><html><head><meta charset="utf-8"><title>WiFi receipt</title><style>body{font:16px Arial,sans-serif;color:#122740;max-width:620px;margin:40px auto;padding:24px}.logo{width:84px;height:84px;object-fit:contain;display:block;margin-bottom:12px}h1{color:#1769d8}table{width:100%;border-collapse:collapse;margin:24px 0}td{padding:11px 0;border-bottom:1px solid #dce5f0}td:first-child{color:#687a91;width:42%}.code{font:800 24px monospace;letter-spacing:.12em;color:#168c62}.note{padding:14px;background:#f3f8ff;border-radius:10px;line-height:1.5}small{color:#687a91}</style></head><body><img class="logo" src="' + receiptEscape(logo) + '" alt="' + receiptEscape(name) + '"><h1>' + receiptEscape(name) + '</h1><p>Payment receipt · WiFi access</p><table>' +
+        '<tr><td>Customer portal</td><td><a href="' + receiptEscape(portalUrl) + '">' + receiptEscape(portalUrl) + '</a></td></tr>' +
         '<tr><td>Payment reference</td><td>' + receiptEscape(payment.reference || 'Pending reference') + '</td></tr>' +
         '<tr><td>Package</td><td>' + receiptEscape(payment.packageName || 'WiFi package') + '</td></tr>' +
         '<tr><td>Amount paid</td><td>KES ' + receiptEscape(payment.amount == null ? '' : Number(payment.amount).toLocaleString()) + '</td></tr>' +
@@ -188,9 +191,15 @@
         '<tr><td>Valid until</td><td>' + receiptEscape(new Date(current.expiresAt).toLocaleString()) + '</td></tr>' +
         '<tr><td>Recovery code</td><td class="code">' + receiptEscape(current.password || '') + '</td></tr></table>' +
         '<div class="note"><strong>Keep this receipt.</strong><br>Use the recovery code and paying number on the customer portal to check balance or move this package to another phone. Your package is tied to the current device until you migrate it.</div>' +
-        '<p><a href="' + receiptEscape(location.origin + location.pathname) + '">Open customer portal</a></p><small>Generated ' + receiptEscape(new Date().toLocaleString()) + '</small></body></html>';
+        '<p><a href="' + receiptEscape(portalUrl) + '">Open customer portal</a></p><small>Generated ' + receiptEscape(new Date().toLocaleString()) + '</small></body></html>';
       var blob = new Blob([html], { type: 'text/html;charset=utf-8' }), url = URL.createObjectURL(blob), link = document.createElement('a');
       link.href = url; link.download = 'wifi-fiti-receipt-' + String(payment.reference || current.subscriptionId || 'access').replace(/[^A-Za-z0-9_-]/g, '') + '.html'; document.body.appendChild(link); link.click(); link.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    }
+    function closeReceiptPrompt() { $('receipt-prompt').classList.add('hidden'); }
+    function showReceiptPrompt(result) {
+      if (!result || !result.payment) return;
+      current = result;
+      $('receipt-prompt').classList.remove('hidden');
     }
     function waiting(title, copy) {
       show('waiting'); message('waiting-title', title); message('waiting-copy', copy);
@@ -254,7 +263,12 @@
               // view paint before navigating the captive mini-browser.
               message('active-kicker', 'PAYMENT CONFIRMED · PASSWORD READY');
               message('active-title', 'Your Wi‑Fi is connected');
-              setTimeout(function () { connectAfterAck(result); }, 1800);
+              setTimeout(function () {
+                showReceiptPrompt(result);
+                setTimeout(function () {
+                  if (!$('receipt-prompt').classList.contains('hidden')) { closeReceiptPrompt(); connectAfterAck(result); }
+                }, 5000);
+              }, 1800);
             }
             return;
           }
@@ -445,6 +459,8 @@
       } catch (error) { message('error', error.message); }
     }
     $('pay').onclick = pay; $('connect').onclick = reconnect; $('download-receipt').onclick = downloadReceipt;
+    $('prompt-download-receipt').onclick = function () { downloadReceipt(); closeReceiptPrompt(); connectAfterAck(current); };
+    $('prompt-exit-receipt').onclick = function () { closeReceiptPrompt(); connectAfterAck(current); };
     $('check-time').onclick = function () { checkExisting(false).catch(function () {}); };
     $('transfer').onclick = transfer; $('redeem').onclick = redeem; $('add-tv').onclick = addTv;
     $('open-voucher').onclick = function () { show('buy', 'voucher-section'); };
