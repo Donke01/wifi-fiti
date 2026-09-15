@@ -55,7 +55,7 @@
   <main class="shell">
     <header class="brand" aria-label="Customer Wi-Fi"><img class="brand-mark" id="brand-logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" aria-hidden="true"><strong class="brand-name" id="brand">Connecting…</strong><span class="brand-location" id="location">CUSTOMER WI-FI</span></header>
     <section class="card" id="buy"><h1>BROWSE PACKAGES</h1><p class="copy" id="portal-message">Lipa na M‑Pesa. Your time begins immediately and stays saved even if this page closes.</p><div class="plans" id="plans" aria-label="Packages"></div><label for="phone">M‑Pesa number</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><div class="error" id="error" aria-live="polite"></div><button class="primary mpesa-button" type="button" id="pay"><span class="mpesa-label">LIPA NA</span><span class="mpesa-word">M<svg class="mpesa-logo" viewBox="0 0 40 48" fill="none" aria-hidden="true"><rect x="8" y="2" width="24" height="44" rx="7" fill="#dce8d8"/><rect x="12" y="8" width="16" height="23" rx="3" fill="#f5f8f1"/><path d="m13 14 7 6 7-6" stroke="#e5232b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 14v10h14V14" stroke="#e5232b" stroke-width="2" stroke-linejoin="round"/></svg>PESA</span></button><div class="utilities"><button class="utility" type="button" id="buy-tv-start"><span class="utility-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="13" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 21h8M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><b>Buy for TV</b><small>Separate package, locked to one TV.</small></button><button class="utility" type="button" id="check-time"><span class="utility-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><b>Check remaining time</b><small>Find a package already linked to your number.</small></button><button class="utility" type="button" id="open-voucher"><span class="utility-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v2a2.5 2.5 0 0 0 0 5v2a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-2a2.5 2.5 0 0 0-5v-2Z" stroke="currentColor" stroke-width="1.8"/><path d="M10 8v8M14 8v8" stroke="currentColor" stroke-width="1.8" stroke-dasharray="2 2"/></svg></span><b>I have a voucher</b><small>Use a prepaid WiFi code instead.</small></button><button class="utility" type="button" id="open-paybill"><span class="utility-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M8 13h3M15 13h1M8 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><b>Lipa na PayBill</b><small>Pay manually using your phone number.</small></button></div></section>
-    <section class="card hidden" id="waiting" aria-live="polite"><div class="waiting"><div class="spinner" id="waiting-spinner" aria-hidden="true"></div><h1 id="waiting-title">Check your phone</h1><p id="waiting-copy">Enter your M‑Pesa PIN to complete the payment.</p><div class="elapsed" id="elapsed"></div><div class="error" id="waiting-error"></div><button class="secondary hidden" id="retry-waiting" type="button">Check again</button><button class="text-button" id="leave-waiting" type="button">Back to my packages</button></div></section>
+    <section class="card hidden" id="waiting" aria-live="polite"><div class="waiting"><div class="spinner" id="waiting-spinner" aria-hidden="true"></div><h1 id="waiting-title">Check your phone</h1><p id="waiting-copy">Enter your M‑Pesa PIN to complete the payment.</p><div class="elapsed" id="elapsed"></div><div class="error" id="waiting-error"></div><button class="secondary hidden" id="retry-waiting" type="button">Check again</button><button class="text-button" id="leave-waiting" type="button">Back to my packages</button><button class="text-button" id="start-new-payment" type="button">Start a new payment</button></div></section>
     <section class="card active-card hidden" id="active" aria-live="polite"><div class="active-kicker" id="active-kicker">YOUR WIFI PACKAGE</div><h1 id="active-title">You have Wi‑Fi time</h1><div class="clock" id="clock">—</div><p class="expiry" id="expiry"></p><div class="notice"><strong>Save your WiFi recovery code</strong><p class="section-copy">Use this code and the paying number to restore your package or move it to another phone.</p><p id="recovery-code" style="font:800 24px ui-monospace,monospace;letter-spacing:.12em;margin:12px 0;overflow-wrap:anywhere"></p><button class="text-button" id="copy-recovery" type="button">Copy recovery code</button><p class="section-copy" id="active-phone"></p></div><div class="error" id="active-error" aria-live="polite"></div><div class="active-actions"><button class="primary" type="button" id="connect">RECONNECT THIS DEVICE</button><button class="secondary" type="button" id="manage-tv">BUY FOR TV</button></div><button class="primary" type="button" id="top-up">BUY MORE TIME</button><button class="secondary receipt-button" type="button" id="download-receipt">DOWNLOAD RECEIPT</button></section>
     <section class="section hidden" id="existing-section"><div class="card"><div class="section-title"><h2>Existing package found</h2><button class="text-button" type="button" id="buy-anyway">Continue with purchase</button></div><p class="section-copy">Choose the package to check its balance. To move its remaining time to this device, enter the WiFi recovery code; the previous phone will be disconnected.</p><div id="existing-list" class="existing-list"></div><label for="transfer-password">WiFi recovery code</label><input id="transfer-password" autocomplete="off" autocapitalize="characters" placeholder="Code saved on your WiFi countdown page"><div class="error" id="transfer-error" aria-live="polite"></div><button class="primary" type="button" id="transfer">CONNECT THIS PACKAGE</button></div></section>
     <section class="section hidden" id="voucher-section"><div class="card"><div class="section-title"><h2>Use a voucher</h2><button class="text-button" type="button" id="close-voucher">Close</button></div><p class="section-copy">Enter the voucher code and the phone number that should own the package.</p><label for="voucher-code">Voucher code</label><input id="voucher-code" autocomplete="off" autocapitalize="characters" placeholder="FITI…"><div class="error" id="voucher-error" aria-live="polite"></div><button class="primary" type="button" id="redeem">REDEEM VOUCHER</button></div></section>
@@ -129,6 +129,10 @@
       return result;
     }
     function stop() { generation++; clearTimeout(timer); clearInterval(clockTimer); }
+    function clearCheckout() {
+      stop(); checkout = null; write('_checkout', null); autoConnectStarted = false;
+      closeReceiptPrompt(); show('buy'); message('waiting-error', ''); message('error', '');
+    }
     function show() {
       var visible = Array.prototype.slice.call(arguments);
       ['buy','waiting','active','existing-section','voucher-section','paybill-section','tv-section'].forEach(function (id) {
@@ -365,7 +369,7 @@
         if (!bypassLookup && await checkExisting(true)) return;
         autoConnectStarted = false;
         checkout = await api('/pay', { packageId: selected, phone: phone(), mac: mac, ip: ip, deviceType: 'phone' });
-        checkout.startedAt = Date.now(); write('_checkout', checkout); bypassLookup = false; pollPayment();
+        checkout.startedAt = Date.now(); checkout.payerPhone = phone(); write('_checkout', checkout); bypassLookup = false; pollPayment();
       } catch (error) { show('buy'); message('error', error.message); }
       finally { button.disabled = false; }
     }
@@ -413,7 +417,7 @@
         autoConnectStarted = false;
         checkout = await api('/pay', { packageId: selected, phone: payerPhone, mac: targetMac,
           deviceType: 'tv', deviceLabel: $('tv-name').value.trim() || 'TV' });
-        checkout.startedAt = Date.now(); write('_checkout', checkout); pollPayment();
+        checkout.startedAt = Date.now(); checkout.payerPhone = payerPhone; write('_checkout', checkout); pollPayment();
       } catch (error) { message('tv-error', error.message); }
       finally { button.disabled = false; }
     }
@@ -437,7 +441,7 @@
         renderPackages(config.packages || []);
         if (config.paybill && config.paybill.shortcode) message('paybill-details', 'PayBill number: ' + config.paybill.shortcode + ' · Account number: your M‑Pesa phone number.');
         checkout = read('_checkout');
-        if (checkout && checkout.portalToken && checkout.startedAt > Date.now() - 2 * 3600000) { pollPayment(); return; }
+        if (checkout && checkout.portalToken && Number(checkout.startedAt) > Date.now() - 2 * 3600000) { pollPayment(); return; }
         checkout = null; write('_checkout', null);
         if (!mac) { message('error', 'Join this WiFi to buy or reconnect a package.'); return; }
         var session = await api('/session?mac=' + encodeURIComponent(mac));
@@ -457,11 +461,18 @@
     $('close-voucher').onclick = function () { show('buy'); };
     $('close-paybill').onclick = function () { show('buy'); };
     $('buy-anyway').onclick = function () { bypassLookup = true; show('buy'); message('error', 'You can continue with another purchase.'); };
-    $('phone').oninput = function () { bypassLookup = false; };
+    $('phone').oninput = function () {
+      bypassLookup = false;
+      // A different payer must never inherit the previous payer's pending
+      // STK request or remain trapped on its router-wait screen.
+      if (checkout && ((!checkout.payerPhone && $('waiting').classList.contains('hidden') === false) ||
+          (checkout.payerPhone && phone() !== checkout.payerPhone))) clearCheckout();
+    };
     $('buy-tv-start').onclick = tvDetails; $('manage-tv').onclick = tvDetails; $('close-tv').onclick = function () { show(current ? 'active' : 'buy'); };
     $('top-up').onclick = function () { stop(); bypassLookup = true; show('buy'); message('error', 'New time will extend the package on this device.'); };
     $('copy-recovery').onclick = function () { if (current && current.password && navigator.clipboard) navigator.clipboard.writeText(current.password).then(function () { message('active-error', 'Recovery code copied.'); }).catch(function () { message('active-error', 'Select and copy the recovery code above.'); }); };
     $('leave-waiting').onclick = function () { stop(); show('buy'); message('error', checkout ? 'Your previous payment is saved. Use Resume payment before making another purchase.' : 'Your package is saved. Use Check my time to reconnect.'); $('resume-payment').classList.toggle('hidden', !checkout); };
+    $('start-new-payment').onclick = function () { clearCheckout(); message('error', 'Start a new payment with the number and package you want.'); };
     $('resume-payment').onclick = pollPayment;
     $('year').textContent = String(new Date().getFullYear()); boot();
   }());
