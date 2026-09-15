@@ -1197,10 +1197,12 @@ app.post('/api/business/locations/:locationId/router-setup', (req, res) => {
   const body = req.body || {};
   try {
     const setup = validateRouterSetup(body);
-    // A first kit for a saved draft is not replacing a live router. Ask for
-    // explicit confirmation only once this location has actually checked in.
-    if (['auto', 'new'].includes(setup.mode) && current.last_successful_sync_at && String(body.replaceRouter || '') !== 'yes') {
-      return res.status(400).json({ error: 'Confirm that this new/reset kit is replacing the current router before generating it.' });
+    // A first kit for a saved draft is not replacing a live router. Once a
+    // location has checked in, every kind of fresh kit changes its pairing
+    // credential, so require the same explicit confirmation for automatic,
+    // reset and existing-router kits alike.
+    if (current.last_successful_sync_at && String(body.replaceRouter || '') !== 'yes') {
+      return res.status(400).json({ error: 'Confirm that this kit is replacing the current router before generating it.' });
     }
     const name = body.name === undefined ? current.name : String(body.name || '').trim().slice(0, 80);
     const routerName = body.routerName === undefined ? current.router_name : String(body.routerName || '').trim().slice(0, 80);
@@ -1472,6 +1474,11 @@ app.post('/api/internal/vpn-gateways/:gatewayId/sync', (req, res) => {
  * authenticated check-in. */
 app.post('/api/business/locations/:locationId/router-token', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
+  const current = tenant.locationForBusiness.get(String(req.params.locationId), business.id);
+  if (!current) return res.status(404).json({ error: 'Location not found.' });
+  if (String(req.body && req.body.confirm || '') !== 'ROTATE ROUTER TOKEN') {
+    return res.status(400).json({ error: 'Type ROTATE ROUTER TOKEN to generate a replacement credential.' });
+  }
   const location = tenant.rotateLocationToken({ locationId: String(req.params.locationId), businessId: business.id });
   if (!location) return res.status(404).json({ error: 'Location not found.' });
   res.json({
@@ -1532,12 +1539,13 @@ app.patch('/api/business/locations/:locationId', (req, res) => {
   res.json({ location });
 });
 
-// Remove a router's cloud configuration. This does not factory-reset the
-// physical device; the next onboarding creates a fresh location and token.
+// Discard only an untouched router draft. This never factory-resets a
+// physical device. A paired router must use staged replacement, which keeps
+// customer/accounting records and avoids orphaning a live router.
 app.delete('/api/business/locations/:locationId', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   try {
-    const location = tenant.deleteRouterLocation({
+    const location = tenant.discardUnusedLocation({
       locationId: String(req.params.locationId),
       businessId: business.id,
       confirm: String(req.body && req.body.confirm || ''),
@@ -3786,11 +3794,9 @@ app.get('/api/health', async (req, res) => {
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk });
 require('./lib/fiti-signal').attachFitiSignalRoutes(app, { businessAuth });
-// FitiSignal is an isolated platform-admin SMS read model. It does not alter
-// router, captive-portal, or payment provisioning flows.
-require('./lib/fiti-signal-admin').attachFitiSignalAdmin(app, { db, adminOk });
-require('./lib/platform-admin').attachPlatformAdmin(app, { db, adminOk });
-require('./lib/fiti-signal-admin-controls').attachFitiSignalAdminControls(app, { db, adminOk });
+// The admin module owns privileged dashboard routes and controls. It is
+// intentionally mounted separately from tenant, router, and portal modules.
+require('./lib/admin').attachAdminModule(app, { db, adminOk });
 
 app.listen(config.port, () => {
   console.log(`${config.brandName} hotspot billing on :${config.port}`);
