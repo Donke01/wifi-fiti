@@ -13,6 +13,7 @@ const {
   topologyFreshAt,
   validateRouterMapping,
   mappingFingerprint,
+  topologyFingerprint,
 } = require('./router-topology');
 
 const tokenHash = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -2371,8 +2372,9 @@ function topologySnapshot(row) {
     // created from the validated wire grammar. A damaged row therefore never
     // becomes an owner-visible map or a source for mapping validation.
     const serialized = JSON.stringify(topology);
-    const fingerprint = crypto.createHash('sha256').update(serialized).digest('hex');
-    if (fingerprint !== row.fingerprint) return null;
+    const fingerprint = topologyFingerprint(topology);
+    const legacyFingerprint = crypto.createHash('sha256').update(serialized).digest('hex');
+    if (fingerprint !== row.fingerprint && legacyFingerprint !== row.fingerprint) return null;
     return {
       topology,
       fingerprint,
@@ -2492,7 +2494,7 @@ function routerTopologyForLocation(location) {
     };
     const serialized = JSON.stringify(topology);
     const reportedAt = location.last_successful_sync_at || location.router_setup_verified_at || new Date().toISOString();
-    compatibilitySnapshot = { topology, fingerprint: crypto.createHash('sha256').update(serialized).digest('hex'), firstReportedAt: reportedAt, lastReportedAt: reportedAt, updatedAt: reportedAt };
+    compatibilitySnapshot = { topology, fingerprint: topologyFingerprint(topology), firstReportedAt: reportedAt, lastReportedAt: reportedAt, updatedAt: reportedAt };
   }
   return {
     locationId: location.id,
@@ -2531,15 +2533,17 @@ function recordRouterTopology({ locationId, topology, fingerprint }) {
   // the cleared mapping rows in that window.
   if (hasLivePendingRouterPairing(location)) return null;
   const serialized = JSON.stringify(topology);
-  const calculated = crypto.createHash('sha256').update(serialized).digest('hex');
+  const calculated = topologyFingerprint(topology);
+  const legacyCalculated = crypto.createHash('sha256').update(serialized).digest('hex');
   if (!topology || typeof topology !== 'object' || Array.isArray(topology) ||
-      Number(topology.version) !== 1 || !/^[a-f0-9]{64}$/.test(String(fingerprint || '')) || fingerprint !== calculated) {
+      Number(topology.version) !== 1 || !/^[a-f0-9]{64}$/.test(String(fingerprint || '')) ||
+      (fingerprint !== calculated && fingerprint !== legacyCalculated)) {
     throw new Error('Refusing an invalid router topology snapshot.');
   }
   const existing = routerTopologyByLocation.get(location.id);
-  if (!existing) insertRouterTopology.run({ locationId: location.id, fingerprint, topologyJson: serialized });
-  else if (existing.fingerprint !== fingerprint || existing.topology_json !== serialized) {
-    replaceRouterTopology.run({ locationId: location.id, fingerprint, topologyJson: serialized });
+  if (!existing) insertRouterTopology.run({ locationId: location.id, fingerprint: calculated, topologyJson: serialized });
+  else if (existing.fingerprint !== calculated || existing.topology_json !== serialized) {
+    replaceRouterTopology.run({ locationId: location.id, fingerprint: calculated, topologyJson: serialized });
   } else {
     touchRouterTopology.run(location.id);
   }

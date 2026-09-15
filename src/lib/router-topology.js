@@ -168,6 +168,9 @@ function parseRouterTopology(rawBody) {
     bridgePorts: [...bridgePorts.values()].sort((a, b) =>
       a.bridge.localeCompare(b.bridge) || a.interface.localeCompare(b.interface)),
   };
+  // Keep the parser's legacy digest for callers that used it as a transport
+  // integrity value. Tenant storage normalizes it to the stable layout
+  // fingerprint below, so live link-state changes cannot invalidate mapping.
   const serialized = JSON.stringify(topology);
   return { topology, fingerprint: crypto.createHash('sha256').update(serialized).digest('hex') };
 }
@@ -251,12 +254,30 @@ function mappingFingerprint(mapping) {
   return crypto.createHash('sha256').update(JSON.stringify(mapping)).digest('hex');
 }
 
+// Running/disabled flags change as customers connect and disconnect. They
+// are useful display data, but never represent a layout change and therefore
+// must not invalidate an owner's confirmed WAN/bridge/port map.
+function topologyFingerprint(topology) {
+  const stable = {
+    version: topology.version,
+    routerosVersion: topology.routerosVersion,
+    wanInterface: topology.wanInterface,
+    hotspotServer: topology.hotspotServer,
+    customerBridge: topology.customerBridge,
+    interfaces: (topology.interfaces || []).map(({ type, name }) => ({ type, name })),
+    wifiInterfaces: (topology.wifiInterfaces || []).map(({ stack, name }) => ({ stack, name })),
+    bridgePorts: topology.bridgePorts || [],
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(stable)).digest('hex');
+}
+
 module.exports = {
   BEGIN,
   END,
   LIMITS,
   parseRouterTopology,
   topologyFreshAt,
+  topologyFingerprint,
   validateRouterMapping,
   mappingFingerprint,
 };
