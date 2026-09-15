@@ -3790,6 +3790,7 @@ require('./lib/fiti-signal').attachFitiSignalRoutes(app, { businessAuth });
 // router, captive-portal, or payment provisioning flows.
 require('./lib/fiti-signal-admin').attachFitiSignalAdmin(app, { db, adminOk });
 require('./lib/platform-admin').attachPlatformAdmin(app, { db, adminOk });
+require('./lib/fiti-signal-admin-controls').attachFitiSignalAdminControls(app, { db, adminOk });
 
 app.listen(config.port, () => {
   console.log(`${config.brandName} hotspot billing on :${config.port}`);
