@@ -3796,7 +3796,7 @@ require('./lib/business-operations').attachBusinessOperations(app, { businessAut
 require('./lib/fiti-signal').attachFitiSignalRoutes(app, { businessAuth });
 // The admin module owns privileged dashboard routes and controls. It is
 // intentionally mounted separately from tenant, router, and portal modules.
-require('./lib/admin').attachAdminModule(app, { db, adminOk });
+require('./lib/admin').attachAdminModule(app, { db, adminOk, tenant });
 
 app.listen(config.port, () => {
   console.log(`${config.brandName} hotspot billing on :${config.port}`);

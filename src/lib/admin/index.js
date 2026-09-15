@@ -12,6 +12,7 @@ function attachAdminModule(app, dependencies) {
   require('../fiti-signal-admin').attachFitiSignalAdmin(app, { db, adminOk });
   require('../platform-admin').attachPlatformAdmin(app, { db, adminOk });
   require('../fiti-signal-admin-controls').attachFitiSignalAdminControls(app, { db, adminOk });
+  require('../admin-control-plane').attachAdminControlPlane(app, { db, adminOk, tenant: dependencies.tenant });
   app.get('/admin', (req, res) => res.redirect(302, '/platform-admin.html'));
 }
 
