@@ -61,7 +61,7 @@
     <section class="section hidden" id="voucher-section"><div class="card"><div class="section-title"><h2>Use a voucher</h2><button class="text-button" type="button" id="close-voucher">Close</button></div><p class="section-copy">Enter the voucher code and the phone number that should own the package.</p><label for="voucher-code">Voucher code</label><input id="voucher-code" autocomplete="off" autocapitalize="characters" placeholder="FITI…"><div class="error" id="voucher-error" aria-live="polite"></div><button class="primary" type="button" id="redeem">REDEEM VOUCHER</button></div></section>
     <section class="section hidden" id="paybill-section"><div class="card"><div class="section-title"><h2>Lipa na PayBill</h2><button class="text-button" type="button" id="close-paybill">Close</button></div><p class="section-copy">Open M‑Pesa, choose Lipa na PayBill, and use your phone number as the account reference.</p><p class="notice" id="paybill-details">PayBill details are provided by this WiFi operator.</p></div></section>
     <section class="section hidden" id="tv-section"><div class="card"><div class="section-title"><h2>Buy for your TV</h2><button class="text-button" type="button" id="close-tv">Close</button></div><p class="section-copy">This is a separate package. It is locked to one TV MAC address and does not use your phone’s package.</p><p class="notice" id="tv-existing"></p><label for="tv-phone">M‑Pesa number</label><input id="tv-phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><label for="tv-name">Device name</label><input id="tv-name" autocomplete="off" value="TV" maxlength="24"><label for="tv-mac">TV MAC address</label><input id="tv-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><button class="primary" type="button" id="add-tv">LIPA NA M-PESA FOR TV</button><div class="error" id="tv-error" aria-live="polite"></div></div></section>
-    <div class="receipt-prompt hidden" id="receipt-prompt" role="dialog" aria-modal="true" aria-labelledby="receipt-prompt-title"><div class="receipt-prompt-card"><h2 id="receipt-prompt-title">Save your Wi‑Fi receipt</h2><p>Your connection is ready. Download the receipt to keep your portal link, payment reference, expiry date, and recovery code.</p><div class="receipt-prompt-actions"><button class="primary" type="button" id="prompt-download-receipt">DOWNLOAD RECEIPT</button><button class="receipt-exit" type="button" id="prompt-exit-receipt">EXIT</button></div></div></div>
+    <div class="receipt-prompt hidden" id="receipt-prompt" role="dialog" aria-modal="true" aria-labelledby="receipt-prompt-title"><div class="receipt-prompt-card"><h2 id="receipt-prompt-title">Payment received</h2><p>Setting up your device… Download the receipt to keep your portal link, payment reference, expiry date, and recovery code.</p><div class="receipt-prompt-actions"><button class="primary" type="button" id="prompt-download-receipt">DOWNLOAD RECEIPT</button><button class="receipt-exit" type="button" id="prompt-exit-receipt">EXIT</button></div></div></div>
     <button class="primary hidden" type="button" id="resume-payment">RESUME PAYMENT</button>
     <p class="footer" id="support">© <span id="year"></span> Customer Wi‑Fi</p>
   </main>
@@ -191,6 +191,7 @@
       current = result;
       $('receipt-prompt').classList.remove('hidden');
     }
+    function finishReceiptPrompt(result) { closeReceiptPrompt(); active(result || current); connectAfterAck(result || current); }
     function waiting(title, copy) {
       show('waiting'); message('waiting-title', title); message('waiting-copy', copy);
       message('elapsed', 'Your payment and package are saved on WiFi Fiti.');
@@ -240,7 +241,7 @@
           var result = await api('/status/' + encodeURIComponent(checkout.checkoutRequestId));
           if (version !== generation) return;
           if (result.status === 'paid') {
-            checkout = null; write('_checkout', null); active(result);
+            checkout = null; write('_checkout', null); remember(result);
             // The router has applied the package, but the captive-portal
             // browser still needs its session login. Submit RouterOS's
             // native login form as soon as payment is confirmed. Waiting for
@@ -249,16 +250,12 @@
             // example a normal browser visit), keep the API reconnect as the
             // fallback.
             if (result.deviceType !== 'tv') {
-              // Match the proven legacy portal flow: let the confirmation
-              // view paint before navigating the captive mini-browser.
-              message('active-kicker', 'PAYMENT CONFIRMED · PASSWORD READY');
-              message('active-title', 'Your Wi‑Fi is connected');
-              setTimeout(function () {
-                showReceiptPrompt(result);
-                setTimeout(function () {
-                  if (!$('receipt-prompt').classList.contains('hidden')) { closeReceiptPrompt(); connectAfterAck(result); }
-                }, 5000);
-              }, 1800);
+              // Paint the confirmed package behind the prompt so the receipt
+              // step is the only post-payment detail the customer sees.
+              active(result);
+              showReceiptPrompt(result);
+            } else {
+              active(result);
             }
             return;
           }
@@ -449,8 +446,10 @@
       } catch (error) { message('error', error.message); }
     }
     $('pay').onclick = pay; $('connect').onclick = reconnect; $('download-receipt').onclick = downloadReceipt;
-    $('prompt-download-receipt').onclick = function () { downloadReceipt(); closeReceiptPrompt(); connectAfterAck(current); };
-    $('prompt-exit-receipt').onclick = function () { closeReceiptPrompt(); connectAfterAck(current); };
+    // Keep the prompt open after opening the receipt so the customer can
+    // return to this tab, take a screenshot, or choose EXIT when finished.
+    $('prompt-download-receipt').onclick = function () { downloadReceipt(); };
+    $('prompt-exit-receipt').onclick = function () { finishReceiptPrompt(current); };
     $('check-time').onclick = function () { checkExisting(false).catch(function () {}); };
     $('transfer').onclick = transfer; $('redeem').onclick = redeem; $('add-tv').onclick = addTv;
     $('open-voucher').onclick = function () { show('buy', 'voucher-section'); };
