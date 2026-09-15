@@ -72,6 +72,73 @@ function attachFitiSignalAdmin(app, { db, adminOk }) {
     res.json({ packages: db.prepare('SELECT id, amount, credits, active FROM fiti_signal_packages WHERE active=1 ORDER BY amount').all() });
   }));
 
+  // Unified platform read models. These are intentionally read-only: they
+  // give administrators one place to audit the platform without allowing an
+  // accidental admin action to alter a router or captive portal.
+  app.get('/api/admin/platform/overview', admin((req, res) => {
+    const scalar = sql => Number(db.prepare(sql).get()?.n || 0);
+    const summary = {
+      tenants: scalar('SELECT COUNT(*) n FROM businesses'),
+      locations: scalar('SELECT COUNT(*) n FROM locations'),
+      routersOnline: scalar("SELECT COUNT(*) n FROM locations WHERE last_router_contact_at >= datetime('now','-5 minutes')"),
+      payments: scalar("SELECT COUNT(*) n FROM tenant_transactions WHERE status='paid'"),
+      pendingPayments: scalar("SELECT COUNT(*) n FROM tenant_transactions WHERE status='pending'"),
+      supportOpen: scalar("SELECT COUNT(*) n FROM business_support_tickets WHERE status <> 'resolved'"),
+      smsQueued: scalar("SELECT COUNT(*) n FROM fiti_signal_messages WHERE status='queued'"),
+      smsCredits: scalar('SELECT COALESCE(SUM(credits_available),0) n FROM fiti_signal_accounts'),
+    };
+    // Include the legacy dashboard names while the unified UI migrates.
+    res.json({ generatedAt: new Date().toISOString(), summary: {
+      ...summary, onlineLocations: summary.routersOnline, paidTransactions: summary.payments,
+      pendingTransactions: summary.pendingPayments, activeSubscriptions: scalar("SELECT COUNT(*) n FROM tenant_subscriptions WHERE expires_at > datetime('now')"),
+      openTickets: summary.supportOpen, revenueKes: scalar("SELECT COALESCE(SUM(amount),0) n FROM tenant_transactions WHERE status='paid'"),
+    }, ...summary });
+  }));
+  app.get('/api/admin/platform/tenants', admin((req, res) => {
+    res.json({ tenants: db.prepare(`SELECT b.id,b.name,b.email,b.owner_phone,b.created_at,b.onboarding_state,
+      (SELECT COUNT(*) FROM locations l WHERE l.business_id=b.id) locations,
+      (SELECT COUNT(*) FROM tenant_transactions t WHERE t.business_id=b.id AND t.status='paid') paid_payments,
+      COALESCE((SELECT credits_available FROM fiti_signal_accounts a WHERE a.business_id=b.id),0) sms_credits
+      FROM businesses b ORDER BY b.created_at DESC LIMIT 500`).all() });
+  }));
+  app.get('/api/admin/platform/routers', admin((req, res) => {
+    res.json({ routers: db.prepare(`SELECT l.id,l.business_id,b.name AS business_name,l.name,l.router_name,
+      l.router_model,l.routeros_version,l.setup_mode,l.hotspot_server,l.customer_bridge,l.wan_interface,
+      l.last_router_contact_at,l.router_setup_health,l.router_setup_verified_at,
+      CASE WHEN l.last_router_contact_at >= datetime('now','-5 minutes') THEN 1 ELSE 0 END online
+      FROM locations l JOIN businesses b ON b.id=l.business_id ORDER BY l.last_router_contact_at DESC LIMIT 500`).all() });
+  }));
+  app.get('/api/admin/platform/locations', admin((req, res) => {
+    const rows = db.prepare(`SELECT l.id,l.business_id,b.name AS business_name,l.name,l.router_name,l.router_model,
+      l.last_router_contact_at,l.router_setup_health,
+      CASE WHEN l.last_router_contact_at >= datetime('now','-5 minutes') THEN 'online' ELSE 'offline' END status
+      FROM locations l JOIN businesses b ON b.id=l.business_id ORDER BY l.last_router_contact_at DESC LIMIT 500`).all();
+    res.json({ locations: rows });
+  }));
+  app.get('/api/admin/platform/payments', admin((req, res) => {
+    res.json({ payments: db.prepare(`SELECT t.checkout_request_id,t.business_id,b.name AS business_name,t.location_id,
+      t.phone,t.package_name,t.amount,t.status,t.mpesa_receipt,t.provisioned,t.created_at,t.updated_at
+      FROM tenant_transactions t JOIN businesses b ON b.id=t.business_id ORDER BY t.created_at DESC LIMIT 500`).all() });
+  }));
+  app.get('/api/admin/platform/transactions', admin((req, res) => {
+    const rows = db.prepare(`SELECT t.checkout_request_id,t.business_id,b.name AS business_name,t.location_id,t.phone,
+      t.package_name,t.amount,t.status,t.provisioned,t.created_at,t.updated_at
+      FROM tenant_transactions t JOIN businesses b ON b.id=t.business_id ORDER BY t.created_at DESC LIMIT 500`).all();
+    res.json({ transactions: rows });
+  }));
+  app.get('/api/admin/platform/packages', admin((req, res) => {
+    res.json({ packages: db.prepare(`SELECT p.id,p.business_id,b.name AS business_name,p.name,p.price,p.seconds,p.rate_limit,p.active,p.created_at
+      FROM business_packages p JOIN businesses b ON b.id=p.business_id ORDER BY p.created_at DESC LIMIT 500`).all() });
+  }));
+  app.get('/api/admin/platform/onboarding', admin((req, res) => {
+    res.json({ states: db.prepare(`SELECT onboarding_state state,COUNT(*) count FROM businesses GROUP BY onboarding_state ORDER BY onboarding_state`).all(),
+      routers: db.prepare(`SELECT CASE WHEN router_setup_verified_at IS NOT NULL THEN 'verified' WHEN last_router_contact_at IS NOT NULL THEN 'contacted' ELSE 'not_started' END state,COUNT(*) count FROM locations GROUP BY state`).all() });
+  }));
+  app.get('/api/admin/platform/support', admin((req, res) => {
+    res.json({ tickets: db.prepare(`SELECT t.id,t.business_id,b.name business_name,t.subject,t.category,t.status,t.updated_at
+      FROM business_support_tickets t JOIN businesses b ON b.id=t.business_id ORDER BY t.updated_at DESC LIMIT 500`).all() });
+  }));
+
   app.get('/api/admin/fiti-signal/messages', admin((req, res) => {
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
     res.json({ messages: db.prepare(`SELECT id,business_id,event_id,service_key,recipient,segments,status,provider_id,error,created_at
