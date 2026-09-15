@@ -107,6 +107,38 @@ function attachPppoeRoutes(app, { businessAuth }) {
   app.post('/api/business/pppoe/users/:userId/provision', operator((req, res, b) => res.status(202).json({ job: jobFor({ businessId: b, userId: req.params.userId, action: req.body?.action || 'upsert', locationId: req.body?.locationId }) })));
   app.get('/api/business/pppoe/jobs/:jobId', operator((req, res, b) => { const job = jobStatus(b, req.params.jobId); if (!job) return res.status(404).json({ error: 'PPPoE job was not found.' }); res.json({ job }); }));
   app.get('/api/business/pppoe/health/:locationId', operator((req, res, b) => res.json({ health: healthFor(b, req.params.locationId) })));
+
+  // RouterOS-side pull protocol. A router receives only its own queued jobs;
+  // credentials are decrypted in memory and never returned by tenant APIs.
+  const routerLocation = (req, res) => {
+    const token = String(req.get('X-WiFi-Fiti-Router') || '').trim();
+    const row = db.prepare('SELECT * FROM locations WHERE router_token=?').get(token);
+    if (!row) { res.status(403).type('text/plain').send('# PPPoE router authentication failed\n'); return null; }
+    return row;
+  };
+  const ros = value => `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]/g, ' ')}"`;
+  app.get('/api/router/pppoe/jobs', (req, res) => {
+    const location = routerLocation(req, res); if (!location) return;
+    const ack = String(req.query.ack || '').split(',').map(v => v.trim()).filter(Boolean).slice(0, 50);
+    for (const idValue of ack) db.prepare('UPDATE pppoe_jobs SET status=\'acked\',acked_at=datetime(\'now\'),updated_at=datetime(\'now\') WHERE id=? AND location_id=? AND status IN (\'queued\',\'delivered\')').run(idValue, location.id);
+    const jobs = db.prepare(`SELECT j.*,u.username,u.secret_ciphertext,u.status user_status,p.name profile_name,p.download_rate,p.upload_rate
+      FROM pppoe_jobs j JOIN pppoe_users u ON u.id=j.user_id JOIN pppoe_profiles p ON p.id=u.profile_id
+      WHERE j.location_id=? AND j.status='queued' AND j.next_attempt_at<=datetime('now') ORDER BY j.created_at LIMIT 50`).all(location.id);
+    if (!jobs.length) return res.type('text/plain').send('# WiFi Fiti PPPoE: no pending jobs\n');
+    const lines = ['# WiFi Fiti PPPoE automation'];
+    for (const job of jobs) {
+      const user = ros(job.username); const profile = ros(`fiti-${job.profile_id}`); const rate = ros(`${job.download_rate}/${job.upload_rate}`);
+      lines.push(`:do { /ppp profile add name=${profile} rate-limit=${rate} comment="WiFi Fiti PPPoE" } on-error={ /ppp profile set [find where name=${profile}] rate-limit=${rate} }`);
+      if (job.action === 'revoke' || job.user_status !== 'active') lines.push(`/ppp secret disable [find where name=${user}]`);
+      else {
+        let secret; try { secret = decrypt(job.secret_ciphertext); } catch (_) { secret = ''; }
+        if (secret) lines.push(`:do { /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${profile} comment="WiFi Fiti PPPoE" } on-error={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${profile} }`);
+      }
+      lines.push(`:global fitiPppoeAck "${job.id}"`);
+    }
+    for (const job of jobs) db.prepare("UPDATE pppoe_jobs SET status='delivered',delivered_at=datetime('now'),updated_at=datetime('now') WHERE id=? AND status='queued'").run(job.id);
+    res.type('text/plain').send(lines.join('\n') + '\n');
+  });
 }
 
 module.exports = { encrypt, decrypt, profileCreate, profilesFor, userCreate, usersFor, jobFor, claimJobs, markDelivered, markAcked, markFailed, recordHealth, healthFor, jobStatus, attachPppoeRoutes };
