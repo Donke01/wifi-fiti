@@ -1617,11 +1617,19 @@ function tenantRemaining(subscription) {
 }
 
 function tenantSessionPayload(subscription, issueToken = false) {
+  const payment = tenant.latestPaidTransactionForSubscription.get(subscription.id, subscription.location_id);
   return { found: true, authenticated: true, subscriptionId: subscription.id,
     payerPhone: subscription.payer_phone, username: subscription.router_username,
     password: subscription.password, remainingSeconds: tenantRemaining(subscription),
     rateLimit: subscription.rate_limit || null,
     expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z',
+    payment: payment ? {
+      reference: payment.mpesa_receipt || payment.checkout_request_id,
+      packageName: payment.package_name,
+      amount: payment.amount,
+      paidAt: payment.updated_at || payment.created_at,
+      source: payment.payment_source || 'fiti',
+    } : null,
     device: tenant.deviceForSubscription.get(subscription.location_id, subscription.id) || null,
     deviceType: subscription.device_type || 'phone',
     deviceLabel: subscription.device_label || '',

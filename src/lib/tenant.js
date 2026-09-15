@@ -1318,6 +1318,13 @@ const subscriptionById = db.prepare(`SELECT * FROM tenant_subscriptions WHERE id
 const subscriptionForPayer = db.prepare(`
   SELECT * FROM tenant_subscriptions WHERE id=? AND location_id=? AND payer_phone=?
 `);
+const latestPaidTransactionForSubscription = db.prepare(`
+  SELECT checkout_request_id, package_name, amount, mpesa_receipt, payment_source, updated_at, created_at
+    FROM tenant_transactions
+   WHERE subscription_id=? AND location_id=? AND status='paid'
+   ORDER BY updated_at DESC, created_at DESC
+   LIMIT 1
+`);
 const upsertSubscription = db.prepare(`
   INSERT INTO tenant_subscriptions
     (id, business_id, location_id, router_username, payer_phone, mac, password, total_seconds, rate_limit, expires_at)
@@ -3768,7 +3775,7 @@ module.exports = {
   pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,
   packageForLocation, packagesForLocation, insertTransaction, getTransaction, setTransactionDevice,
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
-  subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, setSubscriptionMac,
+  subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, latestPaidTransactionForSubscription, setSubscriptionMac,
   grantSubscription, provisionPaidTransaction, recordUsage, expiredSubscriptions, activeMeter,
   insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
   transferSubscription, addTvDevice, removeTvDevice, deviceForSubscription, devicesForSubscription,
