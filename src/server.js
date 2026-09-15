@@ -17,6 +17,7 @@ const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
 const { compatibilityRouterKit } = require('./lib/router-kit');
+const pppoe = require('./lib/pppoe');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -3445,6 +3446,10 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   // re-enrollment must never race a map-bound service selector update.
   const deployment = controls.length ? null : tenant.pendingMappedDeploymentForRouter(location);
   const portal = routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost });
+  // PPPoE provisioning rides the same authenticated outbound poll as hotspot
+  // work. This keeps one durable router channel, with the PPPoE module
+  // marking jobs delivered only when the script is actually emitted.
+  const pppoeScript = pppoe.scriptForLocation(location.id);
   // Keep remote-support responses narrowly scoped: the cleanup/activation
   // tests (and, more importantly, operators) must be able to see that a
   // support control cannot touch the customer poller. The tuning command is
@@ -3453,7 +3458,7 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   const pollTuning = controls.length ? '' : tenantPollTuningScript(fastPoll ? 1 : 5);
   const openWifi = controls.length ? '' : tenantOpenWifiScript(location);
   if (!jobs.length && !controls.length && !deployment) {
-    return { script: [pollTuning, openWifi, portal].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
+    return { script: [pollTuning, openWifi, portal, pppoeScript].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
 
   // Support controls always use their own queue and ACK global. They are
@@ -3480,7 +3485,7 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   }
 
   if (!jobs.length) {
-    return { script: [pollTuning, openWifi, portal, support.script, mapped.script].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
+    return { script: [pollTuning, openWifi, portal, support.script, mapped.script, pppoeScript].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: support.emitted, supportRejected: support.rejected };
   }
 
   const { script, emitted, rejected } = buildScript({
@@ -3493,7 +3498,7 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
   }
   if (emitted.length) console.log(`[tenant router] ${location.id} collected job(s) ${emitted.join(', ')}`);
   return {
-    script: [pollTuning, openWifi, portal, support.script, mapped.script, script].filter(Boolean).join('\n'),
+    script: [pollTuning, openWifi, portal, support.script, mapped.script, script, pppoeScript].filter(Boolean).join('\n'),
     emitted,
     rejected,
     supportEmitted: support.emitted,
