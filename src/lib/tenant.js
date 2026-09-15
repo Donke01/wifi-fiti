@@ -897,6 +897,11 @@ const saveRouterMapping = db.prepare(`
     confirmed_at=datetime('now'),
     updated_at=datetime('now')
 `);
+const migrateRouterMappingFingerprint = db.prepare(`
+  UPDATE tenant_router_mappings
+     SET topology_fingerprint=@topologyFingerprint, updated_at=datetime('now')
+   WHERE location_id=@locationId AND mapping_fingerprint=@mappingFingerprint
+`);
 const mappedDeploymentById = db.prepare(`
   SELECT id, location_id, action, topology_fingerprint, mapping_fingerprint,
          payload_json, nonce, signature, status, error_code,
@@ -2425,17 +2430,26 @@ function routerMappingForLocation(location) {
   const fresh = topologyFreshAt(snapshot.lastReportedAt);
   const row = routerMappingByLocation.get(location.id);
   const mapping = confirmedMapping(row, snapshot.topology);
+  // Older deployments fingerprinted transient link state. If the owner's
+  // confirmed choices still validate against the current inventory, migrate
+  // that row to the stable layout fingerprint instead of asking them to map
+  // the same router again after a CA-kit upgrade.
+  if (fresh && mapping && row && row.topology_fingerprint !== snapshot.fingerprint) {
+    migrateRouterMappingFingerprint.run({ locationId: location.id, topologyFingerprint: snapshot.fingerprint, mappingFingerprint: row.mapping_fingerprint });
+  }
+  const currentRow = row && row.topology_fingerprint !== snapshot.fingerprint && mapping
+    ? { ...row, topology_fingerprint: snapshot.fingerprint } : row;
   let status;
   if (!fresh) status = 'inventory_stale';
-  else if (row && row.topology_fingerprint !== snapshot.fingerprint) status = 'stale';
+  else if (currentRow && currentRow.topology_fingerprint !== snapshot.fingerprint) status = 'stale';
   else if (!mapping) status = 'needs_confirmation';
   else status = 'confirmed';
   return {
     status,
     inventoryReportedAt: snapshot.lastReportedAt,
     inventoryUpdatedAt: snapshot.updatedAt,
-    confirmedAt: mapping && row.topology_fingerprint === snapshot.fingerprint ? row.confirmed_at : null,
-    mapping: mapping && row.topology_fingerprint === snapshot.fingerprint ? mapping : null,
+    confirmedAt: mapping && currentRow && currentRow.topology_fingerprint === snapshot.fingerprint ? currentRow.confirmed_at : null,
+    mapping: mapping && currentRow && currentRow.topology_fingerprint === snapshot.fingerprint ? mapping : null,
     canConfirm: fresh,
   };
 }
