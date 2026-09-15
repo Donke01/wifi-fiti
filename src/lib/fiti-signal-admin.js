@@ -72,6 +72,12 @@ function attachFitiSignalAdmin(app, { db, adminOk }) {
     res.json({ packages: db.prepare('SELECT id, amount, credits, active FROM fiti_signal_packages WHERE active=1 ORDER BY amount').all() });
   }));
 
+  app.get('/api/admin/fiti-signal/messages', admin((req, res) => {
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+    res.json({ messages: db.prepare(`SELECT id,business_id,event_id,service_key,recipient,segments,status,provider_id,error,created_at
+      FROM fiti_signal_messages ORDER BY created_at DESC LIMIT ?`).all(limit) });
+  }));
+
   app.patch('/api/admin/fiti-signal/settings', admin((req, res) => {
     const body = req.body || {};
     const current = settings.get();
