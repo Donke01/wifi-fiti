@@ -1241,7 +1241,16 @@
       function renderOnboarding() {
         var root = $('onboarding'); if (!root) return;
         restoreOnboardingPanels();
-        var model = onboardingModel(); var flow = onboardingFlowState(model); clear(root); setSequentialOnboarding(flow.active);
+        var model = onboardingModel();
+        // A successful map confirmation is terminal for the guided journey.
+        // Clear a stale browser-side active flag so a CA-kit session (or a
+        // resumed tab) cannot reopen the same map form after the server has
+        // already accepted it.
+        if (model.configured && model.syncHealthy && model.mappingConfirmed && onboardingFlowState(model).active) {
+          saveOnboardingProgress(model.business, { active: false, stage: 3, unlocked: 3 });
+          clearOnboardingPolling();
+        }
+        var flow = onboardingFlowState(model); clear(root); setSequentialOnboarding(flow.active);
         if (!flow.active) {
           // Once the router is connected and its layout is confirmed, the
           // guided journey is finished. Remove it from the overview entirely;
