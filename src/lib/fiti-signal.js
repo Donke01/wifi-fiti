@@ -257,6 +257,12 @@ function enqueue({ businessId: business, eventId, serviceKey, to, message, essen
 
 async function processQueue(provider, { limit = 50 } = {}) {
   if (!provider || typeof provider.send !== 'function') throw new Error('An SMS provider adapter is required.');
+  // The platform administrator can pause delivery without touching tenant
+  // credits or router processes. Queued messages remain safely queued.
+  try {
+    const control = db.prepare('SELECT paused FROM fiti_signal_provider_controls WHERE id=1').get();
+    if (control?.paused) return [];
+  } catch (_) { /* controls table is optional until the admin module is attached */ }
   const rows = db.prepare(`SELECT * FROM fiti_signal_messages WHERE status='queued' ORDER BY created_at LIMIT ?`).all(Math.max(1, Math.min(500, Number(limit) || 50)));
   const results = [];
   for (const row of rows) {
