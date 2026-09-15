@@ -3794,6 +3794,7 @@ app.get('/api/health', async (req, res) => {
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk });
 require('./lib/fiti-signal').attachFitiSignalRoutes(app, { businessAuth });
+require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth });
 // The admin module owns privileged dashboard routes and controls. It is
 // intentionally mounted separately from tenant, router, and portal modules.
 require('./lib/admin').attachAdminModule(app, { db, adminOk, tenant });
