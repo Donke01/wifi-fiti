@@ -121,6 +121,10 @@ function init() {
     CREATE TABLE IF NOT EXISTS fiti_signal_settings (
       business_id TEXT PRIMARY KEY, settings_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS fiti_signal_services (
+      business_id TEXT NOT NULL, service_key TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (business_id, service_key)
+    );
     CREATE TABLE IF NOT EXISTS fiti_signal_messages (
       id TEXT PRIMARY KEY, business_id TEXT NOT NULL, event_id TEXT NOT NULL,
       service_key TEXT NOT NULL, recipient TEXT NOT NULL, message TEXT NOT NULL,
@@ -183,6 +187,17 @@ function getSettings(business) {
   const b = businessId(business);
   const row = db.prepare(`SELECT settings_json FROM fiti_signal_settings WHERE business_id=?`).get(b);
   return { ...DEFAULT_COST_CONTROLS, ...(row ? JSON.parse(row.settings_json) : {}) };
+}
+function getServices(business) {
+  const b = businessId(business);
+  return Object.fromEntries(db.prepare('SELECT service_key, enabled FROM fiti_signal_services WHERE business_id=?').all(b).map(row => [row.service_key, Boolean(row.enabled)]));
+}
+function setServices(business, services) {
+  const b = businessId(business);
+  if (!services || typeof services !== 'object') return getServices(b);
+  const statement = db.prepare(`INSERT INTO fiti_signal_services (business_id,service_key,enabled,updated_at) VALUES (?,?,?,datetime('now')) ON CONFLICT(business_id,service_key) DO UPDATE SET enabled=excluded.enabled,updated_at=datetime('now')`);
+  for (const [key, enabled] of Object.entries(services)) if (SERVICE_CATALOGUE[key]) statement.run(b, key, enabled ? 1 : 0);
+  return getServices(b);
 }
 function setSettings(business, patch) {
   const b = businessId(business);
@@ -269,9 +284,54 @@ function usage(business, { limit = 100 } = {}) {
   return db.prepare(`SELECT * FROM fiti_signal_messages WHERE business_id=? ORDER BY created_at DESC LIMIT ?`).all(b, Math.max(1, Math.min(1000, Number(limit) || 100)));
 }
 
+// Tenant API boundary. Payment collection can complete a purchase later via
+// completePurchase; the SMS ledger itself remains independent of routers.
+function attachFitiSignalRoutes(app, { businessAuth }) {
+  const operator = handler => (req, res) => {
+    const business = businessAuth(req, res);
+    if (!business) return;
+    try { return handler(req, res, business); }
+    catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  };
+  const businessKey = business => business.id || business.business_id;
+  app.get('/api/business/sms', operator((req, res, business) => {
+    const b = businessKey(business);
+    const account = balance(b);
+    const messages = usage(b, { limit: 1000 });
+    res.set('Cache-Control', 'no-store').json({
+      sms: { credits: account.credits_available, reserved: account.credits_reserved,
+        sent: account.credits_used, services: getServices(b), controls: getSettings(b),
+        usage: messages, packageName: null },
+      packages: packages(), catalogue: SERVICE_CATALOGUE,
+    });
+  }));
+  app.post('/api/business/sms/packages', operator((req, res, business) => {
+    const body = req.body || {};
+    const amount = Number(body.amount);
+    const selected = packages().find(item => item.amount === amount);
+    const purchase = createPurchase({ businessId: businessKey(business), packageId: selected?.id, amount });
+    res.status(201).json({ purchase, message: 'SMS package created. Complete payment to activate credits.' });
+  }));
+  app.post('/api/business/sms/packages/:purchaseId/confirm', operator((req, res, business) => {
+    const purchase = db.prepare('SELECT business_id FROM fiti_signal_purchases WHERE id=?').get(req.params.purchaseId);
+    if (!purchase || purchase.business_id !== businessKey(business)) return res.status(404).json({ error: 'SMS purchase was not found.' });
+    res.json({ purchase: completePurchase({ purchaseId: req.params.purchaseId, paymentRef: req.body?.paymentRef }) });
+  }));
+  app.put('/api/business/sms/settings', operator((req, res, business) => {
+    const body = req.body || {};
+    const controls = body.controls || body;
+    const aliases = { combine: 'combineMessages', expiryOnce: 'expiryReminderHours', delayRouter: 'routerAlertDelayMinutes', confirmedOnly: 'confirmedEventsOnly', gsm160: 'gsmOnly', dedupe: 'deduplicateEvents' };
+    const patch = {};
+    Object.keys(aliases).forEach(key => { if (controls[key] !== undefined) patch[aliases[key]] = controls[key] === true ? (key === 'expiryOnce' ? 24 : key === 'delayRouter' ? 15 : true) : (key === 'expiryOnce' || key === 'delayRouter' ? null : false); });
+    Object.assign(patch, controls);
+    const b = businessKey(business);
+    res.json({ sms: { controls: setSettings(b, patch), services: setServices(b, body.services || {}) } });
+  }));
+}
+
 module.exports = {
   PACKAGES, SERVICE_CATALOGUE, DEFAULT_COST_CONTROLS,
   SmsProvider, FunctionSmsProvider, createProvider,
   phone, gsmSafe, segmentCount, packages, balance, createPurchase, completePurchase,
-  getSettings, setSettings, enqueue, processQueue, usage,
+  getSettings, setSettings, getServices, setServices, enqueue, processQueue, usage, attachFitiSignalRoutes,
 };
