@@ -1756,7 +1756,8 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
     brand_logo_path: location.brand_logo_path, portal_message: location.portal_message,
   }, { assetOrigin });
   const payment = tenant.paymentConnectionSummary.get(location.business_id);
-  res.json({ location: { id: location.id, name: location.name, businessName: branding.name }, branding,
+  res.json({ location: { id: location.id, name: location.name, businessName: branding.name },
+    portalUrl: portalUrlForLocation(location), branding,
     packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone,
     paybill: payment ? { shortcode: payment.shortcode, transactionType: payment.transaction_type } : null });
 });
