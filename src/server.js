@@ -16,6 +16,7 @@ const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
+const { compatibilityRouterKit } = require('./lib/router-kit');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -386,7 +387,7 @@ app.use(express.urlencoded({ extended: false }));
 app.get('/tenant-router-install-compat.rsc', (req, res) => {
   try {
     const source = fs.readFileSync(path.join(publicDirectory, 'tenant-router-install.rsc'), 'utf8');
-    res.type('text/plain').send(source.replace(/check-certificate=yes/g, 'check-certificate=no'));
+    res.type('text/plain').send(compatibilityRouterKit(source));
   } catch (_) { res.status(404).type('text/plain').send('# installer unavailable\n'); }
 });
 app.use(express.static(publicDirectory));
@@ -3263,9 +3264,7 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     // Keep the normal kit certificate-verified. The explicit compatibility
     // option is only for older RouterOS boards with an empty CA store and does not
     // change the encrypted kit retained at rest.
-    if (String(req.query.compat || '') === '1') script = script
-      .replace(/check-certificate=yes/g, 'check-certificate=no')
-      .replace(/tenant-router-install\.rsc/g, 'tenant-router-install-compat.rsc');
+    if (String(req.query.compat || '') === '1') script = compatibilityRouterKit(script);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);
