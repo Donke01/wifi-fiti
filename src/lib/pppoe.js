@@ -4,6 +4,7 @@
  * this module does not alter Hotspot, captive portal, or existing router kits. */
 const crypto = require('node:crypto');
 const { db } = require('./db');
+const tenant = require('./tenant');
 
 const key = () => process.env.TENANT_SECRETS_KEY ? crypto.createHash('sha256').update(process.env.TENANT_SECRETS_KEY).digest() : null;
 function encrypt(value) {
@@ -68,6 +69,10 @@ function userCreate({ businessId, locationId = null, profileId, username, secret
   const b = business(businessId); const u = String(username || '').trim(); const s = String(secret || '');
   if (!/^[A-Za-z0-9._@-]{3,96}$/.test(u)) throw new Error('Invalid PPPoE username.');
   if (s.length < 8 || s.length > 128) throw new Error('PPPoE secret must be 8–128 characters.');
+  if (locationId) {
+    const location = db.prepare('SELECT id FROM locations WHERE id=? AND business_id=?').get(locationId, b);
+    if (!location) throw new Error('PPPoE location was not found for this business.');
+  }
   const profile = db.prepare(`SELECT id FROM pppoe_profiles WHERE id=? AND business_id=? AND active=1`).get(profileId, b);
   if (!profile) throw new Error('PPPoE profile was not found.');
   const row = db.prepare(`INSERT INTO pppoe_users(id,business_id,location_id,profile_id,username,secret_ciphertext,service_name) VALUES(?,?,?,?,?,?,?) RETURNING id,business_id,location_id,profile_id,username,service_name,status,created_at,updated_at`).get(id('puser'), b, locationId, profileId, u, encrypt(s), String(serviceName).slice(0, 40) || 'pppoe');
@@ -78,14 +83,17 @@ function usersFor(businessId, locationId) { return db.prepare(`SELECT id,busines
 function jobFor({ businessId, userId, action = 'upsert', locationId = null }) {
   const b = business(businessId); const user = db.prepare(`SELECT * FROM pppoe_users WHERE id=? AND business_id=?`).get(userId, b);
   if (!user) throw new Error('PPPoE user was not found.');
+  const targetLocation = locationId || user.location_id;
+  if (!targetLocation) throw new Error('A router location is required for PPPoE provisioning.');
+  if (!db.prepare('SELECT id FROM locations WHERE id=? AND business_id=?').get(targetLocation, b)) throw new Error('PPPoE location was not found for this business.');
   const actionName = String(action); if (!['upsert', 'revoke'].includes(actionName)) throw new Error('Invalid PPPoE action.');
   const idem = `${userId}:${actionName}`;
   const existing = db.prepare(`SELECT * FROM pppoe_jobs WHERE business_id=? AND idempotency_key=?`).get(b, idem);
   if (existing && ['queued', 'delivered'].includes(existing.status)) return existing;
   const row = db.prepare(`INSERT INTO pppoe_jobs(id,business_id,location_id,user_id,action,idempotency_key) VALUES(?,?,?,?,?,?)
     ON CONFLICT(business_id,idempotency_key) DO UPDATE SET status='queued',attempts=0,next_attempt_at=datetime('now'),last_error=NULL,updated_at=datetime('now') RETURNING *`)
-    .get(id('pjob'), b, locationId || user.location_id, userId, actionName, idem);
-  db.prepare(`INSERT INTO pppoe_audit(business_id,location_id,action,reference,details_json) VALUES(?,?,?,?,?)`).run(b, locationId || user.location_id, `job_${actionName}`, row.id, '{}');
+    .get(id('pjob'), b, targetLocation, userId, actionName, idem);
+  db.prepare(`INSERT INTO pppoe_audit(business_id,location_id,action,reference,details_json) VALUES(?,?,?,?,?)`).run(b, targetLocation, `job_${actionName}`, row.id, '{}');
   return row;
 }
 function claimJobs({ limit = 50 } = {}) { return db.prepare(`SELECT j.*,u.username,u.secret_ciphertext,u.profile_id,u.service_name,p.name profile_name,p.download_rate,p.upload_rate FROM pppoe_jobs j JOIN pppoe_users u ON u.id=j.user_id JOIN pppoe_profiles p ON p.id=u.profile_id WHERE j.status='queued' AND j.next_attempt_at<=datetime('now') ORDER BY j.created_at LIMIT ?`).all(Math.min(500, Math.max(1, Number(limit) || 50))).map(row => ({ ...row, secret: decrypt(row.secret_ciphertext), secret_ciphertext: undefined })); }
@@ -99,9 +107,9 @@ function scriptForLocation(locationId) {
   const location = db.prepare('SELECT customer_bridge FROM locations WHERE id=?').get(locationId) || {};
   const jobs = db.prepare(`SELECT j.*,u.username,u.secret_ciphertext,u.profile_id,u.status user_status,p.name profile_name,p.download_rate,p.upload_rate
     FROM pppoe_jobs j JOIN pppoe_users u ON u.id=j.user_id JOIN pppoe_profiles p ON p.id=u.profile_id
-    WHERE j.location_id=? AND j.status='queued' AND j.next_attempt_at<=datetime('now') ORDER BY j.created_at LIMIT 50`).all(locationId);
+    WHERE j.location_id=? AND j.status IN ('queued','delivered') AND j.next_attempt_at<=datetime('now') ORDER BY j.created_at LIMIT 50`).all(locationId);
   if (!jobs.length) return '';
-  const ros = value => `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]/g, ' ')}"`;
+  const ros = value => `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\\$').replace(/[\r\n]/g, ' ')}"`;
   const lines = ['# WiFi Fiti PPPoE automation']; const ids = [];
   const bridge = String(location.customer_bridge || '').trim();
   const bridgeName = /^[A-Za-z0-9_-]{1,32}$/.test(bridge) ? bridge : '';
@@ -110,7 +118,7 @@ function scriptForLocation(locationId) {
     ids.push(job.id); const user = ros(job.username); const profileName = `fiti-${job.profile_id}`; const profile = ros(profileName); const rate = ros(`${job.download_rate}/${job.upload_rate}`);
     if (!serverProfile) serverProfile = profileName;
     lines.push(`:do { /ppp profile add name=${profile} rate-limit=${rate} comment="WiFi Fiti PPPoE" } on-error={ /ppp profile set [find where name=${profile}] rate-limit=${rate} }`);
-    if (job.action === 'revoke' || job.user_status !== 'active') lines.push(`/ppp secret disable [find where name=${user}]`);
+    if (job.action === 'revoke' || job.user_status !== 'active') lines.push(`:do { /ppp secret disable [find where name=${user}] } on-error={}`);
     else { let secret = ''; try { secret = decrypt(job.secret_ciphertext); } catch (_) {} if (secret) lines.push(`:do { /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${profile} disabled=no comment="WiFi Fiti PPPoE" } on-error={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${profile} disabled=no }`); }
   }
   if (bridgeName && serverProfile) {
@@ -119,7 +127,7 @@ function scriptForLocation(locationId) {
   }
   for (const idValue of ids) db.prepare("UPDATE pppoe_jobs SET status='delivered',delivered_at=datetime('now'),updated_at=datetime('now') WHERE id=? AND status='queued'").run(idValue);
   const ack = ids.join(',');
-  lines.push(`:do { :global fitiUrl; :global fitiToken; /tool fetch url=($fitiUrl . "/api/router/pppoe/jobs?ack=${ack}") http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) output=none } on-error={}`);
+  lines.push(`:do { :global fitiUrl; :global fitiToken; /tool fetch url=($fitiUrl . "/api/router/pppoe/jobs?site=${locationId}&ack=${ack}") http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) output=none } on-error={}`);
   return lines.join('\n');
 }
 
@@ -139,9 +147,9 @@ function attachPppoeRoutes(app, { businessAuth }) {
   // credentials are decrypted in memory and never returned by tenant APIs.
   const routerLocation = (req, res) => {
     const token = String(req.get('X-WiFi-Fiti-Router') || '').trim();
-    const hash = crypto.createHash('sha256').update(token).digest('hex');
-    const row = db.prepare('SELECT * FROM locations WHERE router_token_hash=? OR router_token=?').get(hash, token);
-    if (!row) { res.status(403).type('text/plain').send('# PPPoE router authentication failed\n'); return null; }
+    const site = String(req.query.site || '').trim();
+    const row = tenant.authenticateRouter(site, token, 'header');
+    if (!row || row.router_pairing_auth !== 'active' || !row.router_setup_verified_at) { res.status(403).type('text/plain').send('# PPPoE router authentication failed\n'); return null; }
     return row;
   };
   const ros = value => `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]/g, ' ')}"`;
