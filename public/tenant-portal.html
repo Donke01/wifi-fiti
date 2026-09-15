@@ -181,19 +181,19 @@
     function receiptEscape(value) { return String(value == null ? '' : value).replace(/[&<>\"']/g, function (ch) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'})[ch]; }); }
     function downloadReceipt() {
       if (!current) return;
-      var payment = current.payment || {}, brand = portalConfig && portalConfig.branding || {}, name = brand.name || (portalConfig && portalConfig.location && portalConfig.location.businessName) || 'Customer Wi‑Fi', portalUrl = location.origin + location.pathname;
-      var text = name + '\n' + 'WIFI ACCESS RECEIPT\n' + '===================\n\n' +
-        'CUSTOMER PORTAL\n' + portalUrl + '\n\n' +
-        'PAYMENT REFERENCE\n' + (payment.reference || 'Pending reference') + '\n\n' +
-        'PACKAGE\n' + (payment.packageName || 'WiFi package') + '\n\n' +
-        'AMOUNT PAID\nKES ' + (payment.amount == null ? '' : Number(payment.amount).toLocaleString()) + '\n\n' +
-        'PAYING NUMBER\n' + (current.payerPhone || '') + '\n\n' +
-        'VALID UNTIL\n' + new Date(current.expiresAt).toLocaleString() + '\n\n' +
-        'RECOVERY CODE\n' + (current.password || '') + '\n\n' +
-        'KEEP THIS RECEIPT\nUse the recovery code and paying number on the customer portal to check balance or move this package to another phone.\n\n' +
-        'Generated ' + new Date().toLocaleString() + '\n';
-      var blob = new Blob([text], { type: 'text/plain;charset=utf-8' }), url = URL.createObjectURL(blob), link = document.createElement('a');
-      link.href = url; link.download = 'wifi-fiti-receipt-' + String(payment.reference || current.subscriptionId || 'access').replace(/[^A-Za-z0-9_-]/g, '') + '.txt'; document.body.appendChild(link); link.click(); link.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      var payment = current.payment || {}, brand = portalConfig && portalConfig.branding || {}, name = brand.name || (portalConfig && portalConfig.location && portalConfig.location.businessName) || 'Customer Wi‑Fi', logo = brand.logoUrl || (location.origin + '/assets/wifi-fiti-logo.png'), portalUrl = location.origin + location.pathname;
+      var html = '<!doctype html><html><head><meta charset="utf-8"><title>WiFi receipt</title><style>body{font:16px Arial,sans-serif;color:#122740;max-width:620px;margin:40px auto;padding:24px}.logo{width:84px;height:84px;object-fit:contain;display:block;margin-bottom:12px}h1{color:#1769d8}table{width:100%;border-collapse:collapse;margin:24px 0}td{padding:11px 0;border-bottom:1px solid #dce5f0}td:first-child{color:#687a91;width:42%}.code{font:800 24px monospace;letter-spacing:.12em;color:#168c62}.note{padding:14px;background:#f3f8ff;border-radius:10px;line-height:1.5}small{color:#687a91}</style></head><body><img class="logo" src="' + receiptEscape(logo) + '" alt="' + receiptEscape(name) + '"><h1>' + receiptEscape(name) + '</h1><p>Payment receipt · WiFi access</p><table>' +
+        '<tr><td>Customer portal</td><td><a href="' + receiptEscape(portalUrl) + '">' + receiptEscape(portalUrl) + '</a></td></tr>' +
+        '<tr><td>Payment reference</td><td>' + receiptEscape(payment.reference || 'Pending reference') + '</td></tr>' +
+        '<tr><td>Package</td><td>' + receiptEscape(payment.packageName || 'WiFi package') + '</td></tr>' +
+        '<tr><td>Amount paid</td><td>KES ' + receiptEscape(payment.amount == null ? '' : Number(payment.amount).toLocaleString()) + '</td></tr>' +
+        '<tr><td>Paying number</td><td>' + receiptEscape(current.payerPhone || '') + '</td></tr>' +
+        '<tr><td>Valid until</td><td>' + receiptEscape(new Date(current.expiresAt).toLocaleString()) + '</td></tr>' +
+        '<tr><td>Recovery code</td><td class="code">' + receiptEscape(current.password || '') + '</td></tr></table>' +
+        '<div class="note"><strong>Keep this receipt.</strong><br>Use the recovery code and paying number on the customer portal to check balance or move this package to another phone. Your package is tied to the current device until you migrate it.</div>' +
+        '<p><a href="' + receiptEscape(portalUrl) + '">Open customer portal</a></p><small>Generated ' + receiptEscape(new Date().toLocaleString()) + '</small></body></html>';
+      var blob = new Blob([html], { type: 'text/html;charset=utf-8' }), url = URL.createObjectURL(blob), link = document.createElement('a');
+      link.href = url; link.download = 'wifi-fiti-receipt-' + String(payment.reference || current.subscriptionId || 'access').replace(/[^A-Za-z0-9_-]/g, '') + '.html'; document.body.appendChild(link); link.click(); link.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     }
     function closeReceiptPrompt() { $('receipt-prompt').classList.add('hidden'); }
     function showReceiptPrompt(result) {
