@@ -130,7 +130,7 @@
     }
     function stop() { generation++; clearTimeout(timer); clearInterval(clockTimer); }
     function clearCheckout() {
-      stop(); checkout = null; write('_checkout', null); autoConnectStarted = false;
+      stop(); checkout = null; write('_checkout', null); write('_receipt_pending', null); autoConnectStarted = false;
       closeReceiptPrompt(); show('buy'); message('waiting-error', ''); message('error', '');
     }
     function show() {
@@ -193,9 +193,13 @@
     function showReceiptPrompt(result) {
       if (!result || !result.payment) return;
       current = result;
+      // Android captive browsers may close the portal as soon as the router
+      // authenticates the device. Persist the pending receipt so a reopen or
+      // refresh restores the prompt instead of losing the customer's proof.
+      write('_receipt_pending', result);
       $('receipt-prompt').classList.remove('hidden');
     }
-    function finishReceiptPrompt(result) { closeReceiptPrompt(); active(result || current); connectAfterAck(result || current); }
+    function finishReceiptPrompt(result) { write('_receipt_pending', null); closeReceiptPrompt(); active(result || current); connectAfterAck(result || current); }
     function waiting(title, copy) {
       show('waiting'); message('waiting-title', title); message('waiting-copy', copy);
       message('elapsed', 'Your payment and package are saved on WiFi Fiti.');
@@ -445,7 +449,13 @@
         checkout = null; write('_checkout', null);
         if (!mac) { message('error', 'Join this WiFi to buy or reconnect a package.'); return; }
         var session = await api('/session?mac=' + encodeURIComponent(mac));
-        if (session.authenticated) { active(session); if (session.remainingSeconds > 0) reconnect(); return; }
+        if (session.authenticated) {
+          active(session);
+          var pendingReceipt = read('_receipt_pending');
+          if (pendingReceipt && pendingReceipt.payment) showReceiptPrompt(pendingReceipt);
+          if (session.remainingSeconds > 0 && !pendingReceipt) reconnect();
+          return;
+        }
         if (session.found) message('error', 'This device already has ' + formatSeconds(session.remainingSeconds) + '. Enter your paying number and use Check my time to reconnect.');
       } catch (error) { message('error', error.message); }
     }
