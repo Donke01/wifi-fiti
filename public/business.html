@@ -977,6 +977,18 @@
           setOnboardingError('Router removed. Add the correct router when you are ready.');
         }).catch(function (error) { setOnboardingError(error.message); }).finally(function () { setBusy(button, false); });
       }
+      function removeTenantRouter(location, button) {
+        if (!routerCanBeRemoved(location)) {
+          window.alert('This router has already connected or has customer history. Complete the safe offboarding process before deleting it.');
+          return;
+        }
+        var name = location.name || location.router_name || 'this router';
+        if (window.prompt('Delete "' + name + '" from this workspace? Type DELETE to confirm.') !== 'DELETE') return;
+        setBusy(button, true, 'Deleting…');
+        api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }).then(function () {
+          forgetSetup(location.id); clearRouterProgress(location); clearOnboardingLocation((state.workspace && state.workspace.business) || {}); return load();
+        }).catch(function (error) { window.alert(error.message); }).finally(function () { setBusy(button, false); });
+      }
       function onboardingStatusFingerprint(model) {
         var location = model && model.location || {};
         return [location.id || '', freshRouterSetupRequired(location) ? 'fresh-kit-required' : routerPairingPending(location) ? 'pending-replacement' : routerSuccessfullyPaired(location) ? 'paired' : 'awaiting-pair', routerSyncHealthy(location) ? 'sync-healthy' : 'sync-stale', routerMappingStatus(location), location.routerMapping && location.routerMapping.inventoryUpdatedAt || '', location.router_status || '', location.last_seen_at ? 'seen' : 'not-seen', location.last_successful_sync_at ? 'synced' : 'not-synced'].join('|');
@@ -1413,6 +1425,14 @@
       function renderLocations() {
         var root = $('locations'); var locations = (state.workspace && state.workspace.locations) || []; clear(root);
         if (!locations.length) { var empty = el('div', 'empty'); add(empty, 'strong', '', 'No locations yet'); add(empty, 'span', '', 'Add your first site to receive a unique pairing kit and customer portal address.'); root.appendChild(empty); return; }
+        if (locations.length > 1) {
+          var switchBox = el('div', 'location-switcher'); var switchLabel = el('label'); add(switchLabel, 'span', '', 'Switch location');
+          var switchSelect = el('select'); switchSelect.setAttribute('aria-label', 'Switch location');
+          locations.forEach(function (item) { var option = el('option', '', item.name || item.router_name || item.id); option.value = item.id; switchSelect.appendChild(option); });
+          var currentModel = onboardingModel(); if (currentModel.location) switchSelect.value = currentModel.location.id;
+          switchSelect.addEventListener('change', function () { var selected = locations.find(function (item) { return String(item.id) === String(switchSelect.value); }); if (!selected) return; rememberOnboardingLocation((state.workspace && state.workspace.business) || {}, selected); onboardingPanel = ''; renderLocations(); renderOnboarding(); });
+          switchLabel.appendChild(switchSelect); switchBox.appendChild(switchLabel); root.appendChild(switchBox);
+        }
         locations.forEach(function (location) {
           var current = routerState(location); var card = el('article', 'location-card'); card.dataset.locationId = String(location.id || ''); var top = el('div', 'location-top'); var info = el('div'); add(info, 'h3', '', location.name || 'Unnamed location'); add(info, 'div', 'location-meta', location.router_name || 'Router name not added'); top.appendChild(info); add(top, 'span', 'status ' + current[0], current[1]); card.appendChild(top);
           var data = el('div', 'location-data'); function datum(label, value) { var entry = el('div'); add(entry, 'span', 'data-label', label); add(entry, 'div', 'data-value', value); data.appendChild(entry); }
@@ -1423,6 +1443,7 @@
           var restart = el('button', 'quiet', 'Start router setup again'); restart.type = 'button'; restart.addEventListener('click', function () { startRouterSetupAgain(location); }); actions.appendChild(restart);
           var remoteSetup = el('button', 'quiet', 'Remote setup'); remoteSetup.type = 'button'; remoteSetup.addEventListener('click', function () { openRemoteAccess(location, card, remoteSetup); }); actions.appendChild(remoteSetup);
           var edit = el('button', 'quiet', 'Portal & router settings'); edit.type = 'button'; edit.addEventListener('click', function () { renderLocationEditor(location, card); }); actions.appendChild(edit);
+          var remove = el('button', 'danger quiet', 'Delete router'); remove.type = 'button'; remove.addEventListener('click', function () { removeTenantRouter(location, remove); }); actions.appendChild(remove);
           card.appendChild(actions); root.appendChild(card);
         });
       }
