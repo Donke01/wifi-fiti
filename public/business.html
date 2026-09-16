@@ -264,6 +264,13 @@
     #dashboard .module-empty,#dashboard .empty{text-align:center}
     #dashboard .connection,#dashboard .setup-complete,#dashboard .onboarding-compact{text-align:center}
     @media(max-width:650px){#welcome .auth-card:hover{transform:none}.verification-timer{margin-top:-2px;margin-bottom:13px}}
+    /* During guided onboarding the workspace must be onboarding-only.  The
+       overview insights panel is injected dynamically, so keep an explicit
+       guard here in addition to the section-level rule above. */
+    #dashboard.sequential-onboarding #overview-insights-section,
+    #dashboard.sequential-onboarding .content>[data-module="overview"]:not(#onboarding-section),
+    #dashboard.sequential-onboarding .content>.overview-insights{display:none!important}
+    #dashboard.sequential-onboarding #onboarding-section{display:block!important}
   </style>
 </head>
 <body>
