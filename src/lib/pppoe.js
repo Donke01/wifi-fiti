@@ -21,6 +21,14 @@ function decrypt(value) {
 }
 const id = prefix => `${prefix}_${crypto.randomBytes(12).toString('hex')}`;
 const business = value => { const v = String(value || '').trim(); if (!/^[A-Za-z0-9_-]{1,128}$/.test(v)) throw new Error('Invalid business ID.'); return v; };
+// PPPoE must never borrow the captive-portal DHCP network. A deterministic
+// private /24 per location keeps the router self-contained while avoiding the
+// existing 10.5.50.0/24 hotspot subnet.
+function pppoeSubnetForLocation(locationId) {
+  const digest = crypto.createHash('sha256').update(String(locationId || '')).digest();
+  const octet = 10 + (digest[0] % 200);
+  return { network: `10.250.${octet}.0/24`, gateway: `10.250.${octet}.1`, pool: `10.250.${octet}.10-10.250.${octet}.250` };
+}
 
 db.exec(`
  CREATE TABLE IF NOT EXISTS pppoe_profiles (
@@ -165,6 +173,7 @@ function jobStatus(businessId, jobId) { return db.prepare(`SELECT id,business_id
 function scriptForLocation(locationId) {
   revokeExpiredForLocation(locationId);
   const location = db.prepare('SELECT customer_bridge FROM locations WHERE id=?').get(locationId) || {};
+  const pppoeSubnet = pppoeSubnetForLocation(locationId);
   const jobs = db.prepare(`SELECT j.*,u.username,u.secret_ciphertext,u.profile_id,u.status user_status,p.name profile_name,p.download_rate,p.upload_rate
     ,u.expires_at user_expires_at,u.locked_until user_locked_until,u.max_sessions user_max_sessions,p.session_timeout_seconds,p.idle_timeout_seconds
     FROM pppoe_jobs j JOIN pppoe_users u ON u.id=j.user_id JOIN pppoe_profiles p ON p.id=u.profile_id
@@ -175,12 +184,19 @@ function scriptForLocation(locationId) {
   const bridge = String(location.customer_bridge || '').trim();
   const bridgeName = /^[A-Za-z0-9_-]{1,32}$/.test(bridge) ? bridge : '';
   let serverProfile = '';
+  let pppoePoolDeclared = false;
   for (const job of jobs) {
     ids.push(job.id); const user = ros(job.username); const profileName = `fiti-${job.profile_id}`; const profile = ros(profileName); const rate = ros(`${job.download_rate}/${job.upload_rate}`);
     if (!serverProfile) serverProfile = profileName;
     const sessionTimeout = Math.min(604800, Math.max(0, Number(job.session_timeout_seconds) || 0));
     const idleTimeout = Math.min(86400, Math.max(60, Number(job.idle_timeout_seconds) || 900));
-    lines.push(`:do { /ppp profile add name=${profile} rate-limit=${rate} only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} comment="WiFi Fiti PPPoE" } on-error={ /ppp profile set [find where name=${profile}] rate-limit=${rate} only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} }`);
+    if (!pppoePoolDeclared) {
+      lines.unshift(`:do { /ip pool add name="fiti-pppoe-pool" ranges="${pppoeSubnet.pool}" comment="WiFi Fiti PPPoE isolated subnet" } on-error={ /ip pool set [find where name="fiti-pppoe-pool"] ranges="${pppoeSubnet.pool}" }`);
+      lines.unshift(`:do { :if ([:len [/ip firewall filter find where comment="WiFi Fiti PPPoE DNS"]] = 0) do={ /ip firewall filter add chain=input action=accept src-address="${pppoeSubnet.network}" protocol=udp dst-port=53 comment="WiFi Fiti PPPoE DNS"; /ip firewall filter add chain=input action=accept src-address="${pppoeSubnet.network}" protocol=tcp dst-port=53 comment="WiFi Fiti PPPoE DNS" } } on-error={}`);
+      lines.unshift(`:do { :if ([:len [/ip firewall filter find where comment="WiFi Fiti PPPoE isolation"]] = 0) do={ /ip firewall filter add chain=forward action=drop src-address="${pppoeSubnet.network}" dst-address="10.5.50.0/24" comment="WiFi Fiti PPPoE isolation"; /ip firewall filter add chain=forward action=drop src-address="10.5.50.0/24" dst-address="${pppoeSubnet.network}" comment="WiFi Fiti PPPoE isolation" } } on-error={}`);
+      pppoePoolDeclared = true;
+    }
+    lines.push(`:do { /ppp profile add name=${profile} rate-limit=${rate} local-address="${pppoeSubnet.gateway}" remote-address="fiti-pppoe-pool" dns-server=1.1.1.1,8.8.8.8 only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} comment="WiFi Fiti PPPoE" } on-error={ /ppp profile set [find where name=${profile}] rate-limit=${rate} local-address="${pppoeSubnet.gateway}" remote-address="fiti-pppoe-pool" dns-server=1.1.1.1,8.8.8.8 only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} }`);
     const expired = job.user_expires_at && Date.parse(String(job.user_expires_at)) <= Date.now();
     const locked = job.user_locked_until && Date.parse(String(job.user_locked_until)) > Date.now();
     if (job.action === 'revoke' || job.user_status !== 'active' || expired || locked) lines.push(`:do { /ppp secret set [find where name=${user}] disabled=yes } on-error={}`);
