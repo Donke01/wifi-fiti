@@ -16,8 +16,12 @@ function attachAdminControlPlane(app, { db: suppliedDb, adminOk, tenant, confirm
     catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
   };
   const confirm = req => {
+    const password = String(req.body?.adminPassword || req.headers['x-admin-password'] || '');
+    const configuredPassword = String(process.env.ADMIN_PASSWORD || '');
+    if (configuredPassword && password === configuredPassword) return;
     const supplied = String(req.body?.confirmation || req.headers['x-confirmation-phrase'] || '');
-    if (supplied !== phrase) { const e = new Error('Confirmation phrase is required.'); e.status = 400; throw e; }
+    if (!configuredPassword && supplied === phrase) return;
+    const e = new Error(configuredPassword ? 'Administrator password is required.' : 'Confirmation phrase is required.'); e.status = 400; throw e;
   };
   // A platform-admin phrase proves the caller is allowed into this control
   // plane.  A second, action-specific phrase prevents a pasted/admin-console
@@ -77,6 +81,16 @@ function attachAdminControlPlane(app, { db: suppliedDb, adminOk, tenant, confirm
     SELECT b.id,b.name,b.email,b.plan,b.collection_mode,b.billing_status,b.billing_expires_at,b.created_at,
       (SELECT COUNT(*) FROM locations l WHERE l.business_id=b.id) locations
     FROM businesses b ORDER BY b.created_at DESC`).all() })));
+
+  app.get('/api/admin/control-plane/tenants/:businessId/summary', guard((req, res) => {
+    const b = requireTenant(req.params.businessId);
+    const locations = db.prepare('SELECT id,name,router_name,router_status,last_router_contact_at,router_setup_health FROM locations WHERE business_id=? ORDER BY created_at DESC').all(b.id);
+    const packages = db.prepare('SELECT id,name,price,seconds,active FROM business_packages WHERE business_id=? ORDER BY created_at DESC').all(b.id);
+    const payments = db.prepare("SELECT COUNT(*) total,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) revenue,COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) pending FROM tenant_transactions WHERE business_id=?").get(b.id);
+    const pppoe = db.prepare('SELECT COUNT(*) subscribers,COALESCE(SUM(CASE WHEN status=\'active\' THEN 1 ELSE 0 END),0) active FROM pppoe_users WHERE business_id=?').get(b.id);
+    const sms = db.prepare('SELECT COUNT(*) messages FROM fiti_signal_messages WHERE business_id=?').get(b.id) || { messages: 0 };
+    res.json({ tenant: b, locations, packages, payments, pppoe, sms });
+  }));
 
   app.patch('/api/admin/control-plane/tenants/:businessId/billing', guard((req, res) => {
     const b = requireTenant(req.params.businessId); confirm(req);

@@ -3117,8 +3117,8 @@ function rebuildLedger(phone, apply) {
 }
 
 function adminOk(req) {
-  const admin = process.env.ADMIN_TOKEN;
-  const supplied = String(req.headers['x-admin-token'] || '');
+  const admin = process.env.ADMIN_PASSWORD || process.env.ADMIN_TOKEN;
+  const supplied = String(req.headers['x-admin-password'] || req.headers['x-admin-token'] || '');
   if (!admin) return false;
   const expectedBytes = Buffer.from(admin);
   const suppliedBytes = Buffer.from(supplied);

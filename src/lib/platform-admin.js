@@ -23,7 +23,7 @@ function attachPlatformAdmin(app, { db, adminOk }) {
     res.json({ summary, generatedAt: new Date().toISOString() });
   }));
   app.get('/api/admin/platform/tenants', guard((req, res) => {
-    res.json({ tenants: db.prepare(`SELECT b.id,b.name,b.email,b.owner_phone,b.plan,b.onboarding_state,b.created_at,
+    res.json({ tenants: db.prepare(`SELECT b.id,b.name,b.email,b.owner_phone,b.plan,b.onboarding_state,b.billing_status,b.billing_expires_at,b.portal_name,b.support_phone,b.brand_primary_color,b.created_at,
       (SELECT COUNT(*) FROM locations l WHERE l.business_id=b.id) AS locations,
       (SELECT COUNT(*) FROM tenant_transactions t WHERE t.business_id=b.id AND t.status='paid') AS paid_transactions,
       (SELECT COALESCE(SUM(t.amount),0) FROM tenant_transactions t WHERE t.business_id=b.id AND t.status='paid') AS revenue_kes
