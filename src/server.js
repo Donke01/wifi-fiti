@@ -648,7 +648,7 @@ function createLocationDraft(business, body, res, { routerNameRequired = false }
 
 function emailVerificationEnabled() { return config.email.provider === 'resend'; }
 function verificationHash(code) { return crypto.createHash('sha256').update(String(code)).digest('hex'); }
-function verificationExpiry() { return new Date(Date.now() + 10 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''); }
+function verificationExpiry() { return new Date(Date.now() + 3 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''); }
 async function beginEmailVerification({ email, purpose, businessId: businessIdValue = null, payload = null }) {
   const last = db.db.prepare(`SELECT last_sent_at FROM business_email_verifications WHERE email=? AND purpose=? ORDER BY created_at DESC LIMIT 1`).get(email, purpose);
   if (last && Date.now() - Date.parse(String(last.last_sent_at).replace(' ', 'T') + 'Z') < 60_000) {

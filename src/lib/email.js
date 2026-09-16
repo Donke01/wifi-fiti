@@ -21,8 +21,8 @@ function verificationEmail(code, purpose) {
   const action = purpose === 'register' ? 'create your WiFi Fiti account' : purpose === 'reset' ? 'reset your WiFi Fiti password' : 'sign in to WiFi Fiti';
   return {
     subject: `${code} is your WiFi Fiti verification code`,
-    text: `Use ${code} to ${action}. This code expires in 10 minutes. If you did not request it, ignore this email.`,
-    html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>WiFi Fiti</h2><p>Use this code to ${action}:</p><p style="font-size:32px;letter-spacing:8px;font-weight:700"><b>${code}</b></p><p>This code expires in 10 minutes. If you did not request it, ignore this email.</p></div>`,
+    text: `Use ${code} to ${action}. This code expires in 3 minutes. If you did not request it, ignore this email.`,
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>WiFi Fiti</h2><p>Use this code to ${action}:</p><p style="font-size:32px;letter-spacing:8px;font-weight:700"><b>${code}</b></p><p>This code expires in 3 minutes. If you did not request it, ignore this email.</p></div>`,
   };
 }
 
