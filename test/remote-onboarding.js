@@ -253,7 +253,7 @@ async function main() {
 
     const tooEarly = await api(endpoint, { method: 'POST', token: alphaToken, body: { consent: true } });
     assert.equal(tooEarly.status, 409);
-    assert.match(tooEarly.body.error, /authenticated WiFi Fiti poll/);
+    assert.match(tooEarly.body.error, /authenticated Wi-Fi Fiti poll/);
 
     const rejectedSync = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
       method: 'POST', routerToken: 'wrong-router-token', body: '', contentType: 'text/plain',
@@ -458,7 +458,7 @@ async function main() {
     assert.match(cleanup.text, /\/system scheduler disable \$fitiSupportScheduler/);
     assert.match(cleanup.text, /\/interface wireguard remove \$fitiSupportWireguard/);
     assert.match(cleanup.text, /\/ip firewall filter remove \$fitiSupportFirewall/,
-      'revoke removes the activation rule only when it carries the WiFi Fiti tag');
+      'revoke removes the activation rule only when it carries the Wi-Fi Fiti tag');
     assert.match(cleanup.text, /\/ip route remove \$fitiSupportRoute/,
       'revoke removes only the gateway /32 route');
     assert.match(cleanup.text, /\/ip address remove \$fitiSupportAddress/,

@@ -228,7 +228,7 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     // part of the portal refresh; offboarding removes/locks the router and is
     // handled separately by the command queue.
     ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ /ip hotspot enable [find where name=$fitiHotspotServer] }',
-    '  :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiDesiredPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiDesiredPortalHost comment="WiFi Fiti customer portal" }',
+    '  :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiDesiredPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiDesiredPortalHost comment="Wi-Fi Fiti customer portal" }',
     '  :if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={',
     '    :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]',
     '    :local fitiHtmlDir [/ip hotspot profile get [find where name=$fitiProfile] html-directory]',
@@ -266,7 +266,7 @@ function localDevelopmentHost(host) {
 function legacyPortalRequest(req) {
   // A legacy Hotspot redirect always contains RouterOS identity values. Keep
   // it working on the former application root while a normal human visit sees
-  // the public WiFi Fiti Business site.
+  // the public Wi-Fi Fiti Business site.
   const search = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?') + 1) : '';
   return /(?:^|&)(?:mac|ip|link-login-only|link-orig|error)=/i.test(search);
 }
@@ -711,7 +711,7 @@ app.post('/api/business/register', async (req, res) => {
   if (hasOrganisationFields && (!name || !ownerName || !ownerPhone)) {
     return res.status(400).json({ error: 'Enter business details, a valid email and an 8-character password.' });
   }
-  if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid WiFi Fiti plan.' });
+  if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid Wi-Fi Fiti plan.' });
   if (db.businessByEmail.get(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
   if (emailVerificationEnabled()) {
     try {
@@ -800,7 +800,7 @@ app.get('/api/business/google/start', (req, res) => {
 app.get('/api/business/google/callback', async (req, res) => {
   const state = googleOAuthStates.get(String(req.query.state || ''));
   googleOAuthStates.delete(String(req.query.state || ''));
-  if (!state || state.expiresAt < Date.now() || !req.query.code) return res.status(400).send('Google sign-in expired. Return to WiFi Fiti and try again.');
+  if (!state || state.expiresAt < Date.now() || !req.query.code) return res.status(400).send('Google sign-in expired. Return to Wi-Fi Fiti and try again.');
   try {
     const oauth = googleOAuthConfig();
     if (!oauth) throw new Error('Google OAuth is not configured');
@@ -825,7 +825,7 @@ app.get('/api/business/google/callback', async (req, res) => {
     res.redirect(`${config.domains.appUrl}/business.html?google_token=${encodeURIComponent(token)}`);
   } catch (error) {
     console.error('[business] Google sign-in failed:', error.message);
-    res.status(502).send('Google sign-in could not be completed. Return to WiFi Fiti and use email sign-in.');
+    res.status(502).send('Google sign-in could not be completed. Return to Wi-Fi Fiti and use email sign-in.');
   }
 });
 
@@ -877,7 +877,7 @@ app.post('/api/business/resend-code', async (req, res) => {
 
 app.post('/api/business/forgot-password', async (req, res) => {
   const email = String(req.body && req.body.email || '').trim().toLowerCase();
-  const generic = { message: 'If that email belongs to a WiFi Fiti account, a password reset code has been sent.' };
+  const generic = { message: 'If that email belongs to a Wi-Fi Fiti account, a password reset code has been sent.' };
   if (!/^\S+@\S+\.\S+$/.test(email) || !emailVerificationEnabled()) return res.json(generic);
   const business = db.businessByEmail.get(email);
   if (!business) return res.json(generic);
@@ -1095,7 +1095,7 @@ app.post('/api/business/billing/checkout', async (req, res) => {
   const plan = String(req.body && req.body.plan || business.plan);
   const definition = BUSINESS_PLANS[plan];
   const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
-  if (!definition || !definition.monthlyKes) return res.status(400).json({ error: 'Custom plans are arranged with WiFi Fiti directly.' });
+  if (!definition || !definition.monthlyKes) return res.status(400).json({ error: 'Custom plans are arranged with Wi-Fi Fiti directly.' });
   if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay for this plan.' });
   const activeLocations = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
@@ -1207,7 +1207,7 @@ app.post('/api/business/payment-collection', async (req, res) => {
     return res.status(400).json({ error: 'Enter valid Daraja credentials, a shortcode, and the correct transaction type.' });
   }
   if (!process.env.TENANT_SECRETS_KEY) {
-    return res.status(503).json({ error: 'Secure payment storage has not been configured by WiFi Fiti yet.' });
+    return res.status(503).json({ error: 'Secure payment storage has not been configured by Wi-Fi Fiti yet.' });
   }
   const credentials = { shortcode, transactionType, consumerKey, consumerSecret, passkey };
   try {
@@ -1395,7 +1395,7 @@ app.get('/api/business/locations/:locationId/remote-access', (req, res) => {
 app.post('/api/business/locations/:locationId/remote-access', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   if (!req.body || req.body.consent !== true) {
-    return res.status(400).json({ error: 'Confirm that WiFi Fiti may prepare remote support for this router.' });
+    return res.status(400).json({ error: 'Confirm that Wi-Fi Fiti may prepare remote support for this router.' });
   }
   try {
     let remoteAccess = tenant.requestRemoteAccess({ locationId: String(req.params.locationId), businessId: business.id });
@@ -1409,7 +1409,7 @@ app.post('/api/business/locations/:locationId/remote-access', (req, res) => {
       const provisioned = tenant.provisionRemoteVpn({
         locationId: String(req.params.locationId),
         gatewayId: config.vpnGateway.id,
-        gatewayName: 'WiFi Fiti secure gateway',
+        gatewayName: 'Wi-Fi Fiti secure gateway',
         managementCidr: config.vpnGateway.managementCidr,
         actorId: `business:${business.id}`,
       });
@@ -1813,7 +1813,7 @@ app.get('/p/:locationId', (req, res) => {
 // it contains no account or payment data.
 app.get('/api/tenant/:locationId/manifest.webmanifest', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
-  const name = String(location.portal_name || location.business_name || 'WiFi Fiti').trim().slice(0, 80);
+  const name = String(location.portal_name || location.business_name || 'Wi-Fi Fiti').trim().slice(0, 80);
   const start = `/p/${encodeURIComponent(location.id)}`;
   res.type('application/manifest+json').set('Cache-Control', 'public, max-age=300').json({
     name: `${name} WiFi`, short_name: name.slice(0, 24), start_url: start,
@@ -3335,7 +3335,7 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     }
     if (!script) {
       return res.status(409).type('text/plain').send(
-        '# WiFi Fiti bootstrap is unavailable. Generate a fresh connection kit from the dashboard.\n'
+        '# Wi-Fi Fiti bootstrap is unavailable. Generate a fresh connection kit from the dashboard.\n'
       );
     }
     // Keep the normal kit certificate-verified. The explicit compatibility
@@ -3349,7 +3349,7 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     const status = error.status || 500;
     if (status >= 500) console.error('[router bootstrap] could not render location kit:', error.message);
     return res.status(status).type('text/plain').send(
-      '# WiFi Fiti bootstrap is unavailable. Generate a fresh full connection kit from the dashboard.\n'
+      '# Wi-Fi Fiti bootstrap is unavailable. Generate a fresh full connection kit from the dashboard.\n'
     );
   }
 });
@@ -3458,7 +3458,7 @@ function tenantPollTuningScript(intervalSeconds = 5) {
     ':local fitiPollSchedulers [/system scheduler find where name="fiti-poll"]',
     ':foreach fitiPollSchedulerId in=$fitiPollSchedulers do={',
     '  :local fitiPollSchedulerComment [/system scheduler get $fitiPollSchedulerId comment]',
-    '  :if ([:typeof [:find $fitiPollSchedulerComment "WiFi Fiti: sync usage, ack jobs, collect work"]] != "nil") do={',
+    '  :if ([:typeof [:find $fitiPollSchedulerComment "Wi-Fi Fiti: sync usage, ack jobs, collect work"]] != "nil") do={',
     '    :local fitiPollRunCount [/system scheduler get $fitiPollSchedulerId run-count]',
     // Do not rewrite start-date/start-time here. On RouterOS, resetting the
     // start timestamp on every sync can postpone the next run indefinitely;

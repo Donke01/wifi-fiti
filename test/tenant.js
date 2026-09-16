@@ -185,12 +185,12 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'one business cannot inspect another business remote-support lifecycle');
   assert.throws(
     () => tenant.requestRemoteAccess({ locationId: alpha.id, businessId: 'business-a' }),
-    (error) => error && error.status === 409 && /authenticated WiFi Fiti poll/.test(error.message),
+    (error) => error && error.status === 409 && /authenticated Wi-Fi Fiti poll/.test(error.message),
     'owner consent requires a successful sync rather than a generic authenticated router request'
   );
   assert.throws(
     () => tenant.requestRemoteAccess({ locationId: bravo.id, businessId: 'business-b' }),
-    (error) => error && error.status === 409 && /authenticated WiFi Fiti poll/.test(error.message),
+    (error) => error && error.status === 409 && /authenticated Wi-Fi Fiti poll/.test(error.message),
     'a router must pair before its owner can request remote support'
   );
   tenant.recordSuccessfulRouterSync(alpha.id);

@@ -2,7 +2,7 @@
 'use strict';
 
 /*
- * WiFi Fiti WireGuard gateway reconciler.
+ * Wi-Fi Fiti WireGuard gateway reconciler.
  *
  * This runs on the VPN VPS, not on Railway. It owns only peer records that
  * are present in its local state file. The WireGuard private key never enters

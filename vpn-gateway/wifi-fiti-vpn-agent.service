@@ -1,5 +1,5 @@
 [Unit]
-Description=WiFi Fiti WireGuard gateway reconciler
+Description=Wi-Fi Fiti WireGuard gateway reconciler
 After=network-online.target wg-quick@wg-fiti.service
 Wants=network-online.target
 Requires=wg-quick@wg-fiti.service

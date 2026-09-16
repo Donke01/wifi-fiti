@@ -107,7 +107,7 @@ function privateIpv4Cidr(value, name) {
 // can expand this together with the reviewed RouterOS allowlist.
 function wifiFitiManagementNetwork(address, cidr) {
   if (address !== '10.254.0.1' || cidr !== '10.254.0.0/16') {
-    console.error('WiFi Fiti VPN management is fixed to VPN_GATEWAY_ADDRESS=10.254.0.1 and VPN_GATEWAY_MANAGEMENT_CIDR=10.254.0.0/16.');
+    console.error('Wi-Fi Fiti VPN management is fixed to VPN_GATEWAY_ADDRESS=10.254.0.1 and VPN_GATEWAY_MANAGEMENT_CIDR=10.254.0.0/16.');
     process.exit(1);
   }
 }
@@ -120,7 +120,7 @@ const publicUrl = webOrigin(process.env.PUBLIC_URL, 'PUBLIC_URL');
 const appUrl = process.env.APP_URL
   ? webOrigin(process.env.APP_URL, 'APP_URL')
   : publicUrl;
-// The root domain is the public WiFi Fiti Business site. The live billing
+// The root domain is the public Wi-Fi Fiti Business site. The live billing
 // application, captive portals, and router polling live on APP_URL.
 const marketingUrl = webOrigin(process.env.MARKETING_URL || 'https://wififiti.co.ke', 'MARKETING_URL');
 const legacyHost = String(process.env.LEGACY_HOST || 'wififiti.co.ke').trim().toLowerCase().replace(/\.$/, '') || 'wififiti.co.ke';
@@ -146,7 +146,7 @@ if (portalGatewayRequested && (!portalRootDomain || !edgeGatewaySecret)) {
 }
 const portalGatewayEnabled = portalGatewayRequested && Boolean(portalRootDomain && edgeGatewaySecret);
 
-// The WiFi Fiti gateway is deliberately a separate, outbound-only
+// The Wi-Fi Fiti gateway is deliberately a separate, outbound-only
 // WireGuard control plane. It carries router-management traffic only: never
 // customer browsing, M-Pesa, portal traffic, or router credentials. Keep
 // its private key exclusively on the VPS; Railway receives only this public
@@ -242,11 +242,11 @@ module.exports = {
   },
 
   databasePath: process.env.DATABASE_PATH || './data/hotspot.db',
-  brandName: process.env.BRAND_NAME || 'WiFi Fiti',
+  brandName: process.env.BRAND_NAME || 'Wi-Fi Fiti',
   supportPhone: process.env.SUPPORT_PHONE || '',
   email: {
     provider: process.env.RESEND_API_KEY ? 'resend' : 'disabled',
     apiKey: process.env.RESEND_API_KEY || '',
-    from: process.env.EMAIL_FROM || 'WiFi Fiti <accounts@wififiti.co.ke>',
+    from: process.env.EMAIL_FROM || 'Wi-Fi Fiti <accounts@wififiti.co.ke>',
   },
 };

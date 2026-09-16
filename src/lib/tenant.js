@@ -1,5 +1,5 @@
 /**
- * Tenant runtime for WiFi Fiti for Business.
+ * Tenant runtime for Wi-Fi Fiti for Business.
  *
  * The original tables remain the legacy single-site ledger. New businesses
  * use these tables, keyed by location, so one customer's phone/MAC can never
@@ -429,7 +429,7 @@ db.exec(`
     updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  -- WiFi Fiti's own monthly platform billing is kept separate from
+  -- Wi-Fi Fiti's own monthly platform billing is kept separate from
   -- customer WiFi sales. A business only receives a renewed plan after the
   -- corresponding M-Pesa checkout is settled and activated exactly once.
   CREATE TABLE IF NOT EXISTS business_billing_transactions (
@@ -1741,7 +1741,7 @@ function requestRemoteAccess({ locationId, businessId }) {
   if (!location) return null;
   if (!location.last_successful_sync_at && !location.router_setup_verified_at) {
     throw remoteAccessError(
-      'Pair the router first. It must complete one authenticated WiFi Fiti poll before remote access can be requested.',
+      'Pair the router first. It must complete one authenticated Wi-Fi Fiti poll before remote access can be requested.',
       409
     );
   }
@@ -2008,7 +2008,7 @@ function allocateDesiredVpnPeer({ locationId, gatewayId: selectedGatewayId, gate
  * a management /32, selects the gateway, records the non-secret desired
  * gateway selection, and queues the existing harmless `prepare` action.
  * The router still has to create its own key pair; enrollment then creates
- * the actual desired peer record without exposing a private key to WiFi Fiti.
+ * the actual desired peer record without exposing a private key to Wi-Fi Fiti.
  */
 function provisionRemoteVpn({ locationId, gatewayId: selectedGatewayId, gatewayName: selectedGatewayName, managementCidr: requestedManagementCidr, actorId = 'vpn-platform' }) {
   const location = locationById.get(locationId);
@@ -2179,7 +2179,7 @@ function recordRemoteAccessEnrollment({ locationId, publicKey }) {
     }
     saveRemoteAccessEnrollment.run({ locationId: location.id, routerPublicKey: normalizedPublicKey });
     const enrolled = remoteAccessByLocation.get(location.id);
-    // Autonomous WiFi Fiti VPN provisioning records the selected gateway
+    // Autonomous Wi-Fi Fiti VPN provisioning records the selected gateway
     // before it asks the router to create an interface. Once that interface
     // reports its public key, create the desired gateway peer immediately.
     // Legacy prepare/configure flow remains harmless and does not obtain a
@@ -2216,7 +2216,7 @@ function requireGatewayPeer({ locationId, gatewayId: selectedGatewayId, configVe
   const location = locationById.get(locationId);
   if (!location) return { location: null, peer: null };
   const peer = vpnPeerByLocation.get(location.id);
-  if (!peer) throw remoteAccessError('No WiFi Fiti VPN peer is allocated for this router.', 409);
+  if (!peer) throw remoteAccessError('No Wi-Fi Fiti VPN peer is allocated for this router.', 409);
   if (peer.gateway_id !== gatewayId(selectedGatewayId)) {
     throw remoteAccessError('This router belongs to a different VPN gateway.', 409);
   }
@@ -2282,7 +2282,7 @@ function reportVpnGatewaySync({
     }
 
     if (peer.desired_state !== 'revoked') {
-      throw remoteAccessError('The gateway may confirm deletion only after WiFi Fiti revokes the desired peer.', 409);
+      throw remoteAccessError('The gateway may confirm deletion only after Wi-Fi Fiti revokes the desired peer.', 409);
     }
     markVpnPeerGatewayRevoked.run({ locationId: location.id, configVersion: version });
     return vpnPeerPayload(vpnPeerByLocation.get(location.id));
@@ -2566,7 +2566,7 @@ function confirmRouterMapping({ locationId, businessId, mapping }) {
     throw remoteAccessError('Wait for the replacement router to pair and report its own inventory before confirming a map.', 409);
   }
   if (!location.router_setup_verified_at && !location.last_successful_sync_at) {
-    throw remoteAccessError('Pair the router and wait for a completed WiFi Fiti poll before confirming its map.', 409);
+    throw remoteAccessError('Pair the router and wait for a completed Wi-Fi Fiti poll before confirming its map.', 409);
   }
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -2666,11 +2666,11 @@ function mappedDeploymentBlockerMessage(blocker) {
     inventory_stale: 'Wait for a fresh router inventory before deploying.',
     mapping_stale: 'The router layout changed. Review and confirm the map again before deploying.',
     mapping_needs_confirmation: 'Confirm the current router map before deploying.',
-    hotspot_not_detected: 'WiFi Fiti could not verify a Hotspot server on the mapped router.',
-    vpn_not_configured: 'WiFi Fiti VPN is not configured for this deployment.',
+    hotspot_not_detected: 'Wi-Fi Fiti could not verify a Hotspot server on the mapped router.',
+    vpn_not_configured: 'Wi-Fi Fiti VPN is not configured for this deployment.',
     remote_access_not_configured: 'Enable secure remote access for this router before deploying.',
     vpn_not_ready: 'Wait for the secure VPN connection to finish preparing.',
-    vpn_not_active: 'Wait for an active WiFi Fiti VPN handshake before deploying.',
+    vpn_not_active: 'Wait for an active Wi-Fi Fiti VPN handshake before deploying.',
     remote_control_pending: 'Wait for the current secure-connection change to finish before deploying.',
   };
   return messages[blocker] || 'This router is not ready for a mapped deployment.';
@@ -2719,7 +2719,7 @@ function normalizeMappedDeploymentPayload(value, topology) {
 function mappedDeploymentSigningKey() {
   const secret = String(config.vpnGateway?.controlSecret || '');
   if (!config.vpnGateway?.enabled || secret.length < 32) {
-    throw remoteAccessError('WiFi Fiti VPN signing is not configured for mapped deployment.', 503);
+    throw remoteAccessError('Wi-Fi Fiti VPN signing is not configured for mapped deployment.', 503);
   }
   return secret;
 }
@@ -3162,7 +3162,7 @@ function autoCompleteCustomerPortal(locationId) {
 
 function setManagedPortalHostname({ locationId, businessId, slug }) {
   if (!config.domains.portalGatewayEnabled) {
-    const error = new Error('Tenant portal addresses will be available after WiFi Fiti finishes the Cloudflare gateway setup.');
+    const error = new Error('Tenant portal addresses will be available after Wi-Fi Fiti finishes the Cloudflare gateway setup.');
     error.status = 503;
     throw error;
   }
@@ -3170,7 +3170,7 @@ function setManagedPortalHostname({ locationId, businessId, slug }) {
   if (!location) return null;
   // A branded public hostname changes what an unauthenticated phone opens.
   // Do not let a draft reserve or expose that customer-facing step before
-  // the router has proved that its WiFi Fiti connection works at least once.
+  // the router has proved that its Wi-Fi Fiti connection works at least once.
   // It may be offline later; the polling script will apply the saved address
   // on its next check-in.
   const control = locationById.get(location.id);
@@ -3194,7 +3194,7 @@ function setManagedPortalHostname({ locationId, businessId, slug }) {
   }
   const wouldAddActiveAddress = !existing || existing.status !== 'active';
   if (wouldAddActiveAddress && activePortalDomainCountForLocation.get(locationId).count >= MAX_ACTIVE_PORTAL_DOMAINS_PER_LOCATION) {
-    const error = new Error('This location already has three active portal addresses. Contact WiFi Fiti support to retire an older address.');
+    const error = new Error('This location already has three active portal addresses. Contact Wi-Fi Fiti support to retire an older address.');
     error.status = 409;
     throw error;
   }
@@ -3463,8 +3463,8 @@ function purgeExpiredOffboardedLocations() {
 function routerSetupScript(source) {
   const script = typeof source === 'string' ? source : '';
   return script.length >= 80 && script.length <= 96 * 1024 &&
-    /^:onerror fitiSetupError in=\{\n\s*# WiFi Fiti/.test(script) &&
-    script.includes('WiFi Fiti setup stopped:') &&
+    /^:onerror fitiSetupError in=\{\n\s*# Wi-Fi Fiti/.test(script) &&
+    script.includes('Wi-Fi Fiti setup stopped:') &&
     !script.includes('\0');
 }
 

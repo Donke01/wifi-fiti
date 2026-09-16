@@ -1,5 +1,5 @@
 # =====================================================================
-#  WiFi Fiti - router-side polling, usage reporting and acknowledgement
+#  Wi-Fi Fiti - router-side polling, usage reporting and acknowledgement
 #
 #  Every 2 seconds the router does ONE round trip that carries: which
 #  jobs it ran last cycle and a request for new work. The server also sends
@@ -38,10 +38,10 @@
 # connected phone from forwarding received internet packets to tethered
 # clients by delivering them with TTL 1.
 /ip hotspot user profile set [find name="standard"] shared-users=1
-/ip firewall mangle remove [find comment="WiFi Fiti anti-tethering"]
+/ip firewall mangle remove [find comment="Wi-Fi Fiti anti-tethering"]
 /ip firewall mangle add chain=postrouting out-interface=bridge-hs \
   action=change-ttl new-ttl=set:1 passthrough=yes \
-  comment="WiFi Fiti anti-tethering"
+  comment="Wi-Fi Fiti anti-tethering"
 
 :global fitiAck ""
 
@@ -106,11 +106,11 @@
 
 /system scheduler add name=fiti-globals start-time=startup interval=0 \
   policy=read,write,test,policy on-event="/system script run fiti-boot; /system script run fiti-poll" \
-  comment="WiFi Fiti: restore settings after reboot"
+  comment="Wi-Fi Fiti: restore settings after reboot"
 
 /system scheduler add name=fiti-poll interval=2s \
   policy=read,write,test,policy on-event="/system script run fiti-poll" \
-  comment="WiFi Fiti: sync usage, ack jobs, collect work"
+  comment="Wi-Fi Fiti: sync usage, ack jobs, collect work"
 
 :put ""
 :put "Installed. Polling every 2s, settings restored at boot."

@@ -15,12 +15,12 @@ assert.match(html, /Customer traffic and payments never use this path/, 'the UI 
 assert.doesNotMatch(html, /privateKey|private-key|vpnPrivate/i, 'the business UI must never render VPN private material');
 assert.match(html, /\/mapped-deployment/, 'the mapped deployment remains location-scoped and owner-authenticated');
 assert.match(html, /action:\s*'apply'/, 'the browser can request only the finite reviewed mapped-deployment action');
-assert.match(html, /Apply WiFi Fiti service/, 'the remote panel makes the post-map action explicit rather than implying a generic terminal');
+assert.match(html, /Apply Wi-Fi Fiti service/, 'the remote panel makes the post-map action explicit rather than implying a generic terminal');
 assert.match(html, /fresh private management handshake/, 'the UI explains that deployment is gated by a current private connection');
 assert.match(html, /It never changes WAN, bridge membership, Wi‑Fi name or password, DHCP, NAT, generic firewall policy, Hotspot address, or router administrator access/, 'the UI precisely defines the autonomous deployment boundary');
 
 // A customer address is intentionally deferred until the router has proved
-// its WiFi Fiti connection. The normal dashboard must not tease an owner
+// its Wi-Fi Fiti connection. The normal dashboard must not tease an owner
 // with a setting that the server will correctly refuse.
 const locationEditor = html.match(/function renderLocationEditor\(location, card\) \{[\s\S]*?\n\s*function renderLocations/);
 assert.ok(locationEditor, 'the location editor remains a distinct dashboard surface');
@@ -37,7 +37,7 @@ assert.match(locationEditor[0], /A replacement router is waiting for its secure 
 // unsaved wizard choices or stage a replacement kit, while deletion stays
 // limited to an explicitly confirmed, unused draft. The new-router reset
 // instruction is deliberately a copy-only, optional manual action; it is
-// never sent to a router by WiFi Fiti.
+// never sent to a router by Wi-Fi Fiti.
 assert.match(html, /Start router setup again/,
   'each location offers a safe way to begin its router setup again');
 assert.doesNotMatch(html, /Offboard \/ remove router|\/offboard|OFFBOARD ROUTER/,
@@ -70,7 +70,7 @@ assert.match(html, /Initial Preparation \(Optional\)/,
   'fresh-router preparation is explicitly optional');
 assert.match(html, /\/system reset-configuration no-defaults=yes skip-backup=yes/,
   'the manual reset instruction uses valid RouterOS no-defaults syntax');
-assert.match(html, /WiFi Fiti never resets a router remotely/,
+assert.match(html, /Wi-Fi Fiti never resets a router remotely/,
   'the reset instruction makes its manual, owner-controlled scope explicit');
 assert.doesNotMatch(html, /no-default=yes/,
   'the UI does not publish the invalid singular no-default reset property');
@@ -166,7 +166,7 @@ assert.match(html, /@media\(max-width:900px\)\{\.onboarding-flow-head[\s\S]*\.se
   'the three setup stages stay readable in one connected mobile/tablet sequence');
 assert.match(html, /Initial Preparation \(Optional\)/,
   'safe optional preparation guidance is available in the connection stage');
-assert.match(html, /WiFi Fiti never resets a router remotely/,
+assert.match(html, /Wi-Fi Fiti never resets a router remotely/,
   'the new onboarding language keeps router resets explicitly owner-controlled');
 assert.match(html, /function connectionPhaseFor\(model\)/,
   'the connection stage remembers which single focused page an owner was on');
@@ -176,11 +176,11 @@ assert.match(html, /appendConnectionMilestones\(prepareBody, phase\)/,
   'the preparation page shows progress without rendering the following work');
 assert.match(html, /appendConnectionMilestones\(connectBody, phase\)/,
   'the secure-kit page retains the same compact progress context');
-assert.match(html, /\/ip dhcp-client add interface=ether1 disabled=no comment="WiFi Fiti WAN"/,
+assert.match(html, /\/ip dhcp-client add interface=ether1 disabled=no comment="Wi-Fi Fiti WAN"/,
   'new DHCP routers can be prepared with a visible, copyable WAN command');
 assert.match(html, /Skip it for PPPoE, static IP or another WAN port/,
   'the WAN guidance does not pretend that DHCP on ether1 fits every router');
-assert.match(html, /WiFi Fiti already retries through its outbound polling link/,
+assert.match(html, /Wi-Fi Fiti already retries through its outbound polling link/,
   'failed connection checks offer an honest recovery path rather than a fake second transport');
 assert.match(html, /Review WAN preparation/,
   'two unsuccessful connection checks route the owner back to the prerequisite page');
@@ -251,7 +251,7 @@ assert.match(html, /function routerBootstrapCommand\(setup, compatibility\)/,
 assert.match(html, /setup\.setup\.loader === true/,
   'the concise command is offered only when the server retained the exact one-time kit');
 assert.match(html, /\/api\/router\/v1\/bootstrap\?site=/,
-  'the concise command fetches WiFi Fiti’s location-specific bootstrap endpoint');
+  'the concise command fetches Wi-Fi Fiti’s location-specific bootstrap endpoint');
 assert.match(html, /http-header-field="' \+ rosQuote\('X-WiFi-Fiti-Router: ' \+ routerToken\)/,
   'the concise command authenticates with the per-location router token, not a global credential');
 assert.match(html, /Copy connection kit/,
@@ -260,7 +260,7 @@ assert.match(html, /This recovery kit disables HTTPS certificate verification fo
   'the CA recovery kit requires an explicit security acknowledgement before copying');
 assert.doesNotMatch(html, /Download full kit|Download \\.rsc|Show full RouterOS kit \(fallback\)/,
   'the customer onboarding view does not expose downloads or fallback scripts');
-assert.match(html, /WiFi Fiti kit was not downloaded\. Check WAN, DNS and RouterOS certificate trust, then retry\./,
+assert.match(html, /Wi-Fi Fiti kit was not downloaded\. Check WAN, DNS and RouterOS certificate trust, then retry\./,
   'a failed short installer stops before importing a stale file');
 assert.match(html, /paste this complete kit once/,
   'the dashboard explains that the copied connection kit is complete');

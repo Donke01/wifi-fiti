@@ -1,5 +1,5 @@
 /*
- * WiFi Fiti tenant portal edge gateway.
+ * Wi-Fi Fiti tenant portal edge gateway.
  *
  * This Worker has no database and never handles router polling, M-Pesa
  * callbacks, dashboard traffic or credentials. Railway remains the source of

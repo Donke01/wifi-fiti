@@ -116,7 +116,7 @@ async function runRound(routers) {
 }
 
 async function main() {
-  console.log('WiFi Fiti router poll capacity benchmark');
+  console.log('Wi-Fi Fiti router poll capacity benchmark');
   console.log('Temporary database:', databasePath);
   for (const count of [50, 100, 250, 500]) {
     const routers = await createRouters(count, count);

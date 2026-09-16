@@ -122,7 +122,7 @@ db.exec(`
     portal_name     TEXT,
     -- This is intentionally separate from organisation completion. A
     -- customer-facing address is chosen only after the first router has
-    -- successfully completed its WiFi Fiti connection.
+    -- successfully completed its Wi-Fi Fiti connection.
     portal_setup_completed_at TEXT,
     support_phone   TEXT,
     brand_primary_color TEXT,

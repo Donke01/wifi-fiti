@@ -54,7 +54,7 @@ index 186c83a..e0c4679 100644
 +    provisionRemoteVpn({
 +      locationId: location.id,
 +      gatewayId: config.vpnGateway.id,
-+      gatewayName: 'WiFi Fiti secure gateway',
++      gatewayName: 'Wi-Fi Fiti secure gateway',
 +      managementCidr: config.vpnGateway.managementCidr,
 +      actorId: 'platform:auto-onboarding',
 +    });
@@ -63,7 +63,7 @@ index 186c83a..e0c4679 100644
 +
  function setManagedPortalHostname({ locationId, businessId, slug }) {
    if (!config.domains.portalGatewayEnabled) {
-     const error = new Error('Tenant portal addresses will be available after WiFi Fiti finishes the Cloudflare gateway setup.');
+     const error = new Error('Tenant portal addresses will be available after Wi-Fi Fiti finishes the Cloudflare gateway setup.');
 @@ -3432,7 +3487,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } =
  }
  

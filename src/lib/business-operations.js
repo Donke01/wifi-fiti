@@ -126,7 +126,7 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
     return { currency: 'KES', grossMinor: Number(earned.gross_minor), feeMinor: Number(earned.fee_minor),
       earnedMinor: Number(earned.earned_minor), reservedMinor: Number(committed.reserved_minor),
       paidMinor: Number(committed.paid_minor), availableMinor: Math.max(0, available),
-      processing: 'manual', note: 'Only settled WiFi Fiti collection is included. Requests reserve funds for manual review. No money is transferred by this website.' };
+      processing: 'manual', note: 'Only settled Wi-Fi Fiti collection is included. Requests reserve funds for manual review. No money is transferred by this website.' };
   }
   function recordPayoutEvent(payout, action, actor, reference, note) {
     db.prepare(`INSERT INTO business_payout_events(payout_id,business_id,action,actor,external_reference,note)
@@ -216,7 +216,7 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
     const receipt = receiptRow.get(business.id, req.params.checkoutRequestId);
     if (!receipt) throw fail('Confirmed payment receipt not found.', 404);
     const oneLine = value => String(value || '').replace(/[\r\n\t]/g, ' ');
-    const lines = ['WiFi Fiti — subscription payment receipt', '', 'Not a statutory tax invoice.', '',
+    const lines = ['Wi-Fi Fiti — subscription payment receipt', '', 'Not a statutory tax invoice.', '',
       `Business: ${oneLine(business.name)}`, `Business ID: ${oneLine(business.id)}`,
       `Receipt: ${oneLine(receipt.checkout_request_id)}`, `M-Pesa reference: ${oneLine(receipt.mpesa_receipt || 'Confirmed by payment status query')}`,
       `Plan: ${oneLine(receipt.plan)}`, `Amount paid: KES ${Number(receipt.amount).toFixed(2)}`,
@@ -254,7 +254,7 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
         reused = true;
         return prior;
       }
-      if (amount > balance(business.id).availableMinor) throw fail('The amount exceeds your available WiFi Fiti collection balance.', 409);
+      if (amount > balance(business.id).availableMinor) throw fail('The amount exceeds your available Wi-Fi Fiti collection balance.', 409);
       const id = newId('payout');
       db.prepare(`INSERT INTO business_payout_requests(id,business_id,idempotency_key,amount_minor,destination_type,destination_name,destination_account)
         VALUES(?,?,?,?,?,?,?)`).run(id, business.id, key, amount, destinationType, destinationName, destinationAccount);

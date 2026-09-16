@@ -1,5 +1,5 @@
 # =====================================================================
-#  WiFi Fiti - MikroTik hAP lite TC (RB941-2nD-TC)
+#  Wi-Fi Fiti - MikroTik hAP lite TC (RB941-2nD-TC)
 #  Topology: hAP lite hangs OFF your existing router as a separate
 #            hotspot segment. Your main network is not touched.
 #
@@ -26,7 +26,7 @@
 # =====================================================================
 
 # ---------------------------- SETTINGS -------------------------------
-# Public WiFi Fiti app that captive customers must be able to reach before
+# Public Wi-Fi Fiti app that captive customers must be able to reach before
 # they sign in. Keep this on cloud.wififiti.co.ke for the hosted service.
 :global portalHost  "cloud.wififiti.co.ke"
 
@@ -48,7 +48,7 @@
 :global hsNet       "10.5.50"
 
 # What customers see in their WiFi list.
-:global hotspotSsid "WiFi Fiti"
+:global hotspotSsid "Wi-Fi Fiti"
 # ---------------------------------------------------------------------
 
 # --- Identity ---------------------------------------------------------
@@ -70,7 +70,7 @@ set [find default-name=wlan1] mode=ap-bridge band=2ghz-b/g/n \
 
 # --- Bridge the hotspot side -----------------------------------------
 /interface bridge
-add name=bridge-hs protocol-mode=none comment="WiFi Fiti hotspot"
+add name=bridge-hs protocol-mode=none comment="Wi-Fi Fiti hotspot"
 
 /interface bridge port
 add bridge=bridge-hs interface=ether2
@@ -131,13 +131,13 @@ add name=standard rate-limit=3M/3M shared-users=1 \
 # sharing; MAC/TTL spoofing can never be made impossible on consumer gear.
 /ip firewall mangle
 add chain=postrouting out-interface=bridge-hs action=change-ttl \
-    new-ttl=set:1 passthrough=yes comment="WiFi Fiti anti-tethering"
+    new-ttl=set:1 passthrough=yes comment="Wi-Fi Fiti anti-tethering"
 
 # --- Walled garden ----------------------------------------------------
 #  An unauthenticated phone must reach the portal, or the payment flow
 #  dead-ends before it starts.
 /ip hotspot walled-garden
-add dst-host="$portalHost" action=allow comment="WiFi Fiti live cloud"
+add dst-host="$portalHost" action=allow comment="Wi-Fi Fiti live cloud"
 add dst-host="$portalIp" action=allow comment="legacy local portal compatibility"
 
 /ip hotspot walled-garden ip
@@ -146,11 +146,11 @@ add dst-address="$portalIp" action=accept comment="legacy local portal compatibi
 # --- API account for the billing app ----------------------------------
 #  Least privilege, and reachable only from your trusted LAN.
 /user group
-add name=billing policy=api,read,write,test,winbox comment="WiFi Fiti app"
+add name=billing policy=api,read,write,test,winbox comment="Wi-Fi Fiti app"
 
 /user
 add name=hotspot-api group=billing password="$apiPassword" \
-    address="$trustedLan" comment="WiFi Fiti billing service"
+    address="$trustedLan" comment="Wi-Fi Fiti billing service"
 
 /ip service
 set api disabled=no port=8728 address="$trustedLan"

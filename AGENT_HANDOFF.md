@@ -1,6 +1,6 @@
-# WiFi Fiti — agent handoff
+# Wi-Fi Fiti — agent handoff
 
-This repository is the source of truth for WiFi Fiti. Work from the `main`
+This repository is the source of truth for Wi-Fi Fiti. Work from the `main`
 branch and do not put production secrets, router keys, database files, or
 `.env` files into Git or support messages.
 
@@ -16,11 +16,11 @@ branch and do not put production secrets, router keys, database files, or
 ## Architecture
 
 Customer MikroTik routers make authenticated **outbound HTTPS** requests to
-the cloud. WiFi Fiti does not expose public WinBox, API, or SSH.
+the cloud. Wi-Fi Fiti does not expose public WinBox, API, or SSH.
 
 ```text
 MikroTik ── outbound HTTPS poll ──> cloud.wififiti.co.ke
-MikroTik ── outbound WireGuard ──> WiFi Fiti VPN gateway
+MikroTik ── outbound WireGuard ──> Wi-Fi Fiti VPN gateway
 VPN gateway ── outbound HTTPS ──> cloud.wififiti.co.ke
 ```
 
@@ -35,7 +35,7 @@ RouterOS kit.
 There are intentionally separate paths:
 
 - **Existing Hotspot router:** preserve WAN, Wi-Fi, DHCP, bridge membership,
-  Hotspot, NAT, and administrator credentials. Install WiFi Fiti polling and
+  Hotspot, NAT, and administrator credentials. Install Wi-Fi Fiti polling and
   captive-portal assets only after validating the saved bridge and Hotspot.
 - **New/reset router:** use the full generated `.rsc` kit. It is the only
   safe path that can create customer Wi-Fi and WAN configuration.
@@ -60,7 +60,7 @@ The business dashboard uses a focused three-step journey:
 Owners can go back without losing configuration, pause and resume onboarding,
 and remove only an unused, unpaired router. Removal deletes the cloud draft
 and pairing credential after an explicit confirmation; it never resets the
-physical router. Once a router has contacted WiFi Fiti or has customer
+physical router. Once a router has contacted Wi-Fi Fiti or has customer
 history, the safe alternative is **Start router setup again**, which stages a
 replacement rather than deleting records.
 

@@ -180,7 +180,7 @@ function scriptForLocation(locationId) {
     WHERE j.location_id=? AND j.status IN ('queued','delivered') AND j.next_attempt_at<=datetime('now') ORDER BY j.created_at LIMIT 50`).all(locationId);
   if (!jobs.length) return '';
   const ros = value => `"${String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\\$').replace(/[\r\n]/g, ' ')}"`;
-  const lines = ['# WiFi Fiti PPPoE automation']; const ids = [];
+  const lines = ['# Wi-Fi Fiti PPPoE automation']; const ids = [];
   const bridge = String(location.customer_bridge || '').trim();
   const bridgeName = /^[A-Za-z0-9_-]{1,32}$/.test(bridge) ? bridge : '';
   let serverProfile = '';
@@ -191,20 +191,20 @@ function scriptForLocation(locationId) {
     const sessionTimeout = Math.min(604800, Math.max(0, Number(job.session_timeout_seconds) || 0));
     const idleTimeout = Math.min(86400, Math.max(60, Number(job.idle_timeout_seconds) || 900));
     if (!pppoePoolDeclared) {
-      lines.unshift(`:do { /ip pool add name="fiti-pppoe-pool" ranges="${pppoeSubnet.pool}" comment="WiFi Fiti PPPoE isolated subnet" } on-error={ /ip pool set [find where name="fiti-pppoe-pool"] ranges="${pppoeSubnet.pool}" }`);
-      lines.unshift(`:do { :if ([:len [/ip firewall filter find where comment="WiFi Fiti PPPoE DNS"]] = 0) do={ /ip firewall filter add chain=input action=accept src-address="${pppoeSubnet.network}" protocol=udp dst-port=53 comment="WiFi Fiti PPPoE DNS"; /ip firewall filter add chain=input action=accept src-address="${pppoeSubnet.network}" protocol=tcp dst-port=53 comment="WiFi Fiti PPPoE DNS" } } on-error={}`);
-      lines.unshift(`:do { :if ([:len [/ip firewall filter find where comment="WiFi Fiti PPPoE isolation"]] = 0) do={ /ip firewall filter add chain=forward action=drop src-address="${pppoeSubnet.network}" dst-address="10.5.50.0/24" comment="WiFi Fiti PPPoE isolation"; /ip firewall filter add chain=forward action=drop src-address="10.5.50.0/24" dst-address="${pppoeSubnet.network}" comment="WiFi Fiti PPPoE isolation" } } on-error={}`);
+      lines.unshift(`:do { /ip pool add name="fiti-pppoe-pool" ranges="${pppoeSubnet.pool}" comment="Wi-Fi Fiti PPPoE isolated subnet" } on-error={ /ip pool set [find where name="fiti-pppoe-pool"] ranges="${pppoeSubnet.pool}" }`);
+      lines.unshift(`:do { :if ([:len [/ip firewall filter find where comment="Wi-Fi Fiti PPPoE DNS"]] = 0) do={ /ip firewall filter add chain=input action=accept src-address="${pppoeSubnet.network}" protocol=udp dst-port=53 comment="Wi-Fi Fiti PPPoE DNS"; /ip firewall filter add chain=input action=accept src-address="${pppoeSubnet.network}" protocol=tcp dst-port=53 comment="Wi-Fi Fiti PPPoE DNS" } } on-error={}`);
+      lines.unshift(`:do { :if ([:len [/ip firewall filter find where comment="Wi-Fi Fiti PPPoE isolation"]] = 0) do={ /ip firewall filter add chain=forward action=drop src-address="${pppoeSubnet.network}" dst-address="10.5.50.0/24" comment="Wi-Fi Fiti PPPoE isolation"; /ip firewall filter add chain=forward action=drop src-address="10.5.50.0/24" dst-address="${pppoeSubnet.network}" comment="Wi-Fi Fiti PPPoE isolation" } } on-error={}`);
       pppoePoolDeclared = true;
     }
-    lines.push(`:do { /ppp profile add name=${profile} rate-limit=${rate} local-address="${pppoeSubnet.gateway}" remote-address="fiti-pppoe-pool" dns-server=1.1.1.1,8.8.8.8 only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} comment="WiFi Fiti PPPoE" } on-error={ /ppp profile set [find where name=${profile}] rate-limit=${rate} local-address="${pppoeSubnet.gateway}" remote-address="fiti-pppoe-pool" dns-server=1.1.1.1,8.8.8.8 only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} }`);
+    lines.push(`:do { /ppp profile add name=${profile} rate-limit=${rate} local-address="${pppoeSubnet.gateway}" remote-address="fiti-pppoe-pool" dns-server=1.1.1.1,8.8.8.8 only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} comment="Wi-Fi Fiti PPPoE" } on-error={ /ppp profile set [find where name=${profile}] rate-limit=${rate} local-address="${pppoeSubnet.gateway}" remote-address="fiti-pppoe-pool" dns-server=1.1.1.1,8.8.8.8 only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} }`);
     const expired = job.user_expires_at && Date.parse(String(job.user_expires_at)) <= Date.now();
     const locked = job.user_locked_until && Date.parse(String(job.user_locked_until)) > Date.now();
     if (job.action === 'revoke' || job.user_status !== 'active' || expired || locked) lines.push(`:do { /ppp secret set [find where name=${user}] disabled=yes } on-error={}`);
-    else { let secret = ''; try { secret = decrypt(job.secret_ciphertext); } catch (_) {} if (secret) lines.push(`:do { /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${profile} disabled=no comment="WiFi Fiti PPPoE" } on-error={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${profile} disabled=no }`); }
+    else { let secret = ''; try { secret = decrypt(job.secret_ciphertext); } catch (_) {} if (secret) lines.push(`:do { /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${profile} disabled=no comment="Wi-Fi Fiti PPPoE" } on-error={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${profile} disabled=no }`); }
   }
   if (bridgeName && serverProfile) {
     const interfaceName = ros(bridgeName); const defaultProfile = ros(serverProfile);
-    lines.unshift(`:do { /ppp aaa set use-radius=no; /interface pppoe-server server add service-name="pppoe" interface=${interfaceName} default-profile=${defaultProfile} authentication=pap,chap,mschap1,mschap2 disabled=no comment="WiFi Fiti PPPoE" } on-error={ :do { /interface pppoe-server server set [find where service-name="pppoe" and interface=${interfaceName}] default-profile=${defaultProfile} authentication=pap,chap,mschap1,mschap2 disabled=no } on-error={} }`);
+    lines.unshift(`:do { /ppp aaa set use-radius=no; /interface pppoe-server server add service-name="pppoe" interface=${interfaceName} default-profile=${defaultProfile} authentication=pap,chap,mschap1,mschap2 disabled=no comment="Wi-Fi Fiti PPPoE" } on-error={ :do { /interface pppoe-server server set [find where service-name="pppoe" and interface=${interfaceName}] default-profile=${defaultProfile} authentication=pap,chap,mschap1,mschap2 disabled=no } on-error={} }`);
   }
   for (const idValue of ids) db.prepare("UPDATE pppoe_jobs SET status='delivered',delivered_at=datetime('now'),updated_at=datetime('now') WHERE id=? AND status='queued'").run(idValue);
   const ack = ids.join(',');
@@ -244,7 +244,7 @@ function attachPppoeRoutes(app, { businessAuth }) {
     // response is the only channel that emits executable PPPoE work; returning
     // a second script here would mark it delivered while RouterOS discards it
     // because this fetch uses output=none.
-    res.type('text/plain').send('# WiFi Fiti PPPoE acknowledgement accepted\n');
+    res.type('text/plain').send('# Wi-Fi Fiti PPPoE acknowledgement accepted\n');
   });
 }
 

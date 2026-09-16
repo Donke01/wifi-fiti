@@ -1,5 +1,5 @@
 # =====================================================================
-#  WiFi Fiti for Business - router-side polling, usage reporting and acknowledgement
+#  Wi-Fi Fiti for Business - router-side polling, usage reporting and acknowledgement
 #
 #  Every 2 seconds the router does ONE round trip that carries: which
 #  jobs it ran last cycle and a request for new work. The server also sends
@@ -73,7 +73,7 @@
 
 # Device-mode restrictions otherwise allow a partial portal update and only
 # fail later when the poll scheduler is created. Stop before touching the
-# Hotspot if any mandatory WiFi Fiti feature is blocked. We intentionally
+# Hotspot if any mandatory Wi-Fi Fiti feature is blocked. We intentionally
 # request only the three required flags; the owner must confirm the change
 # physically and re-import rather than the installer changing it silently.
 :local fitiDeviceFetch true
@@ -86,7 +86,7 @@
 :do { :local fitiRead [:parse ":return [/system device-mode get hotspot]"]; :set fitiDeviceHotspot [$fitiRead] } on-error={}
 :do { :local fitiRead [:parse ":return [/system device-mode get flagged]"]; :set fitiDeviceFlagged [$fitiRead] } on-error={}
 :if (($fitiDeviceFetch != true) || ($fitiDeviceScheduler != true) || ($fitiDeviceHotspot != true)) do={
-  :error "RouterOS device mode blocks a required WiFi Fiti feature. Run /system device-mode update fetch=yes scheduler=yes hotspot=yes, confirm it physically, then import this kit again."
+  :error "RouterOS device mode blocks a required Wi-Fi Fiti feature. Run /system device-mode update fetch=yes scheduler=yes hotspot=yes, confirm it physically, then import this kit again."
 }
 :if ($fitiDeviceFlagged = true) do={
   :error "RouterOS has flagged this configuration. Audit it, then run /system device-mode update flagged=no and confirm it physically before importing this kit."
@@ -111,7 +111,7 @@
 # existing server.  Re-enable only this verified customer Hotspot so captive
 # portal redirects work immediately after pairing.
 /ip hotspot enable [find where name=$fitiHotspotServer]
-# The authenticated one-time kit authorizes replacement of an older WiFi Fiti
+# The authenticated one-time kit authorizes replacement of an older Wi-Fi Fiti
 # pairing. This is required when a router is re-onboarded after testing or
 # offboarding; the existing WAN, bridge and Hotspot checks above still run
 # before any managed scripts are replaced.
@@ -133,13 +133,13 @@
 # Enforce one physical device per MAC-bound identity and prevent ordinary
 # phone hotspot/tether forwarding by delivering client packets with TTL 1.
 /ip hotspot user profile set [find name="standard"] shared-users=1
-/ip firewall mangle remove [find comment="WiFi Fiti anti-tethering"]
+/ip firewall mangle remove [find comment="Wi-Fi Fiti anti-tethering"]
 :if ([:len [/interface find where name=$fitiBridge]] > 0) do={
   /ip firewall mangle add chain=postrouting out-interface=$fitiBridge \
     action=change-ttl new-ttl=set:1 passthrough=yes \
-    comment="WiFi Fiti anti-tethering"
+    comment="Wi-Fi Fiti anti-tethering"
 } else={
-  :log warning "WiFi Fiti: anti-tethering was not applied; set fitiBridge to the customer bridge, then import again"
+  :log warning "Wi-Fi Fiti: anti-tethering was not applied; set fitiBridge to the customer bridge, then import again"
 }
 
 :global fitiAck ""
@@ -286,7 +286,7 @@
 \n    :local fitiFirstInstallScheduler [/system scheduler find where name=\"fiti-first-install\"]\r\
 \n    :if ([:len \$fitiFirstInstallScheduler] = 1) do={\r\
 \n      :local fitiFirstInstallComment [/system scheduler get \$fitiFirstInstallScheduler comment]\r\
-\n      :if ([:typeof [:find \$fitiFirstInstallComment \"WiFi Fiti: retry cloud installer\"]] != \"nil\") do={\r\
+\n      :if ([:typeof [:find \$fitiFirstInstallComment \"Wi-Fi Fiti: retry cloud installer\"]] != \"nil\") do={\r\
 \n        :if ([/system scheduler get \$fitiFirstInstallScheduler disabled] = false) do={\r\
 \n          /system scheduler disable \$fitiFirstInstallScheduler\r\
 \n          :log info \"fiti: cloud sync verified; first-install retry disabled\"\r\
@@ -360,12 +360,12 @@
 \n  :if ([:len \$fitiToken] > 8 && [:len \$fitiSite] > 0 && \$fitiSupportEnrollUrl = \$fitiSupportExpectedUrl && [:pick \$fitiSupportEnrollUrl 0 8] = \"https://\") do={\r\
 \n    :local fitiSupportManaged false\r\
 \n    :if ([:len \$fitiSupportWireguard] = 0) do={\r\
-\n      /interface wireguard add name=\$fitiSupportInterface disabled=yes comment=\"WiFi Fiti support: pending owner-approved enrollment\"\r\
+\n      /interface wireguard add name=\$fitiSupportInterface disabled=yes comment=\"Wi-Fi Fiti support: pending owner-approved enrollment\"\r\
 \n      :set fitiSupportWireguard [/interface wireguard find where name=\$fitiSupportInterface]\r\
 \n      :set fitiSupportManaged true\r\
 \n    } else={\r\
 \n      :local fitiSupportComment [/interface wireguard get \$fitiSupportWireguard comment]\r\
-\n      :if ([:typeof [:find \$fitiSupportComment \"WiFi Fiti support:\"]] != \"nil\") do={ :set fitiSupportManaged true } else={ :log warning \"fiti support: interface name is already used by a non-WiFi-Fiti tunnel\" }\r\
+\n      :if ([:typeof [:find \$fitiSupportComment \"Wi-Fi Fiti support:\"]] != \"nil\") do={ :set fitiSupportManaged true } else={ :log warning \"fiti support: interface name is already used by a non-WiFi-Fiti tunnel\" }\r\
 \n    }\r\
 \n    :if (\$fitiSupportManaged) do={\r\
 \n      :local fitiSupportPublicKey [/interface wireguard get \$fitiSupportWireguard public-key]\r\
@@ -379,7 +379,7 @@
 \n      } on-error={\r\
 \n        :if ([:len \$fitiSupportScheduler] = 1) do={ /system scheduler enable \$fitiSupportScheduler }\r\
 \n        :log warning (\"fiti support: HTTPS enrollment unavailable; WireGuard remains disabled. Public key: \" . \$fitiSupportPublicKey)\r\
-\n        :put (\"WiFi Fiti support public key: \" . \$fitiSupportPublicKey)\r\
+\n        :put (\"Wi-Fi Fiti support public key: \" . \$fitiSupportPublicKey)\r\
 \n        :error \"fiti support: enrollment failed\"\r\
 \n      }\r\
 \n    }\r\
@@ -399,16 +399,16 @@
 :if ([:len $fitiSupportScheduler] = 0) do={
   /system scheduler add name=fiti-support-enroll interval=1h disabled=yes \
     policy=read,write,ftp,test,policy on-event="/system script run fiti-support-bootstrap" \
-    comment="WiFi Fiti: optional remote-support public-key enrollment"
+    comment="Wi-Fi Fiti: optional remote-support public-key enrollment"
 } else={
   /system scheduler set $fitiSupportScheduler interval=1h \
     policy=read,write,ftp,test,policy on-event="/system script run fiti-support-bootstrap" \
-    comment="WiFi Fiti: optional remote-support public-key enrollment"
+    comment="Wi-Fi Fiti: optional remote-support public-key enrollment"
 }
 
 /system scheduler add name=fiti-globals start-time=startup interval=0 \
   policy=read,write,ftp,test,policy on-event="/system script run fiti-boot; /system script run fiti-poll" \
-  comment="WiFi Fiti: restore settings after reboot"
+  comment="Wi-Fi Fiti: restore settings after reboot"
 
 # Anchor the repeating task to the router's current clock. Some RouterOS
 # builds accept an epoch start date but never execute the scheduler (run-count
@@ -418,7 +418,7 @@
 :local fitiPollStartTime [/system clock get time]
 /system scheduler add name=fiti-poll start-date=$fitiPollStartDate start-time=$fitiPollStartTime interval=1s disabled=no \
   policy=read,write,ftp,test,policy on-event="/system script run fiti-poll" \
-  comment="WiFi Fiti: sync usage, ack jobs, collect work"
+  comment="Wi-Fi Fiti: sync usage, ack jobs, collect work"
 
 # Initialize the globals immediately. Do not wait for the first reboot/startup
 # event; a newly installed router must send its first cloud pairing sync now.

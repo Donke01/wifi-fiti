@@ -1,5 +1,5 @@
 # =====================================================================
-#  WiFi Fiti - router-side polling, usage reporting and acknowledgement
+#  Wi-Fi Fiti - router-side polling, usage reporting and acknowledgement
 #
 #  Every 5 seconds the router does ONE round trip that carries: which
 #  jobs it ran last cycle and a request for new work. The server also sends
@@ -42,13 +42,13 @@
 # Enforce one physical device per MAC-bound identity and prevent ordinary
 # phone hotspot/tether forwarding by delivering client packets with TTL 1.
 /ip hotspot user profile set [find name="standard"] shared-users=1
-/ip firewall mangle remove [find comment="WiFi Fiti anti-tethering"]
+/ip firewall mangle remove [find comment="Wi-Fi Fiti anti-tethering"]
 :if ([:len [/interface find where name=$fitiBridge]] > 0) do={
   /ip firewall mangle add chain=postrouting out-interface=$fitiBridge \
     action=change-ttl new-ttl=set:1 passthrough=yes \
-    comment="WiFi Fiti anti-tethering"
+    comment="Wi-Fi Fiti anti-tethering"
 } else={
-  :log warning "WiFi Fiti: anti-tethering was not applied; set fitiBridge to the customer bridge, then import again"
+  :log warning "Wi-Fi Fiti: anti-tethering was not applied; set fitiBridge to the customer bridge, then import again"
 }
 
 :global fitiAck ""
@@ -113,11 +113,11 @@
 
 /system scheduler add name=fiti-globals start-time=startup interval=0 \
   policy=read,write,test,policy on-event="/system script run fiti-boot" \
-  comment="WiFi Fiti: restore settings after reboot"
+  comment="Wi-Fi Fiti: restore settings after reboot"
 
 /system scheduler add name=fiti-poll interval=5s disabled=yes \
   policy=read,write,test,policy on-event="/system script run fiti-poll" \
-  comment="WiFi Fiti: sync usage, ack jobs, collect work"
+  comment="Wi-Fi Fiti: sync usage, ack jobs, collect work"
 
 :put ""
 :put "Installed but paused. Enable fiti-poll only after disabling the old router."

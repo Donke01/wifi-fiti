@@ -1,7 +1,7 @@
-# WiFi Fiti VPN gateway
+# Wi-Fi Fiti VPN gateway
 
 This is a small pull agent for the dedicated `wg-fiti` WireGuard interface on
-the WiFi Fiti VPN VPS. It reconciles only peer records issued by the Railway
+the Wi-Fi Fiti VPN VPS. It reconciles only peer records issued by the Railway
 application after a business explicitly enables managed access for a router.
 
 It is not a general VPN dashboard and it never routes customer internet
@@ -97,7 +97,7 @@ Use `journalctl -u wifi-fiti-vpn-agent -f` for diagnostics. Never paste the
 environment file, WireGuard private key, or router pairing token into a log or
 support chat.
 
-Do not create router peers manually on `wg-fiti`. WiFi Fiti owns peers that
+Do not create router peers manually on `wg-fiti`. Wi-Fi Fiti owns peers that
 its agent has recorded under `/var/lib/wifi-fiti-vpn-agent/state.json`. Keep
 that state directory in VPS backups: if it is deliberately removed, the agent
 will safely leave an unknown old peer alone rather than deleting it.

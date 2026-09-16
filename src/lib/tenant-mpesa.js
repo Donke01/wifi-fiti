@@ -1,7 +1,7 @@
 /**
  * Per-business M-Pesa client.
  *
- * WiFi Fiti collection uses the platform Daraja account in `mpesa.js`.
+ * Wi-Fi Fiti collection uses the platform Daraja account in `mpesa.js`.
  * Businesses that bring their own Till/PayBill use this client with their
  * encrypted credentials. Keeping it separate prevents a tenant credential
  * from leaking into the platform client cache.

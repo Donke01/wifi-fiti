@@ -1,10 +1,10 @@
-# WiFi Fiti
+# Wi-Fi Fiti
 
 M-Pesa pay-as-you-go WiFi for a MikroTik hAP lite TC. A customer connects,
 picks a package, gets an STK prompt, enters their PIN, and is online. No
 vouchers, no manual verification, no screenshots on WhatsApp.
 
-The original single-site flow remains supported. **WiFi Fiti for Business**
+The original single-site flow remains supported. **Wi-Fi Fiti for Business**
 adds a separate, multi-tenant control centre so independent hotspot operators
 can run their own locations, packages, customer payments, vouchers and
 routers without seeing each other's customers or sales.
@@ -72,7 +72,7 @@ their dashboard pairing kit for outbound router polling.
 
 ---
 
-## WiFi Fiti for Business
+## Wi-Fi Fiti for Business
 
 This is an independently built, Pawa-inspired operating model: a business
 subscribes for the capacity it needs, pairs its own routers, and runs its own
@@ -95,8 +95,8 @@ control centre is designed around this operating sequence:
    model, bridge and Hotspot-server name. A new/reset RouterOS 7 kit creates
    Wi-Fi, DHCP, NAT, Hotspot and cloud pairing. An existing-Hotspot kit first
    verifies the selected bridge and server, then preserves its WAN, Wi-Fi and
-   DHCP settings while adding WiFi Fiti pairing.
-4. **Copy or import the one-time kit.** The router polls WiFi Fiti over
+   DHCP settings while adding Wi-Fi Fiti pairing.
+4. **Copy or import the one-time kit.** The router polls Wi-Fi Fiti over
    outbound HTTPS, so it stays behind NAT without exposing its administration
    API to the internet. New-router kits never reset a router or change its
    administrator password; the owner must set and save that password through
@@ -130,7 +130,7 @@ Each customer package can optionally include a simple speed setting such as
 transmit from the router's perspective: customer upload first, then customer
 download. Use `k` or `M`, such as `512k/2M`. Leave it blank to use the router's
 normal Hotspot profile speed.
-WiFi Fiti snapshots a chosen package's speed when the customer pays or redeems
+Wi-Fi Fiti snapshots a chosen package's speed when the customer pays or redeems
 a voucher, then sends it to RouterOS with that customer account. The linked TV
 gets the same **per-device** cap; it is not a shared aggregate bandwidth cap
 across both devices. Editing a package affects future sales; a later top-up
@@ -141,7 +141,7 @@ if that package is blank.
 
 `/operations.html` gives an operator customer history, support tickets and
 confirmed platform-plan receipts. It also tracks customer money collected by
-WiFi Fiti and lets the operator submit a payout request. Payout requests are
+Wi-Fi Fiti and lets the operator submit a payout request. Payout requests are
 an internal record and reservation only: this application **does not transfer
 money**, verify bank disbursements, or automate refunds or chargebacks. A
 platform staff member must independently verify a destination and record the
@@ -154,7 +154,7 @@ that token with an operator.
 The included commercial tiers are capacity plans, not a charge for every
 router command:
 
-| WiFi Fiti plan | Monthly price | Included capacity |
+| Wi-Fi Fiti plan | Monthly price | Included capacity |
 |---|---:|---|
 | Starter | KES 1,500 | 2 routers, up to 2,000 monthly active devices |
 | Growth | KES 3,500 | 5 routers, up to 5,000 monthly active devices |
@@ -165,7 +165,7 @@ paired locations. A paid plan change is deliberately not applied when an STK
 prompt is merely sent: it becomes active only after the M-Pesa payment is
 confirmed. Confirmation grants 30 days from the later of the current expiry
 or the confirmation time, so an early renewal is not lost. A custom plan is
-arranged with WiFi Fiti rather than charged automatically.
+arranged with Wi-Fi Fiti rather than charged automatically.
 
 If a business plan expires or is suspended, the platform stops that business
 from taking **new** customer payments. Existing paid customer subscriptions
@@ -177,11 +177,11 @@ a customer's Wi-Fi package are therefore two separate subscriptions.
 A business chooses one of these modes in the control centre:
 
 - **Own M-Pesa** — the business connects its own Daraja application,
-  shortcode and passkey. WiFi Fiti verifies the credentials before saving
+  shortcode and passkey. Wi-Fi Fiti verifies the credentials before saving
   them, encrypts them at rest, and does not return them to the browser.
-- **WiFi Fiti collection** — customer STK payments use the platform Daraja
+- **Wi-Fi Fiti collection** — customer STK payments use the platform Daraja
   account. The business dashboard records the platform service fee alongside
-  its sales, while WiFi Fiti handles the payment reconciliation and router
+  its sales, while Wi-Fi Fiti handles the payment reconciliation and router
   provisioning path.
 
 Selecting either option alone does not make live payments work. The platform
@@ -194,7 +194,7 @@ money.
 ### Pairing-token safety
 
 Each location receives a high-entropy router token exactly once: when the
-location is created or when a replacement kit is generated. WiFi Fiti keeps
+location is created or when a replacement kit is generated. Wi-Fi Fiti keeps
 only a hash of that token, so it cannot be redisplayed later. A replacement
 token is staged for 24 hours: the live router remains online until the new kit
 checks in, then the old token is retired. Treat every one-time pairing kit like
@@ -205,7 +205,7 @@ in screenshots, tickets or chat groups.
 
 ## Two-stage router onboarding
 
-WiFi Fiti intentionally separates **getting a router online** from optional
+Wi-Fi Fiti intentionally separates **getting a router online** from optional
 remote support:
 
 1. The owner connects a new or existing router to the internet and imports its
@@ -228,11 +228,11 @@ fulfilment. A router with no remote-support consent continues working normally.
 
 The generated RouterOS kit includes a dormant native WireGuard support
 bootstrap. It is disabled by default, stores no private VPN material in the
-WiFi Fiti database, and never opens WinBox, SSH, API, a route, a peer, or a WAN
+Wi-Fi Fiti database, and never opens WinBox, SSH, API, a route, a peer, or a WAN
 port. Its separate control queue cannot acknowledge, delay or modify customer
 HotSpot jobs. Revocation disables the tagged retry schedule and removes only
 the tagged support interface; it never changes billing, the Hotspot, firewall
-or normal WiFi Fiti polling. When a dedicated management gateway is later
+or normal Wi-Fi Fiti polling. When a dedicated management gateway is later
 provisioned, the approved router can report only its generated public key over
 the existing authenticated
 HTTPS connection. The gateway then has to allocate a unique `/32` management
@@ -248,11 +248,11 @@ CHR with a stable public UDP endpoint.
 
 ## Public domains: root landing page and live cloud
 
-WiFi Fiti uses two hostnames with deliberately different jobs:
+Wi-Fi Fiti uses two hostnames with deliberately different jobs:
 
 | Address | Purpose |
 |---|---|
-| `https://wififiti.co.ke` | Public **WiFi Fiti for Business** landing page — product, pricing and trial invitation. During migration it also keeps only the legacy portal/API paths old routers need. |
+| `https://wififiti.co.ke` | Public **Wi-Fi Fiti for Business** landing page — product, pricing and trial invitation. During migration it also keeps only the legacy portal/API paths old routers need. |
 | `https://cloud.wififiti.co.ke` | Live platform — business workspace, customer portals, router polling, installers and M-Pesa callbacks. |
 
 The public landing is served at the root domain; the existing `business.html`
@@ -295,7 +295,7 @@ traffic on the wildcard.
 
 | Address pattern | Service | Job |
 |---|---|---|
-| `wififiti.co.ke` | Railway | WiFi Fiti for Business landing page |
+| `wififiti.co.ke` | Railway | Wi-Fi Fiti for Business landing page |
 | `cloud.wififiti.co.ke` | Railway | Dashboard, SQLite data, M-Pesa callbacks, router polling and installers |
 | `tenant-name.wififiti.co.ke` | Cloudflare Worker | The tenant's branded customer payment portal |
 
@@ -360,7 +360,7 @@ Do this one router at a time, after `cloud` has valid HTTPS:
    otherwise cannot reach the new captive payment page. On a legacy router:
 
    ```routeros
-   :if ([:len [/ip hotspot walled-garden find where dst-host="cloud.wififiti.co.ke"]] = 0) do={ /ip hotspot walled-garden add dst-host="cloud.wififiti.co.ke" comment="WiFi Fiti live cloud" }
+   :if ([:len [/ip hotspot walled-garden find where dst-host="cloud.wififiti.co.ke"]] = 0) do={ /ip hotspot walled-garden add dst-host="cloud.wififiti.co.ke" comment="Wi-Fi Fiti live cloud" }
    ```
 2. **Update the login redirect.** Upload the current `routeros/login.html` as
    the router's `hotspot/login.html`. It points to
@@ -405,12 +405,12 @@ After adding the key, redeploy and generate a fresh connection kit. Existing
 saved kits do not automatically become downloadable through the short installer.
 
 Also set the platform `MPESA_*` values to real production Daraja credentials
-before offering WiFi Fiti collection or automated business-plan billing. The
+before offering Wi-Fi Fiti collection or automated business-plan billing. The
 callback endpoint must be reachable over public HTTPS. Keep the database on
 the `/data` volume; a Railway redeploy without that volume loses transaction,
 subscription, router-pairing and billing records.
 
-Routers need outbound DNS and HTTPS access to the public WiFi Fiti domain. Do
+Routers need outbound DNS and HTTPS access to the public Wi-Fi Fiti domain. Do
 not solve a connection problem by opening MikroTik's API port (`8728`) to the
 internet; use the polling pairing model or a properly secured VPN.
 
@@ -420,7 +420,7 @@ internet; use the polling pairing model or a properly secured VPN.
 
 `src/packages.js` is the only file to edit for prices and durations.
 That applies to the original single-site portal. Business operators manage
-their own packages in the WiFi Fiti for Business control centre, where those
+their own packages in the Wi-Fi Fiti for Business control centre, where those
 packages remain scoped to their business.
 The normal package speed and device limit live on the router:
 
@@ -432,7 +432,7 @@ The normal package speed and device limit live on the router:
 reasonable default — a phone and a laptop.
 
 When an operator sets a package-specific speed in the business dashboard,
-WiFi Fiti creates a reusable `fiti-*` HotSpot user profile once per speed,
+Wi-Fi Fiti creates a reusable `fiti-*` HotSpot user profile once per speed,
 on that router and assigns the customer to it. RouterOS v7 applies
 `rate-limit` on HotSpot user profiles, not directly on HotSpot user records.
 

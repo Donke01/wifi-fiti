@@ -17,7 +17,7 @@ process.env.MIKROTIK_PORT = '18729';
 process.env.MIKROTIK_USER = 'test';
 process.env.MIKROTIK_PASSWORD = 'test';
 process.env.DATABASE_PATH = '/tmp/hotspot-e2e.db';
-process.env.BRAND_NAME = 'WiFi Fiti';
+process.env.BRAND_NAME = 'Wi-Fi Fiti';
 
 try { fs.unlinkSync('/tmp/hotspot-e2e.db'); } catch {}
 try { fs.unlinkSync('/tmp/hotspot-e2e.db-wal'); } catch {}
@@ -93,7 +93,7 @@ const api = (path, init) =>
   await t('portal loads the tariff', async () => {
     const r = await api('/api/config');
     assert.strictEqual(r.status, 200);
-    assert.strictEqual(r.body.brandName, 'WiFi Fiti');
+    assert.strictEqual(r.body.brandName, 'Wi-Fi Fiti');
     assert.strictEqual(r.body.testMode, undefined, 'test-mode badge was removed');
     assert.strictEqual(r.body.packages.length, 5);
     assert.strictEqual(r.body.shortcode, '174379', 'portal needs this for the paybill screen');
