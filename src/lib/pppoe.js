@@ -26,6 +26,8 @@ db.exec(`
  CREATE TABLE IF NOT EXISTS pppoe_profiles (
    id TEXT PRIMARY KEY, business_id TEXT NOT NULL, name TEXT NOT NULL,
    download_rate TEXT NOT NULL, upload_rate TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+   max_sessions INTEGER NOT NULL DEFAULT 1, session_timeout_seconds INTEGER NOT NULL DEFAULT 0,
+   idle_timeout_seconds INTEGER NOT NULL DEFAULT 900,
    created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
    UNIQUE(business_id,name)
  );
@@ -33,6 +35,8 @@ db.exec(`
    id TEXT PRIMARY KEY, business_id TEXT NOT NULL, location_id TEXT,
    profile_id TEXT NOT NULL, username TEXT NOT NULL, secret_ciphertext TEXT NOT NULL,
    service_name TEXT NOT NULL DEFAULT 'pppoe', status TEXT NOT NULL DEFAULT 'active',
+   expires_at TEXT, max_sessions INTEGER NOT NULL DEFAULT 1,
+   failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until TEXT,
    created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
    UNIQUE(business_id,username)
  );
@@ -56,37 +60,92 @@ db.exec(`
  );
 `);
 
-function profileCreate({ businessId, name, downloadRate, uploadRate }) {
+// Add the hardening columns to databases created before PPPoE security was
+// introduced. SQLite has no ADD COLUMN IF NOT EXISTS, so each migration is
+// deliberately idempotent.
+for (const statement of [
+  `ALTER TABLE pppoe_profiles ADD COLUMN max_sessions INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE pppoe_profiles ADD COLUMN session_timeout_seconds INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE pppoe_profiles ADD COLUMN idle_timeout_seconds INTEGER NOT NULL DEFAULT 900`,
+  `ALTER TABLE pppoe_users ADD COLUMN expires_at TEXT`,
+  `ALTER TABLE pppoe_users ADD COLUMN max_sessions INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE pppoe_users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE pppoe_users ADD COLUMN locked_until TEXT`,
+]) { try { db.exec(statement); } catch (_) {} }
+db.exec(`CREATE TABLE IF NOT EXISTS pppoe_security_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, business_id TEXT NOT NULL, location_id TEXT,
+  user_id TEXT, event TEXT NOT NULL, details_json TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+); CREATE INDEX IF NOT EXISTS idx_pppoe_security_events ON pppoe_security_events(business_id,created_at);`);
+
+function profileCreate({ businessId, name, downloadRate, uploadRate, maxSessions = 1, sessionTimeoutSeconds = 0, idleTimeoutSeconds = 900 }) {
   const b = business(businessId); const n = String(name || '').trim();
   if (!n || n.length > 80) throw new Error('PPPoE profile name is required.');
   if (!String(downloadRate || '').trim() || !String(uploadRate || '').trim()) throw new Error('PPPoE rates are required.');
-  const row = db.prepare(`INSERT INTO pppoe_profiles(id,business_id,name,download_rate,upload_rate) VALUES(?,?,?,?,?) RETURNING *`).get(id('pprof'), b, n, String(downloadRate).trim(), String(uploadRate).trim());
+  // RouterOS's built-in PPP profile can enforce one active session reliably;
+  // higher limits require RADIUS accounting and are intentionally rejected
+  // rather than silently weakening isolation.
+  const sessions = Number(maxSessions) || 1;
+  if (sessions !== 1) throw new Error('This router mode supports one active PPPoE session per subscriber.');
+  const sessionTimeout = Math.min(604800, Math.max(0, Number(sessionTimeoutSeconds) || 0));
+  const idleTimeout = Math.min(86400, Math.max(60, Number(idleTimeoutSeconds) || 900));
+  const row = db.prepare(`INSERT INTO pppoe_profiles(id,business_id,name,download_rate,upload_rate,max_sessions,session_timeout_seconds,idle_timeout_seconds) VALUES(?,?,?,?,?,?,?,?) RETURNING *`).get(id('pprof'), b, n, String(downloadRate).trim(), String(uploadRate).trim(), sessions, sessionTimeout, idleTimeout);
   db.prepare(`INSERT INTO pppoe_audit(business_id,action,reference,details_json) VALUES(?,?,?,?)`).run(b, 'profile_created', row.id, JSON.stringify({ name: n }));
   return row;
 }
-function profilesFor(businessId) { return db.prepare(`SELECT id,business_id,name,download_rate,upload_rate,active,created_at,updated_at FROM pppoe_profiles WHERE business_id=? ORDER BY name`).all(business(businessId)); }
-function userCreate({ businessId, locationId = null, profileId, username, secret, serviceName = 'pppoe' }) {
+function profilesFor(businessId) { return db.prepare(`SELECT id,business_id,name,download_rate,upload_rate,active,max_sessions,session_timeout_seconds,idle_timeout_seconds,created_at,updated_at FROM pppoe_profiles WHERE business_id=? ORDER BY name`).all(business(businessId)); }
+function userCreate({ businessId, locationId = null, profileId, username, secret, serviceName = 'pppoe', expiresAt = null, maxSessions = 1 }) {
   const b = business(businessId); const u = String(username || '').trim(); const s = String(secret || '');
   if (!/^[A-Za-z0-9._@-]{3,96}$/.test(u)) throw new Error('Invalid PPPoE username.');
   if (s.length < 8 || s.length > 128) throw new Error('PPPoE secret must be 8–128 characters.');
+  const expires = expiresAt ? new Date(expiresAt) : null;
+  if (expiresAt && (!expires || !Number.isFinite(expires.getTime()) || expires.getTime() <= Date.now())) throw new Error('Subscriber expiry must be a future date.');
   if (locationId) {
     const location = db.prepare('SELECT id FROM locations WHERE id=? AND business_id=?').get(locationId, b);
     if (!location) throw new Error('PPPoE location was not found for this business.');
   }
   const profile = db.prepare(`SELECT id FROM pppoe_profiles WHERE id=? AND business_id=? AND active=1`).get(profileId, b);
   if (!profile) throw new Error('PPPoE profile was not found.');
-  const row = db.prepare(`INSERT INTO pppoe_users(id,business_id,location_id,profile_id,username,secret_ciphertext,service_name) VALUES(?,?,?,?,?,?,?) RETURNING id,business_id,location_id,profile_id,username,service_name,status,created_at,updated_at`).get(id('puser'), b, locationId, profileId, u, encrypt(s), String(serviceName).slice(0, 40) || 'pppoe');
+  const sessions = Number(maxSessions) || 1;
+  if (sessions !== 1) throw new Error('This router mode supports one active PPPoE session per subscriber.');
+  const row = db.prepare(`INSERT INTO pppoe_users(id,business_id,location_id,profile_id,username,secret_ciphertext,service_name,expires_at,max_sessions) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id,business_id,location_id,profile_id,username,service_name,status,expires_at,max_sessions,created_at,updated_at`).get(id('puser'), b, locationId, profileId, u, encrypt(s), String(serviceName).slice(0, 40) || 'pppoe', expires ? expires.toISOString() : null, sessions);
   db.prepare(`INSERT INTO pppoe_audit(business_id,location_id,action,reference,details_json) VALUES(?,?,?,?,?)`).run(b, locationId, 'user_created', row.id, JSON.stringify({ username: u }));
   return row;
 }
-function usersFor(businessId, locationId) { return db.prepare(`SELECT id,business_id,location_id,profile_id,username,service_name,status,created_at,updated_at FROM pppoe_users WHERE business_id=? AND (? IS NULL OR location_id=?) ORDER BY username`).all(business(businessId), locationId || null, locationId || null); }
+function usersFor(businessId, locationId) { return db.prepare(`SELECT id,business_id,location_id,profile_id,username,service_name,status,expires_at,max_sessions,failed_attempts,locked_until,created_at,updated_at FROM pppoe_users WHERE business_id=? AND (? IS NULL OR location_id=?) ORDER BY username`).all(business(businessId), locationId || null, locationId || null); }
+function revokeExpiredForLocation(locationId) {
+  const rows = db.prepare(`SELECT u.*,p.business_id FROM pppoe_users u JOIN pppoe_profiles p ON p.id=u.profile_id WHERE u.location_id=? AND u.status='active' AND u.expires_at IS NOT NULL AND u.expires_at<=datetime('now')`).all(locationId);
+  for (const row of rows) {
+    db.prepare(`UPDATE pppoe_users SET status='expired',updated_at=datetime('now') WHERE id=? AND status='active'`).run(row.id);
+    try { jobFor({ businessId: row.business_id, userId: row.id, action: 'revoke', locationId }); } catch (_) {}
+    db.prepare(`INSERT INTO pppoe_security_events(business_id,location_id,user_id,event,details_json) VALUES(?,?,?,?,?)`).run(row.business_id, locationId, row.id, 'subscriber_expired', '{}');
+  }
+}
+function setUserLock({ businessId, userId, minutes = 15 }) {
+  const b = business(businessId); const user = db.prepare('SELECT * FROM pppoe_users WHERE id=? AND business_id=?').get(userId, b);
+  if (!user) throw new Error('PPPoE user was not found.');
+  const duration = Math.min(1440, Math.max(1, Number(minutes) || 15));
+  const until = new Date(Date.now() + duration * 60_000).toISOString();
+  db.prepare(`UPDATE pppoe_users SET locked_until=?,failed_attempts=failed_attempts+1,updated_at=datetime('now') WHERE id=?`).run(until, userId);
+  db.prepare(`INSERT INTO pppoe_security_events(business_id,location_id,user_id,event,details_json) VALUES(?,?,?,?,?)`).run(b, user.location_id, userId, 'subscriber_locked', JSON.stringify({ minutes: duration }));
+  if (user.location_id) jobFor({ businessId: b, userId, action: 'revoke', locationId: user.location_id });
+  return { lockedUntil: until };
+}
+function clearUserLock({ businessId, userId }) {
+  const b = business(businessId); const user = db.prepare('SELECT * FROM pppoe_users WHERE id=? AND business_id=?').get(userId, b);
+  if (!user) throw new Error('PPPoE user was not found.');
+  db.prepare(`UPDATE pppoe_users SET locked_until=NULL,failed_attempts=0,updated_at=datetime('now') WHERE id=?`).run(userId);
+  db.prepare(`INSERT INTO pppoe_security_events(business_id,location_id,user_id,event,details_json) VALUES(?,?,?,?,?)`).run(b, user.location_id, userId, 'subscriber_unlocked', '{}');
+  if (user.location_id) jobFor({ businessId: b, userId, action: 'upsert', locationId: user.location_id });
+  return { unlocked: true };
+}
 function jobFor({ businessId, userId, action = 'upsert', locationId = null }) {
   const b = business(businessId); const user = db.prepare(`SELECT * FROM pppoe_users WHERE id=? AND business_id=?`).get(userId, b);
   if (!user) throw new Error('PPPoE user was not found.');
   const targetLocation = locationId || user.location_id;
   if (!targetLocation) throw new Error('A router location is required for PPPoE provisioning.');
   if (!db.prepare('SELECT id FROM locations WHERE id=? AND business_id=?').get(targetLocation, b)) throw new Error('PPPoE location was not found for this business.');
-  const actionName = String(action); if (!['upsert', 'revoke'].includes(actionName)) throw new Error('Invalid PPPoE action.');
+  const expired = user.expires_at && Date.parse(String(user.expires_at)) <= Date.now();
+  const actionName = expired ? 'revoke' : String(action); if (!['upsert', 'revoke'].includes(actionName)) throw new Error('Invalid PPPoE action.');
   const idem = `${userId}:${actionName}`;
   const existing = db.prepare(`SELECT * FROM pppoe_jobs WHERE business_id=? AND idempotency_key=?`).get(b, idem);
   if (existing && ['queued', 'delivered'].includes(existing.status)) return existing;
@@ -104,8 +163,10 @@ function recordHealth({ businessId, locationId, status, activeSessions = 0, deta
 function healthFor(businessId, locationId) { return db.prepare(`SELECT * FROM pppoe_health WHERE business_id=? AND location_id=?`).get(business(businessId), locationId); }
 function jobStatus(businessId, jobId) { return db.prepare(`SELECT id,business_id,location_id,user_id,action,attempts,status,next_attempt_at,delivered_at,acked_at,last_error,created_at,updated_at FROM pppoe_jobs WHERE id=? AND business_id=?`).get(jobId, business(businessId)); }
 function scriptForLocation(locationId) {
+  revokeExpiredForLocation(locationId);
   const location = db.prepare('SELECT customer_bridge FROM locations WHERE id=?').get(locationId) || {};
   const jobs = db.prepare(`SELECT j.*,u.username,u.secret_ciphertext,u.profile_id,u.status user_status,p.name profile_name,p.download_rate,p.upload_rate
+    ,u.expires_at user_expires_at,u.locked_until user_locked_until,u.max_sessions user_max_sessions,p.session_timeout_seconds,p.idle_timeout_seconds
     FROM pppoe_jobs j JOIN pppoe_users u ON u.id=j.user_id JOIN pppoe_profiles p ON p.id=u.profile_id
     WHERE j.location_id=? AND j.status IN ('queued','delivered') AND j.next_attempt_at<=datetime('now') ORDER BY j.created_at LIMIT 50`).all(locationId);
   if (!jobs.length) return '';
@@ -117,8 +178,12 @@ function scriptForLocation(locationId) {
   for (const job of jobs) {
     ids.push(job.id); const user = ros(job.username); const profileName = `fiti-${job.profile_id}`; const profile = ros(profileName); const rate = ros(`${job.download_rate}/${job.upload_rate}`);
     if (!serverProfile) serverProfile = profileName;
-    lines.push(`:do { /ppp profile add name=${profile} rate-limit=${rate} comment="WiFi Fiti PPPoE" } on-error={ /ppp profile set [find where name=${profile}] rate-limit=${rate} }`);
-    if (job.action === 'revoke' || job.user_status !== 'active') lines.push(`:do { /ppp secret disable [find where name=${user}] } on-error={}`);
+    const sessionTimeout = Math.min(604800, Math.max(0, Number(job.session_timeout_seconds) || 0));
+    const idleTimeout = Math.min(86400, Math.max(60, Number(job.idle_timeout_seconds) || 900));
+    lines.push(`:do { /ppp profile add name=${profile} rate-limit=${rate} only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} comment="WiFi Fiti PPPoE" } on-error={ /ppp profile set [find where name=${profile}] rate-limit=${rate} only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''} }`);
+    const expired = job.user_expires_at && Date.parse(String(job.user_expires_at)) <= Date.now();
+    const locked = job.user_locked_until && Date.parse(String(job.user_locked_until)) > Date.now();
+    if (job.action === 'revoke' || job.user_status !== 'active' || expired || locked) lines.push(`:do { /ppp secret set [find where name=${user}] disabled=yes } on-error={}`);
     else { let secret = ''; try { secret = decrypt(job.secret_ciphertext); } catch (_) {} if (secret) lines.push(`:do { /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${profile} disabled=no comment="WiFi Fiti PPPoE" } on-error={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${profile} disabled=no }`); }
   }
   if (bridgeName && serverProfile) {
@@ -137,9 +202,11 @@ function attachPppoeRoutes(app, { businessAuth }) {
     try { return handler(req, res, current.id || current.business_id); } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
   };
   app.get('/api/business/pppoe', operator((req, res, b) => res.json({ profiles: profilesFor(b), users: usersFor(b, req.query.locationId || null) })));
-  app.post('/api/business/pppoe/profiles', operator((req, res, b) => res.status(201).json({ profile: profileCreate({ businessId: b, name: req.body?.name, downloadRate: req.body?.downloadRate, uploadRate: req.body?.uploadRate }) })));
-  app.post('/api/business/pppoe/users', operator((req, res, b) => res.status(201).json({ user: userCreate({ businessId: b, locationId: req.body?.locationId, profileId: req.body?.profileId, username: req.body?.username, secret: req.body?.secret, serviceName: req.body?.serviceName }) })));
+  app.post('/api/business/pppoe/profiles', operator((req, res, b) => res.status(201).json({ profile: profileCreate({ businessId: b, name: req.body?.name, downloadRate: req.body?.downloadRate, uploadRate: req.body?.uploadRate, maxSessions: req.body?.maxSessions, sessionTimeoutSeconds: req.body?.sessionTimeoutSeconds, idleTimeoutSeconds: req.body?.idleTimeoutSeconds }) })));
+  app.post('/api/business/pppoe/users', operator((req, res, b) => res.status(201).json({ user: userCreate({ businessId: b, locationId: req.body?.locationId, profileId: req.body?.profileId, username: req.body?.username, secret: req.body?.secret, serviceName: req.body?.serviceName, expiresAt: req.body?.expiresAt, maxSessions: req.body?.maxSessions }) })));
   app.post('/api/business/pppoe/users/:userId/provision', operator((req, res, b) => res.status(202).json({ job: jobFor({ businessId: b, userId: req.params.userId, action: req.body?.action || 'upsert', locationId: req.body?.locationId }) })));
+  app.post('/api/business/pppoe/users/:userId/lock', operator((req, res, b) => res.json(setUserLock({ businessId: b, userId: req.params.userId, minutes: req.body?.minutes }))));
+  app.post('/api/business/pppoe/users/:userId/unlock', operator((req, res, b) => res.json(clearUserLock({ businessId: b, userId: req.params.userId }))));
   app.get('/api/business/pppoe/jobs/:jobId', operator((req, res, b) => { const job = jobStatus(b, req.params.jobId); if (!job) return res.status(404).json({ error: 'PPPoE job was not found.' }); res.json({ job }); }));
   app.get('/api/business/pppoe/health/:locationId', operator((req, res, b) => res.json({ health: healthFor(b, req.params.locationId) })));
 
@@ -165,4 +232,4 @@ function attachPppoeRoutes(app, { businessAuth }) {
   });
 }
 
-module.exports = { encrypt, decrypt, profileCreate, profilesFor, userCreate, usersFor, jobFor, claimJobs, markDelivered, markAcked, markFailed, recordHealth, healthFor, jobStatus, scriptForLocation, attachPppoeRoutes };
+module.exports = { encrypt, decrypt, profileCreate, profilesFor, userCreate, usersFor, jobFor, setUserLock, clearUserLock, claimJobs, markDelivered, markAcked, markFailed, recordHealth, healthFor, jobStatus, scriptForLocation, attachPppoeRoutes };

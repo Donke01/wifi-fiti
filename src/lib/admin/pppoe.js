@@ -15,6 +15,7 @@ function attachPppoeAdmin(app, { db: suppliedDb, adminOk, confirmationPhrase } =
   };
   app.get('/api/admin/pppoe/profiles', guard((req, res) => res.json({ profiles: db.prepare(`SELECT p.*,COUNT(u.id) subscriber_count FROM pppoe_profiles p LEFT JOIN pppoe_users u ON u.profile_id=p.id GROUP BY p.id ORDER BY p.name`).all() })));
   app.get('/api/admin/pppoe/subscribers', guard((req, res) => res.json({ subscribers: db.prepare(`SELECT u.id,u.business_id,u.location_id,u.username,u.service_name,u.status,u.created_at,u.updated_at,p.name profile_name,(p.download_rate||'')||'/'||(p.upload_rate||'') rate_limit,COALESCE(h.status,'unknown') connection_status FROM pppoe_users u JOIN pppoe_profiles p ON p.id=u.profile_id LEFT JOIN pppoe_health h ON h.business_id=u.business_id AND h.location_id=u.location_id ORDER BY u.created_at DESC`).all() })));
+  app.get('/api/admin/pppoe/security-events', guard((req, res) => res.json({ events: db.prepare(`SELECT * FROM pppoe_security_events ORDER BY id DESC LIMIT 200`).all() })));
   app.post('/api/admin/pppoe/subscribers/:id/toggle', guard((req, res) => {
     confirm(req); const row = db.prepare('SELECT * FROM pppoe_users WHERE id=?').get(req.params.id); if (!row) return res.status(404).json({ error: 'PPPoE subscriber was not found.' });
     const status = row.status === 'active' ? 'disabled' : 'active'; db.prepare("UPDATE pppoe_users SET status=?,updated_at=datetime('now') WHERE id=?").run(status, row.id);
