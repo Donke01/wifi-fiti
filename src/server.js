@@ -667,7 +667,7 @@ function createLocationDraft(business, body, res, { routerNameRequired = false }
 function emailVerificationEnabled() { return config.email.provider === 'resend'; }
 function verificationHash(code) { return crypto.createHash('sha256').update(String(code)).digest('hex'); }
 function verificationExpiry() { return new Date(Date.now() + 3 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''); }
-async function beginEmailVerification({ email, purpose, businessId: businessIdValue = null, payload = null }) {
+async function beginEmailVerification({ email, purpose, businessId: businessIdValue = null, payload = null, recipientName = '' }) {
   const last = db.db.prepare(`SELECT last_sent_at FROM business_email_verifications WHERE email=? AND purpose=? ORDER BY created_at DESC LIMIT 1`).get(email, purpose);
   if (last && Date.now() - Date.parse(String(last.last_sent_at).replace(' ', 'T') + 'Z') < 60_000) {
     throw Object.assign(new Error('A verification code was already sent. Wait one minute before requesting another.'), { status: 429 });
@@ -676,7 +676,7 @@ async function beginEmailVerification({ email, purpose, businessId: businessIdVa
   const id = businessId('verify');
   db.deleteEmailVerifications.run(email, purpose);
   db.addEmailVerification.run({ id, email, purpose, businessId: businessIdValue, payloadJson: payload ? JSON.stringify(payload) : null, codeHash: verificationHash(code), expiresAt: verificationExpiry(), lastSentAt: new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
-  try { await sendEmail({ to: email, ...verificationEmail(code, purpose) }); }
+  try { await sendEmail({ to: email, ...verificationEmail(code, purpose, recipientName) }); }
   catch (error) { db.db.prepare('DELETE FROM business_email_verifications WHERE id=?').run(id); throw error; }
   return id;
 }
@@ -714,7 +714,7 @@ app.post('/api/business/register', async (req, res) => {
   if (db.businessByEmail.get(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
   if (emailVerificationEnabled()) {
     try {
-      const verificationId = await beginEmailVerification({ email, purpose: 'register', payload: { name, ownerName, ownerPhone, passwordHash: hashPassword(password), plan: plan === 'custom' ? 'starter' : plan, collectionMode, registrationIsComplete: hasOrganisationFields, hotspotName: rawHotspotName ? textField(rawHotspotName, 'hotspot name', 80, true) : null, requestedCustom: plan === 'custom' } });
+      const verificationId = await beginEmailVerification({ email, purpose: 'register', recipientName: ownerName || email.split('@')[0], payload: { name, ownerName, ownerPhone, passwordHash: hashPassword(password), plan: plan === 'custom' ? 'starter' : plan, collectionMode, registrationIsComplete: hasOrganisationFields, hotspotName: rawHotspotName ? textField(rawHotspotName, 'hotspot name', 80, true) : null, requestedCustom: plan === 'custom' } });
       return res.status(202).json({ verificationRequired: true, verificationId, email, message: 'Enter the verification code sent to your email.' });
     } catch (error) { return res.status(error.status || 502).json({ error: error.message || 'Verification email could not be sent.' }); }
   }
@@ -770,7 +770,7 @@ app.post('/api/business/login', async (req, res) => {
   }
   if (emailVerificationEnabled()) {
     try {
-      const verificationId = await beginEmailVerification({ email, purpose: 'login', businessId: business.id });
+      const verificationId = await beginEmailVerification({ email, purpose: 'login', businessId: business.id, recipientName: business.owner_name || email.split('@')[0] });
       return res.status(202).json({ verificationRequired: true, verificationId, email, message: 'Enter the verification code sent to your email.' });
     } catch (error) { return res.status(error.status || 502).json({ error: error.message || 'Verification email could not be sent.' }); }
   }
@@ -844,7 +844,7 @@ app.post('/api/business/forgot-password', async (req, res) => {
   const business = db.businessByEmail.get(email);
   if (!business) return res.json(generic);
   try {
-    const verificationId = await beginEmailVerification({ email, purpose: 'reset', businessIdValue: business.id, businessId: business.id });
+    const verificationId = await beginEmailVerification({ email, purpose: 'reset', businessIdValue: business.id, businessId: business.id, recipientName: business.owner_name || email.split('@')[0] });
     res.json({ ...generic, verificationRequired: true, verificationId, email });
   } catch (error) { res.status(error.status || 502).json({ error: error.message || 'The reset email could not be sent.' }); }
 });
