@@ -1540,13 +1540,13 @@ app.patch('/api/business/locations/:locationId', (req, res) => {
   res.json({ location });
 });
 
-// Discard only an untouched router draft. This never factory-resets a
-// physical device. A paired router must use staged replacement, which keeps
-// customer/accounting records and avoids orphaning a live router.
+// Delete a tenant-owned router configuration. This removes the cloud pairing,
+// portal mapping, jobs and router-specific services so the next onboarding is
+// treated as a brand-new router. It never factory-resets the physical device.
 app.delete('/api/business/locations/:locationId', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   try {
-    const location = tenant.discardUnusedLocation({
+    const location = tenant.deleteLocationForOwner({
       locationId: String(req.params.locationId),
       businessId: business.id,
       confirm: String(req.body && req.body.confirm || ''),

@@ -978,12 +978,9 @@
         }).catch(function (error) { setOnboardingError(error.message); }).finally(function () { setBusy(button, false); });
       }
       function removeTenantRouter(location, button) {
-        if (!routerCanBeRemoved(location)) {
-          window.alert('This router has already connected or has customer history. Complete the safe offboarding process before deleting it.');
-          return;
-        }
         var name = location.name || location.router_name || 'this router';
-        if (window.prompt('Delete "' + name + '" from this workspace? Type DELETE to confirm.') !== 'DELETE') return;
+        var confirmation = window.prompt('Delete the WiFi Fiti configuration for "' + name + '"? This removes its pairing token, portal address, jobs, topology, vouchers and router-specific services so it can be onboarded as new. Customer payment history is retained. It does not reset the physical MikroTik. Type DELETE to confirm.');
+        if (confirmation !== 'DELETE') return;
         setBusy(button, true, 'Deleting…');
         api('/api/business/locations/' + encodeURIComponent(location.id), { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }).then(function () {
           forgetSetup(location.id); clearRouterProgress(location); clearOnboardingLocation((state.workspace && state.workspace.business) || {}); return load();

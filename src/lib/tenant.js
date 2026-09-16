@@ -989,6 +989,7 @@ const staleOffboardingLocations = db.prepare(`SELECT id, business_id FROM locati
 const offboardLockdownJob = db.prepare(`SELECT id, action, acked_at FROM tenant_jobs WHERE location_id=? AND action='offboard-lockdown' ORDER BY id DESC LIMIT 1`);
 const offboardResetJob = db.prepare(`SELECT id, action, delivered_at, acked_at FROM tenant_jobs WHERE location_id=? AND action='offboard-reset' ORDER BY id DESC LIMIT 1`);
 const deleteDevicesForLocation = db.prepare(`DELETE FROM tenant_devices WHERE location_id=?`);
+const deleteVouchersForLocation = db.prepare(`DELETE FROM tenant_vouchers WHERE location_id=?`);
 const cancelPendingTransactionsForLocation = db.prepare(`
   UPDATE tenant_transactions
      SET status='cancelled', result_desc='Router offboarded before provisioning', updated_at=datetime('now')
@@ -3334,6 +3335,55 @@ function discardUnusedLocation({ locationId, businessId, confirm }) {
 }
 
 /**
+ * Delete a tenant's router configuration immediately, regardless of whether
+ * the router has already checked in.  This is deliberately different from
+ * offboarding: it is the owner's reset escape hatch when a device is being
+ * tested or replaced and must be eligible for a completely fresh onboarding.
+ *
+ * Financial records are retained for accounting, while live access is
+ * deactivated and all router-specific state (credentials, jobs, topology,
+ * portal hostname, remote/VPN state, PPPoE users and vouchers) is removed.
+ * The physical MikroTik is not factory-reset by this cloud action.
+ */
+function deleteLocationForOwner({ locationId, businessId, confirm }) {
+  if (confirm !== 'DELETE') {
+    const error = new Error('Type DELETE to remove this router configuration.');
+    error.status = 400;
+    throw error;
+  }
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    cancelPendingTransactionsForLocation.run(locationId);
+    deactivateSubscriptionsForLocation.run(locationId);
+    deleteProvisioningJobsForLocation.run(locationId);
+    deleteDevicesForLocation.run(locationId);
+    deleteVouchersForLocation.run(locationId);
+    deleteMappedDeploymentsForLocation.run(locationId);
+    deleteRouterMapping.run(locationId);
+    deleteRouterTopology.run(locationId);
+    deleteVpnPeerForLocation.run(locationId);
+    deleteRemoteSupportControlsForLocation.run(locationId);
+    deleteRemoteAccessEventsForLocation.run(locationId);
+    deleteRemoteAccessForLocation.run(locationId);
+    // PPPoE is optional and is loaded after this module in some deployments.
+    // Check for each table at call time so the reset remains compatible with
+    // older databases that predate the PPPoE module.
+    for (const table of ['pppoe_jobs', 'pppoe_users', 'pppoe_health', 'pppoe_audit']) {
+      if (databaseTableExists.get(table)) db.prepare(`DELETE FROM ${table} WHERE location_id=?`).run(locationId);
+    }
+    deletePortalDomainsForLocation.run(locationId);
+    deleteLocationForBusiness.run(locationId, businessId);
+    db.exec('COMMIT');
+    return { id: location.id, name: location.name, deleted: true };
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
+    throw error;
+  }
+}
+
+/**
  * Hard-offboard a location without deleting the business ledger. This is the
  * explicit owner escape hatch for a router that is being replaced or started
  * over: router credentials, observed topology, remote-access state, pending
@@ -3740,7 +3790,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
