@@ -212,7 +212,23 @@
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
     /* Center the presentation layer while retaining readable left-aligned forms and records. */
     .hero,.module-heading,.section-head{text-align:center}.hero p,.module-heading p,.section-head p{margin-left:auto;margin-right:auto}.module-heading,.section-head{display:block}.module-heading .section-actions,.section-head .section-actions{justify-content:center;margin-top:12px}.metrics,.sales-metrics,.module-grid,.overview-kpis{justify-items:stretch}.metric,.overview-kpi{text-align:center}.metric-foot,.overview-kpi-note{text-align:center}.overview-chart-head{align-items:center}.overview-chart-head h3,.overview-recent{text-align:center}.overview-legend{justify-content:center}.overview-recent p{max-width:620px;margin-left:auto;margin-right:auto}.module-empty,.empty{text-align:center}.module-empty strong,.empty strong{display:block}.setup-top{text-align:center}.setup-top p{margin-left:auto;margin-right:auto}.setup-top .quiet{margin-top:10px}.connection{text-align:center}.connection strong,.connection p{margin-left:auto;margin-right:auto}.sms-balance .metric{text-align:center}.sms-package{text-align:center}.sms-package button{align-self:center;min-width:150px}.sms-custom{justify-content:center}.sms-custom label{max-width:360px}.sms-service-list,.sms-cost-controls{text-align:left}.toolbar-row{justify-content:center}.toolbar-row .export-note{margin-left:0}.footer{text-align:center}
-    @media(max-width:650px){.hero h1{margin-left:auto;margin-right:auto}.module-heading h2,.section-head h2{max-width:100%;text-align:center}.section-actions{justify-content:center}.toolbar-row{justify-content:stretch}.toolbar-row .export-note{text-align:center}.setup-top{text-align:center}.sms-custom label{max-width:none}}
+    @media(max-width:650px){.hero h1{margin-left:auto;margin-right:auto}.module-heading h2,.section-head h2{max-width:100%;text-align:center}.section-actions{justify-content:center}.toolbar-row{justify-content:stretch}.toolbar-row .export-note{text-align:center}.setup-top{text-align:center}.sms-custom label{max-width:none}
+      .setting-row{align-items:stretch;flex-direction:column;gap:10px}
+      .setting-row>.status-pill,.setting-row>.buttons,.setting-row>button{width:100%;justify-content:center}
+      .module-heading .section-actions,.section-head .section-actions{display:flex;flex-wrap:wrap;gap:8px}
+      .module-heading .section-actions>* ,.section-head .section-actions>*{min-width:0;flex:1 1 140px}
+      .module-heading .section-actions select,.section-head .section-actions select{width:100%}
+      .toolbar-row{display:grid;grid-template-columns:1fr;gap:8px}
+      .toolbar-row>*{width:100%;max-width:none;min-width:0}
+      .toolbar-row .export-note{display:block;margin-left:0}
+      .overview-chart{min-height:220px;padding:14px}
+      .overview-bars{gap:3px;overflow:hidden}
+      .overview-bar{width:4px}
+      .hotspot-picker{margin-left:0;margin-right:0}
+      .portal-template-list .setting-row{padding:13px 0}
+      .portal-template-list .buttons{width:100%}
+      .portal-template-list .buttons>*{flex:1}
+    }
   </style>
 </head>
 <body>
