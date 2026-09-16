@@ -837,6 +837,43 @@ app.post('/api/business/verify-login', (req, res) => {
   } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not verify the sign-in.' }); }
 });
 
+// A code can only be re-sent after the previous three-minute code has expired.
+// The verification id is an opaque, one-time handle, so this does not expose
+// whether an email belongs to an account.
+app.post('/api/business/resend-code', async (req, res) => {
+  const verificationId = String(req.body && req.body.verificationId || '').trim();
+  const current = db.emailVerificationById.get(verificationId);
+  const allowedPurposes = new Set(['register', 'login', 'reset']);
+  if (!current || !allowedPurposes.has(current.purpose)) {
+    return res.status(400).json({ error: 'This verification request is no longer valid. Start again.' });
+  }
+  const expiry = Date.parse(String(current.expires_at || '').replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(expiry) || expiry > Date.now()) {
+    return res.status(429).json({ error: 'Wait until the current code expires before requesting another.' });
+  }
+  let payload = null;
+  let recipientName = current.email.split('@')[0];
+  if (current.purpose === 'register') {
+    try { payload = JSON.parse(current.payload_json || '{}'); } catch (_) { payload = {}; }
+    recipientName = payload.ownerName || recipientName;
+  } else if (current.business_id) {
+    const business = db.businessById.get(current.business_id);
+    if (business) recipientName = business.owner_name || recipientName;
+  }
+  try {
+    const newId = await beginEmailVerification({
+      email: current.email,
+      purpose: current.purpose,
+      businessId: current.business_id || null,
+      payload,
+      recipientName,
+    });
+    res.json({ verificationRequired: true, verificationId: newId, email: current.email, message: 'A new verification code has been sent.' });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.message || 'The verification email could not be sent.' });
+  }
+});
+
 app.post('/api/business/forgot-password', async (req, res) => {
   const email = String(req.body && req.body.email || '').trim().toLowerCase();
   const generic = { message: 'If that email belongs to a WiFi Fiti account, a password reset code has been sent.' };
