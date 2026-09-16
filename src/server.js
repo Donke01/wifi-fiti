@@ -1766,8 +1766,11 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
     brand_logo_path: location.brand_logo_path, portal_message: location.portal_message,
   }, { assetOrigin });
   const payment = tenant.paymentConnectionSummary.get(location.business_id);
+  const portalTemplate = db.db.prepare(`SELECT id,name,layout,accent_color,welcome_message,show_packages,show_utilities
+    FROM tenant_portal_templates WHERE business_id=? AND active=1 ORDER BY updated_at DESC LIMIT 1`).get(location.business_id) || null;
   res.json({ location: { id: location.id, name: location.name, businessName: branding.name },
     portalUrl: portalUrlForLocation(location), branding,
+    template: portalTemplate ? { id: portalTemplate.id, name: portalTemplate.name, layout: portalTemplate.layout, accentColor: portalTemplate.accent_color, welcomeMessage: portalTemplate.welcome_message, showPackages: Boolean(portalTemplate.show_packages), showUtilities: Boolean(portalTemplate.show_utilities) } : null,
     packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone,
     paybill: payment ? { shortcode: payment.shortcode, transactionType: payment.transaction_type } : null });
 });
@@ -3803,6 +3806,7 @@ require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth });
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.
 require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db });
+require('./lib/tenant-portal-templates').attachTenantPortalTemplateRoutes(app, { businessAuth, db: db.db });
 // The admin module owns privileged dashboard routes and controls. It is
 // intentionally mounted separately from tenant, router, and portal modules.
 require('./lib/admin').attachAdminModule(app, { db, adminOk, tenant });

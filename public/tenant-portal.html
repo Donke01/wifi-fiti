@@ -146,6 +146,7 @@
     function message(id, text) { $(id).textContent = text || ''; }
     function applyBranding(config) {
       var branding = config && config.branding || {};
+      var template = config && config.template || {};
       var name = branding.name || config.location.businessName || 'WiFi Fiti';
       message('brand', name);
       message('location', config.location.name || 'CONNECT · PAY · GO');
@@ -157,6 +158,10 @@
         document.documentElement.style.setProperty('--aqua', color);
       }
       if (branding.message) message('portal-message', branding.message);
+      if (template.welcomeMessage) message('portal-message', template.welcomeMessage);
+      if (template.layout) document.body.dataset.portalLayout = template.layout;
+      if (template.showPackages === false) $('plans').classList.add('hidden');
+      if (template.showUtilities === false) document.querySelector('.utilities').classList.add('hidden');
       message('support', '© ' + new Date().getFullYear() + ' ' + name +
         ((branding.supportPhone || config.supportPhone) ? ' · Help: ' + (branding.supportPhone || config.supportPhone) : ''));
     }
