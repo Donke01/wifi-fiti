@@ -18,6 +18,7 @@ const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./
 const { sendEmail, verificationEmail } = require('./lib/email');
 const { compatibilityRouterKit } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
+const whatsapp = require('./lib/whatsapp');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -3886,6 +3887,7 @@ require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth });
 // its UI can be rebuilt incrementally without touching router or payment code.
 require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db });
 require('./lib/tenant-portal-templates').attachTenantPortalTemplateRoutes(app, { businessAuth, db: db.db });
+whatsapp.attachWhatsAppRoutes(app);
 // The admin module owns privileged dashboard routes and controls. It is
 // intentionally mounted separately from tenant, router, and portal modules.
 require('./lib/admin').attachAdminModule(app, { db, adminOk, tenant });
