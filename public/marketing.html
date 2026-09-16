@@ -203,13 +203,14 @@
     @media(max-width:620px){
       .contact-card{margin-bottom:34px;padding:26px 20px}.contact-link{text-align:left}.footer{gap:17px;padding:28px 0 38px;text-align:center}.footer-main{grid-template-columns:1fr;gap:22px}.footer-main>.footer-brand{grid-column:auto;flex-direction:column;align-items:center;text-align:center}.footer-links{justify-items:center}#how-it-works,#pricing,#faq,#contact{scroll-margin-top:88px}
     }
-  </style>
+  .pppoe-landing{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,.95fr);gap:28px;align-items:center;margin-top:30px;padding:34px;background:linear-gradient(125deg,#f1f7ff,#fbfdff 52%,#effbf8);border-color:#cfe0f4;box-shadow:0 24px 58px rgba(41,80,122,.11)}.pppoe-copy{text-align:left}.pppoe-copy h2{max-width:620px;margin:0 0 12px;color:#173653;font-size:clamp(31px,4vw,48px);line-height:1.03;letter-spacing:-.06em}.pppoe-copy>p:not(.eyebrow){max-width:610px;margin:0;color:#627487;font-size:17px;line-height:1.58}.pppoe-copy .primary{margin-top:23px}.pppoe-features{display:grid;gap:10px}.pppoe-features article{padding:17px 18px;border:1px solid #d4e1ee;border-radius:15px;background:rgba(255,255,255,.8);box-shadow:0 8px 20px rgba(38,72,106,.06);text-align:left;transition:transform .22s ease,box-shadow .22s ease}.pppoe-features article:hover{transform:translateY(-3px);box-shadow:0 15px 28px rgba(38,72,106,.12)}.pppoe-features span{display:inline-grid;place-items:center;width:27px;height:27px;margin-right:8px;border-radius:9px;color:#1763cc;background:#e5f0ff;font-size:10px;font-weight:900}.pppoe-features strong{color:#203d5a;font-size:15px}.pppoe-features small{display:block;margin:6px 0 0 36px;color:#68798c;font-size:12px;line-height:1.45}@media(max-width:940px){.pppoe-landing{grid-template-columns:1fr}.pppoe-copy{text-align:center}.pppoe-copy>p:not(.eyebrow){margin-left:auto;margin-right:auto}.pppoe-copy .primary{display:inline-flex}.pppoe-features article{text-align:left}}@media(prefers-reduced-motion:reduce){.pppoe-features article{transition:none}}
+</style>
 </head>
 <body>
   <div class="page">
     <header class="shell top">
       <a class="brand" href="/" aria-label="WiFi Fiti for Business home"><img src="/assets/wifi-fiti-logo.png" alt=""><span>WiFi Fiti<small>FOR BUSINESS</small></span></a>
-      <nav class="nav" id="site-nav" aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="#contact">Contact</a><a class="pill" href="https://cloud.wififiti.co.ke/business.html?mode=login">Sign in</a></nav>
+      <nav class="nav" id="site-nav" aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#pppoe">PPPoE</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="#contact">Contact</a><a class="pill" href="https://cloud.wififiti.co.ke/business.html?mode=login">Sign in</a></nav>
       <button class="nav-toggle" id="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false"><span class="sr-only">Open menu</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
     </header>
 
@@ -250,6 +251,11 @@
       <section class="shell customer" data-reveal>
         <div class="customer-card glass" aria-label="Illustration of the customer WiFi Fiti package page"><div class="phone"><div class="phone-bar"></div><div class="phone-content"><div class="phone-brand"><img class="mini-logo" src="/assets/wifi-fiti-logo.png" alt="">WiFi Fiti</div><h3>Choose package</h3><p>Kitale Main Branch</p><div class="plan-line"><b>1 Hour</b><span>KES 10</span></div><div class="plan-line"><b>3 Hours</b><span>KES 20</span></div><div class="plan-line"><b>Evening Pass</b><span>KES 50</span></div><span class="phone-button">LIPA NA M‑PESA</span></div></div></div>
         <div><p class="eyebrow">CUSTOMER CHECKOUT</p><h2>Checkout that resumes. Time that keeps running.</h2><p class="lead">Purchases and expiry are saved on the server. Refreshing never resets time.</p><ul class="feature-list"><li>Time starts after payment confirmation.</li><li>Checkout resumes without a second M‑Pesa request.</li><li>Customers can check time or redeem a voucher.</li><li>Each subscription covers one phone and one TV.</li></ul></div>
+      </section>
+
+      <section class="shell pppoe-landing glass" id="pppoe" data-reveal>
+        <div class="pppoe-copy"><p class="eyebrow">PPPoE ACCESS</p><h2>Offer managed internet plans beyond hotspot Wi‑Fi.</h2><p>WiFi Fiti PPPoE gives businesses a simple way to provision named subscribers with speed profiles, secure credentials, and router-delivered access.</p><a class="primary" href="https://cloud.wififiti.co.ke/pppoe.html">Explore PPPoE access <span aria-hidden="true">→</span></a></div>
+        <div class="pppoe-features"><article><span>01</span><strong>Speed profiles</strong><small>Set download and upload limits for every service tier.</small></article><article><span>02</span><strong>Subscriber control</strong><small>Enrol, pause, restore, and provision customer credentials.</small></article><article><span>03</span><strong>Secure delivery</strong><small>Changes reach the paired MikroTik through authenticated polling.</small></article></div>
       </section>
 
       <section class="shell payment glass" data-reveal><div><h3>Collect payments your way.</h3><p>Use your own Till or PayBill, or let WiFi Fiti collect payments for a 5% fee on each confirmed sale.</p></div><a class="secondary" href="https://cloud.wififiti.co.ke/business.html">Start 14-day trial</a></section>
@@ -295,7 +301,7 @@
     <footer class="shell footer">
       <div class="footer-main">
         <div class="footer-brand"><img src="/assets/wifi-fiti-logo.png" alt=""><strong>WiFi Fiti</strong></div>
-        <div><span class="footer-label">Explore</span><div class="footer-links"><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a></div></div>
+        <div><span class="footer-label">Explore</span><div class="footer-links"><a href="#how-it-works">How it works</a><a href="#pppoe">PPPoE access</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a></div></div>
         <div><span class="footer-label">Account</span><div class="footer-links"><a href="https://cloud.wififiti.co.ke/business.html?mode=login">Sign in</a><a href="#contact">Contact sales</a></div></div>
       </div>
       <p class="footer-copyright">© <span id="year"></span> WiFi Fiti. All rights reserved.</p>
