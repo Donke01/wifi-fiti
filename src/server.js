@@ -577,6 +577,24 @@ const BUSINESS_PLANS = {
   custom: { name: 'Custom', monthlyKes: null, routerLimit: null, activeDeviceLimit: null },
 };
 
+// Trial access is intentionally time-bound but feature-complete.  Keep this
+// entitlement calculation in one place so onboarding, dashboards and sales
+// limits cannot drift apart.
+const TRIAL_DAYS = 7;
+function trialActive(business) {
+  if (!business || String(business.billing_status || '').toLowerCase() !== 'trial') return false;
+  const raw = String(business.billing_expires_at || '').trim();
+  if (!raw) return false;
+  const parsed = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z');
+  return Number.isFinite(parsed) && parsed > Date.now();
+}
+
+function businessPlanEntitlements(business) {
+  const plan = BUSINESS_PLANS[business && business.plan] || BUSINESS_PLANS.starter;
+  if (!trialActive(business)) return plan;
+  return { ...plan, routerLimit: 1, activeDeviceLimit: null, trialUnlimited: true, trialDays: TRIAL_DAYS };
+}
+
 function validBusinessPlan(plan, collectionMode) {
   return BUSINESS_PLANS[plan] && ['own', 'fiti'].includes(collectionMode);
 }
@@ -627,7 +645,7 @@ function locationDraftInput(body, { routerNameRequired = false } = {}) {
 }
 
 function canAddLocation(business, res) {
-  const plan = BUSINESS_PLANS[business.plan];
+  const plan = businessPlanEntitlements(business);
   const existing = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   if (plan.routerLimit && existing.length >= plan.routerLimit) {
@@ -721,7 +739,7 @@ app.post('/api/business/register', async (req, res) => {
         : null,
       hotspotName: rawHotspotName ? textField(rawHotspotName, 'hotspot name', 80, true) : null,
     });
-    db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+    db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
     const token = issueBusinessSession(id);
     const business = db.businessById.get(id);
     res.status(201).json({ token, business, onboarding: onboardingState(business), requestedCustom: plan === 'custom' });
@@ -737,7 +755,7 @@ app.post('/api/business/verify-registration', (req, res) => {
     const payload = JSON.parse(row.payload_json || '{}');
     const id = businessId('biz');
     db.addBusiness.run({ id, name: payload.registrationIsComplete ? payload.name : '', ownerName: payload.registrationIsComplete ? payload.ownerName : '', ownerPhone: payload.registrationIsComplete ? payload.ownerPhone : '', email: row.email, passwordHash: payload.passwordHash, plan: payload.plan, collectionMode: payload.collectionMode, onboardingState: payload.registrationIsComplete ? 'complete' : 'organisation', organisationCompletedAt: payload.registrationIsComplete ? new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : null, hotspotName: payload.hotspotName });
-    db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+    db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
     const account = db.businessById.get(id);
     res.status(201).json({ token: issueBusinessSession(id), business: account, onboarding: onboardingState(account), requestedCustom: payload.requestedCustom });
   } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not verify the account.' }); }
@@ -799,7 +817,7 @@ app.get('/api/business/google/callback', async (req, res) => {
     if (!account) {
       const id = businessId('biz');
       db.addBusiness.run({ id, name: '', ownerName: String(profile.name || email.split('@')[0]).slice(0, 80), ownerPhone: '', email, passwordHash: hashPassword(crypto.randomBytes(32).toString('hex')), plan: 'starter', collectionMode: 'own', onboardingState: 'organisation', organisationCompletedAt: null, hotspotName: null });
-      db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+      db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
       account = db.businessById.get(id);
     }
     const token = issueBusinessSession(account.id);
@@ -862,7 +880,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: BUSINESS_PLANS[business.plan], locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1009,6 +1027,15 @@ app.post('/api/business/billing-plan', (req, res) => {
   const plan = String(req.body && req.body.plan || '');
   const collectionMode = String(req.body && req.body.collectionMode || '');
   if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid plan.' });
+  // During the seven-day trial, plan selection is configuration only.  Do not
+  // create a checkout or charge the owner; the selected plan becomes the
+  // renewal plan when the trial expires.
+  if (trialActive(business)) {
+    db.setBusinessPlan.run({ id: business.id, plan, collectionMode });
+    const updated = { ...business, plan, collection_mode: collectionMode };
+    return res.json({ plan: businessPlanEntitlements(updated), collectionMode,
+      checkoutRequired: false, trial: true, trialDays: TRIAL_DAYS, requestedPlan: plan });
+  }
   // Changing collection mode is immediate. Changing the paid platform plan
   // is completed only after the monthly M-Pesa checkout below settles.
   if (plan !== business.plan && plan !== 'custom') {
@@ -1841,7 +1868,7 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   if (!pkg || !phone || !mac || !deviceType) return res.status(400).json({ error: 'Choose a package, enter a valid number, and select the device.' });
   const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
   const existingSubscription = tenant.subscriptionByMac.get(location.id, mac);
-  if (!existingSubscription && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
+  if (!trialActive(location) && !existingSubscription && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
     return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
   }
   const pendingPayment = tenant.pendingPaymentForPhone.get(location.id, phone);
@@ -2042,7 +2069,7 @@ app.post('/api/tenant/:locationId/voucher/redeem', (req, res) => {
   const ip = cleanIp(req.body && req.body.ip);
   if (code.length < 6 || !phone || !mac) return res.status(400).json({ error: 'Enter a valid voucher code, phone number, and reconnect to this WiFi.' });
   const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
-  if (!tenant.subscriptionByMac.get(location.id, mac) && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
+  if (!trialActive(location) && !tenant.subscriptionByMac.get(location.id, mac) && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
     return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
   }
   try {

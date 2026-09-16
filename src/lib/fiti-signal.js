@@ -304,10 +304,17 @@ function attachFitiSignalRoutes(app, { businessAuth }) {
     const b = businessKey(business);
     const account = balance(b);
     const messages = usage(b, { limit: 1000 });
+    const trialExpiry = business.billing_expires_at
+      ? Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(String(business.billing_expires_at))
+        ? String(business.billing_expires_at)
+        : String(business.billing_expires_at).replace(' ', 'T') + 'Z')
+      : NaN;
+    const trialUnlimited = String(business.billing_status || '').toLowerCase() === 'trial'
+      && Number.isFinite(trialExpiry) && trialExpiry > Date.now();
     res.set('Cache-Control', 'no-store').json({
       sms: { credits: account.credits_available, reserved: account.credits_reserved,
         sent: account.credits_used, services: getServices(b), controls: getSettings(b),
-        usage: messages, packageName: null },
+        usage: messages, packageName: null, trialUnlimited },
       packages: packages(), catalogue: SERVICE_CATALOGUE,
     });
   }));

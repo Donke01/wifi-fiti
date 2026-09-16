@@ -32,7 +32,10 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   const pkg = await call('/api/business/packages',{name:'Three hours',price:20,hours:3},token);
   assert.strictEqual(pkg.status,201); assert.strictEqual(pkg.body.packages.length,1);
   const plan = await call('/api/business/billing-plan',{plan:'growth',collectionMode:'fiti'},token);
-  assert.strictEqual(plan.status,200); assert.strictEqual(plan.body.checkoutRequired,true); assert.strictEqual(plan.body.amount,3500);
+  assert.strictEqual(plan.status,200); assert.strictEqual(plan.body.checkoutRequired,false); assert.strictEqual(plan.body.trial,true);
+  assert.strictEqual(plan.body.plan.routerLimit,1);
+  const secondRouterDuringTrial = await call('/api/business/locations',{name:'Kitale Two',routerName:'hAP lite'},token);
+  assert.strictEqual(secondRouterDuringTrial.status,402);
   const login = await call('/api/business/login',{email:'amina@example.test',password:'securepass'});
   assert.strictEqual(login.status,200); assert.ok(login.body.token);
 
@@ -64,6 +67,8 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   assert.strictEqual(routerDraft.body.location.name, 'Trial Main');
   assert.strictEqual(routerDraft.body.location.routerName, 'RB951Ui');
   assert.strictEqual(routerDraft.body.onboarding.nextStep, 'setup');
+  const secondTrialRouter = await call('/api/business/locations', { location:'Trial second', routerName:'RB951Ui' }, trialToken);
+  assert.strictEqual(secondTrialRouter.status, 402);
   console.log('business onboarding: ok');
   process.exit(0);
 })().catch(e=>{console.error(e);process.exit(1)});
