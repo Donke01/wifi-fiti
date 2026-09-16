@@ -321,6 +321,15 @@
       var routerDraftModalOpen = false;
       var moduleView = 'overview';
       var $ = function (id) { return document.getElementById(id); };
+      function installPppoeNavLink() {
+        var nav = document.querySelector('#dashboard .nav');
+        if (!nav || nav.querySelector('[data-pppoe-link]')) return;
+        var link = document.createElement('a');
+        link.href = '/pppoe.html'; link.dataset.pppoeLink = 'true';
+        link.className = 'button secondary'; link.textContent = '↔  PPPoE access';
+        link.style.marginTop = '4px'; link.style.textDecoration = 'none';
+        nav.appendChild(link);
+      }
 
       function api(path, options) {
         options = options || {};
@@ -467,7 +476,7 @@
       function closeRouterDraftModal() { routerDraftModalOpen = false; $('router-draft-modal').classList.add('hidden'); }
       function showWelcome() { closeRouterDraftModal(); clearAuthForms(); $('organisation-setup').classList.add('hidden'); $('dashboard').classList.add('hidden'); $('welcome').classList.remove('hidden'); }
       function showOrganisationSetup(business) { closeRouterDraftModal(); $('welcome').classList.add('hidden'); $('dashboard').classList.add('hidden'); $('organisation-setup').classList.remove('hidden'); var form = $('organisation-form'); if (business) { if (!form.elements.organisationName.value) form.elements.organisationName.value = business.name || ''; if (!form.elements.phone.value) form.elements.phone.value = business.owner_phone || ''; if (!form.elements.hotspotName.value) form.elements.hotspotName.value = business.hotspot_name || ''; } }
-      function showDashboard() { $('welcome').classList.add('hidden'); $('organisation-setup').classList.add('hidden'); $('dashboard').classList.remove('hidden'); }
+      function showDashboard() { $('welcome').classList.add('hidden'); $('organisation-setup').classList.add('hidden'); $('dashboard').classList.remove('hidden'); installPppoeNavLink(); }
       var moduleSections = {
         overview: ['overview', 'metrics', 'onboarding-section'],
         onboarding: ['onboarding-section'],
