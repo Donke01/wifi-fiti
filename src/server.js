@@ -3828,7 +3828,22 @@ app.get('/api/health', async (req, res) => {
 });
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk });
-require('./lib/fiti-signal').attachFitiSignalRoutes(app, { businessAuth });
+const fitiSignal = require('./lib/fiti-signal');
+fitiSignal.attachFitiSignalRoutes(app, { businessAuth });
+// Start the notification worker only when a provider key is configured. This
+// keeps local/test deployments inert while allowing Railway to deliver queued
+// transactional SMS automatically in sandbox or production.
+const smsProvider = fitiSignal.createAfricaTalkingProviderFromEnv();
+if (smsProvider) {
+  const smsWorker = () => fitiSignal.processQueue(smsProvider, { limit: 50 })
+    .catch((error) => console.error('[fiti-signal] provider worker failed:', error.message));
+  smsWorker();
+  const smsWorkerTimer = setInterval(smsWorker, 5000);
+  smsWorkerTimer.unref?.();
+  console.log(`FitiSignal provider: Africa's Talking (${smsProvider.environment})`);
+} else {
+  console.log('FitiSignal provider: not configured (messages remain queued).');
+}
 require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth });
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.

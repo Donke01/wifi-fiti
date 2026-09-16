@@ -83,6 +83,52 @@ class SmsProvider {
   async send() { throw new Error('SMS provider is not configured.'); }
 }
 
+/** Africa's Talking SMS adapter. Sandbox and live use the same payload and
+ * response contract; only the hostname and credentials differ. The API key
+ * is read from the process environment by the factory and is never returned
+ * through tenant or admin responses. */
+class AfricaTalkingSmsProvider extends SmsProvider {
+  constructor({ username = 'sandbox', apiKey, senderId = '', environment = 'sandbox', timeoutMs = 10000 } = {}) {
+    super();
+    if (!String(apiKey || '').trim()) throw new Error('Africa\'s Talking API key is required.');
+    this.username = String(username || 'sandbox').trim();
+    this.apiKey = String(apiKey).trim();
+    this.senderId = String(senderId || '').trim();
+    this.environment = String(environment || 'sandbox').toLowerCase() === 'production' ? 'production' : 'sandbox';
+    this.timeoutMs = Math.max(1000, Math.min(30000, Number(timeoutMs) || 10000));
+  }
+
+  async send({ to, message }) {
+    const endpoint = this.environment === 'production'
+      ? 'https://api.africastalking.com/version1/messaging'
+      : 'https://api.sandbox.africastalking.com/version1/messaging';
+    const body = new URLSearchParams({ username: this.username, to: String(to), message: String(message) });
+    if (this.senderId) body.set('from', this.senderId);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { apiKey: this.apiKey, accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new Error(error.name === 'AbortError' ? 'Africa\'s Talking request timed out.' : `Africa\'s Talking request failed: ${error.message}`);
+    } finally { clearTimeout(timer); }
+    const raw = await response.text();
+    let payload;
+    try { payload = raw ? JSON.parse(raw) : {}; } catch (_) { payload = { raw }; }
+    if (!response.ok) throw new Error(`Africa\'s Talking returned HTTP ${response.status}.`);
+    const recipient = payload?.SMSMessageData?.Recipients?.[0];
+    if (!recipient || String(recipient.statusCode || '') !== '100') {
+      throw new Error(recipient?.status || payload?.SMSMessageData?.Message || 'Africa\'s Talking rejected the SMS.');
+    }
+    return { id: recipient.messageId || recipient.message_id || null, status: recipient.status, cost: recipient.cost || null };
+  }
+}
+
 class FunctionSmsProvider extends SmsProvider {
   constructor(sender) {
     super();
@@ -93,6 +139,17 @@ class FunctionSmsProvider extends SmsProvider {
 }
 
 function createProvider(sender) { return new FunctionSmsProvider(sender); }
+
+function createAfricaTalkingProviderFromEnv(env = process.env) {
+  const apiKey = String(env.AFRICASTALKING_API_KEY || '').trim();
+  if (!apiKey) return null;
+  return new AfricaTalkingSmsProvider({
+    username: env.AFRICASTALKING_USERNAME || 'sandbox',
+    apiKey,
+    senderId: env.AFRICASTALKING_SENDER_ID || '',
+    environment: env.AFRICASTALKING_ENV || 'sandbox',
+  });
+}
 
 function init() {
   db.exec(`
@@ -344,7 +401,7 @@ function attachFitiSignalRoutes(app, { businessAuth }) {
 
 module.exports = {
   PACKAGES, SERVICE_CATALOGUE, DEFAULT_COST_CONTROLS,
-  SmsProvider, FunctionSmsProvider, createProvider,
+  SmsProvider, FunctionSmsProvider, AfricaTalkingSmsProvider, createProvider, createAfricaTalkingProviderFromEnv,
   phone, gsmSafe, segmentCount, packages, balance, createPurchase, completePurchase,
   getSettings, setSettings, getServices, setServices, enqueue, processQueue, usage, attachFitiSignalRoutes,
 };
