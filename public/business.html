@@ -229,6 +229,22 @@
       .portal-template-list .buttons{width:100%}
       .portal-template-list .buttons>*{flex:1}
     }
+    /* On phones keep the complete workspace navigation reachable. The desktop
+       sidebar becomes a wrapped, two-column command menu instead of a clipped
+       horizontal strip, including dynamically added Operations modules. */
+    @media(max-width:650px){
+      #dashboard:not(.sequential-onboarding) .sidebar{display:block;padding:10px}
+      #dashboard:not(.sequential-onboarding) .sidebar .brand{display:flex;align-items:center;padding:4px 5px 12px}
+      #dashboard:not(.sequential-onboarding) .sidebar .hotspot-picker{margin:0 0 10px}
+      #dashboard:not(.sequential-onboarding) .sidebar .nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;max-width:none;overflow:visible;gap:5px}
+      #dashboard:not(.sequential-onboarding) .sidebar .nav-extended{display:contents}
+      #dashboard:not(.sequential-onboarding) .sidebar .nav-label{display:block;grid-column:1/-1;margin:9px 3px 1px;font-size:9px}
+      #dashboard:not(.sequential-onboarding) .sidebar .nav button,
+      #dashboard:not(.sequential-onboarding) .sidebar .nav>a{width:100%;min-width:0;min-height:44px;padding:9px 7px;justify-content:flex-start;font-size:11px;line-height:1.15;white-space:normal;text-align:left}
+      #dashboard:not(.sequential-onboarding) .sidebar .nav .symbol{width:17px;flex:0 0 17px;text-align:center}
+      #dashboard:not(.sequential-onboarding) .sidebar .signout{display:flex;width:100%;min-height:42px;margin-top:10px;padding:9px 11px;font-size:12px}
+      #dashboard:not(.sequential-onboarding) .sidebar .signout:before{display:none}
+    }
   </style>
 </head>
 <body>
