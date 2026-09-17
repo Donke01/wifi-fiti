@@ -3139,6 +3139,84 @@ app.post('/api/mpesa/c2b/validation', (req, res) => {
   res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
 });
 
+/* Tenant C2B callback. Safaricom requires an immediate response, so the
+ * package lookup and provisioning run after acknowledgement. */
+app.post('/api/mpesa/c2b/tenant/validation', (req, res) => {
+  const shortcode = String(req.body?.BusinessShortCode || req.body?.ShortCode || '').trim();
+  const setting = paymentIntegrations.c2bSettingForShortcode(shortcode);
+  res.status(200).json(setting ? { ResultCode: 0, ResultDesc: 'Accepted' } : { ResultCode: 1, ResultDesc: 'Rejected' });
+});
+
+app.post('/api/mpesa/c2b/tenant/confirmation', (req, res) => {
+  res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
+  setImmediate(async () => {
+    try {
+      const body = req.body || {};
+      const receipt = String(body.TransID || '').trim().toUpperCase();
+      const shortcode = String(body.BusinessShortCode || body.ShortCode || '').trim();
+      const setting = paymentIntegrations.c2bSettingForShortcode(shortcode);
+      if (!setting || !receipt) return;
+      if (tenant.duplicateReceipt.get(receipt, '') || db.isDuplicateReceipt(receipt, '')) return;
+
+      const rawReference = String(body.BillRefNumber || '').trim();
+      const reference = setting.account_prefix && rawReference.startsWith(setting.account_prefix)
+        ? rawReference.slice(setting.account_prefix.length) : rawReference;
+      const phone = mpesa.normalizePhone(reference) || mpesa.normalizePhone(body.MSISDN);
+      const amount = Math.round(Number(body.TransAmount));
+      if (!phone || !Number.isFinite(amount) || amount <= 0) {
+        console.warn(`[tenant c2b] unmatched payment ${receipt}: invalid account or amount`);
+        return;
+      }
+      const packages = tenant.packagesForLocation.all(setting.location_id)
+        .filter(pkg => Number(pkg.price) <= amount).sort((a, b) => Number(b.price) - Number(a.price));
+      const pkg = packages[0];
+      if (!pkg) { console.warn(`[tenant c2b] ${receipt}: amount below package minimum`); return; }
+      const checkoutRequestId = `c2b_${receipt}`.replace(/[^A-Za-z0-9_.=-]/g, '').slice(0, 64);
+      const existing = tenant.getTransaction.get(checkoutRequestId);
+      if (existing) return;
+      tenant.insertTransaction.run({
+        checkoutRequestId, merchantRequestId: `C2B-${receipt}`.slice(0, 64),
+        businessId: setting.business_id, locationId: setting.location_id,
+        phone, packageId: pkg.id, packageName: pkg.name, amount: Number(pkg.price),
+        seconds: Number(pkg.seconds), rateLimit: pkg.rate_limit || null,
+        mac: null, ip: null,
+      });
+      tenant.setTransactionTerms.run({ checkoutRequestId, paymentSource: 'c2b', platformFee: 0 });
+      tenant.setTransactionResult.run({ checkoutRequestId, status: 'paid', resultCode: 0,
+        resultDesc: 'C2B payment confirmed', receipt });
+      provisionTenantPayment(checkoutRequestId);
+      console.log(`[tenant c2b] ${receipt} matched ${phone} at ${setting.location_id}`);
+    } catch (error) {
+      console.error('[tenant c2b] handler failed:', error.message);
+    }
+  });
+});
+
+// Safaricom may notify us later that a previously accepted C2B payment was
+// reversed. Reversals never grant a second package and immediately queue the
+// router revoke job for any subscription created from that receipt.
+app.post('/api/mpesa/c2b/tenant/reversal', (req, res) => {
+  res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
+  setImmediate(() => {
+    try {
+      const body = req.body || {};
+      const receipt = String(body.OriginalTransactionID || body.OriginalReceipt || body.TransID || '').trim().toUpperCase();
+      if (!receipt) return;
+      const transaction = db.db.prepare('SELECT * FROM tenant_transactions WHERE mpesa_receipt=? AND status=\'paid\' LIMIT 1').get(receipt);
+      if (!transaction) return;
+      db.db.prepare("UPDATE tenant_transactions SET status='reversed', result_desc='C2B payment reversed', updated_at=datetime('now') WHERE checkout_request_id=? AND status='paid'").run(transaction.checkout_request_id);
+      if (transaction.subscription_id) {
+        const subscription = tenant.subscriptionById.get(transaction.subscription_id, transaction.location_id);
+        if (subscription) {
+          db.db.prepare("UPDATE tenant_subscriptions SET expires_at=datetime('now'), updated_at=datetime('now') WHERE id=? AND location_id=?").run(subscription.id, subscription.location_id);
+          tenant.insertJob.run({ locationId: subscription.location_id, username: subscription.router_username, password: subscription.password || '2222', profile: 'standard', totalSeconds: 1, rateLimit: subscription.rate_limit || null, mac: subscription.mac, ip: null, action: 'revoke' });
+        }
+      }
+      console.log(`[tenant c2b] reversed ${receipt}`);
+    } catch (error) { console.error('[tenant c2b] reversal failed:', error.message); }
+  });
+});
+
 /* ------------------------------------------------------------------ */
 /* Ledger repair                                                       */
 /* ------------------------------------------------------------------ */

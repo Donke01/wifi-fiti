@@ -17,6 +17,15 @@ db.exec(`
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS business_c2b_settings (
+    business_id TEXT PRIMARY KEY,
+    location_id TEXT NOT NULL,
+    shortcode TEXT NOT NULL UNIQUE,
+    account_prefix TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 const providers = [
@@ -39,6 +48,22 @@ const save = db.prepare(`
 const markTested = db.prepare(`
   UPDATE business_payment_integrations SET status=@status, tested_at=datetime('now'),
     last_error=@error, updated_at=datetime('now') WHERE business_id=@businessId
+`);
+const c2bReport = db.prepare(`
+  SELECT checkout_request_id, location_id, phone, package_name, amount, status,
+         mpesa_receipt, provisioned, created_at, updated_at
+    FROM tenant_transactions
+   WHERE business_id=? AND payment_source='c2b'
+   ORDER BY created_at DESC LIMIT 500
+`);
+const c2bByShortcode = db.prepare('SELECT * FROM business_c2b_settings WHERE shortcode=? AND active=1');
+const c2bByBusiness = db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=?');
+const saveC2b = db.prepare(`
+  INSERT INTO business_c2b_settings (business_id, location_id, shortcode, account_prefix, updated_at)
+  VALUES (@businessId, @locationId, @shortcode, @accountPrefix, datetime('now'))
+  ON CONFLICT(business_id) DO UPDATE SET location_id=excluded.location_id,
+    shortcode=excluded.shortcode, account_prefix=excluded.account_prefix,
+    active=1, updated_at=datetime('now')
 `);
 
 function summary(businessId) {
@@ -90,6 +115,41 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant }) {
     markTested.run({ businessId: business.id, status, error });
     res.json(summary(business.id));
   });
+
+  app.get('/api/business/integrations/c2b', (req, res) => {
+    const business = businessAuth(req, res); if (!business) return;
+    const setting = c2bByBusiness.get(business.id);
+    res.json({ configured: Boolean(setting), setting: setting ? {
+      locationId: setting.location_id, shortcode: setting.shortcode,
+      accountPrefix: setting.account_prefix, active: Boolean(setting.active),
+    } : null, callbackUrl: `${process.env.PUBLIC_URL || ''}/api/mpesa/c2b/tenant/confirmation` });
+  });
+
+  app.post('/api/business/integrations/c2b', (req, res) => {
+    const business = businessAuth(req, res); if (!business) return;
+    const shortcode = String(req.body?.shortcode || '').trim();
+    const locationId = String(req.body?.locationId || '').trim();
+    const accountPrefix = String(req.body?.accountPrefix || '').trim().slice(0, 20);
+    if (!/^\d{5,12}$/.test(shortcode) || !locationId) return res.status(400).json({ error: 'Enter a valid PayBill shortcode and location.' });
+    const location = tenant.locationById.get(locationId);
+    if (!location || location.business_id !== business.id) return res.status(404).json({ error: 'Location not found.' });
+    try {
+      saveC2b.run({ businessId: business.id, locationId, shortcode, accountPrefix });
+      save.run(business.id, 'c2b');
+      res.status(201).json({ configured: true, setting: { locationId, shortcode, accountPrefix, active: true }, callbackUrl: `${process.env.PUBLIC_URL || ''}/api/mpesa/c2b/tenant/confirmation` });
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE')) return res.status(409).json({ error: 'That shortcode is already linked to another workspace.' });
+      return res.status(400).json({ error: 'C2B settings could not be saved.' });
+    }
+  });
+  app.get('/api/business/integrations/c2b/reconciliation', (req, res) => {
+    const business = businessAuth(req, res); if (!business) return;
+    const rows = c2bReport.all(business.id);
+    const summary = rows.reduce((out, row) => { out.count += 1; if (row.status === 'paid') out.paid += 1; if (row.status === 'failed' || row.status === 'reversed') out.failed += 1; out.amount += row.status === 'paid' ? Number(row.amount || 0) : 0; return out; }, { count: 0, paid: 0, failed: 0, amount: 0 });
+    res.json({ summary, transactions: rows });
+  });
 }
 
-module.exports = { providers, summary, attachPaymentIntegrationRoutes };
+function c2bSettingForShortcode(shortcode) { return c2bByShortcode.get(String(shortcode || '').trim()); }
+
+module.exports = { providers, summary, attachPaymentIntegrationRoutes, c2bSettingForShortcode };
