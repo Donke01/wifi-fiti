@@ -19,6 +19,7 @@ const { sendEmail, verificationEmail } = require('./lib/email');
 const { compatibilityRouterKit } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
+const whatsappNotifications = require('./lib/whatsapp-notifications');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1750,7 +1751,9 @@ function provisionTenantPayment(checkoutRequestId) {
   const transaction = tenant.getTransaction.get(checkoutRequestId);
   if (!transaction || transaction.status !== 'paid') return transaction;
   if (!transaction.provisioned) tenant.provisionPaidTransaction(checkoutRequestId);
-  return tenant.getTransaction.get(checkoutRequestId);
+  const provisioned = tenant.getTransaction.get(checkoutRequestId);
+  whatsappNotifications.enqueuePayment(provisioned, { eventIdPrefix: 'tenant-payment' });
+  return provisioned;
 }
 
 async function queryTenantMpesa(transaction) {
@@ -3882,6 +3885,13 @@ if (smsProvider) {
 } else {
   console.log('FitiSignal provider: not configured (messages remain queued).');
 }
+// WhatsApp delivery is independent of SMS and payment provisioning. The
+// worker stays inert until Meta credentials and an approved template exist.
+const whatsappWorker = () => whatsappNotifications.processQueue({ limit: 50 })
+  .catch((error) => console.error('[whatsapp] provider worker failed:', error.message));
+whatsappWorker();
+const whatsappWorkerTimer = setInterval(whatsappWorker, 5000);
+whatsappWorkerTimer.unref?.();
 require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth });
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.

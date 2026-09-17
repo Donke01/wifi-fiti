@@ -4,6 +4,7 @@ const db = require('./db');
 const mikrotik = require('./mikrotik');
 const { grantTime } = require('./grant');
 const { findPackage } = require('../packages');
+const whatsappNotifications = require('./whatsapp-notifications');
 
 /** No 0/O/1/I/l - people read these off a screen and retype them. */
 const ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -23,6 +24,7 @@ function generatePassword(length = 6) {
  */
 async function fulfil(tx) {
   if (tx.provisioned) {
+    whatsappNotifications.enqueuePayment(tx);
     return {
       alreadyDone: true,
       username: tx.hotspot_username,
@@ -79,6 +81,8 @@ async function fulfil(tx) {
       password: result.password,
     });
 
+    whatsappNotifications.enqueuePayment(tx);
+
     return { alreadyDone: false, username, password: result.password, queued: true };
   }
 
@@ -92,6 +96,7 @@ async function fulfil(tx) {
       username,
       password,
     });
+    whatsappNotifications.enqueuePayment(tx);
     console.log(
       '[fulfil] DRY RUN (no router configured) - would grant ' +
         username + ' +' + tx.seconds + 's (' + pkg.id + '). ' +
@@ -115,6 +120,7 @@ async function fulfil(tx) {
     username,
     password,
   });
+  whatsappNotifications.enqueuePayment(tx);
 
   let loggedIn = false;
   try {
