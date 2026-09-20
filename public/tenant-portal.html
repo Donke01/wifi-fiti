@@ -98,8 +98,10 @@
     body[data-portal-layout="minimal"] .plan{border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;min-height:62px}
     body[data-portal-layout="minimal"] .plan:last-child{border-bottom:0}
     @media(max-width:480px){body[data-portal-layout="cards"] .plans{grid-template-columns:1fr}}
-    body[data-portal-align="left"] .brand,body[data-portal-align="left"] .copy,body[data-portal-align="left"] .section-copy,body[data-portal-align="left"] .section-title,body[data-portal-align="left"] .waiting{text-align:left}
-    body[data-portal-align="left"] .brand-location{margin-left:0}
+    /* The business identity remains centred in every template. The selected
+       alignment controls the customer-facing content below it. */
+    body[data-portal-align="left"] .copy,body[data-portal-align="left"] .section-copy,body[data-portal-align="left"] .section-title,body[data-portal-align="left"] .waiting{text-align:left}
+    body[data-portal-align="left"] .brand-location{margin-left:auto}
     body[data-portal-font="rounded"]{font-family:"Avenir Next Rounded","Trebuchet MS",ui-sans-serif,sans-serif}
     body[data-portal-font="condensed"]{font-family:"Arial Narrow","Roboto Condensed",Inter,sans-serif}
     body[data-portal-font="mono"]{font-family:"IBM Plex Mono",ui-monospace,monospace}
