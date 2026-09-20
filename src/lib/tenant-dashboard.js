@@ -39,7 +39,7 @@ function attachTenantDashboardRoutes(app, { businessAuth, db }) {
     `).get(businessId, since, ...locationIds);
     const transactionRows = db.prepare(`
       SELECT t.checkout_request_id, t.location_id, l.name AS location_name, t.phone,
-             t.mac, t.package_name, t.amount, t.seconds, t.status, t.payment_source,
+             t.mac, t.package_name, t.amount, t.status, t.payment_source,
              t.mpesa_receipt, t.result_desc, t.created_at, t.updated_at
         FROM tenant_transactions t JOIN locations l ON l.id=t.location_id
        WHERE t.business_id=? AND t.created_at>=? AND t.location_id IN (${placeholders})
@@ -74,9 +74,12 @@ function attachTenantDashboardRoutes(app, { businessAuth, db }) {
 
     // Telemetry is optional for older routers. Counter resets/reboots are
     // treated as a new window and never produce negative traffic.
-    const telemetryRows = tableExists('tenant_router_telemetry') && locationIds.length
-      ? db.prepare(`SELECT location_id,cpu_percent,free_memory,total_memory,uptime_seconds,
-                           uptime_text,rx_bytes,tx_bytes,active_users,recorded_at
+    const telemetryColumns = tableExists('tenant_router_telemetry')
+      ? new Set(db.prepare('PRAGMA table_info(tenant_router_telemetry)').all().map(column => column.name))
+      : new Set();
+    const telemetryField = name => telemetryColumns.has(name) ? name : `NULL AS ${name}`;
+    const telemetryRows = telemetryColumns.size && locationIds.length
+      ? db.prepare(`SELECT ${['location_id', 'cpu_percent', 'free_memory', 'total_memory', 'uptime_seconds', 'uptime_text', 'rx_bytes', 'tx_bytes', 'active_users', 'recorded_at'].map(telemetryField).join(',')}
                       FROM tenant_router_telemetry
                      WHERE location_id IN (${placeholders}) AND recorded_at>=?
                      ORDER BY recorded_at ASC LIMIT 10000`).all(...locationIds, since)
