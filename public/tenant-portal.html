@@ -98,6 +98,23 @@
     body[data-portal-layout="minimal"] .plan{border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;min-height:62px}
     body[data-portal-layout="minimal"] .plan:last-child{border-bottom:0}
     @media(max-width:480px){body[data-portal-layout="cards"] .plans{grid-template-columns:1fr}}
+    body[data-portal-align="left"] .brand,body[data-portal-align="left"] .copy,body[data-portal-align="left"] .section-copy,body[data-portal-align="left"] .section-title,body[data-portal-align="left"] .waiting{text-align:left}
+    body[data-portal-align="left"] .brand-location{margin-left:0}
+    body[data-portal-font="rounded"]{font-family:"Avenir Next Rounded","Trebuchet MS",ui-sans-serif,sans-serif}
+    body[data-portal-font="condensed"]{font-family:"Arial Narrow","Roboto Condensed",Inter,sans-serif}
+    body[data-portal-font="mono"]{font-family:"IBM Plex Mono",ui-monospace,monospace}
+    body[data-portal-background="midnight"]{background:radial-gradient(circle at 90% 0,#7c5cfa36,transparent 28rem),#090b1c}
+    body[data-portal-background="paper"]{background:linear-gradient(145deg,#fff,#edf4fb)}
+    body[data-portal-background="sunset"]{background:radial-gradient(circle at 10% 0,#ffb06c66,transparent 28rem),linear-gradient(145deg,#fff8f1,#fff)}
+    body[data-portal-background="mint"]{background:radial-gradient(circle at 90% 0,#72e0be70,transparent 28rem),linear-gradient(145deg,#f2fffb,#fff)}
+    body[data-portal-package-style="tiles"] .plans{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    body[data-portal-package-style="tiles"] .plan{min-height:116px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:6px;border-radius:20px}
+    body[data-portal-package-style="compact"] .plans{gap:0;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    body[data-portal-package-style="compact"] .plan{min-height:58px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+    body[data-portal-package-style="compact"] .plan:last-child{border-bottom:0}
+    body[data-portal-package-style="pill"] .plan{min-height:54px;border-radius:99px;padding:11px 18px}
+    body[data-portal-package-style="pill"] .plan-detail{display:none}
+    @media(max-width:480px){body[data-portal-package-style="tiles"] .plans{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -211,6 +228,10 @@
       if (branding.message) message('portal-message', branding.message);
       if (template.welcomeMessage) message('portal-message', template.welcomeMessage);
       if (template.layout) document.body.dataset.portalLayout = template.layout;
+      if (template.fontFamily) document.body.dataset.portalFont = template.fontFamily;
+      if (template.textAlign) document.body.dataset.portalAlign = template.textAlign;
+      if (template.packageStyle) document.body.dataset.portalPackageStyle = template.packageStyle;
+      if (template.backgroundStyle) document.body.dataset.portalBackground = template.backgroundStyle;
       if (template.showPackages === false) $('plans').classList.add('hidden');
       if (template.showUtilities === false) document.querySelector('.utilities').classList.add('hidden');
       message('support', '© ' + new Date().getFullYear() + ' ' + name +
