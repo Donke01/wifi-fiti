@@ -1,0 +1,8 @@
+[
+  {"id":"ocean-glass","name":"Ocean Glass","layout":"classic","accentColor":"#1769D8","welcomeMessage":"Fast, reliable Wi-Fi for everyone.","description":"A calm blue glass layout for everyday hotspot businesses."},
+  {"id":"emerald-connect","name":"Emerald Connect","layout":"cards","accentColor":"#0A9B78","welcomeMessage":"Connect in seconds. Stay online.","description":"A bold green package-card experience for busy locations."},
+  {"id":"sunset-market","name":"Sunset Market","layout":"cards","accentColor":"#E56B3F","welcomeMessage":"Choose your time and get connected.","description":"A warm, high-energy design for shops, cafés and events."},
+  {"id":"midnight-pro","name":"Midnight Pro","layout":"minimal","accentColor":"#7C5CFA","welcomeMessage":"Secure access. Simple checkout.","description":"A focused premium experience with less visual noise."},
+  {"id":"aqua-wave","name":"Aqua Wave","layout":"classic","accentColor":"#078D9B","welcomeMessage":"Your connection starts here.","description":"A fresh aqua design that matches the Wi-Fi Fiti spirit."},
+  {"id":"golden-welcome","name":"Golden Welcome","layout":"minimal","accentColor":"#B87912","welcomeMessage":"Welcome. Pick a package to begin.","description":"A warm, confident portal for hospitality and guest Wi-Fi."}
+]
