@@ -397,6 +397,15 @@ app.get('/tenant-router-install-compat.rsc', (req, res) => {
     res.type('text/plain').send(compatibilityRouterKit(source));
   } catch (_) { res.status(404).type('text/plain').send('# installer unavailable\n'); }
 });
+// Isolated telemetry test installer. The production tenant-router-install.rsc
+// remains untouched; only a test bootstrap is allowed to reference this path.
+app.get('/tenant-router-install-telemetry-test.rsc', (req, res) => {
+  try {
+    const source = fs.readFileSync(path.join(publicDirectory, 'tenant-router-install.rsc'), 'utf8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('text/plain').send(telemetryTestRouterKit(source));
+  } catch (_) { res.status(404).type('text/plain').send('# telemetry test installer unavailable\n'); }
+});
 app.use(express.static(publicDirectory));
 
 // This repository is intentionally private, so a new VPS cannot rely on a
@@ -3442,7 +3451,12 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     if (String(req.query.compat || '') === '1') script = compatibilityRouterKit(script);
     // Test-only replica: add guarded router telemetry without changing the
     // production kit stored for ordinary onboarding. Promotion is deliberate.
-    if (String(req.query.telemetry || '') === '1') script = telemetryTestRouterKit(script);
+    if (String(req.query.telemetry || '') === '1') {
+      // The encrypted setup script is the pairing wrapper; it normally pulls
+      // the stable installer. Point only this test wrapper at the isolated
+      // telemetry endpoint, which transforms the same stable source.
+      script = script.replace(/tenant-router-install\.rsc/g, 'tenant-router-install-telemetry-test.rsc');
+    }
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);
