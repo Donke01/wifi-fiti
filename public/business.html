@@ -514,12 +514,13 @@
       // the exact encrypted, one-time kit that the server generated for this
       // location, using the location token only in an HTTPS request header.
       function routerBootstrapCommand(setup, compatibility) {
+        var telemetryTest = arguments[2];
         var locationId = String(setup && setup.id || '');
         var routerToken = String(setup && setup.token || '');
         var loader = Boolean(setup && setup.setup && setup.setup.loader === true);
         if (!loader || !/^loc-[A-Za-z0-9_-]{1,96}$/.test(locationId) || !/^[A-Za-z0-9_-]{16,160}$/.test(routerToken)) return '';
         var origin = window.location.origin;
-        var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId) + (compatibility ? '&compat=1' : '');
+        var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId) + (compatibility ? '&compat=1' : '') + (telemetryTest ? '&telemetry=1' : '');
         return [
           ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={ :do { [:parse "/certificate settings set builtin-trust-anchors=trusted"] } on-error={} }',
           ':do { /file remove [find where name="wifi-fiti-bootstrap.rsc"] } on-error={}',
@@ -633,11 +634,33 @@
         var max = Math.max(1, gross, voucherSales, balance); var bars = Array.from({ length: 14 }, function (_, index) { var factor = recent.length ? Number(recent[index % recent.length].amount || 0) / max : (index % 4 === 0 ? .08 : index % 3 === 0 ? .16 : .03); return '<span class="overview-bar-group"><i class="overview-bar" style="height:' + Math.max(3, Math.round(factor * 100)) + '%"></i><i class="overview-bar commission" style="height:' + Math.max(2, Math.round(factor * 38)) + '%"></i><i class="overview-bar gross" style="height:' + Math.max(2, Math.round(factor * 72)) + '%"></i></span>'; }).join('');
         section.innerHTML = '<div class="overview-kpis"><article class="overview-kpi"><div class="overview-kpi-label">Net sales</div><div class="overview-kpi-value">' + kes(gross) + '</div><div class="overview-kpi-note">Mobile-money and confirmed sales</div></article><article class="overview-kpi"><div class="overview-kpi-label">Voucher sales</div><div class="overview-kpi-value">' + kes(voucherSales) + '</div><div class="overview-kpi-note">Printed voucher revenue</div></article><article class="overview-kpi"><div class="overview-kpi-label">Balance</div><div class="overview-kpi-value">' + kes(balance) + '</div><div class="overview-kpi-note">Net business balance</div></article><article class="overview-kpi"><div class="overview-kpi-label">System insights</div><div class="overview-kpi-value"><span class="overview-status">' + (online ? 'Online' : 'Offline') + '</span></div><div class="overview-kpi-note">' + online + ' router(s) online · ' + active + ' active devices</div></article></div><div class="overview-chart"><div class="overview-chart-head"><h3>Overview</h3><div class="overview-legend"><span>Proceeds</span><span>Commission</span><span>Gross revenue</span></div></div><div class="overview-bars" role="img" aria-label="Revenue overview chart">' + bars + '</div></div><div class="overview-recent"><h3>Recent sales</h3><p>' + (recent.length ? 'You made ' + recent.length + ' confirmed sale(s) in the selected period.' : 'You made 0 sales in the selected period.') + '</p></div>';
       }
+      function loadRouterTelemetry(section, selected) {
+        if (!section || !selected) return;
+        var periodSelect = section.querySelector('#router-observability-period');
+        var periodText = periodSelect && periodSelect.value || 'Last 24 hours';
+        var period = periodText.indexOf('1 hour') >= 0 ? '1h' : periodText.indexOf('6 hours') >= 0 ? '6h' : periodText.indexOf('7 days') >= 0 ? '7d' : '24h';
+        api('/api/business/router-telemetry?locationId=' + encodeURIComponent(selected.id) + '&period=' + period).then(function (result) {
+          var latest = result && result.latest;
+          var metrics = section.querySelectorAll('.metric');
+          if (!latest || !metrics.length) return;
+          var cpu = latest.cpu_percent === null || latest.cpu_percent === undefined ? '—' : Number(latest.cpu_percent).toFixed(1) + '%';
+          var total = Number(latest.total_memory || 0); var free = Number(latest.free_memory || 0);
+          var memory = total > 0 ? Math.max(0, Math.min(100, (1 - free / total) * 100)).toFixed(1) + '%' : '—';
+          var active = latest.active_users === null || latest.active_users === undefined ? '—' : String(Math.round(Number(latest.active_users)));
+          if (metrics[1]) metrics[1].querySelector('.metric-value').textContent = active;
+          if (metrics[2]) metrics[2].querySelector('.metric-value').textContent = cpu;
+          if (metrics[3]) metrics[3].querySelector('.metric-value').textContent = memory;
+          var cards = section.querySelectorAll('.chart-placeholder small');
+          if (cards[0]) cards[0].textContent = 'Latest sample ' + when(latest.recorded_at) + ' · TEST KIT telemetry';
+          if (cards[1]) cards[1].textContent = 'Download/upload counters from the TEST KIT';
+          if (cards[2]) cards[2].textContent = 'Active customer devices from the TEST KIT';
+        }).catch(function () { /* telemetry is optional and never blocks the dashboard */ });
+      }
       function renderRouterObservability() {
         var locationsRoot = $('locations-section'); if (!locationsRoot) return; var section = $('router-observability-section'); if (!section) { section = document.createElement('section'); section.className = 'section'; section.id = 'router-observability-section'; section.dataset.module = 'routers'; locationsRoot.parentNode.insertBefore(section, locationsRoot); }
         var locations = (state.workspace && state.workspace.locations) || []; var selected = locations.find(function (location) { return String(location.id) === String(sessionStorage.getItem('fiti_active_location') || ''); }) || locations[0]; var online = selected && String(selected.router_status || '').toLowerCase() === 'online'; var lastSeen = selected && (selected.last_successful_sync_at || selected.last_seen_at); var routerName = selected ? (selected.router_name || selected.name || 'Router') : 'No router selected'; var model = selected ? (selected.router_model || 'MikroTik') : '—'; var health = online ? 'Online' : 'Offline';
         section.innerHTML = '<div class="module-heading"><div><h2>Router observability</h2><p>Monitor router health, customer activity and traffic without opening the router directly.</p></div><div class="section-actions"><select id="router-observability-location" aria-label="Router location"></select><select id="router-observability-period" aria-label="Router time range"><option>Last 1 hour</option><option>Last 6 hours</option><option>Last 24 hours</option><option>Last 7 days</option></select><button type="button" class="secondary" id="router-observability-refresh">Refresh</button></div></div><div class="panel"><div class="connection"><strong>' + escapeHtml(routerName) + ' · ' + escapeHtml(model) + '</strong><p><span class="status ' + (online ? 'online' : 'waiting') + '">' + health + '</span> · Last sync: ' + (lastSeen ? escapeHtml(when(lastSeen)) : 'Waiting for first check-in') + '</p></div><div class="module-grid" style="margin-top:15px"><article class="metric"><div class="metric-label">Uptime</div><div class="metric-value">' + (online ? '—' : 'Offline') + '</div><div class="metric-foot">Router-reported uptime</div></article><article class="metric"><div class="metric-label">Active users</div><div class="metric-value">0</div><div class="metric-foot">Connected customer devices</div></article><article class="metric"><div class="metric-label">CPU load</div><div class="metric-value">0%</div><div class="metric-foot">Latest router report</div></article><article class="metric"><div class="metric-label">Memory usage</div><div class="metric-value">0%</div><div class="metric-foot">Latest router report</div></article></div><div class="split" style="margin-top:16px"><div class="chart-placeholder"><div><strong>CPU &amp; memory usage</strong><small>Health history appears after router telemetry arrives.</small></div></div><div class="chart-placeholder"><div><strong>Network traffic rate</strong><small>Download and upload telemetry by time.</small></div></div></div><div class="chart-placeholder" style="margin-top:16px;min-height:190px"><div><strong>Active users over time</strong><small>Customer activity for the selected router and period.</small></div></div></div>';
-        var select = section.querySelector('#router-observability-location'); locations.forEach(function (location) { var option = document.createElement('option'); option.value = location.id; option.textContent = location.name || location.router_name || location.id; if (selected && String(selected.id) === String(location.id)) option.selected = true; select.appendChild(option); }); select.addEventListener('change', function () { sessionStorage.setItem('fiti_active_location', this.value); renderHotspotPicker(); renderRouterObservability(); }); section.querySelector('#router-observability-refresh').addEventListener('click', function (event) { var button = event.currentTarget; setBusy(button, true, 'Refreshing…'); load().finally(function () { setBusy(button, false); }); });
+        var select = section.querySelector('#router-observability-location'); locations.forEach(function (location) { var option = document.createElement('option'); option.value = location.id; option.textContent = location.name || location.router_name || location.id; if (selected && String(selected.id) === String(location.id)) option.selected = true; select.appendChild(option); }); select.addEventListener('change', function () { sessionStorage.setItem('fiti_active_location', this.value); renderHotspotPicker(); renderRouterObservability(); }); section.querySelector('#router-observability-period').addEventListener('change', function () { loadRouterTelemetry(section, selected); }); section.querySelector('#router-observability-refresh').addEventListener('click', function (event) { var button = event.currentTarget; setBusy(button, true, 'Refreshing…'); load().finally(function () { setBusy(button, false); }); }); loadRouterTelemetry(section, selected);
       }
       function installCardNavigation() {
         var dashboard = $('dashboard'); if (!dashboard) return;
@@ -1291,6 +1314,7 @@
         // out of the browser UI and remains an internal fallback.
         var script = routerBootstrapCommand(saved);
         var compatibilityScript = routerBootstrapCommand(saved, true);
+        var telemetryTestScript = routerBootstrapCommand(saved, false, true);
         add(box, 'h4', '', script ? 'Secure bootstrap command' : 'Secure bootstrap unavailable');
         if (script) {
           add(box, 'p', '', 'paste this complete kit once as one short command in a new WinBox terminal. It securely downloads the exact router kit over HTTPS, imports it locally, and removes the temporary file. Your administrator password is never requested.');
@@ -1304,6 +1328,10 @@
           if (!window.confirm('This recovery kit disables HTTPS certificate verification for its initial download. Use it only after RouterOS reports “no trusted CA certificate found”. Continue?')) return;
           copyText(compatibilityScript, compatibilityCopy);
         }); compatibilityCopy.disabled = !compatibilityScript;
+        var telemetryCopy = setupAction(actions, 'Copy telemetry TEST kit', 'secondary', function () {
+          copyText(telemetryTestScript, telemetryCopy);
+        }); telemetryCopy.disabled = !telemetryTestScript;
+        add(box, 'small', 'form-note', 'TEST KIT only: reports guarded CPU, memory, traffic and active-user samples. It is isolated from the production kit and should be used on a test router/location.');
         add(box, 'small', 'form-note', 'CA compatibility is a recovery option only. It disables certificate verification for the initial download; all other routers must use the standard connection kit.');
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);

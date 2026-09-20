@@ -307,6 +307,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tenant_router_topologies_reported
     ON tenant_router_topologies(last_reported_at);
 
+  -- Test-kit router telemetry is append-only, bounded and independent from
+  -- the stable pairing/topology path. It may be promoted only after the
+  -- isolated kit has been validated across RouterOS versions.
+  CREATE TABLE IF NOT EXISTS tenant_router_telemetry (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id     TEXT NOT NULL REFERENCES locations(id),
+    cpu_percent     REAL,
+    free_memory     INTEGER,
+    total_memory    INTEGER,
+    rx_bytes        INTEGER,
+    tx_bytes        INTEGER,
+    active_users    INTEGER,
+    recorded_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_router_telemetry_location_time
+    ON tenant_router_telemetry(location_id, recorded_at DESC);
+
   -- A mapping is owner-confirmed descriptive metadata, not a command queue.
   -- Its fingerprint binds it to one exact router inventory snapshot. If the
   -- router topology changes, the UI must request a fresh confirmation rather
@@ -868,6 +885,22 @@ const touchRouterTopology = db.prepare(`
   UPDATE tenant_router_topologies
      SET last_reported_at=datetime('now')
    WHERE location_id=? AND last_reported_at <= datetime('now','-90 seconds')
+`);
+const insertRouterTelemetry = db.prepare(`
+  INSERT INTO tenant_router_telemetry
+    (location_id, cpu_percent, free_memory, total_memory, rx_bytes, tx_bytes, active_users)
+  VALUES (@locationId, @cpuPercent, @freeMemory, @totalMemory, @rxBytes, @txBytes, @activeUsers)
+`);
+const routerTelemetryForLocation = db.prepare(`
+  SELECT cpu_percent, free_memory, total_memory, rx_bytes, tx_bytes, active_users, recorded_at
+    FROM tenant_router_telemetry
+   WHERE location_id=? AND recorded_at >= ?
+   ORDER BY recorded_at ASC
+   LIMIT ?
+`);
+const latestRouterTelemetry = db.prepare(`
+  SELECT cpu_percent, free_memory, total_memory, rx_bytes, tx_bytes, active_users, recorded_at
+    FROM tenant_router_telemetry WHERE location_id=? ORDER BY recorded_at DESC LIMIT 1
 `);
 const routerMappingByLocation = db.prepare(`
   SELECT location_id, schema_version, topology_fingerprint, mapping_fingerprint,
@@ -2562,6 +2595,40 @@ function recordRouterTopology({ locationId, topology, fingerprint }) {
   return routerTopologyForLocation(location);
 }
 
+function recordRouterTelemetry({ locationId, cpuPercent, freeMemory, totalMemory, rxBytes, txBytes, activeUsers }) {
+  const location = locationById.get(locationId);
+  if (!location) return null;
+  const finite = (value, min, max) => {
+    if (value === '' || value === null || value === undefined) return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= min && number <= max ? Math.round(number * 100) / 100 : null;
+  };
+  const row = {
+    locationId,
+    cpuPercent: finite(cpuPercent, 0, 100),
+    freeMemory: finite(freeMemory, 0, 1e15),
+    totalMemory: finite(totalMemory, 0, 1e15),
+    // Keep counters inside JavaScript's exact-integer range. A board with a
+    // larger counter is ignored for that field rather than storing a rounded
+    // value that could make a rate graph misleading.
+    rxBytes: finite(rxBytes, 0, 9e15),
+    txBytes: finite(txBytes, 0, 9e15),
+    activeUsers: finite(activeUsers, 0, 100000),
+  };
+  if (Object.values(row).slice(1).every((value) => value === null)) return null;
+  insertRouterTelemetry.run(row);
+  return row;
+}
+
+function routerTelemetryForLocationId(locationId, { since, limit = 500 } = {}) {
+  const from = since || nowSql(Date.now() - 24 * 60 * 60 * 1000);
+  const safeLimit = Math.min(Math.max(Number(limit) || 500, 1), 2000);
+  return {
+    latest: latestRouterTelemetry.get(locationId) || null,
+    samples: routerTelemetryForLocation.all(locationId, from, safeLimit),
+  };
+}
+
 /**
  * Confirm an owner-visible topology map. The result is descriptive metadata
  * only: it cannot create a peer, alter a bridge, move a WAN, or change any
@@ -3800,6 +3867,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 module.exports = {
   tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
+  recordRouterTelemetry, routerTelemetryForLocationId,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,

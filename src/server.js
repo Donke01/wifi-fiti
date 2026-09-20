@@ -16,7 +16,7 @@ const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
-const { compatibilityRouterKit } = require('./lib/router-kit');
+const { compatibilityRouterKit, telemetryTestRouterKit } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
@@ -1660,6 +1660,17 @@ app.get('/api/business/dashboard', (req, res) => {
     recentPayments: tenant.recentSales.all(business.id, 25),
     transactions: tenant.salesTransactions.all(business.id, since, 500),
   });
+});
+
+app.get('/api/business/router-telemetry', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const locationId = String(req.query.locationId || '');
+  const location = tenant.locationForBusiness.get(locationId, business.id);
+  if (!location) return res.status(404).json({ error: 'Location not found.' });
+  const period = String(req.query.period || '24h');
+  const hours = period === '1h' ? 1 : period === '6h' ? 6 : period === '7d' ? 168 : 24;
+  const since = new Date(Date.now() - hours * 3600_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+  res.json({ locationId, period, ...tenant.routerTelemetryForLocationId(location.id, { since, limit: 1000 }) });
 });
 
 app.get('/api/business/vouchers', (req, res) => {
@@ -3429,6 +3440,9 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     // option is only for older RouterOS boards with an empty CA store and does not
     // change the encrypted kit retained at rest.
     if (String(req.query.compat || '') === '1') script = compatibilityRouterKit(script);
+    // Test-only replica: add guarded router telemetry without changing the
+    // production kit stored for ordinary onboarding. Promotion is deliberate.
+    if (String(req.query.telemetry || '') === '1') script = telemetryTestRouterKit(script);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);
@@ -3719,6 +3733,26 @@ function ingestTenantTopology(location, rawBody) {
   }
 }
 
+// Telemetry is accepted only from the authenticated, test-kit-marked poll.
+// Each value is validated again in tenant storage; any malformed field is
+// ignored without affecting pairing, billing, topology or job delivery.
+function ingestTenantTelemetry(location, query) {
+  if (String(query && query.telemetry || '') !== '1') return null;
+  try {
+    return tenant.recordRouterTelemetry({
+      locationId: location.id,
+      cpuPercent: query.cpu,
+      freeMemory: query.freeMem,
+      totalMemory: query.totalMem,
+      rxBytes: query.rx,
+      txBytes: query.tx,
+      activeUsers: query.activeUsers,
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
 /**
  * A router asks what work is waiting. The reply is RouterOS script, which
  * the router parses and runs in memory - no file written, no flash wear.
@@ -3810,6 +3844,7 @@ app.post('/api/router/sync', (req, res) => {
     // receipt. A router that changed ports since the action was issued is
     // therefore marked stale instead of being recorded as deployed.
     ingestTenantTopology(readyLocation, req.body);
+    ingestTenantTelemetry(readyLocation, req.query);
     acknowledgeTenantRouterJobs(readyLocation, req.query.ack);
     acknowledgeTenantRemoteSupportControls(readyLocation, req.query.supportAck);
     ingestTenantUsage(readyLocation, req.body);
