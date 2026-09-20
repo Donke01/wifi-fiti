@@ -30,7 +30,10 @@ app.use((req, res, next) => {
   // third-party asset or destination.
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
+  // The signed-in dashboard embeds the exact customer portal in its live
+  // template preview. Keep every other page frame-protected; only this
+  // same-origin, data-free preview route may be embedded.
+  res.setHeader('X-Frame-Options', req.path === '/tenant-portal.html' && req.query.preview === '1' ? 'SAMEORIGIN' : 'DENY');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
   next();
