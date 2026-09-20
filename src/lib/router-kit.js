@@ -25,10 +25,10 @@ function telemetryTestRouterKit(source) {
   const input = String(source || '');
   const marker = String.raw`  :local url (\$fitiUrl . \"/api/router/sync\?site=\" . \$fitiSite`;
   const telemetryLines = [
-    '  :local fitiTelemetryCpu ""',
-    '  :local fitiTelemetryFreeMemory ""',
-    '  :local fitiTelemetryTotalMemory ""',
-    '  :local fitiTelemetryActiveUsers ""',
+    '  :local fitiTelemetryCpu \\"\\"',
+    '  :local fitiTelemetryFreeMemory \\"\\"',
+    '  :local fitiTelemetryTotalMemory \\"\\"',
+    '  :local fitiTelemetryActiveUsers \\"\\"',
     '  :do { :set fitiTelemetryCpu [/system resource get cpu-load] } on-error={}',
     '  :do { :set fitiTelemetryFreeMemory [/system resource get free-memory] } on-error={}',
     '  :do { :set fitiTelemetryTotalMemory [/system resource get total-memory] } on-error={}',
