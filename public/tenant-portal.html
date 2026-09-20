@@ -117,6 +117,7 @@
     body[data-portal-package-style="pill"] .plan{min-height:54px;border-radius:99px;padding:11px 18px}
     body[data-portal-package-style="pill"] .plan-detail{display:none}
     @media(max-width:480px){body[data-portal-package-style="tiles"] .plans{grid-template-columns:1fr}}
+    .tv-picker{display:grid;gap:10px;margin:16px 0}.tv-choice{display:grid;grid-template-columns:48px 1fr 18px;align-items:center;gap:10px;width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:16px;color:var(--ink);background:#fff;text-align:left;cursor:pointer;box-shadow:0 4px 12px rgba(32,57,86,.035)}.tv-choice:hover{border-color:#8fb7e8;background:#f8fbff}.tv-choice b,.tv-choice small{display:block}.tv-choice b{font-size:16px}.tv-choice small{margin-top:3px;color:var(--muted);font-size:13px;line-height:1.35}.tv-choice-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;color:var(--aqua);background:#e8fbfb;font-size:26px;font-weight:800}.tv-back-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}.tv-devices{display:grid;gap:9px;max-height:320px;overflow:auto;margin:12px 0}.tv-device{display:grid;grid-template-columns:42px 1fr;align-items:center;gap:10px;padding:13px;border:1px solid var(--line);border-radius:16px;background:#fff;text-align:left;cursor:pointer}.tv-device:hover,.tv-device.selected{border-color:var(--aqua);background:#f0fcfc;box-shadow:inset 0 0 0 1px #078d9b2a}.tv-device-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;color:var(--aqua);background:#e4fafa;font-size:20px}.tv-device b,.tv-device small{display:block}.tv-device b{font-size:16px}.tv-device small{margin-top:3px;color:var(--muted);font-size:13px;letter-spacing:.04em}.tv-manual-link{width:100%;margin-top:9px}.tv-picker~.hidden{display:none!important}
   </style>
 </head>
 <body>
@@ -128,7 +129,7 @@
     <section class="section hidden" id="existing-section"><div class="card"><div class="section-title"><h2>Existing package found</h2><button class="text-button" type="button" id="buy-anyway">Continue with purchase</button></div><p class="section-copy">Choose the package to check its balance. To move its remaining time to this device, enter the WiFi recovery code; the previous phone will be disconnected.</p><div id="existing-list" class="existing-list"></div><label for="transfer-password">WiFi recovery code</label><input id="transfer-password" autocomplete="off" autocapitalize="characters" placeholder="Code saved on your WiFi countdown page"><div class="error" id="transfer-error" aria-live="polite"></div><button class="primary" type="button" id="transfer">CONNECT THIS PACKAGE</button></div></section>
     <section class="section hidden" id="voucher-section"><div class="card"><div class="section-title"><h2>Use a voucher</h2><button class="text-button" type="button" id="close-voucher">Close</button></div><p class="section-copy">Enter the voucher code and the phone number that should own the package.</p><label for="voucher-code">Voucher code</label><input id="voucher-code" autocomplete="off" autocapitalize="characters" placeholder="FITI…"><div class="error" id="voucher-error" aria-live="polite"></div><button class="primary" type="button" id="redeem">REDEEM VOUCHER</button></div></section>
     <section class="section hidden" id="paybill-section"><div class="card"><div class="section-title"><h2>Lipa na PayBill</h2><button class="text-button" type="button" id="close-paybill">Close</button></div><p class="section-copy">Open M‑Pesa, choose Lipa na PayBill, and use your phone number as the account reference.</p><p class="notice" id="paybill-details">PayBill details are provided by this WiFi operator.</p></div></section>
-    <section class="section hidden" id="tv-section"><div class="card"><div class="section-title"><h2>Buy for your TV</h2><button class="text-button" type="button" id="close-tv">Close</button></div><p class="section-copy">This is a separate package. It is locked to one TV MAC address and does not use your phone’s package.</p><p class="notice" id="tv-existing"></p><label for="tv-phone">M‑Pesa number</label><input id="tv-phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><label for="tv-name">Device name</label><input id="tv-name" autocomplete="off" value="TV" maxlength="24"><label for="tv-mac">TV MAC address</label><input id="tv-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><button class="primary" type="button" id="add-tv">LIPA NA M-PESA FOR TV</button><div class="error" id="tv-error" aria-live="polite"></div></div></section>
+    <section class="section hidden" id="tv-section"><div class="card"><div class="section-title"><h2>Buy for your TV</h2><button class="text-button" type="button" id="close-tv">Close</button></div><p class="section-copy">Connect the TV or streaming device to this Wi‑Fi first. Your phone is already connected; the router will show nearby devices that it can identify.</p><p class="notice" id="tv-existing"></p><div id="tv-picker" class="tv-picker"><button class="tv-choice" type="button" id="tv-discover"><span class="tv-choice-icon" aria-hidden="true">⌁</span><span><b>Pick a nearby device</b><small>Choose a TV or device connected to this Wi‑Fi.</small></span><span aria-hidden="true">›</span></button><button class="tv-choice" type="button" id="tv-manual"><span class="tv-choice-icon" aria-hidden="true">✎</span><span><b>Enter the MAC address</b><small>Type the device MAC from its network settings.</small></span><span aria-hidden="true">›</span></button></div><div id="tv-discovery" class="hidden"><div class="tv-back-row"><button class="text-button" type="button" id="tv-back">← Back</button><button class="text-button" type="button" id="tv-refresh">↻ Refresh</button></div><h3>Choose your device</h3><p class="section-copy">Select a device, then confirm the last four characters of its MAC address.</p><div id="tv-devices" class="tv-devices"></div><label for="tv-confirm">Last 4 characters of the MAC</label><input id="tv-confirm" inputmode="text" autocomplete="off" maxlength="4" placeholder="EEFF"><p class="section-copy">This confirms the device is yours. The full MAC stays hidden.</p><button class="primary" type="button" id="tv-continue" disabled>CONTINUE</button><button class="secondary tv-manual-link" type="button" id="tv-manual-from-list">ENTER THE MAC ADDRESS</button></div><div id="tv-manual-form" class="hidden"><button class="text-button" type="button" id="tv-back-manual">← Back to device choices</button><label for="tv-phone">M‑Pesa number</label><input id="tv-phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><label for="tv-name">Device name</label><input id="tv-name" autocomplete="off" value="TV" maxlength="24"><label for="tv-mac">TV MAC address</label><input id="tv-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><button class="primary" type="button" id="add-tv">LIPA NA M-PESA FOR TV</button></div><div id="tv-payment-form" class="hidden"><label for="tv-phone-payment">M‑Pesa number</label><input id="tv-phone-payment" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><label for="tv-name-payment">Device name</label><input id="tv-name-payment" autocomplete="off" value="TV" maxlength="24"><p class="notice" id="tv-selected"></p><button class="primary" type="button" id="add-tv-selected">LIPA NA M-PESA FOR TV</button></div><div class="error" id="tv-error" aria-live="polite"></div></div></section>
     <div class="receipt-prompt hidden" id="receipt-prompt" role="dialog" aria-modal="true" aria-labelledby="receipt-prompt-title"><div class="receipt-prompt-card"><h2 id="receipt-prompt-title">Payment received</h2><p>Setting up your device… Keep this page open and be ready to screenshot your connection details. Download the receipt to keep your portal link, payment reference, expiry date, and recovery code.</p><div class="receipt-prompt-actions"><button class="primary" type="button" id="prompt-download-receipt">DOWNLOAD RECEIPT</button><button class="receipt-exit" type="button" id="prompt-exit-receipt">EXIT</button></div></div></div>
     <button class="primary hidden" type="button" id="resume-payment">RESUME PAYMENT</button>
     <p class="footer" id="support">© <span id="year"></span> Customer Wi‑Fi</p>
@@ -171,6 +172,7 @@
         catch (_) { /* The router can complete a paid connection even when browser storage is unavailable. */ }
       });
     }
+    var selectedTvDevice = null;
     var sessionToken = read('_session') || '';
     var installPrompt = null;
     var installButton = document.createElement('button');
@@ -490,33 +492,71 @@
       catch (error) { message('voucher-error', error.message); }
       finally { $('redeem').disabled = false; }
     }
+    function resetTvChooser() {
+      selectedTvDevice = null;
+      $('tv-picker').classList.remove('hidden'); $('tv-discovery').classList.add('hidden'); $('tv-manual-form').classList.add('hidden'); $('tv-payment-form').classList.add('hidden');
+      $('tv-devices').textContent = ''; $('tv-confirm').value = ''; $('tv-continue').disabled = true;
+    }
     function tvDetails() {
-      if (current) {
-        $('tv-phone').value = current.payerPhone || $('phone').value || '';
-        message('tv-existing', current.device ? 'A historical linked TV is still active: ' + current.device.label + ' · ' + current.device.mac : 'TV access requires its own package.');
-        show('active', 'tv-section');
-      } else {
-        $('tv-phone').value = $('phone').value || '';
-        message('tv-existing', 'TV access is a separate purchase. Select a package above, then enter the TV details.');
-        show('buy', 'tv-section');
-      }
+      resetTvChooser();
+      if (current) message('tv-existing', current.device ? 'A historical linked TV is still active: ' + current.device.label + ' · ' + current.device.mac : 'TV access requires its own package.');
+      else message('tv-existing', 'TV access is a separate purchase. Select a package above, then choose the connected TV.');
+      show(current ? 'active' : 'buy', 'tv-section');
+    }
+    function showTvManual() {
+      $('tv-picker').classList.add('hidden'); $('tv-discovery').classList.add('hidden'); $('tv-payment-form').classList.add('hidden'); $('tv-manual-form').classList.remove('hidden');
+      $('tv-phone').value = current && current.payerPhone ? current.payerPhone : ($('phone').value || '');
+    }
+    function renderNearby(devices) {
+      var list = $('tv-devices'); list.textContent = '';
+      if (!devices.length) { list.innerHTML = '<p class="notice">No nearby devices reported yet. Connect the TV to this Wi‑Fi, then tap Refresh. You can also enter its MAC address manually.</p>'; return; }
+      devices.forEach(function (device) {
+        var button = document.createElement('button'); button.type = 'button'; button.className = 'tv-device';
+        button.innerHTML = '<span class="tv-device-icon" aria-hidden="true">▣</span><span><b></b><small></small></span>';
+        button.querySelector('b').textContent = device.label || 'Wi‑Fi device'; button.querySelector('small').textContent = device.maskedMac;
+        button.onclick = function () { Array.prototype.forEach.call(list.children, function (child) { child.classList.remove('selected'); }); button.classList.add('selected'); selectedTvDevice = device; $('tv-confirm').value = ''; $('tv-continue').disabled = false; };
+        list.appendChild(button);
+      });
+    }
+    async function loadNearby() {
+      $('tv-picker').classList.add('hidden'); $('tv-manual-form').classList.add('hidden'); $('tv-payment-form').classList.add('hidden'); $('tv-discovery').classList.remove('hidden');
+      $('tv-continue').disabled = true; selectedTvDevice = null; $('tv-devices').innerHTML = '<p class="section-copy">Looking for devices connected to this Wi‑Fi…</p>';
+      try { var result = await api('/device-discovery?excludeMac=' + encodeURIComponent(mac)); renderNearby(result.devices || []); }
+      catch (error) { $('tv-devices').innerHTML = '<p class="notice">Nearby device discovery is unavailable right now. You can enter the MAC address manually.</p>'; message('tv-error', error.message); }
+    }
+    function continueNearby() {
+      if (!selectedTvDevice) return;
+      var entered = String($('tv-confirm').value || '').replace(/[^0-9A-F]/ig, '').toUpperCase();
+      if (entered !== selectedTvDevice.suffix) { message('tv-error', 'Enter the last four MAC characters shown for the selected device.'); return; }
+      $('tv-discovery').classList.add('hidden'); $('tv-payment-form').classList.remove('hidden'); $('tv-phone-payment').value = current && current.payerPhone ? current.payerPhone : ($('phone').value || ''); $('tv-selected').textContent = selectedTvDevice.label + ' · ' + selectedTvDevice.maskedMac; message('tv-error', '');
     }
     async function refreshSession() {
       var result = await api('/session?mac=' + encodeURIComponent(mac));
       if (!result.authenticated) throw new Error('Use your recovery code to manage this package.');
       remember(result); return result;
     }
+    async function payForTv(targetMac, payerPhone, label, button) {
+      if (!selected) throw new Error('Choose a package for the TV first.');
+      if (!payerPhone) throw new Error('Enter the M-Pesa number that will pay for the TV package.');
+      button.disabled = true; message('tv-error', ''); autoConnectStarted = false;
+      checkout = await api('/pay', { packageId: selected, phone: payerPhone, mac: targetMac, deviceType: 'tv', deviceLabel: label || 'TV' });
+      checkout.startedAt = Date.now(); checkout.payerPhone = payerPhone; write('_checkout', checkout); pollPayment();
+    }
     async function addTv() {
-      var button = $('add-tv'); button.disabled = true; message('tv-error', '');
+      var button = $('add-tv');
       try {
         var targetMac = $('tv-mac').value.trim();
         if (targetMac.replace(/[^0-9A-F]/ig, '').length !== 12) throw new Error('Enter the full 12-character TV MAC address.');
         var payerPhone = current && current.payerPhone ? current.payerPhone : $('tv-phone').value.trim();
-        if (!payerPhone) throw new Error('Enter the M-Pesa number that will pay for the TV package.');
-        autoConnectStarted = false;
-        checkout = await api('/pay', { packageId: selected, phone: payerPhone, mac: targetMac,
-          deviceType: 'tv', deviceLabel: $('tv-name').value.trim() || 'TV' });
-        checkout.startedAt = Date.now(); checkout.payerPhone = payerPhone; write('_checkout', checkout); pollPayment();
+        await payForTv(targetMac, payerPhone, $('tv-name').value.trim() || 'TV', button);
+      } catch (error) { message('tv-error', error.message); }
+      finally { button.disabled = false; }
+    }
+    async function addSelectedTv() {
+      var button = $('add-tv-selected');
+      try {
+        if (!selectedTvDevice) throw new Error('Choose a nearby device first.');
+        await payForTv(selectedTvDevice.id, $('tv-phone-payment').value.trim(), $('tv-name-payment').value.trim() || selectedTvDevice.label || 'TV', button);
       } catch (error) { message('tv-error', error.message); }
       finally { button.disabled = false; }
     }
@@ -591,6 +631,7 @@
           (checkout.payerPhone && phone() !== checkout.payerPhone))) clearCheckout();
     };
     $('buy-tv-start').onclick = tvDetails; $('manage-tv').onclick = tvDetails; $('close-tv').onclick = function () { show(current ? 'active' : 'buy'); };
+    $('tv-discover').onclick = loadNearby; $('tv-refresh').onclick = loadNearby; $('tv-manual').onclick = showTvManual; $('tv-manual-from-list').onclick = showTvManual; $('tv-back').onclick = resetTvChooser; $('tv-back-manual').onclick = resetTvChooser; $('tv-continue').onclick = continueNearby; $('add-tv-selected').onclick = addSelectedTv;
     $('top-up').onclick = function () { stop(); bypassLookup = true; show('buy'); message('error', 'New time will extend the package on this device.'); };
     $('copy-recovery').onclick = function () { if (current && current.password && navigator.clipboard) navigator.clipboard.writeText(current.password).then(function () { message('active-error', 'Recovery code copied.'); }).catch(function () { message('active-error', 'Select and copy the recovery code above.'); }); };
     $('leave-waiting').onclick = function () { stop(); show('buy'); message('error', checkout ? 'Your previous payment is saved. Use Resume payment before making another purchase.' : 'Your package is saved. Use Check my time to reconnect.'); $('resume-payment').classList.toggle('hidden', !checkout); };

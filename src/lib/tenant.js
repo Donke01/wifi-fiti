@@ -326,6 +326,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tenant_router_telemetry_location_time
     ON tenant_router_telemetry(location_id, recorded_at DESC);
 
+  -- Short-lived customer-network discovery hints reported by an authenticated
+  -- router poll. These are intentionally limited to MAC/IP/hostname metadata,
+  -- scoped to one location, and pruned as they age out. The portal never
+  -- exposes a full MAC until the customer confirms its final characters.
+  CREATE TABLE IF NOT EXISTS tenant_router_devices (
+    location_id  TEXT NOT NULL REFERENCES locations(id),
+    mac          TEXT NOT NULL,
+    ip           TEXT,
+    hostname     TEXT,
+    last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY(location_id, mac)
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_router_devices_recent
+    ON tenant_router_devices(location_id, last_seen_at DESC);
+
   -- A mapping is owner-confirmed descriptive metadata, not a command queue.
   -- Its fingerprint binds it to one exact router inventory snapshot. If the
   -- router topology changes, the UI must request a fresh confirmation rather
@@ -905,6 +920,23 @@ const routerTelemetryForLocation = db.prepare(`
 const latestRouterTelemetry = db.prepare(`
   SELECT cpu_percent, free_memory, total_memory, uptime_seconds, uptime_text, rx_bytes, tx_bytes, active_users, recorded_at
     FROM tenant_router_telemetry WHERE location_id=? ORDER BY recorded_at DESC LIMIT 1
+`);
+const upsertRouterDevice = db.prepare(`
+  INSERT INTO tenant_router_devices (location_id, mac, ip, hostname, last_seen_at)
+  VALUES (@locationId, @mac, @ip, @hostname, datetime('now'))
+  ON CONFLICT(location_id, mac) DO UPDATE SET
+    ip=excluded.ip, hostname=excluded.hostname, last_seen_at=datetime('now')
+`);
+const pruneRouterDevices = db.prepare(`
+  DELETE FROM tenant_router_devices
+   WHERE location_id=? AND last_seen_at < datetime('now','-10 minutes')
+`);
+const recentRouterDevices = db.prepare(`
+  SELECT mac, ip, hostname, last_seen_at
+    FROM tenant_router_devices
+   WHERE location_id=? AND last_seen_at >= datetime('now','-5 minutes')
+   ORDER BY COALESCE(hostname,''), mac
+   LIMIT 100
 `);
 const routerMappingByLocation = db.prepare(`
   SELECT location_id, schema_version, topology_fingerprint, mapping_fingerprint,
@@ -2626,6 +2658,37 @@ function recordRouterTelemetry({ locationId, cpuPercent, freeMemory, totalMemory
   return row;
 }
 
+// The optional discovery report is deliberately a compact, non-secret value
+// (MAC~IP~hostname, comma-separated). It is accepted only after the same
+// authenticated sync/receipt gate as telemetry and is never used for router
+// control. Stale rows disappear automatically so this is not a device history.
+function recordRouterDevices({ locationId, encoded }) {
+  const location = locationById.get(locationId);
+  if (!location || typeof encoded !== 'string' || encoded.length > 2400) return 0;
+  const macPattern = /^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/i;
+  const ipPattern = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+  let count = 0;
+  const entries = encoded.split(',').slice(0, 100);
+  for (const entry of entries) {
+    const parts = entry.split('~');
+    const mac = String(parts[0] || '').trim().toUpperCase();
+    const ip = String(parts[1] || '').trim();
+    const hostname = String(parts[2] || '').trim().replace(/[^\w .-]/g, '').slice(0, 64);
+    if (!macPattern.test(mac) || !ipPattern.test(ip)) continue;
+    const octets = ip.split('.').map(Number);
+    if (octets.some((octet) => octet < 0 || octet > 255)) continue;
+    upsertRouterDevice.run({ locationId, mac, ip, hostname: hostname || null });
+    count += 1;
+  }
+  pruneRouterDevices.run(locationId);
+  return count;
+}
+
+function routerDevicesForLocation(locationId) {
+  pruneRouterDevices.run(locationId);
+  return recentRouterDevices.all(locationId);
+}
+
 function routerTelemetryForLocationId(locationId, { since, limit = 500 } = {}) {
   const from = since || nowSql(Date.now() - 24 * 60 * 60 * 1000);
   const safeLimit = Math.min(Math.max(Number(limit) || 500, 1), 2000);
@@ -3873,7 +3936,7 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
 module.exports = {
   tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
-  recordRouterTelemetry, routerTelemetryForLocationId,
+  recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,

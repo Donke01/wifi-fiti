@@ -2079,6 +2079,29 @@ function deviceMac(value) {
   return compact.length === 12 ? compact.match(/.{2}/g).join(':') : null;
 }
 
+// Discovery is a convenience only: the router reports recently bound
+// customer-network leases over its authenticated sync channel. The portal
+// receives masked identifiers and a short-lived confirmation token, never a
+// device's full MAC in the UI. Manual MAC entry remains the fallback for TVs
+// that use static addressing or do not advertise a lease.
+app.get('/api/tenant/:locationId/device-discovery', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const excluded = deviceMac(req.query.excludeMac);
+  const devices = tenant.routerDevicesForLocation(location.id)
+    .filter((device) => !excluded || device.mac !== excluded)
+    .map((device) => {
+      const parts = device.mac.split(':');
+      return {
+        id: device.mac,
+        label: device.hostname || 'Wi‑Fi device',
+        maskedMac: parts.slice(0, 3).join(':') + ':••:••:••',
+        suffix: parts.slice(-2).join('').toUpperCase(),
+        lastSeenAt: device.last_seen_at,
+      };
+    });
+  res.set('Cache-Control', 'no-store').json({ devices, refreshedAt: new Date().toISOString(), maxAgeSeconds: 300 });
+});
+
 app.post('/api/tenant/:locationId/devices/list', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
@@ -3769,6 +3792,15 @@ function ingestTenantTelemetry(location, query) {
   }
 }
 
+function ingestTenantDevices(location, query) {
+  if (String(query && query.telemetry || '') !== '1') return 0;
+  try {
+    return tenant.recordRouterDevices({ locationId: location.id, encoded: String(query.devices || '') });
+  } catch (_) {
+    return 0;
+  }
+}
+
 /**
  * A router asks what work is waiting. The reply is RouterOS script, which
  * the router parses and runs in memory - no file written, no flash wear.
@@ -3861,6 +3893,7 @@ app.post('/api/router/sync', (req, res) => {
     // therefore marked stale instead of being recorded as deployed.
     ingestTenantTopology(readyLocation, req.body);
     ingestTenantTelemetry(readyLocation, req.query);
+    ingestTenantDevices(readyLocation, req.query);
     acknowledgeTenantRouterJobs(readyLocation, req.query.ack);
     acknowledgeTenantRemoteSupportControls(readyLocation, req.query.supportAck);
     ingestTenantUsage(readyLocation, req.body);
