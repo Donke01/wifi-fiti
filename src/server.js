@@ -3759,6 +3759,7 @@ function ingestTenantTelemetry(location, query) {
       freeMemory: query.freeMem,
       totalMemory: query.totalMem,
       uptimeSeconds: query.uptime,
+      uptimeText: query.uptimeText,
       rxBytes: query.rx,
       txBytes: query.tx,
       activeUsers: query.activeUsers,

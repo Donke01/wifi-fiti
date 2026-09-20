@@ -317,6 +317,7 @@ db.exec(`
     free_memory     INTEGER,
     total_memory    INTEGER,
     uptime_seconds  INTEGER,
+    uptime_text     TEXT,
     rx_bytes        INTEGER,
     tx_bytes        INTEGER,
     active_users    INTEGER,
@@ -548,6 +549,7 @@ for (const statement of [
   `ALTER TABLE tenant_subscriptions ADD COLUMN rate_limit TEXT`,
   `ALTER TABLE tenant_jobs ADD COLUMN rate_limit TEXT`,
   `ALTER TABLE tenant_router_telemetry ADD COLUMN uptime_seconds INTEGER`,
+  `ALTER TABLE tenant_router_telemetry ADD COLUMN uptime_text TEXT`,
   `ALTER TABLE tenant_vouchers ADD COLUMN rate_limit TEXT`,
   // An earlier version of the optional-support lifecycle did not retain the
   // router's non-secret public identifier. Keep this migration additive so
@@ -890,18 +892,18 @@ const touchRouterTopology = db.prepare(`
 `);
 const insertRouterTelemetry = db.prepare(`
   INSERT INTO tenant_router_telemetry
-    (location_id, cpu_percent, free_memory, total_memory, uptime_seconds, rx_bytes, tx_bytes, active_users)
-  VALUES (@locationId, @cpuPercent, @freeMemory, @totalMemory, @uptimeSeconds, @rxBytes, @txBytes, @activeUsers)
+    (location_id, cpu_percent, free_memory, total_memory, uptime_seconds, uptime_text, rx_bytes, tx_bytes, active_users)
+  VALUES (@locationId, @cpuPercent, @freeMemory, @totalMemory, @uptimeSeconds, @uptimeText, @rxBytes, @txBytes, @activeUsers)
 `);
 const routerTelemetryForLocation = db.prepare(`
-  SELECT cpu_percent, free_memory, total_memory, uptime_seconds, rx_bytes, tx_bytes, active_users, recorded_at
+  SELECT cpu_percent, free_memory, total_memory, uptime_seconds, uptime_text, rx_bytes, tx_bytes, active_users, recorded_at
     FROM tenant_router_telemetry
    WHERE location_id=? AND recorded_at >= ?
    ORDER BY recorded_at ASC
    LIMIT ?
 `);
 const latestRouterTelemetry = db.prepare(`
-  SELECT cpu_percent, free_memory, total_memory, uptime_seconds, rx_bytes, tx_bytes, active_users, recorded_at
+  SELECT cpu_percent, free_memory, total_memory, uptime_seconds, uptime_text, rx_bytes, tx_bytes, active_users, recorded_at
     FROM tenant_router_telemetry WHERE location_id=? ORDER BY recorded_at DESC LIMIT 1
 `);
 const routerMappingByLocation = db.prepare(`
@@ -2597,7 +2599,7 @@ function recordRouterTopology({ locationId, topology, fingerprint }) {
   return routerTopologyForLocation(location);
 }
 
-function recordRouterTelemetry({ locationId, cpuPercent, freeMemory, totalMemory, uptimeSeconds, rxBytes, txBytes, activeUsers }) {
+function recordRouterTelemetry({ locationId, cpuPercent, freeMemory, totalMemory, uptimeSeconds, uptimeText, rxBytes, txBytes, activeUsers }) {
   const location = locationById.get(locationId);
   if (!location) return null;
   const finite = (value, min, max) => {
@@ -2611,6 +2613,7 @@ function recordRouterTelemetry({ locationId, cpuPercent, freeMemory, totalMemory
     freeMemory: finite(freeMemory, 0, 1e15),
     totalMemory: finite(totalMemory, 0, 1e15),
     uptimeSeconds: finite(uptimeSeconds, 0, 1e12),
+    uptimeText: String(uptimeText || '').trim().slice(0, 64) || null,
     // Keep counters inside JavaScript's exact-integer range. A board with a
     // larger counter is ignored for that field rather than storing a rounded
     // value that could make a rate graph misleading.

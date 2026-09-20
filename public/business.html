@@ -648,7 +648,7 @@
           var total = Number(latest.total_memory || 0); var free = Number(latest.free_memory || 0);
           var memory = total > 0 ? Math.max(0, Math.min(100, (1 - free / total) * 100)).toFixed(1) + '%' : '—';
           var active = latest.active_users === null || latest.active_users === undefined ? '—' : String(Math.round(Number(latest.active_users)));
-          var uptimeSeconds = Number(latest.uptime_seconds || 0); var uptime = uptimeSeconds > 0 ? Math.floor(uptimeSeconds / 86400) + 'd ' + Math.floor((uptimeSeconds % 86400) / 3600) + 'h' : '—';
+          var uptimeSeconds = Number(latest.uptime_seconds || 0); var uptime = uptimeSeconds > 0 ? Math.floor(uptimeSeconds / 86400) + 'd ' + Math.floor((uptimeSeconds % 86400) / 3600) + 'h' : String(latest.uptime_text || '—');
           if (metrics[1]) metrics[1].querySelector('.metric-value').textContent = active;
           if (metrics[2]) metrics[2].querySelector('.metric-value').textContent = cpu;
           if (metrics[3]) metrics[3].querySelector('.metric-value').textContent = memory;
