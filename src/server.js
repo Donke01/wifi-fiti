@@ -1828,6 +1828,7 @@ app.get('/api/tenant/:locationId/manifest.webmanifest', (req, res) => {
 
 app.get('/api/tenant/:locationId/config', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   const assetOrigin = edgePortalOriginForRequest(req, location) || config.domains.appUrl;
   const branding = brandingPayload({
     id: location.business_id, name: location.business_name, portal_name: location.portal_name,

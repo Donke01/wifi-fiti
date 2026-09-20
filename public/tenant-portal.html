@@ -83,6 +83,21 @@
       .utility{min-height:74px}
       .utility small{display:none}
     }
+    /* Tenant template variants. Applied at runtime without changing router,
+       payment, or captive-login behaviour. */
+    body[data-portal-layout="cards"] .plans{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    body[data-portal-layout="cards"] .plan{min-height:118px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:7px;padding:17px;border-radius:20px;box-shadow:0 10px 22px rgba(33,95,147,.09)}
+    body[data-portal-layout="cards"] .plan .price{font-size:23px}
+    body[data-portal-layout="cards"] .brand-mark{border-radius:50%;transform:rotate(-6deg)}
+    body[data-portal-layout="cards"] .card{border-radius:28px}
+    body[data-portal-layout="minimal"] .shell{max-width:490px}
+    body[data-portal-layout="minimal"] .brand{margin-bottom:30px}
+    body[data-portal-layout="minimal"] .brand-mark{width:34px;height:34px;border-radius:10px}
+    body[data-portal-layout="minimal"] .card{border-radius:14px;box-shadow:0 12px 30px rgba(32,57,86,.08)}
+    body[data-portal-layout="minimal"] .plans{gap:0;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    body[data-portal-layout="minimal"] .plan{border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;min-height:62px}
+    body[data-portal-layout="minimal"] .plan:last-child{border-bottom:0}
+    @media(max-width:480px){body[data-portal-layout="cards"] .plans{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -187,6 +202,11 @@
       if (/^#[0-9A-Fa-f]{6}$/.test(color) && document.documentElement && document.documentElement.style) {
         document.documentElement.style.setProperty('--blue', color);
         document.documentElement.style.setProperty('--aqua', color);
+      }
+      var templateColor = String(template.accentColor || '');
+      if (/^#[0-9A-Fa-f]{6}$/.test(templateColor) && document.documentElement && document.documentElement.style) {
+        document.documentElement.style.setProperty('--blue', templateColor);
+        document.documentElement.style.setProperty('--aqua', templateColor);
       }
       if (branding.message) message('portal-message', branding.message);
       if (template.welcomeMessage) message('portal-message', template.welcomeMessage);
