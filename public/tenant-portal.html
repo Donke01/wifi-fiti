@@ -138,6 +138,7 @@
     var site = decodeURIComponent(String(injectedSite || location.pathname.split('/').filter(Boolean).pop() || ''));
     var params = new URLSearchParams(location.search);
     var mac = (params.get('mac') || '').toUpperCase(), ip = params.get('ip') || '';
+    var previewMode = params.get('preview') === '1';
     var loginUrl = params.get('link-login-only') || '', loginDestination = params.get('link-orig') || 'http://neverssl.com';
     // Older routers may still serve a cached login.html containing the
     // unsupported `$(link-login-only-esc)` placeholder. In that case the
@@ -236,6 +237,18 @@
       if (template.showUtilities === false) document.querySelector('.utilities').classList.add('hidden');
       message('support', '© ' + new Date().getFullYear() + ' ' + name +
         ((branding.supportPhone || config.supportPhone) ? ' · Help: ' + (branding.supportPhone || config.supportPhone) : ''));
+    }
+    function applyPreview(config) {
+      portalConfig = config;
+      applyBranding(config);
+      renderPackages(config.packages || []);
+      show('buy');
+      message('error', '');
+    }
+    if (previewMode && typeof globalThis.addEventListener === 'function') {
+      globalThis.addEventListener('message', function (event) {
+        if (event.data && event.data.type === 'wifi-fiti-template-preview' && event.data.config) applyPreview(event.data.config);
+      });
     }
     function phone() { return $('phone').value.trim(); }
     function formatSeconds(value) {
@@ -517,6 +530,10 @@
     }
     async function boot() {
       try {
+        if (previewMode) {
+          applyPreview({ location: { name: 'PREVIEW LOCATION', businessName: 'Your Wi‑Fi business' }, branding: { name: 'Your Wi‑Fi business', primaryColor: '#1769D8' }, template: { name: 'Live preview', layout: 'classic', accentColor: '#1769D8', welcomeMessage: 'Fast Wi-Fi for everyone.', fontFamily: 'modern', textAlign: 'center', packageStyle: 'stacked', backgroundStyle: 'aurora', showPackages: true, showUtilities: true }, packages: [{ id: 'preview-24h', name: '24 hours', duration: '24 hours', price: 50 }, { id: 'preview-7d', name: '7 days', duration: '7 days', price: 400 }, { id: 'preview-30d', name: '30 days', duration: '30 days', price: 1000 }], supportPhone: '' });
+          return;
+        }
         $('app-manifest').href = '/api/tenant/' + encodeURIComponent(site) + '/manifest.webmanifest';
         if ('serviceWorker' in navigator) navigator.serviceWorker.register('/wifi-fiti-sw.js', { scope: '/' }).catch(function () {});
         var config = await api('/config');
