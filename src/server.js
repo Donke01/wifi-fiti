@@ -1658,6 +1658,7 @@ app.get('/api/business/dashboard', (req, res) => {
     platformFee, netToBusiness: gross - platformFee,
     byLocation: tenant.salesByLocation.all(since, business.id),
     recentPayments: tenant.recentSales.all(business.id, 25),
+    transactions: tenant.salesTransactions.all(business.id, since, 500),
   });
 });
 

@@ -1461,6 +1461,14 @@ const recentSales = db.prepare(`
     FROM tenant_transactions t JOIN locations l ON l.id=t.location_id
    WHERE t.business_id=? ORDER BY t.created_at DESC LIMIT ?
 `);
+const salesTransactions = db.prepare(`
+  SELECT t.checkout_request_id, t.location_id, l.name AS location_name, t.phone,
+         t.mac, t.package_name, t.amount, t.status, t.payment_source,
+         t.mpesa_receipt, t.result_desc, t.created_at, t.updated_at
+    FROM tenant_transactions t JOIN locations l ON l.id=t.location_id
+   WHERE t.business_id=? AND t.created_at >= ?
+   ORDER BY t.created_at DESC LIMIT ?
+`);
 const paymentConnectionSummary = db.prepare(`
   SELECT collection_name, shortcode, transaction_type, last_verified_at, updated_at
     FROM tenant_mpesa_connections WHERE business_id=?
@@ -3806,7 +3814,7 @@ module.exports = {
   insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
   transferSubscription, addTvDevice, removeTvDevice, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,
-  issueVouchers, redeemVoucher, vouchersForBusiness, salesSummary, salesByLocation, recentSales,
+  issueVouchers, redeemVoucher, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions,
   paymentConnectionSummary, savePaymentConnection, paymentCredentials,
   insertBusinessBilling, businessBillingTransaction, setBusinessBillingResult, staleBusinessBilling,
   paidBusinessBilling, duplicateBusinessBillingReceipt, activateBusinessBilling,
