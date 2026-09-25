@@ -1858,7 +1858,13 @@
       function renderIntegrations() {
         var data = state.integrations || {}; var select = $('integration-provider'); if (!select) return;
         select.innerHTML = '';
-        (data.providers || []).forEach(function (provider) { if (!provider.available) return; var option = document.createElement('option'); option.value = provider.id; option.textContent = provider.name; option.dataset.description = provider.description; select.appendChild(option); });
+        var providers = (data.providers || []).filter(function (provider) { return provider.available; });
+        // Keep Tuma visible while an older API response is cached during a
+        // rolling deploy. The server remains authoritative when saving/testing.
+        if (!providers.some(function (provider) { return provider.id === 'tuma'; })) {
+          providers.splice(2, 0, { id: 'tuma', name: 'Tuma Gateway', description: 'Accept bank and M-Pesa payments with direct settlement to your account.', available: true });
+        }
+        providers.forEach(function (provider) { var option = document.createElement('option'); option.value = provider.id; option.textContent = provider.name; option.dataset.description = provider.description; select.appendChild(option); });
         if (data.selected) select.value = data.selected;
         var option = select.options[select.selectedIndex]; $('integration-description').textContent = option ? option.dataset.description : '';
         $('integration-status').textContent = data.status ? 'Status: ' + data.status.replace(/_/g, ' ') + (data.testedAt ? ' · tested ' + when(data.testedAt) : '') : '';
