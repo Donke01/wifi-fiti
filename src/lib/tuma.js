@@ -17,7 +17,19 @@ const callbackSecret = String(process.env.TUMA_CALLBACK_SECRET || '').trim();
 const tokenCache = { value: '', expiresAt: 0 };
 
 function configured() {
-  return email.length > 3 && apiKey.length >= 16 && callbackSecret.length >= 24;
+  return credentialsConfigured() && callbackSecret.length >= 24;
+}
+
+function credentialsConfigured() {
+  return email.length > 3 && apiKey.length >= 16;
+}
+
+function configurationStatus() {
+  const missing = [];
+  if (email.length <= 3) missing.push('TUMA_API_EMAIL');
+  if (apiKey.length < 16) missing.push('TUMA_API_KEY');
+  if (callbackSecret.length < 24) missing.push('TUMA_CALLBACK_SECRET');
+  return { configured: missing.length === 0, missing };
 }
 
 function callbackUrl(publicUrl) {
@@ -27,7 +39,7 @@ function callbackUrl(publicUrl) {
 
 async function accessToken() {
   if (tokenCache.value && tokenCache.expiresAt > Date.now()) return tokenCache.value;
-  if (!configured()) throw new Error('Tuma credentials are not configured on this deployment.');
+  if (!credentialsConfigured()) throw new Error('Tuma API credentials are not configured on this deployment.');
   const response = await fetch(`${baseUrl}/auth/token`, {
     signal: AbortSignal.timeout(15000), method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -82,4 +94,4 @@ function callbackAuthorized(value) {
   return safeEqualCallbackKey(value);
 }
 
-module.exports = { configured, callbackUrl, accessToken, stkPush, verify, callbackAuthorized };
+module.exports = { configured, credentialsConfigured, configurationStatus, callbackUrl, accessToken, stkPush, verify, callbackAuthorized };
