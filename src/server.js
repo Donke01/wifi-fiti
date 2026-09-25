@@ -4141,6 +4141,8 @@ app.listen(config.port, () => {
   console.log(`${config.brandName} hotspot billing on :${config.port}`);
   console.log(`M-Pesa environment: ${config.mpesa.env}`);
   console.log(`Callback URL: ${config.publicUrl}/api/mpesa/callback`);
+  const tumaConfig = tuma.configurationStatus();
+  console.log(`[tuma] API email: ${tumaConfig.missing.includes('TUMA_API_EMAIL') ? 'missing' : 'set'}; API key: ${tumaConfig.missing.includes('TUMA_API_KEY') ? 'missing' : 'set'}; callback secret: ${tumaConfig.missing.includes('TUMA_CALLBACK_SECRET') ? 'missing' : 'set'}`);
   if (config.mpesa.env === 'sandbox') {
     console.log('Sandbox mode - no real money will move.');
   }
