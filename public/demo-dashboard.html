@@ -110,7 +110,7 @@
     @media (prefers-reduced-motion:reduce){.router.fresh,.checks li.run i{animation:none}}
 
     /* Portal studio */
-    .studio{grid-column:1/-1;padding:0;overflow:hidden}
+    .studio{grid-column:1/-1;padding:0;overflow:hidden;scroll-margin-top:92px}
     .studio-head{padding:22px 24px 0}
     .studio-head .eyebrow{margin-bottom:6px}
     .studio-head h2{font-size:clamp(22px,3vw,28px);margin:0 0 6px}
@@ -857,6 +857,8 @@
       // The chart re-renders and the studio preview can change height.
       if (window.ResizeObserver) new ResizeObserver(function () { place(); }).observe(document.body);
       if (/[?&]tour=1\b/.test(location.search)) setTimeout(start, 400);
+      // Homepage "Add a router in 2 minutes" card opens the walkthrough directly.
+      if (/[?&]add-router=1\b/.test(location.search)) setTimeout(function () { $('add-router').click(); }, 300);
     }());
   }());
   </script>
