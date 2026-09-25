@@ -4,8 +4,8 @@
   color-scheme:light;
   --ink:#14243a;--ink-2:#284968;--muted:#5d6d80;--faint:#8494a6;
   --paper:#fff;--soft:#f7faff;--wash:#f1f6ff;--line:#dce6f1;--line-2:#ccdcf3;
-  --blue:#226ee8;--blue-deep:#1766d6;--cyan:#007d90;--good:#15986c;--good-wash:#e9f8f2;
-  --warn:#a86500;--warn-wash:#fff5e3;--bad:#b4233d;--bad-wash:#fdecef;
+  --blue:#226ee8;--blue-deep:#1766d6;--cyan:#007d90;--good:#15986c;--good-wash:#e7f8ef;--good-ink:#13885e;
+  --warn:#1759bc;--warn-wash:#f1f6ff;--bad:#b4233d;--bad-wash:#fdecef;
   --shadow:0 18px 55px rgba(31,59,93,.10);
   --sans:"Avenir Next",Avenir,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
 }
@@ -37,7 +37,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .btn:focus-visible,.chip input:focus-visible+span,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid rgba(38,116,236,.32);outline-offset:2px}
 .btn.primary{color:#fff;border-color:#1f68d5;background:linear-gradient(135deg,#1766d6,#3b85f4);box-shadow:0 12px 22px rgba(34,103,216,.22)}
 .btn.secondary{color:#1a496f;border-color:#ceddeb;background:#fff;box-shadow:0 5px 16px rgba(33,70,109,.06)}
-.btn.whatsapp{color:#fff;border-color:#1a9c55;background:linear-gradient(135deg,#1a9c55,#25c16a);box-shadow:0 12px 22px rgba(26,156,85,.22)}
+.btn.whatsapp{color:#fff;border-color:#13885e;background:#13885e;box-shadow:0 12px 22px rgba(19,136,94,.2)}
 .btn.small{min-height:38px;padding:0 14px;border-radius:11px;font-size:14px}
 .btn:hover{transform:translateY(-2px)}
 .btn[disabled]{opacity:.6;cursor:progress;transform:none}
@@ -60,7 +60,7 @@ h3{margin:0 0 6px;font-size:18px;letter-spacing:-.03em}
 .field>span{color:var(--ink-2);font-size:14px;font-weight:750}
 .field>span em{color:var(--faint);font-style:normal;font-weight:600}
 input[type=text],input[type=tel],input[type=email],input[type=number],input[type=date],select,textarea{
-  width:100%;min-height:48px;padding:11px 13px;border:1px solid #cfdcea;border-radius:12px;background:#fff;font-size:16px}
+  width:100%;min-height:48px;padding:11px 13px;border:1px solid #ceddeb;border-radius:12px;background:#fff;font-size:16px}
 input:not([type=radio]):not([type=checkbox]),select{height:48px}
 textarea{min-height:92px;resize:vertical}
 .field.invalid input,.field.invalid select{border-color:var(--bad);background:var(--bad-wash)}
@@ -68,15 +68,15 @@ textarea{min-height:92px;resize:vertical}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{position:relative}
 .chip input{position:absolute;opacity:0;inset:0;margin:0}
-.chip span{display:inline-flex;align-items:center;min-height:42px;padding:0 14px;border:1px solid #cfdcea;border-radius:999px;background:#fff;
+.chip span{display:inline-flex;align-items:center;min-height:42px;padding:0 14px;border:1px solid #ceddeb;border-radius:999px;background:#fff;
   color:var(--ink-2);font-size:14px;font-weight:700;cursor:pointer}
 .chip input:checked+span{border-color:var(--blue);background:var(--wash);color:#1759bc;box-shadow:inset 0 0 0 1px var(--blue)}
 .form-error{padding:12px 14px;border-radius:12px;background:var(--bad-wash);color:var(--bad);font-weight:650}
 .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 
 /* toast */
-.toast{position:fixed;left:50%;bottom:24px;z-index:50;max-width:calc(100% - 32px);padding:12px 16px;border-radius:14px;background:#10243b;color:#fff;
-  font-size:14px;font-weight:650;box-shadow:0 14px 30px rgba(16,36,59,.3);transform:translate(-50%,20px);opacity:0;pointer-events:none;transition:.25s ease}
+.toast{position:fixed;left:50%;bottom:24px;z-index:50;max-width:calc(100% - 32px);padding:12px 16px;border-radius:14px;background:#173653;color:#fff;
+  font-size:14px;font-weight:650;box-shadow:0 14px 30px rgba(23,54,83,.3);transform:translate(-50%,20px);opacity:0;pointer-events:none;transition:.25s ease}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
 .footer{padding:36px 0 44px;color:var(--faint);font-size:13px;text-align:center}

@@ -10,9 +10,9 @@
   <link rel="stylesheet" href="/demo.css">
   <style>
     .paths{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:30px 0 8px}
-    .paths .path.featured{grid-column:span 2;color:#fff;border-color:#10243b;background:radial-gradient(26rem 16rem at 100% 0,rgba(92,230,210,.2),transparent 60%),linear-gradient(135deg,#10243b,#173a5f)}
-    .paths .path.featured p{color:#c3d4e6}.paths .path.featured h3{color:#fff;font-size:24px;letter-spacing:-.04em}.path.featured .go{color:#7ff0c1}.path.featured .icon{background:rgba(255,255,255,.12);color:#fff}
-    .path .tag{align-self:flex-start;margin-bottom:2px;padding:4px 9px;border-radius:999px;background:rgba(52,227,155,.16);color:#7ff0c1;font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+    .paths .path.featured{grid-column:span 2;border-color:#cfe0f4;background:linear-gradient(135deg,#f1f7ff,#fbfdff 50%,#ebfbf7);box-shadow:0 24px 58px rgba(41,80,122,.11)}
+    .paths .path.featured h3{color:#173653;font-size:24px;letter-spacing:-.04em}
+    .path .tag{align-self:flex-start;margin-bottom:2px;padding:4px 9px;border-radius:999px;background:#e7f8ef;color:#13885e;font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
     .path{display:flex;flex-direction:column;gap:6px;padding:20px;text-align:left;text-decoration:none;transition:transform .2s ease,box-shadow .2s ease}
     .path:hover{transform:translateY(-3px);box-shadow:0 22px 44px rgba(31,59,93,.14)}
     .path .icon{display:grid;place-items:center;width:40px;height:40px;margin-bottom:6px;border-radius:12px;background:var(--wash);color:#1763cc;font-weight:900}
@@ -33,20 +33,19 @@
 
     .aside{position:sticky;top:100px;display:grid;gap:14px;scroll-margin-top:96px}
     #request{scroll-margin-top:96px}
-    .calc{padding:22px;background:linear-gradient(160deg,#10243b,#173a5f);color:#fff;border-color:#10243b}
-    .calc .eyebrow{color:#7fe3d3}
-    .calc-figure{margin:4px 0 2px;font-size:clamp(34px,5vw,46px);font-weight:900;letter-spacing:-.06em;font-variant-numeric:tabular-nums}
-    .calc-sub{color:#b8cbe0;font-size:14px}
-    .calc-rows{display:grid;gap:8px;margin:16px 0 0;padding:14px 0 0;border-top:1px solid rgba(255,255,255,.14);font-size:14px}
+    .calc{padding:22px;background:linear-gradient(135deg,#f1f7ff,#fbfdff 50%,#ebfbf7);border-color:#cfe0f4}
+    .calc-figure{margin:4px 0 2px;color:#1763cc;font-size:clamp(34px,5vw,46px);font-weight:900;letter-spacing:-.06em;font-variant-numeric:tabular-nums}
+    .calc-sub{color:var(--muted);font-size:14px}
+    .calc-rows{display:grid;gap:8px;margin:16px 0 0;padding:14px 0 0;border-top:1px solid #cfe0f4;font-size:14px}
     .calc-rows div{display:flex;justify-content:space-between;gap:12px}
-    .calc-rows dt{color:#b8cbe0}.calc-rows dd{margin:0;font-weight:800;font-variant-numeric:tabular-nums}
-    .calc .fee-toggle{display:flex;gap:6px;margin-top:14px;padding:4px;border-radius:12px;background:rgba(255,255,255,.08)}
+    .calc-rows dt{color:var(--muted)}.calc-rows dd{margin:0;color:#173653;font-weight:800;font-variant-numeric:tabular-nums}
+    .calc .fee-toggle{display:flex;gap:6px;margin-top:14px;padding:4px;border-radius:12px;background:#eaf3ff}
     .calc .fee-toggle label{flex:1;position:relative}
     .calc .fee-toggle input{position:absolute;opacity:0;inset:0}
-    .calc .fee-toggle span{display:block;padding:8px 6px;border-radius:9px;text-align:center;font-size:12px;font-weight:750;color:#cfe0f2;cursor:pointer}
-    .calc .fee-toggle input:checked+span{background:#fff;color:#10243b}
-    .calc .fee-toggle input:focus-visible+span{outline:2px solid #7fe3d3}
-    .calc-note{margin:12px 0 0;color:#9fb4ca;font-size:12px}
+    .calc .fee-toggle span{display:block;padding:8px 6px;border-radius:9px;text-align:center;font-size:12px;font-weight:750;color:#1759bc;cursor:pointer}
+    .calc .fee-toggle input:checked+span{background:#fff;color:#173653;box-shadow:0 1px 3px rgba(23,54,83,.14)}
+    .calc .fee-toggle input:focus-visible+span{outline:3px solid rgba(38,116,236,.32)}
+    .calc-note{margin:12px 0 0;color:var(--faint);font-size:12px}
     .expect{padding:20px}
     .expect ol{margin:8px 0 0;padding-left:20px;color:var(--muted);font-size:14px}
     .expect li{margin:6px 0}
