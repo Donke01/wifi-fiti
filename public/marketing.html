@@ -331,6 +331,103 @@
     .fee-bar i{display:block;width:97%;height:100%;border-radius:999px;background:var(--good);transition:width .35s ease}
     @media (max-width:620px){.fee-calc{padding:22px 16px}.fee-grid{grid-template-columns:1fr;gap:20px}.fee-tabs{gap:4px 16px}.fee-tabs button{font-size:14px}}
     @media (prefers-reduced-motion:reduce){.fee-bar i{transition:none}}
+
+    /* Live hero: the customer journey plays on a phone while the sale lands
+       in an example venue's feed. Site palette and type only. */
+    .live-stage{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 340px;align-items:center;gap:44px;width:min(920px,100%);margin:0 auto;text-align:left}
+    .ls-sales{position:relative;z-index:2;display:flex;flex-direction:column;gap:6px;padding:26px 26px 18px;border:1px solid #cfe0f4;border-radius:24px;background:rgba(255,255,255,.95);box-shadow:0 24px 58px rgba(41,80,122,.11);text-align:center}
+    .ls-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .ls-label{color:#087b8b;font-size:11px;font-weight:900;letter-spacing:.18em}
+    .ls-chip{padding:4px 10px;border-radius:999px;background:#f1f6ff;color:#1759bc;font-size:12px;font-weight:700}
+    .ls-total{color:#13885e;font-size:clamp(40px,5vw,56px);font-weight:880;line-height:1.08;letter-spacing:-.07em;font-variant-numeric:tabular-nums;transition:transform .3s ease}
+    .ls-total.bump{transform:scale(1.04)}
+    .ls-sub{color:#627487;font-size:14px}
+    .ls-feed{margin:10px 0 0;padding:0;list-style:none;border-top:1px solid #e4ecf5;text-align:left}
+    .ls-feed li{display:flex;align-items:center;gap:12px;padding:11px 6px;border-bottom:1px solid #eef3f8;border-radius:12px}
+    .ls-feed li:last-child{border-bottom:0}
+    .ls-feed li>i{display:grid;place-items:center;width:32px;height:32px;flex:0 0 auto;border-radius:50%;background:#e7f8ef;color:#13885e}
+    .ls-feed li>i svg,.ls-toast i svg{width:16px;height:16px}
+    .ls-feed li>span{display:flex;flex-direction:column;flex:1;gap:1px;min-width:0}
+    .ls-feed b{color:#173653;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+    .ls-feed small{color:#627487;font-size:12px}
+    .ls-feed em{color:#173653;font-size:15px;font-style:normal;font-weight:700;font-variant-numeric:tabular-nums}
+    .ls-feed li.fresh{animation:ls-fresh 1.8s ease-out both}
+    @keyframes ls-fresh{0%{opacity:0;transform:translateY(-10px);background:#e7f8ef}25%{opacity:1;transform:none}100%{background:transparent}}
+
+    .ls-phone-wrap{position:relative;display:grid;place-items:center}
+    .ls-ripple{position:absolute;left:50%;top:50%;width:560px;height:560px;border-radius:50%;border:2px solid rgba(23,102,214,.18);transform:translate(-50%,-50%) scale(.55);opacity:0;pointer-events:none}
+    .ls-phone{position:relative;z-index:1;width:320px;height:600px;padding:10px;border:1px solid #d8e4ee;border-radius:42px;background:#fff;box-shadow:0 30px 60px rgba(36,75,114,.18)}
+    .ls-screen-area{position:relative;height:100%;overflow:hidden;border-radius:33px;background:radial-gradient(circle at 50% 0,rgba(60,137,245,.16),transparent 19rem),#f8fbff;color:#173653}
+    .ls-status{display:flex;align-items:center;justify-content:space-between;padding:15px 24px 0;font-size:13px;font-weight:700}
+    .ls-status i{width:80px;height:22px;border-radius:12px;background:#dce6f1}
+    .ls-venue{display:flex;align-items:center;justify-content:center;gap:9px;margin:18px 0 4px}
+    .ls-venue img{width:34px;height:34px}
+    .ls-venue span{display:flex;flex-direction:column}
+    .ls-venue b{font-size:15px;font-weight:700;letter-spacing:-.03em}
+    .ls-venue small{color:#627487;font-size:11px}
+    .ls-screen{display:none;flex-direction:column;align-items:stretch;gap:9px;padding:12px 18px 0}
+    .live-stage[data-step="0"] .ls-pick,.live-stage[data-step="1"] .ls-prompt,.live-stage[data-step="2"] .ls-paid,.live-stage[data-step="3"] .ls-online{display:flex}
+    .ls-screen.enter{animation:ls-rise .45s cubic-bezier(.22,.8,.3,1) both}
+    @keyframes ls-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+    .ls-title{display:block;text-align:center;font-size:22px;font-weight:700;letter-spacing:-.055em}
+    .ls-pkg{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border:1px solid #d4e1ee;border-radius:14px;background:#fff}
+    .ls-pkg span{display:flex;flex-direction:column}
+    .ls-pkg b{font-size:14px;font-weight:700}.ls-pkg small{color:#627487;font-size:11px}
+    .ls-pkg em{color:#1759bc;font-size:14px;font-style:normal;font-weight:700}
+    .ls-pkg.is-picked{border:2px solid #1766d6;background:#f1f6ff}
+    .ls-mpesa{display:flex;align-items:center;justify-content:center;gap:7px;color:#13885e;font-size:11px;font-weight:900;letter-spacing:.1em}
+    .ls-mpesa i{width:14px;height:14px;border-radius:4px;background:#15986c}
+    .ls-field{padding:11px 12px;border:1px solid #ceddeb;border-radius:11px;background:#fff;font-size:14px}
+    .ls-pay{display:grid;place-items:center;height:44px;border-radius:13px;background:linear-gradient(135deg,#1766d6,#3b85f4);color:#fff;font-size:15px;font-weight:840;box-shadow:0 12px 22px rgba(34,103,216,.24)}
+    .ls-sim{display:flex;flex-direction:column;gap:12px;margin-top:10px;padding:18px 16px;border-radius:18px;background:#173653;color:#fff;box-shadow:0 18px 40px rgba(23,54,83,.28)}
+    .ls-sim b{color:#e7f8ef;font-size:12px;font-weight:900;letter-spacing:.16em}
+    .ls-sim>span{font-size:15px;line-height:1.45}
+    .ls-pins{display:flex;justify-content:center;gap:12px;padding:4px 0}
+    .ls-pins i{width:16px;height:16px;border:2px solid #fff;border-radius:50%}
+    .ls-sim-btns{display:flex;gap:8px}
+    .ls-sim-btns span{flex:1;padding:10px;border-radius:11px;background:rgba(255,255,255,.12);text-align:center;font-size:14px;font-weight:700}
+    .ls-sim-btns .ok{background:#15986c}
+    .ls-note{display:block;color:#627487;font-size:12px;line-height:1.45;text-align:center}
+    .ls-check{display:grid;place-items:center;width:92px;height:92px;margin:16px auto 6px;border-radius:50%;background:#15986c;color:#fff;box-shadow:0 0 0 12px #e7f8ef}
+    .ls-check svg{width:46px;height:46px}
+    .ls-receipt{display:flex;flex-direction:column;gap:7px;padding:12px 14px;border:1px solid #d4e1ee;border-radius:14px;background:#fff;font-size:13px}
+    .ls-receipt div{display:flex;justify-content:space-between}.ls-receipt span{color:#627487}.ls-receipt b{font-weight:700}
+    .ls-progress{height:7px;border-radius:999px;background:#e4ecf5;overflow:hidden}
+    .ls-progress i{display:block;width:0;height:100%;border-radius:999px;background:#15986c}
+    .ls-online-title{display:flex;align-items:center;justify-content:center;gap:9px;margin-top:6px;color:#13885e;font-size:18px;font-weight:700}
+    .ls-online-title i{width:11px;height:11px;border-radius:50%;background:#15986c;box-shadow:0 0 0 5px rgba(21,152,108,.15)}
+    .ls-ring{position:relative;width:190px;height:190px;margin:4px auto}
+    .ls-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+    .ls-ring circle{fill:none;stroke:#e2ecf8;stroke-width:12}
+    .ls-ring .ls-ringbar{stroke:#15986c;stroke-linecap:round;stroke-dasharray:540;stroke-dashoffset:0}
+    .ls-ring>span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+    .ls-ring b{font-size:34px;font-weight:700;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+    .ls-ring small{color:#627487;font-size:12px}
+    .ls-toast{position:absolute;z-index:3;left:50%;top:-32px;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid #45c9a7;border-radius:14px;background:#fff;box-shadow:0 18px 36px rgba(24,151,113,.18);color:#173653;font-size:14px;font-weight:700;white-space:nowrap;opacity:0;transform:translate(-50%,8px) scale(.95);pointer-events:none;transition:opacity .35s ease,transform .45s cubic-bezier(.22,.8,.3,1)}
+    .ls-toast i{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#15986c;color:#fff}
+    .live-stage[data-step="2"] .ls-toast{opacity:1;transform:translate(-50%,0)}
+    @media (prefers-reduced-motion:no-preference){
+      .live-stage.is-live .ls-ripple{animation:ls-ripple 4.8s ease-out infinite}
+      .live-stage.is-live .ls-ripple.r2{animation-delay:1.6s}.live-stage.is-live .ls-ripple.r3{animation-delay:3.2s}
+      .live-stage.is-live .ls-phone{animation:ls-float 7s ease-in-out infinite}
+      .live-stage[data-step="0"].is-live .ls-pkg.is-picked{animation:ls-tap 2.4s ease-out both}
+      .live-stage[data-step="0"].is-live .ls-pay{animation:ls-press 2.4s ease-in-out both}
+      .live-stage[data-step="1"].is-live .ls-pins i{animation:ls-pin 2.7s steps(1) both}
+      .live-stage[data-step="1"].is-live .ls-pins i:nth-child(2){animation-delay:.4s}.live-stage[data-step="1"].is-live .ls-pins i:nth-child(3){animation-delay:.8s}.live-stage[data-step="1"].is-live .ls-pins i:nth-child(4){animation-delay:1.2s}
+      .live-stage[data-step="2"].is-live .ls-check{animation:ls-check .55s cubic-bezier(.22,.8,.3,1) both}
+      .live-stage[data-step="2"].is-live .ls-progress i{animation:ls-bar 1.8s ease-in-out both}
+      .live-stage[data-step="3"].is-live .ls-ringbar{animation:ls-ring 3.4s linear both}
+    }
+    @keyframes ls-ripple{0%{transform:translate(-50%,-50%) scale(.55);opacity:.6}100%{transform:translate(-50%,-50%) scale(1.2);opacity:0}}
+    @keyframes ls-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+    @keyframes ls-tap{0%,55%{box-shadow:0 0 0 0 rgba(23,102,214,0)}70%{box-shadow:0 0 0 8px rgba(23,102,214,.18)}100%{box-shadow:0 0 0 0 rgba(23,102,214,0)}}
+    @keyframes ls-press{0%,72%{transform:none}84%{transform:scale(.96)}100%{transform:none}}
+    @keyframes ls-pin{0%{background:transparent}100%{background:#fff}}
+    @keyframes ls-check{0%{transform:scale(.3);opacity:0}70%{transform:scale(1.08);opacity:1}100%{transform:scale(1)}}
+    @keyframes ls-bar{from{width:0}to{width:100%}}
+    @keyframes ls-ring{from{stroke-dashoffset:0}to{stroke-dashoffset:96}}
+    @media (max-width:860px){.live-stage{grid-template-columns:1fr;gap:26px;justify-items:center}.ls-phone-wrap{order:-1}.ls-sales{width:min(460px,100%)}}
+    @media (max-width:420px){.ls-phone{width:288px;height:560px}.ls-ripple{width:440px;height:440px}.ls-sales{padding:20px 16px 12px}}
 </style>
   </head>
 <body>
@@ -352,8 +449,54 @@
             <div class="actions"><a class="primary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial <span aria-hidden="true">→</span></a><a class="live-btn" href="#live-demo"><i class="live-dot" aria-hidden="true"></i>Live demo</a><a class="secondary" href="https://wififiti.co.ke/legacy">View captive portal <span aria-hidden="true">→</span></a><a class="secondary" href="#pppoe">Explore PPPoE &amp; Static IP</a></div>
             <ul class="proof"><li>Hotspot packages and vouchers</li><li>PPPoE &amp; Static IP services</li><li>Secure router pairing</li></ul>
           </div>
-          <div class="product-shot glass" aria-label="Illustration of the Wi-Fi Fiti business dashboard">
-            <div class="browser"><div class="browser-top"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="url">cloud.wififiti.co.ke</span></div><div class="dash"><div class="dash-label"><span>EXAMPLE WORKSPACE</span><span class="online">ROUTER ONLINE</span></div><h2>Example Main Branch</h2><div class="stat-grid"><div class="stat"><span>SALES</span><b>KES 8,420</b></div><div class="stat"><span>PACKAGES</span><b>4</b></div><div class="stat"><span>DEVICES</span><b>126</b></div></div><div class="flow"><div class="flow-row"><span>Customer portal</span><b class="tag">BRANDED ADDRESS</b></div><div class="flow-row"><span>3 Hours · KES 20</span><b class="tag">ACTIVE</b></div><div class="flow-row"><span>Router check-in</span><b class="online">JUST NOW</b></div></div></div></div>
+          <div class="live-stage" id="live-stage" data-step="0" role="img" aria-label="Animation: a customer picks a Wi-Fi package, pays with M-Pesa on their phone and goes online, while the sale appears in the business's sales feed.">
+            <div class="ls-sales">
+              <div class="ls-toast"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></i>M‑Pesa confirmed · +KES 20</div>
+              <div class="ls-head"><span class="ls-label">DEMO CAFÉ · SALES TODAY</span><span class="ls-chip">Example</span></div>
+              <div class="ls-total" id="ls-total">KES 3,140</div>
+              <div class="ls-sub"><span id="ls-count">71</span> confirmed M‑Pesa payments</div>
+              <ul class="ls-feed" id="ls-feed">
+                <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></i><span><b>0722 ••• 418</b><small>24 hours · 2 min ago</small></span><em>KES 50</em></li>
+                <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></i><span><b>0110 ••• 263</b><small>1 hour · 5 min ago</small></span><em>KES 10</em></li>
+                <li><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></i><span><b>0795 ••• 031</b><small>3 hours · 9 min ago</small></span><em>KES 20</em></li>
+              </ul>
+            </div>
+            <div class="ls-phone-wrap">
+              <i class="ls-ripple"></i><i class="ls-ripple r2"></i><i class="ls-ripple r3"></i>
+              <div class="ls-phone">
+                <div class="ls-screen-area">
+                  <div class="ls-status"><span>9:41</span><i></i><span>Wi‑Fi</span></div>
+                  <div class="ls-venue"><img src="/assets/wifi-fiti-logo.png" alt=""><span><b>Demo Café Wi‑Fi</b><small>Powered by Wi‑Fi Fiti</small></span></div>
+                  <div class="ls-screen ls-pick">
+                    <strong class="ls-title">Choose a package</strong>
+                    <div class="ls-pkg"><span><b>1 hour</b><small>Quick browse</small></span><em>KES 10</em></div>
+                    <div class="ls-pkg is-picked"><span><b>3 hours</b><small>A movie or a lecture</small></span><em>KES 20</em></div>
+                    <div class="ls-pkg"><span><b>24 hours</b><small>Full day</small></span><em>KES 50</em></div>
+                    <div class="ls-mpesa"><i></i>LIPA NA M‑PESA</div>
+                    <div class="ls-field">0712 345 678</div>
+                    <div class="ls-pay">Pay KES 20</div>
+                  </div>
+                  <div class="ls-screen ls-prompt">
+                    <strong class="ls-title">Check your phone</strong>
+                    <div class="ls-sim"><b>M‑PESA</b><span>Pay KES 20 to DEMO CAFÉ WI‑FI? Enter M‑PESA PIN:</span><div class="ls-pins"><i></i><i></i><i></i><i></i></div><div class="ls-sim-btns"><span>Cancel</span><span class="ok">Send</span></div></div>
+                    <small class="ls-note">The prompt arrives on the customer's own phone.</small>
+                  </div>
+                  <div class="ls-screen ls-paid">
+                    <div class="ls-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+                    <strong class="ls-title">Payment received</strong>
+                    <div class="ls-receipt"><div><span>Receipt</span><b id="ls-receipt">TJ8K2LQ9MV</b></div><div><span>Package</span><b>3 hours</b></div><div><span>Paid</span><b>KES 20</b></div></div>
+                    <small class="ls-note">Opening the internet…</small>
+                    <div class="ls-progress"><i></i></div>
+                  </div>
+                  <div class="ls-screen ls-online">
+                    <div class="ls-online-title"><i></i>You're online</div>
+                    <div class="ls-ring"><svg viewBox="0 0 200 200" aria-hidden="true"><circle cx="100" cy="100" r="86"/><circle class="ls-ringbar" cx="100" cy="100" r="86"/></svg><span><b id="ls-left">3:00:00</b><small>remaining</small></span></div>
+                    <div class="ls-receipt one"><div><span>3 hours · KES 20</span><b>Phone + TV</b></div></div>
+                    <small class="ls-note">Time keeps running from payment, even if the customer disconnects.</small>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -471,6 +614,59 @@
   </div>
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
+
+    (function () {
+      var stage = document.getElementById('live-stage'); if (!stage) return;
+      var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduce) { stage.setAttribute('data-step', '3'); return; }
+      var DUR = [2400, 2700, 2100, 3400], step = 0, timer = null, clock = null, left = 10800, visible = true;
+      var sales = 3140, count = 71;
+      var feed = document.getElementById('ls-feed'), total = document.getElementById('ls-total');
+      var check = feed.querySelector('li > i').innerHTML;
+      function pad(n) { return String(n).padStart(2, '0'); }
+      function showLeft() { document.getElementById('ls-left').textContent = Math.floor(left / 3600) + ':' + pad(Math.floor(left % 3600 / 60)) + ':' + pad(left % 60); }
+      function enter() {
+        var el = stage.querySelector('.ls-screen:not([hidden])');
+        stage.querySelectorAll('.ls-screen').forEach(function (s) { s.classList.remove('enter'); });
+        var active = stage.querySelector(['.ls-pick', '.ls-prompt', '.ls-paid', '.ls-online'][step]);
+        void active.offsetWidth; active.classList.add('enter');
+      }
+      function sale() {
+        var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', r = 'T';
+        for (var i = 0; i < 9; i++) r += chars[Math.floor(Math.random() * chars.length)];
+        document.getElementById('ls-receipt').textContent = r;
+        var pre = ['0712', '0721', '0745', '0790', '0113', '0708'];
+        var phone = pre[Math.floor(Math.random() * pre.length)] + ' ••• ' + (100 + Math.floor(Math.random() * 899));
+        sales += 20; count += 1;
+        total.textContent = 'KES ' + sales.toLocaleString('en-KE');
+        document.getElementById('ls-count').textContent = count;
+        total.classList.add('bump'); setTimeout(function () { total.classList.remove('bump'); }, 320);
+        var first = feed.querySelector('li small'); if (first && /just now/.test(first.textContent)) first.textContent = first.textContent.replace('just now', '1 min ago');
+        var li = document.createElement('li'); li.className = 'fresh';
+        li.innerHTML = '<i>' + check + '</i><span><b></b><small>3 hours · just now</small></span><em>KES 20</em>';
+        li.querySelector('b').textContent = phone;
+        feed.insertBefore(li, feed.firstChild);
+        while (feed.children.length > 3) feed.removeChild(feed.lastChild);
+      }
+      function go(next) {
+        step = next; stage.setAttribute('data-step', String(step)); enter();
+        if (step === 2) sale();
+        if (step === 3) { left = 10800; showLeft(); }
+        schedule();
+      }
+      function schedule() { clearTimeout(timer); if (visible && !document.hidden) timer = setTimeout(function () { go((step + 1) % 4); }, DUR[step]); }
+      clock = setInterval(function () { if (step === 3 && visible && !document.hidden) { left = Math.max(0, left - 1); showLeft(); } }, 1000);
+      // Only animate while the hero is on screen and the tab is visible.
+      if ('IntersectionObserver' in window) {
+        new IntersectionObserver(function (entries) {
+          visible = entries[0].isIntersecting;
+          stage.classList.toggle('is-live', visible);
+          if (visible) schedule(); else clearTimeout(timer);
+        }, { threshold: 0.15 }).observe(stage);
+      } else { stage.classList.add('is-live'); }
+      document.addEventListener('visibilitychange', function () { if (document.hidden) clearTimeout(timer); else schedule(); });
+      stage.classList.add('is-live'); enter(); schedule();
+    }());
 
     (function () {
       var box = document.getElementById('fee-calc'); if (!box) return;
