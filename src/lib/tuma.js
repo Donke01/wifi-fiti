@@ -34,7 +34,9 @@ async function accessToken() {
     body: JSON.stringify({ email, api_key: apiKey }),
   });
   const body = await response.json().catch(() => ({}));
-  const token = body && body.data && body.data.token;
+  // Tuma's documented auth response returns `token` at the top level. Keep
+  // the nested form as a compatibility fallback for older API deployments.
+  const token = body && (body.token || (body.data && body.data.token));
   if (!response.ok || !token) throw new Error(body.message || `Tuma authentication failed (${response.status}).`);
   // Tuma tokens are normally about 24 hours. Keep a conservative one-hour
   // cache so a deployment never races an expiring token.
