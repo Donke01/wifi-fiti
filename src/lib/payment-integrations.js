@@ -1,6 +1,7 @@
 'use strict';
 
 const { db } = require('./db');
+const tuma = require('./tuma');
 
 /**
  * Payment rails are adapters behind one tenant-facing choice.  This registry
@@ -112,6 +113,10 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant }) {
     let error = null;
     if (providerId === 'fiti' || providerId === 'manual') status = 'ready';
     else if (providerId === 'daraja' && tenant.paymentConnectionSummary.get(business.id)) status = 'ready';
+    else if (providerId === 'tuma' && tuma.configured()) {
+      try { await tuma.verify(); status = 'ready'; }
+      catch (err) { status = 'error'; error = String(err.message || 'Tuma verification failed.').slice(0, 240); }
+    }
     markTested.run({ businessId: business.id, status, error });
     res.json(summary(business.id));
   });

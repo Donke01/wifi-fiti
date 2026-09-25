@@ -8,6 +8,7 @@ const db = require('./lib/db');
 const tenant = require('./lib/tenant');
 const tenantAccess = require('./lib/tenant-access');
 const tenantMpesa = require('./lib/tenant-mpesa');
+const tuma = require('./lib/tuma');
 const mpesa = require('./lib/mpesa');
 const mikrotik = require('./lib/mikrotik');
 const { fulfil } = require('./lib/fulfil');
@@ -1786,6 +1787,11 @@ function provisionTenantPayment(checkoutRequestId) {
 }
 
 async function queryTenantMpesa(transaction) {
+  // Tuma settles through its authenticated callback. There is no Daraja
+  // checkout-query call to make for a Tuma checkout; keeping it pending here
+  // prevents the browser's status poll from declaring a payment failed before
+  // Tuma delivers its callback.
+  if (transaction.payment_source === 'tuma') return { settled: false, resultCode: null, resultDesc: 'Waiting for Tuma callback.' };
   if (transaction.payment_source === 'own') {
     const credentials = tenant.paymentCredentials(transaction.business_id);
     if (!credentials) throw new Error('Business M-Pesa credentials are unavailable.');
@@ -1956,7 +1962,17 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
     let pushed;
     let paymentSource = 'fiti';
     let platformFee = pkg.price * 5 / 100;
-    if (location.collection_mode === 'own') {
+    const selectedProvider = paymentIntegrations.summary(location.business_id).selected;
+    if (selectedProvider === 'tuma') {
+      if (!tuma.configured()) {
+        lastPush.delete(throttleKey);
+        return res.status(409).json({ error: 'Tuma is selected but its API credentials are not configured yet.' });
+      }
+      pushed = await tuma.stkPush({ phone, amount: pkg.price, publicUrl: config.publicUrl,
+        description: pkg.name });
+      paymentSource = 'tuma';
+      platformFee = 0;
+    } else if (location.collection_mode === 'own') {
       let credentials;
       try { credentials = tenant.paymentCredentials(location.business_id); }
       catch (err) {
@@ -2480,6 +2496,16 @@ app.post('/api/mpesa/callback', (req, res) => {
   ));
 });
 
+// Tuma sends a normalized JSON callback for the checkout id returned by its
+// STK endpoint. The callback URL includes a deployment-only secret so an
+// arbitrary POST cannot mark a Wi-Fi package paid.
+app.post('/api/tuma/callback', (req, res) => {
+  const suppliedKey = req.query.key || req.get('X-Tuma-Callback-Key');
+  if (!tuma.callbackAuthorized(suppliedKey)) return res.status(401).json({ error: 'Unauthorized callback.' });
+  res.status(200).json({ success: true, message: 'Accepted' });
+  setImmediate(() => handleTumaCallback(req.body).catch((err) => console.error('[tuma callback] handler threw:', err)));
+});
+
 function callbackReceipt(callback) {
   const receipt = String(callback && callback.receipt || '').trim().toUpperCase();
   return /^[A-Z0-9]{6,32}$/.test(receipt) ? receipt : null;
@@ -2641,6 +2667,42 @@ async function handleTenantCallback(cb, tx) {
     // idempotent grant ledger guarantees it cannot be credited twice.
     console.error(`[tenant callback] provisioning ${cb.checkoutRequestId} failed:`, err.message);
   }
+}
+
+async function handleTumaCallback(body) {
+  const checkoutRequestId = String(body && body.checkout_request_id || '').trim();
+  if (!/^[-A-Za-z0-9_]{8,160}$/.test(checkoutRequestId)) return;
+  const tx = tenant.getTransaction.get(checkoutRequestId);
+  if (!tx || tx.payment_source !== 'tuma') return;
+  const resultCode = Number(body && body.result_code);
+  const completed = String(body && body.status || '').toLowerCase() === 'completed' || resultCode === 0;
+  const settledCode = Number.isFinite(resultCode) ? resultCode : (completed ? 0 : 1);
+  const callback = {
+    checkoutRequestId,
+    merchantRequestId: body && body.merchant_request_id,
+    resultCode: settledCode,
+    resultDesc: body && (body.result_desc || body.failure_reason),
+    amount: body && body.amount,
+    receipt: body && body.mpesa_receipt_number,
+  };
+  if (!callbackNeedsVerification(callback, tx)) return;
+  if (!callbackMatchesTransaction(callback, tx)) return;
+  if (settledCode !== 0 || !completed) {
+    tenant.setTransactionResult.run({ checkoutRequestId, status: 'failed', resultCode: settledCode,
+      resultDesc: callback.resultDesc || 'Tuma payment was not completed.', receipt: null });
+    return;
+  }
+  const receipt = callbackReceipt(callback);
+  if (!receipt || db.isDuplicateReceipt(receipt, checkoutRequestId) ||
+      tenant.duplicateReceipt.get(receipt, checkoutRequestId) ||
+      tenant.duplicateBusinessBillingReceipt.get(receipt, checkoutRequestId)) {
+    console.error(`[tuma callback] receipt ${receipt || 'missing'} already used or invalid; not crediting ${checkoutRequestId}`);
+    return;
+  }
+  tenant.setTransactionResult.run({ checkoutRequestId, status: 'paid', resultCode: 0,
+    resultDesc: callback.resultDesc || 'Tuma payment completed.', receipt });
+  try { provisionTenantPayment(checkoutRequestId); }
+  catch (err) { console.error(`[tuma callback] provisioning ${checkoutRequestId} failed:`, err.message); }
 }
 
 async function handleBusinessBillingCallback(cb, transaction) {
