@@ -95,6 +95,10 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant }) {
     const providerId = String(req.body?.provider || '').trim().toLowerCase();
     const provider = byId.get(providerId);
     if (!provider || !provider.available) return res.status(400).json({ error: 'Select an available payment integration.' });
+    const current = selected.get(business.id);
+    // Saving the provider after a successful readiness test must not erase
+    // that result and make a verified integration look unconfigured again.
+    if (current && current.provider === providerId) return res.status(200).json(summary(business.id));
     save.run(business.id, providerId);
     res.status(201).json(summary(business.id));
   });
