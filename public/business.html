@@ -1867,7 +1867,7 @@
         providers.forEach(function (provider) { var option = document.createElement('option'); option.value = provider.id; option.textContent = provider.name; option.dataset.description = provider.description; select.appendChild(option); });
         if (data.selected) select.value = data.selected;
         var option = select.options[select.selectedIndex]; $('integration-description').textContent = option ? option.dataset.description : '';
-        $('integration-status').textContent = data.status ? 'Status: ' + data.status.replace(/_/g, ' ') + (data.testedAt ? ' · tested ' + when(data.testedAt) : '') : '';
+        $('integration-status').textContent = data.status ? 'Status: ' + data.status.replace(/_/g, ' ') + (data.testedAt ? ' · tested ' + when(data.testedAt) : '') + (data.lastError ? ' · ' + data.lastError : '') : '';
         var c2b = select.value === 'c2b'; $('c2b-settings').classList.toggle('hidden', !c2b); $('save-c2b').classList.toggle('hidden', !c2b); $('c2b-callback-note').classList.toggle('hidden', !c2b);
         if (c2b && data.c2b) { $('c2b-shortcode').value = data.c2b.shortcode || ''; $('c2b-callback-note').textContent = 'Safaricom confirmation URL: ' + data.c2b.callbackUrl; }
         var locations = (state.workspace && state.workspace.locations) || []; var locationSelect = $('c2b-location'); if (locationSelect && !locationSelect.options.length) locations.forEach(function (location) { var item = document.createElement('option'); item.value = location.id; item.textContent = location.name || location.id; locationSelect.appendChild(item); }); if (c2b && data.c2b && data.c2b.setting) locationSelect.value = data.c2b.setting.locationId;
