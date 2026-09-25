@@ -226,6 +226,28 @@
 
     @media (max-width:1000px){.kpi{grid-column:span 6}.chart-panel,.side,.wide,.narrow{grid-column:1/-1}}
     @media (max-width:560px){.loc{display:none}.kpi{grid-column:1/-1}.panel{padding:16px}.chart svg{height:220px}.pkg-row{grid-template-columns:90px 1fr 76px}.head-actions .btn{flex:1}}
+
+    /* Centre every card's heading and text, like the rest of the site.
+       Tables keep their columns; form fields stay left-aligned. */
+    .banner{justify-content:center;text-align:center}
+    .banner>span:last-child{justify-content:center}
+    .head{flex-direction:column;align-items:center;text-align:center}
+    .head-actions{justify-content:center}
+    .kpi{text-align:center}.kpi small{justify-content:center}
+    .panel-head{flex-direction:column;justify-content:center;text-align:center}
+    .panel-head>div{width:100%}
+    .panel>p{text-align:center}
+    .router{grid-template-columns:1fr;justify-items:center;gap:4px;text-align:center}
+    .router small[style]{text-align:center !important}
+    .router .pill{justify-self:center}
+    .panel-head .seg{align-self:center}
+    .payout{text-align:center}
+    .studio-head{text-align:center}.studio-head p{margin-left:auto;margin-right:auto}
+    .ctl h3,.ctl .hint,.addr-msg{text-align:center}
+    .opts,.swatches,.looks,.logo-row{justify-content:center}
+    .studio-controls .field>span{text-align:center}
+    .why li{text-align:center}
+    .tour-card{text-align:center}.tour-nav{justify-content:center;flex-wrap:wrap}
   </style>
 </head>
 <body>

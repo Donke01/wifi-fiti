@@ -297,6 +297,16 @@
       body .section-head h2,body .customer h2,body .pppoe-copy h2,body .final h2,body .contact-card h2{font-size:clamp(36px,10.5vw,49px)}
       body .section-head p:not(.eyebrow),body .customer .lead,body .pppoe-copy>p:not(.eyebrow),body .final>p:not(.eyebrow),body .contact-card p:not(.eyebrow){font-size:16px}
     }
+
+    /* Centre the PPPoE and contact cards like the other sections. */
+    body .pppoe-copy{text-align:center}
+    body .pppoe-copy>p:not(.eyebrow){margin-left:auto;margin-right:auto}
+    body .pppoe-copy .service-price{justify-content:center}
+    body .pppoe-features article{text-align:center}
+    body .pppoe-features span{margin:0 auto 6px;display:grid}
+    body .pppoe-features small{margin:6px 0 0}
+    body .contact-card{text-align:center}
+    body .contact-link{flex-direction:column;justify-content:center;text-align:center}
 </style>
   </head>
 <body>
