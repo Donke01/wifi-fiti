@@ -22,6 +22,7 @@ const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
+const { createDemo } = require('./lib/demo');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -288,6 +289,12 @@ function redirectToApp(req, res) {
   return res.redirect(302, config.domains.appUrl + req.path);
 }
 
+const DEMO_PAGES = {
+  '/demo': 'demo.html',
+  '/demo/try': 'demo-try.html',
+  '/demo/dashboard': 'demo-dashboard.html',
+};
+
 app.use((req, res, next) => {
   const host = requestHost(req);
   const isGet = req.method === 'GET' || req.method === 'HEAD';
@@ -317,6 +324,9 @@ app.use((req, res, next) => {
     if (isGet && (req.path === '/business' || req.path === '/business.html' || req.path === '/operations.html')) {
       return redirectToApp(req, res);
     }
+    // "Request a demo" and the live demos run on the app host, where their
+    // API and payment callback live. Keep short /demo links on the root.
+    if (isGet && DEMO_PAGES[req.path]) return redirectToApp(req, res);
     if (isGet && (req.path === '/legacy' || req.path === '/legacy/')) {
       if (!keepsLegacyCompatibility) return redirectToApp(req, res);
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
@@ -411,6 +421,7 @@ app.get('/tenant-router-install-telemetry-test.rsc', (req, res) => {
 // Clean dashboard alias. Keep business.html available for existing bookmarks
 // and for older integrations that still use the filename.
 app.get('/business', (req, res) => res.sendFile(path.join(publicDirectory, 'business.html')));
+for (const [route, file] of Object.entries(DEMO_PAGES)) app.get(route, (req, res) => res.sendFile(path.join(publicDirectory, file)));
 app.use(express.static(publicDirectory));
 
 // This repository is intentionally private, so a new VPS cannot rely on a
@@ -445,6 +456,12 @@ app.use((req, res, next) => {
     key = '/api/admin:' + req.ip;
     maximum = 30;
     windowMs = 5 * 60_000;
+  } else if (req.method === 'POST' && (path === '/api/demo/requests' || path === '/api/demo/pay')) {
+    // Public, unauthenticated forms. The pay route also has its own per-phone
+    // and daily caps so nobody can use it to spam strangers with prompts.
+    key = path + ':' + req.ip;
+    maximum = path.endsWith('/pay') ? 8 : 10;
+    windowMs = 15 * 60_000;
   } else if (req.method === 'POST' && path.startsWith('/api/tenant/')) {
     const identity = String(req.body && (req.body.phone || req.body.subscriptionId || req.body.mac) || '').slice(0, 100);
     key = path + ':' + req.ip + ':' + identity;
@@ -2503,7 +2520,13 @@ app.post('/api/tuma/callback', (req, res) => {
   const suppliedKey = req.query.key || req.get('X-Tuma-Callback-Key');
   if (!tuma.callbackAuthorized(suppliedKey)) return res.status(401).json({ error: 'Unauthorized callback.' });
   res.status(200).json({ success: true, message: 'Accepted' });
-  setImmediate(() => handleTumaCallback(req.body).catch((err) => console.error('[tuma callback] handler threw:', err)));
+  setImmediate(() => {
+    // Live-demo prompts share Tuma's callback URL but never touch tenant
+    // billing; the demo module claims only checkout ids it created.
+    try { if (demo.handleTumaCallback(req.body)) return; }
+    catch (err) { console.error('[tuma callback] demo handler threw:', err); return; }
+    handleTumaCallback(req.body).catch((err) => console.error('[tuma callback] handler threw:', err));
+  });
 });
 
 function callbackReceipt(callback) {
@@ -4109,6 +4132,11 @@ fitiSignal.attachFitiSignalRoutes(app, { businessAuth });
 // keeps local/test deployments inert while allowing Railway to deliver queued
 // transactional SMS automatically in sandbox or production.
 const smsProvider = fitiSignal.createAfricaTalkingProviderFromEnv();
+// Sales demo: lead form, live pay-and-connect demo and their admin views.
+const demo = createDemo({
+  db: db.db, adminOk, tuma, publicUrl: config.publicUrl, smsProvider, sendEmail, whatsapp,
+});
+demo.attachRoutes(app);
 if (smsProvider) {
   const smsWorker = () => fitiSignal.processQueue(smsProvider, { limit: 50 })
     .catch((error) => console.error('[fiti-signal] provider worker failed:', error.message));

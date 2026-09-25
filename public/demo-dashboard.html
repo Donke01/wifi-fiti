@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="Explore a sample Wi-Fi Fiti business dashboard: sales, routers, packages and payments.">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="robots" content="noindex">
+  <title>Sample dashboard | Wi-Fi Fiti for Business</title>
+  <link rel="icon" href="/wifi-fiti-icon.svg">
+  <link rel="stylesheet" href="/demo.css">
+  <style>
+    body{background:#f5f8fc}
+    .banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin:14px 0 0;padding:12px 16px;border:1px solid #f1d9a6;border-radius:16px;background:var(--warn-wash);color:#6d4a00;font-size:14px}
+    .banner strong{color:#4f3500}
+    .head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:14px;margin:26px 0 18px}
+    .head h1{margin:0;font-size:clamp(28px,4vw,40px)}
+    .head p{margin:4px 0 0;color:var(--muted)}
+    .head-actions{display:flex;flex-wrap:wrap;gap:8px}
+    .grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
+    .panel{padding:18px 20px;border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:0 8px 24px rgba(31,59,93,.05)}
+    .panel h2{margin:0;font-size:17px;letter-spacing:-.03em}
+    .panel-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+    .panel-head p{margin:2px 0 0;color:var(--muted);font-size:13px}
+    .kpi{grid-column:span 3}
+    .kpi span{display:block;color:var(--muted);font-size:13px;font-weight:700}
+    .kpi strong{display:block;margin-top:6px;font-size:clamp(24px,3vw,30px);letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+    .kpi small{display:flex;align-items:center;gap:6px;margin-top:4px;color:var(--muted);font-size:12px}
+    .up{color:#0d6d4d;font-weight:800}
+    .chart-panel{grid-column:span 8}
+    .side{grid-column:span 4}
+    .wide{grid-column:span 7}.narrow{grid-column:span 5}
+    .seg{display:inline-flex;padding:3px;border-radius:11px;background:#eef3f9}
+    .seg button{min-height:32px;padding:0 12px;border:0;border-radius:8px;background:none;color:var(--muted);font-size:13px;font-weight:750;cursor:pointer}
+    .seg button[aria-pressed=true]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(16,36,59,.12)}
+    .chart{position:relative}
+    .chart svg{display:block;width:100%;height:260px;overflow:visible}
+    .chart .grid-line{stroke:#e8eef5;stroke-width:1}
+    .chart .axis-text{fill:#8494a6;font-size:11px}
+    .chart .bar{fill:#226ee8}
+    .chart .bar.dim{fill:#226ee8;opacity:.35}
+    .chart .hit{fill:transparent;cursor:pointer}
+    .tip{position:absolute;z-index:3;min-width:130px;padding:9px 11px;border-radius:10px;background:#10243b;color:#fff;font-size:12px;line-height:1.35;pointer-events:none;transform:translate(-50%,-100%);white-space:nowrap}
+    .tip strong{display:block;font-size:14px}
+    .tip span{color:#b8cbe0}
+    .link-btn{border:0;background:none;padding:0;color:#1759bc;font-size:13px;font-weight:750;cursor:pointer}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th{padding:8px 10px;border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:750;text-align:left}
+    td{padding:10px;border-bottom:1px solid #eef3f8;font-variant-numeric:tabular-nums}
+    tr:last-child td{border-bottom:0}
+    td.num,th.num{text-align:right}
+    .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .pkg-row{display:grid;grid-template-columns:110px 1fr 90px;gap:10px;align-items:center;margin:10px 0;font-size:14px}
+    .pkg-row .track{height:10px;border-radius:0 4px 4px 0;background:#eef3f9;overflow:hidden}
+    .pkg-row .fill{height:100%;border-radius:0 4px 4px 0;background:#226ee8}
+    .pkg-row .val{text-align:right;font-weight:750;font-variant-numeric:tabular-nums}
+    .pkg-row small{display:block;color:var(--muted);font-size:12px}
+    .router{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:12px 0;border-bottom:1px solid #eef3f8}
+    .router:last-child{border-bottom:0}
+    .router .pill{justify-self:end;align-self:start}.router strong{font-size:14px}.router small{color:var(--muted);font-size:12px}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:800}
+    .pill:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+    .pill.ok{background:var(--good-wash);color:#0d6d4d}
+    .pill.warn{background:var(--warn-wash);color:var(--warn)}
+    .pill.paid{background:var(--good-wash);color:#0d6d4d}
+    .payout strong{display:block;margin:4px 0;font-size:28px;letter-spacing:-.05em}
+    .payout dl{display:grid;gap:6px;margin:14px 0;font-size:14px}
+    .payout dl div{display:flex;justify-content:space-between}.payout dt{color:var(--muted)}.payout dd{margin:0;font-weight:750;font-variant-numeric:tabular-nums}
+    .cta{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;padding:24px;border-radius:20px;background:linear-gradient(135deg,#10243b,#173a5f);color:#fff}
+    .cta h2{color:#fff;margin:0 0 4px}.cta p{margin:0;color:#b8cbe0}
+    .cta .btns{display:flex;flex-wrap:wrap;gap:10px}
+    .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+    [hidden]{display:none !important}
+
+    @media (max-width:1000px){.kpi{grid-column:span 6}.chart-panel,.side,.wide,.narrow{grid-column:1/-1}}
+    @media (max-width:560px){.loc{display:none}.kpi{grid-column:1/-1}.panel{padding:16px}.chart svg{height:220px}.pkg-row{grid-template-columns:90px 1fr 76px}.head-actions .btn{flex:1}}
+  </style>
+</head>
+<body>
+  <header class="shell top">
+    <a class="brand" href="https://wififiti.co.ke/"><img src="/assets/wifi-fiti-logo.png" alt=""><span>Wi-Fi Fiti<small>FOR BUSINESS</small></span></a>
+    <nav aria-label="Demo"><a class="btn small secondary hide-sm" href="/demo/try">Try checkout</a><a class="btn small primary" href="/demo#request">Book a demo</a></nav>
+  </header>
+
+  <main class="shell">
+    <div class="banner" role="note"><span><strong>Sample workspace.</strong> Every number here is made up so you can look around. Nothing you click changes anything.</span><a class="btn small secondary" href="/business">Start your 7‑day trial</a></div>
+
+    <div class="head">
+      <div><h1>Kitale Connect</h1><p>3 locations · Growth plan · collecting to own PayBill</p></div>
+      <div class="head-actions">
+        <button class="btn small secondary" type="button" data-demo="Export a CSV of every sale for your accountant.">Export CSV</button>
+        <button class="btn small secondary" type="button" data-demo="Create printable voucher codes to sell over the counter.">Vouchers</button>
+        <button class="btn small primary" type="button" data-demo="Add a router: paste one pairing kit into your MikroTik terminal.">+ Add router</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="panel kpi"><span>Sales today</span><strong id="kpi-today">—</strong><small><span class="up" id="kpi-today-delta"></span> vs same day last week</small></section>
+      <section class="panel kpi"><span id="kpi-period-label">Last 30 days</span><strong id="kpi-period">—</strong><small id="kpi-period-sub"></small></section>
+      <section class="panel kpi"><span>Customers online now</span><strong id="kpi-online">—</strong><small>across 3 locations</small></section>
+      <section class="panel kpi"><span>Routers</span><strong>3 of 3 online</strong><small>last check-in a few seconds ago</small></section>
+
+      <section class="panel chart-panel" aria-labelledby="sales-title">
+        <div class="panel-head">
+          <div><h2 id="sales-title">Daily sales</h2><p id="sales-sub">Confirmed M‑Pesa payments, KES</p></div>
+          <div class="seg" role="group" aria-label="Date range"><button type="button" data-range="7" aria-pressed="false">7 days</button><button type="button" data-range="30" aria-pressed="true">30 days</button></div>
+        </div>
+        <div class="chart" id="chart"><svg id="chart-svg" role="img" aria-labelledby="sales-title sales-sub"></svg><div class="tip" id="tip" hidden></div></div>
+        <p style="margin:10px 0 0"><button type="button" class="link-btn" id="table-toggle" aria-expanded="false" aria-controls="sales-table">Show as table</button></p>
+        <div class="table-wrap" id="sales-table" hidden><table><thead><tr><th>Day</th><th class="num">Payments</th><th class="num">Sales (KES)</th></tr></thead><tbody id="sales-rows"></tbody></table></div>
+      </section>
+
+      <section class="panel side" aria-labelledby="pkg-title">
+        <div class="panel-head"><div><h2 id="pkg-title">Top packages</h2><p id="pkg-sub">Sales by package</p></div></div>
+        <div id="packages"></div>
+        <p style="margin:14px 0 0"><button type="button" class="link-btn" data-demo="Edit package names, prices, durations and speed limits.">Edit packages →</button></p>
+      </section>
+
+      <section class="panel wide" aria-labelledby="pay-title">
+        <div class="panel-head"><div><h2 id="pay-title">Recent payments</h2><p>Phone numbers are masked, as in your real dashboard exports.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Time</th><th>Customer</th><th>Package</th><th class="loc">Location</th><th class="num">KES</th><th>Status</th></tr></thead><tbody id="payments"></tbody></table></div>
+      </section>
+
+      <section class="panel narrow" aria-labelledby="router-title">
+        <div class="panel-head"><div><h2 id="router-title">Routers</h2><p>Paired over outbound HTTPS, no public IP needed.</p></div></div>
+        <div id="routers"></div>
+      </section>
+
+      <section class="panel narrow payout" aria-labelledby="payout-title">
+        <h2 id="payout-title">Settlement</h2>
+        <p class="muted" style="margin:4px 0 0;font-size:13px">Payments land straight in your own PayBill.</p>
+        <strong id="payout-total">—</strong>
+        <dl>
+          <div><dt>Collected this month</dt><dd id="payout-gross">—</dd></div>
+          <div><dt>Wi‑Fi Fiti fee (3%)</dt><dd id="payout-fee">—</dd></div>
+          <div><dt>Yours to keep</dt><dd id="payout-net">—</dd></div>
+        </dl>
+        <button class="btn small secondary" type="button" data-demo="Download a monthly statement with every receipt number.">Download statement</button>
+      </section>
+
+      <section class="panel wide" aria-labelledby="cust-title">
+        <div class="panel-head"><div><h2 id="cust-title">Active subscriptions</h2><p>Time keeps running from payment, online or offline.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Customer</th><th>Package</th><th>Devices</th><th class="num">Time left</th></tr></thead><tbody id="subs"></tbody></table></div>
+      </section>
+
+      <section class="cta">
+        <div><h2>This could be your Wi‑Fi.</h2><p>Pair one router, set your prices, and start selling in an afternoon.</p></div>
+        <div class="btns"><a class="btn primary" href="/business">Start 7‑day trial</a><a class="btn secondary" href="/demo#request">Book a walkthrough</a></div>
+      </section>
+    </div>
+  </main>
+
+  <div class="toast" id="toast" role="status"></div>
+  <footer class="footer shell">© <span id="year"></span> Wi‑Fi Fiti · <a href="/demo">All demo options</a></footer>
+
+  <script>
+  (function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    $('year').textContent = new Date().getFullYear();
+    var kes = function (n) { return 'KES ' + Math.round(n).toLocaleString('en-KE'); };
+    var num = function (n) { return Math.round(n).toLocaleString('en-KE'); };
+
+    // Deterministic sample data: the same visitor sees the same numbers on
+    // every refresh of a given day, and nothing depends on the server.
+    function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var rand = rng(Math.floor(today.getTime() / 864e5));
+    var PACKAGES = [
+      { name: '1 hour', price: 10, share: 0.42 }, { name: '3 hours', price: 20, share: 0.30 },
+      { name: '24 hours', price: 50, share: 0.25 }, { name: 'Weekly', price: 250, share: 0.03 },
+    ];
+    var LOCATIONS = ['Main Branch', 'Milimani Estate', 'Bus Park Cyber'];
+    function pickPackage(r) { var acc = 0; for (var i = 0; i < PACKAGES.length; i++) { acc += PACKAGES[i].share; if (r <= acc) return PACKAGES[i]; } return PACKAGES[0]; }
+
+    var days = [];
+    for (var i = 59; i >= 0; i--) {
+      var d = new Date(today.getTime() - i * 864e5);
+      var weekend = d.getDay() === 0 || d.getDay() === 6;
+      var trend = 1 + (59 - i) * 0.006;
+      var count = Math.round((weekend ? 118 : 92) * trend * (0.85 + rand() * 0.3));
+      var sales = 0, byPkg = {};
+      for (var j = 0; j < count; j++) { var p = pickPackage(rand()); sales += p.price; byPkg[p.name] = (byPkg[p.name] || 0) + p.price; }
+      days.push({ date: d, count: count, sales: sales, byPkg: byPkg });
+    }
+    // Today is only partly through the day.
+    var partial = Math.min(1, Math.max(0.15, (new Date().getHours() + 1) / 22));
+    var last = days[days.length - 1]; last.count = Math.round(last.count * partial); last.sales = Math.round(last.sales * partial / 10) * 10;
+    last.sales = 0;
+    PACKAGES.forEach(function (p) { if (!last.byPkg[p.name]) return; last.byPkg[p.name] = Math.round(last.byPkg[p.name] * partial / p.price) * p.price; last.sales += last.byPkg[p.name]; });
+
+    var range = 30;
+    var fmtDay = function (d) { return d.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' }); };
+    var fmtLong = function (d) { return d.toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short' }); };
+
+    function renderKpis() {
+      var weekAgo = days[days.length - 8];
+      $('kpi-today').textContent = kes(last.sales);
+      var ref = weekAgo.sales * partial;
+      var delta = ref ? Math.round((last.sales - ref) / ref * 100) : 0;
+      $('kpi-today-delta').textContent = (delta >= 0 ? '▲ ' : '▼ ') + Math.abs(delta) + '%';
+      var slice = days.slice(-range), prev = days.slice(-range * 2, -range);
+      var total = slice.reduce(function (s, d) { return s + d.sales; }, 0);
+      var prevTotal = prev.reduce(function (s, d) { return s + d.sales; }, 0);
+      $('kpi-period-label').textContent = 'Last ' + range + ' days';
+      $('kpi-period').textContent = kes(total);
+      var growth = prevTotal ? Math.round((total - prevTotal) / prevTotal * 100) : 0;
+      $('kpi-period-sub').innerHTML = '<span class="up">' + (growth >= 0 ? '▲ ' : '▼ ') + Math.abs(growth) + '%</span> vs previous ' + range + ' days';
+      $('kpi-online').textContent = num(34 + Math.round(rand() * 20));
+    }
+
+    function niceMax(v) { var p = Math.pow(10, Math.floor(Math.log10(v))); var m = v / p; return (m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; }
+
+    function renderChart() {
+      var svg = $('chart-svg'), tip = $('tip'), data = days.slice(-range);
+      var W = svg.clientWidth || 700, H = svg.clientHeight || 260, left = 46, right = 6, top = 10, bottom = 26;
+      var max = niceMax(Math.max.apply(null, data.map(function (d) { return d.sales; })) * 1.05);
+      var plotW = W - left - right, plotH = H - top - bottom, band = plotW / data.length;
+      var barW = Math.max(3, Math.min(24, band - 2));
+      var y = function (v) { return top + plotH - v / max * plotH; };
+      var out = [];
+      for (var t = 0; t <= 4; t++) {
+        var v = max / 4 * t, yy = y(v);
+        out.push('<line class="grid-line" x1="' + left + '" x2="' + (W - right) + '" y1="' + yy + '" y2="' + yy + '"></line>');
+        out.push('<text class="axis-text" x="' + (left - 8) + '" y="' + (yy + 4) + '" text-anchor="end">' + (v >= 1000 ? (v / 1000) + 'k' : v) + '</text>');
+      }
+      var every = range > 14 ? 5 : 1;
+      data.forEach(function (d, i) {
+        var x = left + i * band + (band - barW) / 2, h = Math.max(1, plotH - (y(d.sales) - top)), yTop = top + plotH - h, r = Math.min(4, barW / 2, h);
+        var isToday = i === data.length - 1;
+        // 4px rounded data end, square at the baseline.
+        out.push('<path class="bar' + (isToday ? ' dim' : '') + '" d="M' + x + ',' + (top + plotH) + 'V' + (yTop + r) + 'Q' + x + ',' + yTop + ' ' + (x + r) + ',' + yTop + 'H' + (x + barW - r) + 'Q' + (x + barW) + ',' + yTop + ' ' + (x + barW) + ',' + (yTop + r) + 'V' + (top + plotH) + 'Z"></path>');
+        if ((data.length - 1 - i) % every === 0) out.push('<text class="axis-text" x="' + (x + barW / 2) + '" y="' + (H - 6) + '" text-anchor="middle">' + (isToday ? 'Today' : fmtDay(d.date)) + '</text>');
+        out.push('<rect class="hit" data-i="' + i + '" x="' + (left + i * band) + '" y="' + top + '" width="' + band + '" height="' + plotH + '" tabindex="0" aria-label="' + fmtLong(d.date) + ': ' + kes(d.sales) + '"></rect>');
+      });
+      svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+      svg.innerHTML = out.join('');
+      function showTip(el) {
+        var d = data[Number(el.dataset.i)], box = $('chart').getBoundingClientRect(), r = el.getBoundingClientRect();
+        tip.innerHTML = '<span>' + fmtLong(d.date) + (d === last ? ' · so far' : '') + '</span><strong>' + kes(d.sales) + '</strong><span>' + num(d.count) + ' payments</span>';
+        tip.hidden = false;
+        var x = r.left - box.left + r.width / 2; x = Math.max(70, Math.min(box.width - 70, x));
+        tip.style.left = x + 'px'; tip.style.top = (y(d.sales) - 8) + 'px';
+      }
+      Array.prototype.forEach.call(svg.querySelectorAll('.hit'), function (el) {
+        el.addEventListener('mouseenter', function () { showTip(el); });
+        el.addEventListener('focus', function () { showTip(el); });
+        el.addEventListener('click', function () { showTip(el); });
+        el.addEventListener('mouseleave', function () { tip.hidden = true; });
+        el.addEventListener('blur', function () { tip.hidden = true; });
+      });
+      $('sales-rows').innerHTML = data.slice().reverse().map(function (d) { return '<tr><td>' + fmtLong(d.date) + '</td><td class="num">' + num(d.count) + '</td><td class="num">' + num(d.sales) + '</td></tr>'; }).join('');
+    }
+
+    function renderPackages() {
+      var totals = {}; days.slice(-range).forEach(function (d) { Object.keys(d.byPkg).forEach(function (k) { totals[k] = (totals[k] || 0) + d.byPkg[k]; }); });
+      var rows = PACKAGES.map(function (p) { return { name: p.name, price: p.price, total: totals[p.name] || 0 }; }).sort(function (a, b) { return b.total - a.total; });
+      var max = rows[0].total || 1;
+      $('pkg-sub').textContent = 'Sales by package, last ' + range + ' days';
+      $('packages').innerHTML = rows.map(function (r) {
+        return '<div class="pkg-row"><div>' + r.name + '<small>KES ' + r.price + '</small></div><div class="track" aria-hidden="true"><div class="fill" style="width:' + (r.total / max * 100).toFixed(1) + '%"></div></div><div class="val">' + num(r.total) + '</div></div>';
+      }).join('');
+    }
+
+    function maskedPhone(r) { var p = ['070', '071', '072', '079', '074', '011'][Math.floor(r * 6)]; return p + Math.floor(rand() * 10) + ' ••• ' + String(100 + Math.floor(rand() * 899)); }
+    function receipt() { var c = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', s = 'T'; for (var i = 0; i < 9; i++) s += c[Math.floor(rand() * c.length)]; return s; }
+    function renderPayments() {
+      var now = new Date(), rows = [];
+      for (var i = 0; i < 8; i++) {
+        var t = new Date(now.getTime() - (i * 7 + Math.floor(rand() * 6) + 1) * 60000), p = pickPackage(rand());
+        rows.push('<tr><td>' + t.toLocaleTimeString('en-KE', { hour: 'numeric', minute: '2-digit' }) + '</td><td>' + maskedPhone(rand()) + '<br><small class="muted">' + receipt() + '</small></td><td>' + p.name + '</td><td class="loc">' + LOCATIONS[Math.floor(rand() * 3)] + '</td><td class="num">' + p.price + '</td><td><span class="pill paid">Paid</span></td></tr>');
+      }
+      $('payments').innerHTML = rows.join('');
+    }
+    function renderRouters() {
+      var list = [
+        { name: 'Main Branch', model: 'hAP ac² · RouterOS 7.16', online: 21, seen: 'just now' },
+        { name: 'Milimani Estate', model: 'RB951Ui-2HnD · RouterOS 6.49', online: 17, seen: '4 seconds ago' },
+        { name: 'Bus Park Cyber', model: 'hAP lite · RouterOS 7.14', online: 9, seen: '2 seconds ago' },
+      ];
+      $('routers').innerHTML = list.map(function (r) {
+        return '<div class="router"><div><strong>' + r.name + '</strong><br><small>' + r.model + '</small></div><span class="pill ok">Online</span><small>' + r.online + ' customers online</small><small style="text-align:right">checked in ' + r.seen + '</small></div>';
+      }).join('');
+    }
+    function renderPayout() {
+      var monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      var gross = days.filter(function (d) { return d.date >= monthStart; }).reduce(function (s, d) { return s + d.sales; }, 0);
+      var fee = Math.round(gross * 0.03);
+      $('payout-total').textContent = kes(gross - fee);
+      $('payout-gross').textContent = kes(gross); $('payout-fee').textContent = '− ' + kes(fee); $('payout-net').textContent = kes(gross - fee);
+    }
+    function renderSubs() {
+      var rows = [];
+      for (var i = 0; i < 6; i++) {
+        var p = pickPackage(rand()), secs = Math.floor(rand() * (p.price >= 50 ? 86400 : p.price >= 20 ? 10800 : 3600));
+        var h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60);
+        rows.push('<tr><td>' + maskedPhone(rand()) + '</td><td>' + p.name + '</td><td>' + (rand() > 0.7 ? 'Phone + TV' : 'Phone') + '</td><td class="num">' + (h ? h + 'h ' : '') + m + 'm</td></tr>');
+      }
+      $('subs').innerHTML = rows.join('');
+    }
+
+    function renderAll() { renderKpis(); renderChart(); renderPackages(); }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-range]'), function (b) {
+      b.addEventListener('click', function () {
+        range = Number(b.dataset.range);
+        Array.prototype.forEach.call(document.querySelectorAll('[data-range]'), function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+        renderAll();
+      });
+    });
+    $('table-toggle').addEventListener('click', function () {
+      var t = $('sales-table'), open = t.hidden; t.hidden = !open;
+      this.setAttribute('aria-expanded', String(open)); this.textContent = open ? 'Hide table' : 'Show as table';
+    });
+    function toast(message) { var t = $('toast'); t.textContent = message; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 3600); }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-demo]'), function (b) { b.addEventListener('click', function () { toast('Sample dashboard. In your workspace: ' + b.dataset.demo); }); });
+    var resizeTimer; window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderChart, 120); });
+
+    renderAll(); renderPayments(); renderRouters(); renderPayout(); renderSubs();
+  }());
+  </script>
+</body>
+</html>

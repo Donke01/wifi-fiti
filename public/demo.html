@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="Book a Wi-Fi Fiti demo, estimate your hotspot earnings, or try M-Pesa checkout on your own phone.">
+  <meta name="theme-color" content="#ffffff">
+  <title>Request a demo | Wi-Fi Fiti for Business</title>
+  <link rel="icon" href="/wifi-fiti-icon.svg">
+  <link rel="stylesheet" href="/demo.css">
+  <style>
+    .paths{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:30px 0 8px}
+    .path{display:flex;flex-direction:column;gap:6px;padding:20px;text-align:left;text-decoration:none;transition:transform .2s ease,box-shadow .2s ease}
+    .path:hover{transform:translateY(-3px);box-shadow:0 22px 44px rgba(31,59,93,.14)}
+    .path .icon{display:grid;place-items:center;width:40px;height:40px;margin-bottom:6px;border-radius:12px;background:var(--wash);color:#1763cc;font-weight:900}
+    .path.featured{border-color:#9ec2f5;background:linear-gradient(145deg,#f3f8ff,#fff)}
+    .path p{margin:0;color:var(--muted);font-size:14px}
+    .path .go{margin-top:auto;padding-top:10px;color:#1759bc;font-size:14px;font-weight:800}
+
+    .layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.9fr);gap:20px;align-items:start;margin-top:26px}
+    form.card,.done.card{padding:26px}
+    fieldset{margin:0 0 22px;padding:0;border:0;min-width:0}
+    legend{margin-bottom:12px;padding:0;color:#173653;font-size:17px;font-weight:850;letter-spacing:-.03em}
+    legend small{display:block;color:var(--muted);font-size:13px;font-weight:600;letter-spacing:0}
+    .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+    .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .span2{grid-column:1/-1}
+    .submit-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:6px}
+    .submit-row p{margin:0;color:var(--faint);font-size:13px}
+
+    .aside{position:sticky;top:100px;display:grid;gap:14px}
+    .calc{padding:22px;background:linear-gradient(160deg,#10243b,#173a5f);color:#fff;border-color:#10243b}
+    .calc .eyebrow{color:#7fe3d3}
+    .calc-figure{margin:4px 0 2px;font-size:clamp(34px,5vw,46px);font-weight:900;letter-spacing:-.06em;font-variant-numeric:tabular-nums}
+    .calc-sub{color:#b8cbe0;font-size:14px}
+    .calc-rows{display:grid;gap:8px;margin:16px 0 0;padding:14px 0 0;border-top:1px solid rgba(255,255,255,.14);font-size:14px}
+    .calc-rows div{display:flex;justify-content:space-between;gap:12px}
+    .calc-rows dt{color:#b8cbe0}.calc-rows dd{margin:0;font-weight:800;font-variant-numeric:tabular-nums}
+    .calc .fee-toggle{display:flex;gap:6px;margin-top:14px;padding:4px;border-radius:12px;background:rgba(255,255,255,.08)}
+    .calc .fee-toggle label{flex:1;position:relative}
+    .calc .fee-toggle input{position:absolute;opacity:0;inset:0}
+    .calc .fee-toggle span{display:block;padding:8px 6px;border-radius:9px;text-align:center;font-size:12px;font-weight:750;color:#cfe0f2;cursor:pointer}
+    .calc .fee-toggle input:checked+span{background:#fff;color:#10243b}
+    .calc .fee-toggle input:focus-visible+span{outline:2px solid #7fe3d3}
+    .calc-note{margin:12px 0 0;color:#9fb4ca;font-size:12px}
+    .expect{padding:20px}
+    .expect ol{margin:8px 0 0;padding-left:20px;color:var(--muted);font-size:14px}
+    .expect li{margin:6px 0}
+
+    .done{text-align:center;scroll-margin-top:96px}
+    .done .tick{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 14px;border-radius:50%;background:var(--good-wash);color:var(--good);font-size:30px;font-weight:900}
+    .done .summary{margin:18px auto;max-width:460px;padding:14px 16px;border-radius:14px;background:var(--soft);text-align:left;font-size:14px}
+    .done .summary div{display:flex;justify-content:space-between;gap:12px;padding:3px 0}
+    .done .summary dt{color:var(--muted)}.done .summary dd{margin:0;font-weight:750;text-align:right}
+    .done .actions{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:10px}
+    [hidden]{display:none !important}
+
+    @media (max-width:900px){.layout{grid-template-columns:1fr}.aside{position:static}}
+    @media (max-width:760px){.paths{grid-template-columns:1fr}.path{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 12px}.path .icon{margin:0}.path h3{margin:0;flex:1}.path p{flex-basis:100%}.path .go{flex-basis:100%;padding-top:4px}}
+    @media (max-width:560px){form.card,.done.card{padding:20px 16px}.grid2,.grid3{grid-template-columns:1fr}.submit-row .btn{width:100%}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#request">Skip to the demo form</a>
+  <header class="shell top">
+    <a class="brand" href="https://wififiti.co.ke/"><img src="/assets/wifi-fiti-logo.png" alt=""><span>Wi-Fi Fiti<small>FOR BUSINESS</small></span></a>
+    <nav aria-label="Demo"><a class="btn small secondary hide-sm" href="/demo/dashboard">Sample dashboard</a><a class="btn small primary" href="/business">Start trial</a></nav>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">See it before you commit</p>
+      <h1>Watch Wi‑Fi Fiti <span class="shine">earn for you.</span></h1>
+      <p class="lead">Try the M‑Pesa checkout on your own phone, look around a sample dashboard, or book a walkthrough with our team.</p>
+      <div class="paths">
+        <a class="path card featured" href="/demo/try"><span class="icon" aria-hidden="true">▶</span><h3>Try it on your phone</h3><p>Get a real M‑Pesa prompt and watch the timer start, just like your customers will.</p><span class="go">Start the live demo →</span></a>
+        <a class="path card" href="/demo/dashboard"><span class="icon" aria-hidden="true">▦</span><h3>Explore the dashboard</h3><p>Sales, routers and packages in a sample workspace. No sign-up.</p><span class="go">Open sample dashboard →</span></a>
+        <a class="path card" href="#request"><span class="icon" aria-hidden="true">☏</span><h3>Book a walkthrough</h3><p>A call, a WhatsApp chat, or a visit to your site in Trans Nzoia.</p><span class="go">Fill the short form ↓</span></a>
+      </div>
+    </section>
+
+    <div class="layout" id="request">
+      <div>
+        <form class="card" id="demo-form" novalidate>
+          <h2>Book your demo</h2>
+          <p class="muted" style="margin:0 0 22px">Takes a minute. We usually reply the same working day.</p>
+
+          <fieldset>
+            <legend>About you</legend>
+            <div class="grid2">
+              <label class="field"><span>Your name</span><input type="text" name="name" autocomplete="name" required maxlength="80"><small class="error" data-error="name"></small></label>
+              <label class="field"><span>Phone number</span><input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="0712 345 678" required><small class="error" data-error="phone"></small></label>
+              <label class="field span2"><span>Email <em>(optional)</em></span><input type="email" name="email" autocomplete="email" maxlength="120"><small class="error" data-error="email"></small></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Your business</legend>
+            <div class="grid2">
+              <label class="field"><span>Type of business</span>
+                <select name="businessType" required>
+                  <option value="">Choose one…</option>
+                  <option value="cyber">Cyber café</option>
+                  <option value="estate">Estate / apartments</option>
+                  <option value="cafe">Café / restaurant</option>
+                  <option value="school">School / college</option>
+                  <option value="church">Church</option>
+                  <option value="shop">Shop / kiosk</option>
+                  <option value="hotel">Hotel / lodging</option>
+                  <option value="isp">ISP / reseller</option>
+                  <option value="other">Other</option>
+                </select><small class="error" data-error="businessType"></small></label>
+              <label class="field"><span>Town or area</span><input type="text" name="town" autocomplete="address-level2" placeholder="e.g. Kitale" required maxlength="60"><small class="error" data-error="town"></small></label>
+              <label class="field"><span>Number of locations</span><input type="number" name="locations" min="1" max="500" value="1" inputmode="numeric"></label>
+              <label class="field"><span>Router model <em>(if you know it)</em></span><input type="text" name="routerModel" placeholder="e.g. hAP lite, RB951" maxlength="60"></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Your numbers<small>Used for the estimate on this page. Rough guesses are fine.</small></legend>
+            <div class="grid2">
+              <label class="field"><span>Paying users per day</span><input type="number" name="usersPerDay" min="0" max="100000" value="40" inputmode="numeric" data-calc></label>
+              <label class="field"><span>Average package price (KES)</span><input type="number" name="avgPriceKes" min="0" max="10000" value="20" inputmode="numeric" data-calc></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>When should we talk?</legend>
+            <div class="field" style="margin-bottom:14px"><span id="contact-label">Contact me by</span>
+              <div class="chips" role="radiogroup" aria-labelledby="contact-label">
+                <label class="chip"><input type="radio" name="contactMethod" value="whatsapp" checked><span>WhatsApp</span></label>
+                <label class="chip"><input type="radio" name="contactMethod" value="call"><span>Phone call</span></label>
+                <label class="chip"><input type="radio" name="contactMethod" value="onsite"><span>On-site visit</span></label>
+              </div>
+            </div>
+            <div class="grid2">
+              <label class="field"><span>Preferred day <em>(optional)</em></span><input type="date" name="preferredDate"><small class="error" data-error="preferredDate"></small></label>
+              <label class="field"><span>Preferred time <em>(optional)</em></span>
+                <select name="preferredSlot">
+                  <option value="">Any time</option>
+                  <option value="morning">Morning (8–11am)</option>
+                  <option value="midday">Midday (11am–2pm)</option>
+                  <option value="afternoon">Afternoon (2–5pm)</option>
+                  <option value="evening">Evening (5–7pm)</option>
+                </select></label>
+              <label class="field span2"><span>Anything we should know? <em>(optional)</em></span><textarea name="notes" maxlength="500" placeholder="e.g. We already sell vouchers and want M-Pesa instead."></textarea></label>
+            </div>
+          </fieldset>
+
+          <div class="hp" aria-hidden="true"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+          <div class="form-error" id="form-error" role="alert" hidden></div>
+          <div class="submit-row">
+            <button class="btn primary" type="submit" id="submit">Request my demo →</button>
+            <p>We only use your details to arrange the demo.</p>
+          </div>
+        </form>
+
+        <section class="done card" id="done" hidden tabindex="-1" aria-live="polite">
+          <div class="tick" aria-hidden="true">✓</div>
+          <h2 id="done-title">Request received</h2>
+          <p class="muted" id="done-text">We'll be in touch soon.</p>
+          <dl class="summary" id="done-summary"></dl>
+          <div class="actions">
+            <a class="btn whatsapp" id="done-whatsapp" href="#" target="_blank" rel="noopener noreferrer">Chat on WhatsApp now</a>
+            <a class="btn secondary" href="/demo/try">While you wait, try it on your phone</a>
+          </div>
+          <p class="muted" style="margin-top:18px;font-size:14px">Or <a href="/demo/dashboard">look around the sample dashboard</a>.</p>
+        </section>
+      </div>
+
+      <aside class="aside" aria-label="Earnings estimate">
+        <section class="card calc" aria-live="polite">
+          <p class="eyebrow">Your estimate</p>
+          <div class="calc-figure" id="calc-gross">KES 24,000</div>
+          <div class="calc-sub">in hotspot sales per month</div>
+          <div class="fee-toggle" role="radiogroup" aria-label="How payments are collected">
+            <label><input type="radio" name="feeMode" value="3" checked><span>Own Till / PayBill · 3%</span></label>
+            <label><input type="radio" name="feeMode" value="5"><span>Wi‑Fi Fiti collects · 5%</span></label>
+          </div>
+          <dl class="calc-rows">
+            <div><dt id="calc-users-label">40 users × KES 20 × 30 days</dt><dd id="calc-gross-2">KES 24,000</dd></div>
+            <div><dt>Wi‑Fi Fiti fee</dt><dd id="calc-fee">− KES 720</dd></div>
+            <div><dt>You keep</dt><dd id="calc-net">KES 23,280</dd></div>
+          </dl>
+          <p class="calc-note">An estimate, not a promise. Hotspot billing is charged only on confirmed sales.</p>
+        </section>
+        <section class="card expect">
+          <h3>What happens next</h3>
+          <ol>
+            <li>We reach you the way you chose, at the time you picked.</li>
+            <li>We show you checkout, the dashboard, and how your router pairs.</li>
+            <li>If it fits, we help you start the 7‑day free trial on your router.</li>
+          </ol>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="footer shell">© <span id="year"></span> Wi‑Fi Fiti · <a href="https://wififiti.co.ke/">wififiti.co.ke</a> · <a href="mailto:info@wififiti.co.ke">info@wififiti.co.ke</a></footer>
+
+  <script>
+  (function () {
+    'use strict';
+    var form = document.getElementById('demo-form');
+    var $ = function (id) { return document.getElementById(id); };
+    var kes = function (n) { return 'KES ' + Math.round(n).toLocaleString('en-KE'); };
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    // Earliest selectable day is today in the visitor's own time zone.
+    var today = new Date(); today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+    var dateInput = form.elements.preferredDate;
+    dateInput.min = today.toISOString().slice(0, 10);
+    var latest = new Date(today.getTime() + 89 * 864e5); dateInput.max = latest.toISOString().slice(0, 10);
+
+    function num(name) { var v = Number(form.elements[name].value); return Number.isFinite(v) && v > 0 ? v : 0; }
+    function feePercent() { var c = document.querySelector('input[name=feeMode]:checked'); return c ? Number(c.value) : 3; }
+    function recalc() {
+      var users = num('usersPerDay'), price = num('avgPriceKes'), fee = feePercent();
+      var gross = users * price * 30, cut = Math.round(gross * fee / 100);
+      $('calc-gross').textContent = kes(gross);
+      $('calc-gross-2').textContent = kes(gross);
+      $('calc-users-label').textContent = users.toLocaleString('en-KE') + ' users × KES ' + price.toLocaleString('en-KE') + ' × 30 days';
+      $('calc-fee').textContent = '− ' + kes(cut);
+      $('calc-net').textContent = kes(gross - cut);
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-calc], input[name=feeMode]'), function (el) { el.addEventListener('input', recalc); el.addEventListener('change', recalc); });
+    recalc();
+
+    function clearErrors() {
+      Array.prototype.forEach.call(form.querySelectorAll('.field.invalid'), function (f) { f.classList.remove('invalid'); });
+      Array.prototype.forEach.call(form.querySelectorAll('[data-error]'), function (e) { e.textContent = ''; });
+      $('form-error').hidden = true;
+    }
+    function showError(field, message) {
+      var slot = form.querySelector('[data-error="' + field + '"]');
+      if (slot) {
+        slot.textContent = message; slot.closest('.field').classList.add('invalid');
+        var input = form.elements[field]; if (input && input.focus) input.focus();
+      } else { $('form-error').textContent = message; $('form-error').hidden = false; }
+    }
+    function phoneOk(value) {
+      var d = String(value || '').replace(/\D/g, '');
+      if (d.indexOf('254') === 0) d = d.slice(3); else if (d.charAt(0) === '0') d = d.slice(1);
+      return /^[71]\d{8}$/.test(d);
+    }
+    function localCheck(data) {
+      if (!data.name || data.name.trim().length < 2) return ['name', 'Enter your name.'];
+      if (!phoneOk(data.phone)) return ['phone', 'Enter a valid number, e.g. 0712 345 678.'];
+      if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email)) return ['email', 'Enter a valid email, or leave it blank.'];
+      if (!data.businessType) return ['businessType', 'Choose your type of business.'];
+      if (!data.town || data.town.trim().length < 2) return ['town', 'Enter your town or area.'];
+      return null;
+    }
+    var labels = { whatsapp: 'WhatsApp', call: 'Phone call', onsite: 'On-site visit' };
+    var slots = { morning: 'Morning', midday: 'Midday', afternoon: 'Afternoon', evening: 'Evening' };
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      clearErrors();
+      var data = {};
+      new FormData(form).forEach(function (value, key) { if (key !== 'feeMode') data[key] = value; });
+      data.source = new URLSearchParams(location.search).get('from') || 'demo-page';
+      var problem = localCheck(data);
+      if (problem) return showError(problem[0], problem[1]);
+      var button = $('submit'); button.disabled = true; button.textContent = 'Sending…';
+      fetch('/api/demo/requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(function (response) { return response.json().catch(function () { return {}; }).then(function (body) { return { ok: response.ok, body: body }; }); })
+        .then(function (result) {
+          if (!result.ok) { showError(result.body.field || '', result.body.error || 'Something went wrong. Please try again.'); return; }
+          var first = data.name.trim().split(/\s+/)[0];
+          $('done-title').textContent = 'Asante, ' + first + '! Your demo is requested.';
+          $('done-text').textContent = data.contactMethod === 'onsite'
+            ? 'We will call to confirm a visit time, then come and set it up with you.'
+            : 'We will reach you on ' + labels[data.contactMethod] + ' at ' + data.phone.trim() + '.';
+          var rows = [['Business', form.elements.businessType.selectedOptions[0].textContent + ', ' + data.town.trim()], ['Locations', data.locations || '1'],
+            ['Contact by', labels[data.contactMethod]], ['Preferred time', [data.preferredDate, slots[data.preferredSlot]].filter(Boolean).join(' · ') || 'Any time'],
+            ['Your estimate', $('calc-gross').textContent + ' / month']];
+          var summary = $('done-summary'); summary.textContent = '';
+          rows.forEach(function (row) { var d = document.createElement('div'), dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = row[0]; dd.textContent = row[1]; d.appendChild(dt); d.appendChild(dd); summary.appendChild(d); });
+          var wa = $('done-whatsapp');
+          if (result.body.whatsappUrl) wa.href = result.body.whatsappUrl; else wa.hidden = true;
+          form.hidden = true; $('done').hidden = false; $('done').focus();
+          $('done').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        })
+        .catch(function () { showError('', 'No connection. Check your internet and try again.'); })
+        .then(function () { button.disabled = false; button.textContent = 'Request my demo →'; });
+    });
+  }());
+  </script>
+</body>
+</html>

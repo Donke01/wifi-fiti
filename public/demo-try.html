@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="Try Wi-Fi Fiti's M-Pesa hotspot checkout on your own phone.">
+  <meta name="theme-color" content="#ffffff">
+  <title>Live demo | Wi-Fi Fiti for Business</title>
+  <link rel="icon" href="/wifi-fiti-icon.svg">
+  <link rel="stylesheet" href="/demo.css">
+  <style>
+    .stage{display:grid;grid-template-columns:minmax(0,1fr) 380px;grid-template-areas:'intro phone' 'behind phone';column-gap:40px;align-items:center;padding:44px 0 20px}
+    .intro{grid-area:intro;align-self:end}.behind{grid-area:behind;align-self:start}.phone{grid-area:phone}
+    .intro h1{font-size:clamp(34px,5vw,56px)}
+    .intro .lead{margin:0}
+    .mode{display:inline-flex;align-items:center;gap:8px;margin-top:18px;padding:8px 12px;border-radius:999px;font-size:13px;font-weight:750}
+    .mode.live{background:var(--good-wash);color:#0d6d4d}
+    .mode.practice{background:var(--warn-wash);color:var(--warn)}
+    .mode i{width:8px;height:8px;border-radius:50%;background:currentColor}
+    .timeline{margin:26px 0 0;padding:0;list-style:none;display:grid;gap:4px}
+    .timeline li{display:grid;grid-template-columns:30px 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;color:var(--faint);font-size:15px}
+    .timeline li b{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;border:1.5px solid #cfdcea;font-size:12px}
+    .timeline li time{font-size:12px;font-variant-numeric:tabular-nums}
+    .timeline li.on{color:var(--ink);background:var(--soft)}
+    .timeline li.on b{border-color:var(--good);background:var(--good);color:#fff}
+    .timeline li.now{color:var(--ink)}
+    .timeline li.now b{border-color:var(--blue);color:var(--blue);animation:pulse 1.4s ease-in-out infinite}
+    @keyframes pulse{50%{box-shadow:0 0 0 6px rgba(34,110,232,.15)}}
+    .after{margin-top:22px;display:flex;flex-wrap:wrap;gap:10px}
+
+    .phone{position:relative;width:100%;max-width:360px;margin:0 auto;padding:12px;border-radius:44px;background:#0f1d2e;box-shadow:0 30px 70px rgba(16,36,59,.28)}
+    .phone:before{content:"";position:absolute;top:18px;left:50%;width:90px;height:22px;margin-left:-45px;border-radius:14px;background:#0f1d2e;z-index:2}
+    .screen{position:relative;min-height:640px;overflow:hidden;border-radius:34px;background:linear-gradient(180deg,#eef5ff,#fff 40%)}
+    .status-bar{display:flex;justify-content:space-between;padding:16px 26px 0;color:#2b3f57;font-size:12px;font-weight:800}
+    .portal{padding:30px 20px 22px}
+    .venue{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+    .venue img{width:38px;height:38px}
+    .venue strong{display:block;font-size:16px;letter-spacing:-.03em}
+    .venue small{color:var(--muted);font-size:12px}
+    .view{display:none}.view.active{display:block;animation:rise .3s ease both}
+    @keyframes rise{from{opacity:0;transform:translateY(8px)}}
+    .view h2{font-size:22px;margin-bottom:4px}
+    .view>p{margin:0 0 16px;color:var(--muted);font-size:14px}
+    .pkg{display:flex;justify-content:space-between;align-items:center;width:100%;margin-bottom:10px;padding:14px 16px;border:1px solid #cfdcea;border-radius:16px;background:#fff;text-align:left;cursor:pointer}
+    .pkg.pick{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue);background:var(--wash)}
+    .pkg.fake{opacity:.55;cursor:not-allowed}
+    .pkg strong{display:block;font-size:15px}.pkg small{color:var(--muted);font-size:12px}
+    .pkg .price{font-weight:900;color:#1759bc;font-size:16px;white-space:nowrap}
+    .mpesa{display:flex;align-items:center;gap:8px;margin:14px 0 8px;color:#0d6d4d;font-size:12px;font-weight:900;letter-spacing:.1em}
+    .mpesa:before{content:"";width:18px;height:18px;border-radius:5px;background:#27a844}
+    .screen .field{margin-bottom:12px}
+    .screen .btn{width:100%}
+    .fine{margin:10px 0 0;color:var(--faint);font-size:12px;text-align:center}
+    .spinner{width:64px;height:64px;margin:26px auto 18px;border-radius:50%;border:5px solid #dbe7f6;border-top-color:var(--blue);animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .prompt{margin:0 0 14px;padding:14px;border-radius:14px;background:#10243b;color:#fff;font-size:13px}
+    .prompt b{display:block;margin-bottom:4px;color:#7fe3d3;font-size:11px;letter-spacing:.12em}
+    .ring{position:relative;width:190px;height:190px;margin:10px auto 14px}
+    .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+    .ring circle{fill:none;stroke-width:12}
+    .ring .track{stroke:#e2ecf8}.ring .bar{stroke:var(--good);stroke-linecap:round;transition:stroke-dashoffset 1s linear}
+    .ring .time{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+    .ring .time strong{font-size:40px;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+    .ring .time small{color:var(--muted);font-size:12px}
+    .online{display:flex;align-items:center;justify-content:center;gap:8px;color:#0d6d4d;font-weight:850}
+    .online i{width:10px;height:10px;border-radius:50%;background:var(--good);box-shadow:0 0 0 5px rgba(21,152,108,.15)}
+    .receipt{margin:14px 0;padding:12px 14px;border-radius:14px;background:var(--soft);font-size:13px}
+    .receipt div{display:flex;justify-content:space-between;padding:2px 0}.receipt span{color:var(--muted)}
+    .bad-icon{display:grid;place-items:center;width:64px;height:64px;margin:26px auto 14px;border-radius:50%;background:var(--bad-wash);color:var(--bad);font-size:30px;font-weight:900}
+    .center{text-align:center}
+    .form-error{margin-bottom:12px;font-size:13px}
+    [hidden]{display:none !important}
+
+    @media (max-width:880px){.stage{grid-template-columns:1fr;grid-template-areas:'intro' 'phone' 'behind';row-gap:22px;padding-top:28px}.intro{text-align:center}.intro .lead{margin:0 auto}.timeline{max-width:460px;margin:0 auto;text-align:left}.after{justify-content:center}}
+    @media (max-width:420px){.phone{padding:0;border-radius:0;background:none;box-shadow:none}.phone:before{display:none}.screen{min-height:0;border:1px solid var(--line);border-radius:24px}.status-bar{display:none}.portal{padding:22px 16px}}
+    @media (prefers-reduced-motion:reduce){.view.active,.spinner,.timeline li.now b{animation:none}.ring .bar{transition:none}}
+  </style>
+</head>
+<body>
+  <header class="shell top">
+    <a class="brand" href="https://wififiti.co.ke/"><img src="/assets/wifi-fiti-logo.png" alt=""><span>Wi-Fi Fiti<small>FOR BUSINESS</small></span></a>
+    <nav aria-label="Demo"><a class="btn small secondary hide-sm" href="/demo/dashboard">Sample dashboard</a><a class="btn small primary" href="/demo#request">Book a demo</a></nav>
+  </header>
+
+  <main class="shell stage">
+    <section class="intro">
+      <p class="eyebrow">Live demo</p>
+      <h1>Be your own customer for a minute.</h1>
+      <p class="lead" id="intro-lead">This is the page your customers see when they join your Wi‑Fi. Pick the demo pass, pay with M‑Pesa on your own phone, and watch the timer start.</p>
+      <span class="mode" id="mode-pill" hidden><i></i><span id="mode-text"></span></span>
+    </section>
+    <section class="behind" aria-label="Behind the scenes">
+      <ol class="timeline" aria-label="What happens behind the scenes">
+        <li data-step="pick"><b>1</b><span>Customer picks a package</span><time></time></li>
+        <li data-step="push"><b>2</b><span>M‑Pesa prompt sent to the phone</span><time></time></li>
+        <li data-step="paid"><b>3</b><span>Payment confirmed by M‑Pesa</span><time></time></li>
+        <li data-step="online"><b>4</b><span>Router lets the device online</span><time></time></li>
+      </ol>
+      <div class="after" id="after" hidden>
+        <a class="btn primary" href="/demo#request">Book a walkthrough →</a>
+        <a class="btn secondary" href="/demo/dashboard">See the sales in a dashboard</a>
+      </div>
+    </section>
+
+    <div class="phone" aria-label="Demo captive portal">
+      <div class="screen">
+        <div class="status-bar" aria-hidden="true"><span id="clock">9:41</span><span>Wi‑Fi ▂▄▆</span></div>
+        <div class="portal">
+          <div class="venue"><img src="/assets/wifi-fiti-logo.png" alt=""><div><strong>Demo Café Wi‑Fi</strong><small>Powered by Wi‑Fi Fiti</small></div></div>
+
+          <section class="view active" id="view-pick" aria-labelledby="pick-title">
+            <h2 id="pick-title">Choose a package</h2>
+            <p>Time starts after payment confirms.</p>
+            <button class="pkg pick" type="button" id="demo-pkg" aria-pressed="true"><span><strong>Demo pass</strong><small id="pkg-detail">5 minutes · one device</small></span><span class="price" id="pkg-price">KES 1</span></button>
+            <div class="pkg fake" aria-disabled="true" title="Shown for illustration"><span><strong>1 hour</strong><small>Quick browse</small></span><span class="price">KES 10</span></div>
+            <div class="pkg fake" aria-disabled="true" title="Shown for illustration"><span><strong>24 hours</strong><small>Full day</small></span><span class="price">KES 50</span></div>
+            <div class="mpesa">LIPA NA M‑PESA</div>
+            <form id="pay-form" novalidate>
+              <div class="form-error" id="pay-error" role="alert" hidden></div>
+              <label class="field"><span>Your M‑Pesa number</span><input type="tel" name="phone" id="phone" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required></label>
+              <button class="btn primary" type="submit" id="pay-btn">Pay KES 1</button>
+              <p class="fine" id="pay-fine">A real prompt for KES 1 goes to this phone.</p>
+            </form>
+          </section>
+
+          <section class="view" id="view-wait" aria-live="polite">
+            <div class="spinner" aria-hidden="true"></div>
+            <h2 class="center">Check your phone</h2>
+            <p class="center" id="wait-text">Enter your M‑Pesa PIN on the prompt sent to your phone.</p>
+            <div class="prompt" id="prompt-card"><b>M‑PESA</b><span id="prompt-text">Pay KES 1 for Demo Café Wi‑Fi? Enter your M‑PESA PIN.</span></div>
+            <p class="fine">Didn't get it? Wait a minute, then <button type="button" class="linklike" id="wait-retry" style="border:0;background:none;padding:0;color:#1759bc;font-weight:750;cursor:pointer">try again</button>.</p>
+          </section>
+
+          <section class="view" id="view-online" aria-live="polite">
+            <div class="online"><i></i>You're online</div>
+            <div class="ring" role="timer" aria-label="Time remaining">
+              <svg viewBox="0 0 200 200" aria-hidden="true"><circle class="track" cx="100" cy="100" r="86"></circle><circle class="bar" id="ring-bar" cx="100" cy="100" r="86"></circle></svg>
+              <div class="time"><strong id="remaining">5:00</strong><small>remaining</small></div>
+            </div>
+            <div class="receipt" id="receipt"></div>
+            <p class="fine">In a real venue the router would now open the internet for this phone. The timer keeps running even if the customer disconnects.</p>
+          </section>
+
+          <section class="view" id="view-failed" aria-live="polite">
+            <div class="bad-icon" aria-hidden="true">!</div>
+            <h2 class="center" id="failed-title">Payment not completed</h2>
+            <p class="center" id="failed-text">The prompt was cancelled.</p>
+            <button class="btn secondary" type="button" id="retry">Try again</button>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast" role="status"></div>
+  <footer class="footer shell">© <span id="year"></span> Wi‑Fi Fiti · <a href="/demo">All demo options</a></footer>
+
+  <script>
+  (function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+    $('year').textContent = new Date().getFullYear();
+    var cfg = { live: false, amount: 1, sessionSeconds: 300 };
+    var payment = null, pollTimer = null, tickTimer = null, pollStarted = 0, expiresAt = 0, total = 300;
+    var CIRC = 2 * Math.PI * 86;
+    $('ring-bar').style.strokeDasharray = CIRC;
+
+    function hhmm(d) { return d.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+    setInterval(function () { $('clock').textContent = new Date().toLocaleTimeString('en-KE', { hour: 'numeric', minute: '2-digit' }); }, 1000);
+
+    function show(view) { ['pick', 'wait', 'online', 'failed'].forEach(function (v) { $('view-' + v).classList.toggle('active', v === view); }); }
+    function step(name, state) {
+      var li = document.querySelector('[data-step="' + name + '"]'); if (!li) return;
+      li.classList.remove('on', 'now');
+      if (state) li.classList.add(state);
+      if (state === 'on') li.querySelector('time').textContent = hhmm(new Date());
+      if (!state) li.querySelector('time').textContent = '';
+    }
+    function resetSteps() { ['pick', 'push', 'paid', 'online'].forEach(function (s) { step(s, null); }); step('pick', 'now'); }
+    function toast(message) { var t = $('toast'); t.textContent = message; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 3200); }
+    function mmss(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+    function applyConfig() {
+      var kes = 'KES ' + cfg.amount;
+      $('pkg-price').textContent = kes;
+      $('pkg-detail').textContent = Math.round(cfg.sessionSeconds / 60) + ' minutes · one device';
+      $('pay-btn').textContent = 'Pay ' + kes;
+      $('prompt-text').textContent = 'Pay ' + kes + ' for Demo Café Wi‑Fi? Enter your M‑PESA PIN.';
+      var pill = $('mode-pill'); pill.hidden = false;
+      if (cfg.live) {
+        pill.className = 'mode live'; $('mode-text').textContent = 'Live: a real ' + kes + ' M‑Pesa prompt';
+        $('pay-fine').textContent = 'A real prompt for ' + kes + ' goes to this phone. It is the only charge.';
+      } else {
+        pill.className = 'mode practice'; $('mode-text').textContent = 'Practice mode: no money moves';
+        $('pay-fine').textContent = 'Practice mode: no prompt is sent. Payment confirms by itself in a few seconds.';
+        $('wait-text').textContent = 'In a real venue your phone would now show the M‑Pesa prompt below. Confirming automatically…';
+      }
+    }
+    fetch('/api/demo/config').then(function (r) { return r.json(); }).then(function (c) { cfg = c; applyConfig(); }).catch(applyConfig);
+    resetSteps();
+
+    function stopPolling() { clearTimeout(pollTimer); pollTimer = null; }
+    function fail(title, text) {
+      stopPolling(); $('failed-title').textContent = title; $('failed-text').textContent = text; show('failed');
+      step('push', null); step('paid', null); step('pick', 'now');
+    }
+
+    function poll() {
+      if (!payment) return;
+      fetch('/api/demo/pay/' + encodeURIComponent(payment.id) + '?token=' + encodeURIComponent(payment.token), { cache: 'no-store' })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+        .then(function (res) {
+          if (!res.ok) return fail('Demo not found', 'Please start again.');
+          var s = res.body;
+          if (s.status === 'paid') return connected(s);
+          if (s.status === 'failed') return fail('Payment not completed', s.reason || 'The prompt was cancelled or declined.');
+          if (s.status === 'expired') return fail('No confirmation yet', 'We did not get a confirmation in time. If you paid, it will still show in our records.');
+          if (Date.now() - pollStarted > 4 * 60 * 1000) return fail('Taking too long', 'Please try again in a moment.');
+          pollTimer = setTimeout(poll, 2000);
+        })
+        .catch(function () { pollTimer = setTimeout(poll, 3000); });
+    }
+
+    function connected(s) {
+      stopPolling();
+      step('push', 'on'); step('paid', 'on');
+      setTimeout(function () { step('online', 'on'); $('after').hidden = false; }, 700);
+      total = s.sessionSeconds || cfg.sessionSeconds;
+      expiresAt = Date.now() + (s.remainingSeconds != null ? s.remainingSeconds : total) * 1000;
+      var rows = [['Package', 'Demo pass'], ['Paid', 'KES ' + s.amount], ['Receipt', s.receipt || (s.mode === 'practice' ? 'Practice' : '—')], ['Expires', new Date(expiresAt).toLocaleTimeString('en-KE', { hour: 'numeric', minute: '2-digit' })]];
+      var box = $('receipt'); box.textContent = '';
+      rows.forEach(function (row) { var d = document.createElement('div'), a = document.createElement('span'), b = document.createElement('strong'); a.textContent = row[0]; b.textContent = row[1]; d.appendChild(a); d.appendChild(b); box.appendChild(d); });
+      show('online'); tick();
+      clearInterval(tickTimer); tickTimer = setInterval(tick, 1000);
+    }
+    function tick() {
+      var left = Math.max(0, (expiresAt - Date.now()) / 1000);
+      $('remaining').textContent = mmss(left);
+      $('ring-bar').style.strokeDashoffset = CIRC * (1 - left / total);
+      if (left <= 0) { clearInterval(tickTimer); $('remaining').textContent = '0:00'; toast('Time is up. In a real venue the router would now log the device out.'); }
+    }
+
+    $('pay-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var err = $('pay-error'); err.hidden = true;
+      var phone = $('phone').value;
+      var digits = phone.replace(/\D/g, ''); if (digits.indexOf('254') === 0) digits = digits.slice(3); else if (digits.charAt(0) === '0') digits = digits.slice(1);
+      if (!/^[71]\d{8}$/.test(digits)) { err.textContent = 'Enter a valid M‑Pesa number, e.g. 0712 345 678.'; err.hidden = false; $('phone').focus(); return; }
+      var btn = $('pay-btn'); btn.disabled = true; btn.textContent = 'Sending prompt…';
+      step('pick', 'on'); step('push', 'now');
+      fetch('/api/demo/pay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone }) })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) { return { ok: r.ok, body: b }; }); })
+        .then(function (res) {
+          if (!res.ok) { err.textContent = res.body.error || 'Could not send the prompt. Please try again.'; err.hidden = false; resetSteps(); return; }
+          payment = res.body; step('push', 'on'); step('paid', 'now');
+          show('wait'); pollStarted = Date.now(); pollTimer = setTimeout(poll, 1500);
+        })
+        .catch(function () { err.textContent = 'No connection. Check your internet and try again.'; err.hidden = false; resetSteps(); })
+        .then(function () { btn.disabled = false; btn.textContent = 'Pay KES ' + cfg.amount; });
+    });
+
+    function restart() { stopPolling(); clearInterval(tickTimer); payment = null; resetSteps(); show('pick'); $('after').hidden = true; $('phone').focus(); }
+    $('retry').addEventListener('click', restart);
+    $('wait-retry').addEventListener('click', restart);
+    $('demo-pkg').addEventListener('click', function () { $('phone').focus(); });
+    Array.prototype.forEach.call(document.querySelectorAll('.pkg.fake'), function (el) { el.addEventListener('click', function () { toast('In the demo only the Demo pass can be bought. You set your own packages and prices.'); }); });
+  }());
+  </script>
+</body>
+</html>
