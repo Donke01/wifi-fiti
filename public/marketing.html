@@ -228,7 +228,7 @@
     .demo-card h3{margin:4px 0 0;color:#173653;font-size:19px;letter-spacing:-.035em}
     .demo-card p{margin:0;color:#627487;font-size:14px;line-height:1.5}
     .demo-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:#eaf3ff;color:#1765d0;font-size:14px;font-weight:900}
-    .demo-meta{margin-top:auto;padding-top:12px;color:#1759bc;font-size:13px;font-weight:800}
+    .demo-meta{margin-top:auto;padding-top:12px;color:#1759bc;font-size:13px;font-weight:840}
     .demo-meta:after{content:" →"}
     .demo-card.featured{grid-column:span 2;grid-row:span 2;flex-direction:row;align-items:center;gap:22px;padding:28px;border-color:#cfe0f4;
       background:linear-gradient(135deg,#f1f7ff,#fbfdff 50%,#ebfbf7);box-shadow:0 24px 58px rgba(41,80,122,.11)}
@@ -236,12 +236,12 @@
     .demo-copy{display:flex;flex-direction:column;gap:8px;flex:1}
     .demo-card.featured h3{font-size:clamp(26px,3vw,36px);line-height:1.05;letter-spacing:-.06em}
     .demo-card.featured p{font-size:16px}
-    .demo-tag{align-self:flex-start;padding:5px 10px;border-radius:999px;background:#e7f8ef;color:#13885e;font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+    .demo-tag{align-self:flex-start;padding:5px 10px;border-radius:999px;background:#e7f8ef;color:#13885e;font-size:11px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}
     .demo-go{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;margin-top:10px;min-height:46px;padding:0 20px;border:1px solid #1f68d5;border-radius:14px;
       background:linear-gradient(135deg,#1766d6,#3b85f4);color:#fff;font-weight:840;box-shadow:0 12px 22px rgba(34,103,216,.24)}
     .demo-phone{flex:0 0 190px;padding:9px;border:1px solid #d8e4ee;border-radius:30px;background:#fff;box-shadow:0 25px 45px rgba(36,75,114,.16)}
     .dp-screen{padding:16px 14px;border-radius:23px;background:radial-gradient(circle at 50% 0,rgba(60,137,245,.16),transparent 19rem),#f8fbff;color:var(--ink)}
-    .dp-online{display:flex;align-items:center;justify-content:center;gap:7px;color:#13885e;font-size:13px;font-weight:850}
+    .dp-online{display:flex;align-items:center;justify-content:center;gap:7px;color:#13885e;font-size:13px;font-weight:700}
     .dp-online i{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 4px rgba(21,152,108,.11)}
     .dp-ring{display:grid;place-content:center;width:112px;height:112px;margin:12px auto;border-radius:50%;border:9px solid var(--good);text-align:center}
     .dp-ring b{color:#173653;font-size:26px;letter-spacing:-.05em}.dp-ring small{color:var(--muted);font-size:10px}
@@ -259,20 +259,20 @@
       .demo-cards{gap:8px}
       .demo-card{display:grid;grid-template-columns:40px 1fr 16px;grid-template-rows:auto auto;column-gap:12px;row-gap:1px;align-items:center;padding:12px 14px;border-radius:16px;text-align:left}
       .demo-card .demo-icon{grid-row:1/3;width:40px;height:40px;border-radius:12px}
-      .demo-card h3{grid-column:2;margin:0;font-size:16px !important}
+      .demo-card h3{grid-column:2;margin:0;font-size:19px !important}
       .demo-card p{display:none}
-      .demo-card .demo-meta{grid-column:2;align-self:start;margin:0;padding:0;font-size:12px !important;color:var(--muted);font-weight:700}
+      .demo-card .demo-meta{grid-column:2;align-self:start;margin:0;padding:0;font-size:12px !important;color:var(--muted);font-weight:400}
       .demo-card .demo-meta:after{content:""}
       .demo-card:after{content:"→";grid-column:3;grid-row:1/3;color:#1759bc;font-weight:900}
       .demo-card.featured{display:flex;padding:18px 16px;border-radius:18px;text-align:center}
       .demo-card.featured:after{content:none}
       .demo-card.featured p{display:block;font-size:14px !important}
-      .demo-card.featured h3{font-size:22px !important}
+      .demo-card.featured h3{font-size:25px !important}
       .demo-phone{display:none}
       .demo-go{margin-top:6px;min-height:44px}
       .demo-talk{margin-top:14px;font-size:14px}
     }
-    .demo-talk a{color:#1759bc;font-weight:800}
+    .demo-talk a{color:#1759bc;font-weight:840}
     @media (max-width:980px){.demo-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.demo-card.featured{grid-row:auto}}
     @media (max-width:620px){.demo-cards{grid-template-columns:1fr}.demo-card.featured{grid-column:auto;flex-direction:column;align-items:stretch;padding:22px}.demo-phone{flex-basis:auto;width:170px;margin:4px auto 0;transform:none}.demo-go{align-self:stretch;justify-content:center}.hero .live-btn{width:100%}}
     @media (prefers-reduced-motion:reduce){.demo-card,.live-btn{transition:none}.demo-card:hover,.live-btn:hover{transform:none}}
@@ -280,20 +280,23 @@
     @media (min-width:821px) and (max-width:1100px){.nav{gap:13px;font-size:13px}.nav a,.brand span{white-space:nowrap}.nav .pill{padding-left:11px;padding-right:11px}}
     @media (max-width:980px) and (min-width:621px){.demo-card:last-child{grid-column:1/-1}}
 
-    /* Type scale: one size per level so headings step down evenly from the
-       hero to the footer. Section headings, leads, card titles, card text
-       and small print share one size each across every section. */
-    :root{--t-label:12px;--t-h2:clamp(34px,4.6vw,56px);--t-feature:clamp(24px,2.5vw,30px);--t-h3:20px;--t-lead:clamp(16px,1.5vw,18px);--t-card:15px;--t-small:13px}
-    body main .eyebrow{font-size:var(--t-label);font-weight:900;letter-spacing:.18em;color:#087b8b}
-    body .section-head h2,body .customer h2,body .pppoe-copy h2,body .final h2,body .contact-card h2{font-size:var(--t-h2);line-height:1.02;letter-spacing:-.06em}
-    body .section-head p:not(.eyebrow),body .customer .lead,body .pppoe-copy>p:not(.eyebrow),body .final>p:not(.eyebrow),body .contact-card p:not(.eyebrow){font-size:var(--t-lead);line-height:1.6}
-    body .payment h3,body .demo-card.featured h3{font-size:var(--t-feature);line-height:1.08;letter-spacing:-.05em}
-    body .step h3,body .security-card h3,body .demo-card h3:not(.featured h3){font-size:var(--t-h3);letter-spacing:-.035em}
-    body .demo-card.featured h3{font-size:var(--t-feature)}
-    body .pppoe-features strong{font-size:16px}
-    body .step p,body .security-card p,body .demo-card p,body .plan-capacity,body .customer li,body .payment p{font-size:var(--t-card);line-height:1.55}
+    /* Type: this morning's site values, used once per level so sizes step
+       down evenly from the hero. Weights: 700 headings, 840 buttons and
+       links, 400 text, 900 only for the small teal labels. */
+    body main .eyebrow{font-size:11px;font-weight:900;letter-spacing:.18em;color:#087b8b}
+    body .section-head h2,body .customer h2,body .pppoe-copy h2,body .final h2,body .contact-card h2{font-size:clamp(38px,4.5vw,58px);font-weight:700;line-height:1;letter-spacing:-.068em}
+    body .section-head p:not(.eyebrow),body .customer .lead,body .pppoe-copy>p:not(.eyebrow),body .final>p:not(.eyebrow),body .contact-card p:not(.eyebrow){font-size:18px;line-height:1.58}
+    body .payment h3,body .demo-card.featured h3{font-size:25px;font-weight:700;line-height:1.1;letter-spacing:-.05em}
+    body .step h3,body .security-card h3,body .demo-card h3{font-size:19px;font-weight:700;letter-spacing:-.035em}
+    body .demo-card.featured h3{font-size:25px;letter-spacing:-.05em}
+    body .step p,body .security-card p,body .demo-card p,body .plan-capacity{font-size:14px;line-height:1.56}
     body .demo-card.featured p{font-size:16px}
-    body .strip p,body .pppoe-features small,body .contact-link small,body .fine,body .demo-meta,body .proof li{font-size:var(--t-small)}
+    body .strip p,body .pppoe-features small,body .contact-link small,body .fine{font-size:12px}
+    body .demo-meta,body .demo-talk a{font-weight:840}
+    @media (max-width:620px){
+      body .section-head h2,body .customer h2,body .pppoe-copy h2,body .final h2,body .contact-card h2{font-size:clamp(36px,10.5vw,49px)}
+      body .section-head p:not(.eyebrow),body .customer .lead,body .pppoe-copy>p:not(.eyebrow),body .final>p:not(.eyebrow),body .contact-card p:not(.eyebrow){font-size:16px}
+    }
 </style>
   </head>
 <body>
