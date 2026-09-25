@@ -19,6 +19,7 @@
     
     .path p{margin:0;color:var(--muted);font-size:14px}
     .path .go{margin-top:auto;padding-top:10px;color:#1759bc;font-size:14px;font-weight:800}
+    .path{align-items:center;text-align:center}.path .tag{align-self:center}
 
     .layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.9fr);gap:20px;align-items:start;margin-top:26px}
     form.card,.done.card{padding:26px}
@@ -59,8 +60,8 @@
     [hidden]{display:none !important}
 
     @media (max-width:900px){.layout{grid-template-columns:1fr}.aside{position:static}}
-    @media (max-width:900px){.paths{grid-template-columns:1fr 1fr}.path.featured{grid-column:1/-1}}
-    @media (max-width:760px){.paths{grid-template-columns:1fr}.path.featured{grid-column:auto}.path{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 12px}.path .icon{margin:0}.path h3{margin:0;flex:1}.path p{flex-basis:100%}.path .go{flex-basis:100%;padding-top:4px}}
+    @media (max-width:900px){.paths{grid-template-columns:1fr 1fr}.paths .path.featured{grid-column:1/-1}}
+    @media (max-width:760px){.paths{grid-template-columns:1fr}.paths .path.featured{grid-column:auto}}
     @media (max-width:560px){form.card,.done.card{padding:20px 16px}.grid2,.grid3{grid-template-columns:1fr}.submit-row .btn{width:100%}}
   </style>
 </head>

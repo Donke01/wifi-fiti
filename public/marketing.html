@@ -247,6 +247,12 @@
     .dp-ring b{color:#173653;font-size:26px;letter-spacing:-.05em}.dp-ring small{color:var(--muted);font-size:10px}
     .dp-row{display:flex;justify-content:space-between;padding:4px 2px;font-size:11px}.dp-row span{color:var(--muted)}.dp-row b{color:#173653}
     .demo-talk{margin:22px 0 0;color:var(--muted);text-align:center}
+    /* Centre card content to match the steps, pricing and security cards. */
+    .demo-card{align-items:center;text-align:center}
+    .demo-card .demo-meta{align-self:center}
+    .demo-card.featured{text-align:center}
+    .demo-copy{align-items:center}
+    .demo-tag,.demo-go{align-self:center}
     .demo-talk a{color:#1759bc;font-weight:800}
     @media (max-width:980px){.demo-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.demo-card.featured{grid-row:auto}}
     @media (max-width:620px){.demo-cards{grid-template-columns:1fr}.demo-card.featured{grid-column:auto;flex-direction:column;align-items:stretch;padding:22px}.demo-phone{flex-basis:auto;width:170px;margin:4px auto 0;transform:none}.demo-go{align-self:stretch;justify-content:center}.hero .live-btn{width:100%}}
