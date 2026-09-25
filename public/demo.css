@@ -90,3 +90,21 @@ textarea{min-height:92px;resize:vertical}
   h1{font-size:clamp(36px,10.5vw,49px)}
   .lead{font-size:16px}
 }
+
+/* Follow-up tiles: a 2 x 2 grid of illustrated next steps. */
+.next-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%;margin:18px 0 0}
+.next-tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 12px 14px;border:1px solid #d4e1ee;border-radius:18px;
+  background:rgba(255,255,255,.94);box-shadow:0 8px 20px rgba(38,72,106,.06);color:var(--ink);text-align:center;text-decoration:none;
+  transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease}
+.next-tile:hover{transform:translateY(-3px);border-color:#ccdcf3;box-shadow:0 15px 28px rgba(38,72,106,.12)}
+.next-tile:focus-visible{outline:3px solid rgba(38,116,236,.32);outline-offset:3px}
+.next-icon{display:grid;place-items:center;width:44px;height:44px;margin-bottom:4px;border-radius:14px;background:#eaf3ff;color:#1765d0}
+.next-tile strong{font-size:15px;font-weight:700;letter-spacing:-.02em;line-height:1.25}
+.next-tile small{color:var(--muted);font-size:12px;line-height:1.4}
+.next-tile:after{content:"→";position:absolute;top:12px;right:14px;color:#1759bc;font-weight:840;opacity:0;transform:translateX(-4px);transition:opacity .2s ease,transform .2s ease}
+.next-tile:hover:after{opacity:1;transform:none}
+.next-tile.primary{border-color:#1f68d5;background:linear-gradient(135deg,#1766d6,#3b85f4);color:#fff;box-shadow:0 12px 22px rgba(34,103,216,.24)}
+.next-tile.primary small{color:#eaf3ff}.next-tile.primary .next-icon{background:rgba(255,255,255,.18);color:#fff}.next-tile.primary:after{color:#fff}
+.next-tile.green{border-color:#45c9a7;background:linear-gradient(135deg,#eafcf6,#fff)}
+.next-tile.green .next-icon{background:#e7f8ef;color:#13885e}
+@media (prefers-reduced-motion:reduce){.next-tile,.next-tile:after{transition:none}.next-tile:hover{transform:none}}
