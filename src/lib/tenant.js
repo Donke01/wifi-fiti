@@ -155,6 +155,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tenant_tx_location_status
     ON tenant_transactions(location_id, status, created_at);
 
+  -- A payment may be started before the customer has joined this Wi-Fi.
+  -- Keep the device unbound until a short-lived claim code is entered from
+  -- the target device's captive portal.
+  CREATE TABLE IF NOT EXISTS tenant_payment_claims (
+    checkout_request_id TEXT PRIMARY KEY,
+    location_id         TEXT NOT NULL,
+    code_hash           TEXT NOT NULL,
+    expires_at          TEXT NOT NULL,
+    claimed_at          TEXT,
+    attempts            INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_tenant_claim_lookup
+    ON tenant_payment_claims(location_id, code_hash, claimed_at, expires_at);
+
   CREATE TABLE IF NOT EXISTS tenant_jobs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     location_id     TEXT NOT NULL,
@@ -1349,6 +1364,26 @@ const setTransactionPortalCapability = db.prepare(`
   UPDATE tenant_transactions
      SET portal_token_hash=@portalTokenHash, portal_token_expires_at=@portalTokenExpiresAt
    WHERE checkout_request_id=@checkoutRequestId
+`);
+const insertPaymentClaim = db.prepare(`
+  INSERT OR REPLACE INTO tenant_payment_claims
+    (checkout_request_id, location_id, code_hash, expires_at)
+  VALUES (@checkoutRequestId, @locationId, @codeHash, @expiresAt)
+`);
+const paymentClaimByCode = db.prepare(`
+  SELECT c.*, t.status, t.mac, t.device_type
+    FROM tenant_payment_claims c
+    JOIN tenant_transactions t ON t.checkout_request_id = c.checkout_request_id
+   WHERE c.location_id=? AND c.code_hash=? AND c.claimed_at IS NULL
+   LIMIT 1
+`);
+const bindPaymentClaim = db.prepare(`
+  UPDATE tenant_payment_claims SET claimed_at=datetime('now')
+   WHERE checkout_request_id=? AND claimed_at IS NULL
+`);
+const bindTransactionDeviceMac = db.prepare(`
+  UPDATE tenant_transactions SET mac=@mac, updated_at=datetime('now')
+   WHERE checkout_request_id=@checkoutRequestId AND mac LIKE 'CLAIM:%'
 `);
 const setTransactionProvisioned = db.prepare(`
   UPDATE tenant_transactions SET provisioned=1, subscription_id=@subscriptionId,
@@ -3933,6 +3968,36 @@ function provisionPaidTransaction(checkoutRequestId, { profile = 'standard' } = 
   }
 }
 
+function createPaymentClaim({ checkoutRequestId, locationId, code, expiresAt }) {
+  insertPaymentClaim.run({ checkoutRequestId, locationId, codeHash: tokenHash(code), expiresAt });
+}
+
+/** Bind an offline payment to the first device that presents its one-time code. */
+function claimPaymentDevice({ locationId, code, mac }) {
+  const compact = String(mac || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+  const normalized = compact.length === 12 ? compact.match(/.{2}/g).join(':') : null;
+  if (!normalized) return { error: 'mac' };
+  const hash = tokenHash(String(code || '').trim());
+  const claim = paymentClaimByCode.get(locationId, hash);
+  if (!claim) return { error: 'invalid' };
+  if (claim.status !== 'paid') return { error: 'pending' };
+  if (claim.attempts >= 5) return { error: 'locked' };
+  if (new Date(String(claim.expires_at).replace(' ', 'T') + 'Z').getTime() <= Date.now()) return { error: 'expired' };
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const latest = paymentClaimByCode.get(locationId, hash);
+    if (!latest || latest.claimed_at || latest.attempts >= 5) { db.exec('ROLLBACK'); return { error: 'invalid' }; }
+    const bound = bindTransactionDeviceMac.run({ checkoutRequestId: latest.checkout_request_id, mac: normalized });
+    if (!bound.changes) { db.exec('ROLLBACK'); return { error: 'already-bound' }; }
+    bindPaymentClaim.run(latest.checkout_request_id);
+    db.exec('COMMIT');
+    return { checkoutRequestId: latest.checkout_request_id, mac: normalized, status: latest.status };
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch (_) {}
+    throw err;
+  }
+}
+
 module.exports = {
   tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
@@ -3947,7 +4012,7 @@ module.exports = {
   packageForLocation, packagesForLocation, insertTransaction, getTransaction, setTransactionDevice,
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, latestPaidTransactionForSubscription, setSubscriptionMac,
-  grantSubscription, provisionPaidTransaction, recordUsage, expiredSubscriptions, activeMeter,
+  grantSubscription, provisionPaidTransaction, createPaymentClaim, claimPaymentDevice, recordUsage, expiredSubscriptions, activeMeter,
   insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
   transferSubscription, addTvDevice, removeTvDevice, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,

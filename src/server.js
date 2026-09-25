@@ -1786,6 +1786,9 @@ function tenantProvisioningPending(transaction) {
 }
 
 function tenantPaidPayload(transaction) {
+  if (transaction && String(transaction.mac || '').startsWith('CLAIM:')) {
+    return { status: transaction.status === 'paid' ? 'awaiting_claim' : 'pending', awaitingClaim: true };
+  }
   const subscription = tenant.subscriptionById.get(transaction.subscription_id, transaction.location_id);
   if (!subscription) return { status: 'pending', awaitingRouter: true };
   if (tenantProvisioningPending(transaction)) return { status: 'pending', awaitingRouter: true };
@@ -1797,6 +1800,9 @@ function tenantPaidPayload(transaction) {
 function provisionTenantPayment(checkoutRequestId) {
   const transaction = tenant.getTransaction.get(checkoutRequestId);
   if (!transaction || transaction.status !== 'paid') return transaction;
+  // Offline purchases stay paid-but-unbound until the customer presents the
+  // one-time claim code from the target device's captive portal.
+  if (String(transaction.mac || '').startsWith('CLAIM:')) return transaction;
   if (!transaction.provisioned) tenant.provisionPaidTransaction(checkoutRequestId);
   const provisioned = tenant.getTransaction.get(checkoutRequestId);
   whatsappNotifications.enqueuePayment(provisioned, { eventIdPrefix: 'tenant-payment' });
@@ -1956,12 +1962,14 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   const pkg = tenant.packageForLocation.get(Number(req.body && req.body.packageId), location.id);
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
   const deviceType = purchaseDeviceType(req.body && req.body.deviceType);
-  const mac = deviceType === 'tv' ? normaliseTvMac(req.body && req.body.mac) : cleanMac(req.body && req.body.mac);
+  let mac = deviceType === 'tv' ? normaliseTvMac(req.body && req.body.mac) : cleanMac(req.body && req.body.mac);
   const deviceLabel = normaliseDeviceLabel(req.body && req.body.deviceLabel, deviceType);
   const ip = cleanIp(req.body && req.body.ip);
-  if (!pkg || !phone || !mac || !deviceType) return res.status(400).json({ error: 'Choose a package, enter a valid number, and select the device.' });
+  if (!pkg || !phone || !deviceType || (deviceType === 'tv' && !mac)) return res.status(400).json({ error: 'Choose a package, enter a valid number, and select the device.' });
+  const offlineClaim = !mac && deviceType === 'phone';
+  if (offlineClaim) mac = `CLAIM:${crypto.randomBytes(12).toString('hex')}`;
   const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
-  const existingSubscription = tenant.subscriptionByMac.get(location.id, mac);
+  const existingSubscription = offlineClaim ? null : tenant.subscriptionByMac.get(location.id, mac);
   if (!trialActive(location) && !existingSubscription && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
     return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
   }
@@ -2020,6 +2028,14 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
       portalTokenHash: tenant.tokenHash(portalToken),
       portalTokenExpiresAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''),
     });
+    if (offlineClaim) {
+      const claimCode = String(crypto.randomInt(10000000, 100000000));
+      tenant.createPaymentClaim({ checkoutRequestId: pushed.checkoutRequestId, locationId: location.id,
+        code: claimCode, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+      res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price,
+        phoneDisplay: mpesa.displayPhone(phone), deviceType, deviceLabel, claimCode, claimExpiresInSeconds: 600 });
+      return;
+    }
     res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price, phoneDisplay: mpesa.displayPhone(phone), deviceType, deviceLabel, mac });
   } catch (err) {
     lastPush.delete(throttleKey);
@@ -2109,6 +2125,33 @@ app.get('/api/tenant/:locationId/router-jobs/:jobId', (req, res) => {
   const job = tenant.jobById.get(id, location.id);
   if (!job) return res.status(404).json({ error: 'Router job not found.' });
   res.json({ ready: Boolean(job.acked_at) });
+});
+
+const paymentClaimAttempts = new Map();
+app.post('/api/tenant/:locationId/claim', async (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const code = String(req.body && req.body.code || '').replace(/\D/g, '');
+  const mac = cleanMac(req.body && req.body.mac);
+  const attemptKey = `${location.id}:${req.ip}`;
+  const now = Date.now();
+  const attempt = paymentClaimAttempts.get(attemptKey) || { at: now, count: 0 };
+  if (now - attempt.at > 60_000) { attempt.at = now; attempt.count = 0; }
+  if (++attempt.count > 8) return res.status(429).json({ error: 'Too many attempts. Wait a minute and try again.' });
+  paymentClaimAttempts.set(attemptKey, attempt);
+  if (!/^\d{8}$/.test(code) || !mac) return res.status(400).json({ error: 'Enter the 8-digit claim code after joining this Wi‑Fi.' });
+  const claimed = tenant.claimPaymentDevice({ locationId: location.id, code, mac });
+  if (claimed.error === 'pending') return res.json({ status: 'pending', awaitingPayment: true });
+  if (claimed.error === 'expired') return res.status(410).json({ error: 'This claim code has expired. Start a new payment.' });
+  if (claimed.error === 'locked') return res.status(429).json({ error: 'This claim code is locked. Start a new payment.' });
+  if (claimed.error || !claimed.checkoutRequestId) return res.status(403).json({ error: 'That claim code is not valid for this Wi‑Fi.' });
+  let tx = tenant.getTransaction.get(claimed.checkoutRequestId);
+  if (tx.status === 'pending') tx = await queryTenantNow(tx);
+  if (tx.status === 'paid') {
+    try { tx = provisionTenantPayment(tx.checkout_request_id); }
+    catch (err) { return res.json({ status: 'pending', awaitingRouter: true }); }
+    return res.json(tenantPaidPayload(tx));
+  }
+  res.json({ status: 'pending', awaitingPayment: true });
 });
 
 function deviceMac(value) {
