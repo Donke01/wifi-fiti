@@ -313,7 +313,7 @@ app.use((req, res, next) => {
     }
     // The public landing lives at the root; the original dashboard and
     // operations pages have moved to app.
-    if (isGet && (req.path === '/business.html' || req.path === '/operations.html')) {
+    if (isGet && (req.path === '/business' || req.path === '/business.html' || req.path === '/operations.html')) {
       return redirectToApp(req, res);
     }
     if (isGet && (req.path === '/legacy' || req.path === '/legacy/')) {
@@ -337,6 +337,7 @@ app.use((req, res, next) => {
       if (legacyPortalRequest(req)) return sendLegacyPortal(res);
       return res.redirect(302, '/business.html');
     }
+    if (isGet && req.path === '/business') return res.sendFile(path.join(publicDirectory, 'business.html'));
     if (req.path === '/legacy' || req.path === '/legacy/') return sendLegacyPortal(res);
     if (req.path === '/marketing.html') return res.redirect(302, config.domains.marketingUrl);
     // The app host is the full runtime: dashboard, customer portals, M-Pesa
@@ -355,7 +356,7 @@ app.use((req, res, next) => {
     // In a local or transitional single-host deployment the app and legacy
     // names may intentionally be identical. Redirecting a business page in
     // that case would point straight back to itself forever.
-    if (host !== config.domains.appHost && isGet && (req.path === '/business.html' || req.path === '/operations.html')) return redirectToApp(req, res);
+    if (host !== config.domains.appHost && isGet && (req.path === '/business' || req.path === '/business.html' || req.path === '/operations.html')) return redirectToApp(req, res);
     return next();
   }
 
@@ -406,6 +407,9 @@ app.get('/tenant-router-install-telemetry-test.rsc', (req, res) => {
     res.type('text/plain').send(telemetryTestRouterKit(source));
   } catch (_) { res.status(404).type('text/plain').send('# telemetry test installer unavailable\n'); }
 });
+// Clean dashboard alias. Keep business.html available for existing bookmarks
+// and for older integrations that still use the filename.
+app.get('/business', (req, res) => res.sendFile(path.join(publicDirectory, 'business.html')));
 app.use(express.static(publicDirectory));
 
 // This repository is intentionally private, so a new VPS cannot rely on a
