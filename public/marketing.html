@@ -260,6 +260,21 @@
     /* Tablet widths: keep menu labels and the wordmark on one line. */
     @media (min-width:821px) and (max-width:1100px){.nav{gap:13px;font-size:13px}.nav a,.brand span{white-space:nowrap}.nav .pill{padding-left:11px;padding-right:11px}}
     @media (max-width:980px) and (min-width:621px){.demo-card:last-child{grid-column:1/-1}}
+
+    /* Type scale: one size per level so headings step down evenly from the
+       hero to the footer. Section headings, leads, card titles, card text
+       and small print share one size each across every section. */
+    :root{--t-label:12px;--t-h2:clamp(34px,4.6vw,56px);--t-feature:clamp(24px,2.5vw,30px);--t-h3:20px;--t-lead:clamp(16px,1.5vw,18px);--t-card:15px;--t-small:13px}
+    body main .eyebrow{font-size:var(--t-label);font-weight:900;letter-spacing:.18em;color:#087b8b}
+    body .section-head h2,body .customer h2,body .pppoe-copy h2,body .final h2,body .contact-card h2{font-size:var(--t-h2);line-height:1.02;letter-spacing:-.06em}
+    body .section-head p:not(.eyebrow),body .customer .lead,body .pppoe-copy>p:not(.eyebrow),body .final>p:not(.eyebrow),body .contact-card p:not(.eyebrow){font-size:var(--t-lead);line-height:1.6}
+    body .payment h3,body .demo-card.featured h3{font-size:var(--t-feature);line-height:1.08;letter-spacing:-.05em}
+    body .step h3,body .security-card h3,body .demo-card h3:not(.featured h3){font-size:var(--t-h3);letter-spacing:-.035em}
+    body .demo-card.featured h3{font-size:var(--t-feature)}
+    body .pppoe-features strong{font-size:16px}
+    body .step p,body .security-card p,body .demo-card p,body .plan-capacity,body .customer li,body .payment p{font-size:var(--t-card);line-height:1.55}
+    body .demo-card.featured p{font-size:16px}
+    body .strip p,body .pppoe-features small,body .contact-link small,body .fine,body .demo-meta,body .proof li{font-size:var(--t-small)}
 </style>
   </head>
 <body>
