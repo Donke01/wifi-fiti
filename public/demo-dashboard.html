@@ -70,6 +70,44 @@
     .cta h2{color:#fff;margin:0 0 4px}.cta p{margin:0;color:#b8cbe0}
     .cta .btns{display:flex;flex-wrap:wrap;gap:10px}
     .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+    .router.fresh{animation:fresh 2.4s ease-out both}
+    @keyframes fresh{0%{background:#e9f8f2}100%{background:transparent}}
+    .new-tag{margin-left:6px;padding:2px 7px;border-radius:999px;background:var(--wash);color:#1759bc;font-size:11px;font-weight:800;vertical-align:1px}
+    dialog.wizard{width:min(560px,calc(100% - 24px));max-height:calc(100% - 24px);padding:0;border:0;border-radius:22px;box-shadow:0 30px 80px rgba(16,36,59,.35);color:var(--ink)}
+    dialog.wizard::backdrop{background:rgba(16,36,59,.45);backdrop-filter:blur(3px)}
+    .wz-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 22px 0}
+    .wz-head h2{margin:0;font-size:21px}
+    .wz-head p{margin:2px 0 0;color:var(--muted);font-size:13px}
+    .wz-close{flex:0 0 auto;width:36px;height:36px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:18px;line-height:1;cursor:pointer}
+    .wz-steps{display:flex;gap:6px;margin:16px 22px 0;padding:0;list-style:none}
+    .wz-steps li{flex:1;height:4px;border-radius:4px;background:#e4ecf5}
+    .wz-steps li.on{background:var(--blue)}
+    .wz-body{padding:18px 22px 22px}
+    .wz-body .field{margin-bottom:14px}
+    .wz-compat{display:flex;gap:10px;padding:12px 14px;border-radius:14px;background:var(--good-wash);color:#0b5e43;font-size:14px}
+    .wz-compat.maybe{background:var(--warn-wash);color:#6d4a00}
+    .wz-compat b{display:block}
+    .wz-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:18px}
+    .kit{position:relative;margin:0;padding:14px 14px 14px 16px;border-radius:14px;background:#0e1c2c;color:#cfe7ff;font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+    .kit .c{color:#7d93ab}.kit .k{color:#7fe3d3}.kit .s{color:#ffd58a}
+    .kit-label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;font-size:14px;font-weight:800}
+    .sample-tag{padding:3px 8px;border-radius:999px;background:var(--warn-wash);color:var(--warn);font-size:11px;font-weight:900;letter-spacing:.06em}
+    .kit-does{margin:14px 0 0;padding:0;list-style:none;display:grid;gap:7px;font-size:14px;color:var(--ink-2)}
+    .kit-does li{display:flex;gap:9px}.kit-does li:before{content:"✓";color:var(--good);font-weight:900}
+    .checks{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:8px}
+    .checks li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:center;padding:11px 12px;border:1px solid var(--line);border-radius:12px;color:var(--faint);font-size:14px;transition:color .2s,background .2s,border-color .2s}
+    .checks li i{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:2px solid #d5e0ec;font-style:normal;font-size:12px;font-weight:900}
+    .checks li.run{color:var(--ink)}.checks li.run i{border-color:var(--blue);border-top-color:transparent;animation:wzspin .8s linear infinite}
+    .checks li.ok{color:var(--ink);background:#f6fcf9;border-color:#cdeedf}.checks li.ok i{border-color:var(--good);background:var(--good);color:#fff}
+    .checks li small{display:block;color:var(--muted);font-size:12px}
+    @keyframes wzspin{to{transform:rotate(360deg)}}
+    .wz-done{text-align:center}
+    .wz-done .tick{display:grid;place-items:center;width:62px;height:62px;margin:4px auto 12px;border-radius:50%;background:var(--good-wash);color:var(--good);font-size:28px;font-weight:900}
+    .wz-done p{color:var(--muted)}
+    .wz-done .wz-actions{justify-content:center}
+    @media (max-width:560px){.wz-head,.wz-body{padding-left:16px;padding-right:16px}.wz-steps{margin-left:16px;margin-right:16px}.wz-actions .btn{flex:1 1 100%}}
+    @media (prefers-reduced-motion:reduce){.router.fresh,.checks li.run i{animation:none}}
     [hidden]{display:none !important}
 
     @media (max-width:1000px){.kpi{grid-column:span 6}.chart-panel,.side,.wide,.narrow{grid-column:1/-1}}
@@ -86,19 +124,19 @@
     <div class="banner" role="note"><span><strong>Sample workspace.</strong> Every number here is made up so you can look around. Nothing you click changes anything.</span><a class="btn small secondary" href="/business">Start your 7‑day trial</a></div>
 
     <div class="head">
-      <div><h1>Kitale Connect</h1><p>3 locations · Growth plan · collecting to own PayBill</p></div>
+      <div><h1>Kitale Connect</h1><p><span id="loc-count">3 locations</span> · Growth plan · collecting to own PayBill</p></div>
       <div class="head-actions">
         <button class="btn small secondary" type="button" data-demo="Export a CSV of every sale for your accountant.">Export CSV</button>
         <button class="btn small secondary" type="button" data-demo="Create printable voucher codes to sell over the counter.">Vouchers</button>
-        <button class="btn small primary" type="button" data-demo="Add a router: paste one pairing kit into your MikroTik terminal.">+ Add router</button>
+        <button class="btn small primary" type="button" id="add-router">+ Add router</button>
       </div>
     </div>
 
     <div class="grid">
       <section class="panel kpi"><span>Sales today</span><strong id="kpi-today">—</strong><small><span class="up" id="kpi-today-delta"></span> vs same day last week</small></section>
       <section class="panel kpi"><span id="kpi-period-label">Last 30 days</span><strong id="kpi-period">—</strong><small id="kpi-period-sub"></small></section>
-      <section class="panel kpi"><span>Customers online now</span><strong id="kpi-online">—</strong><small>across 3 locations</small></section>
-      <section class="panel kpi"><span>Routers</span><strong>3 of 3 online</strong><small>last check-in a few seconds ago</small></section>
+      <section class="panel kpi"><span>Customers online now</span><strong id="kpi-online">—</strong><small id="kpi-online-sub">across 3 locations</small></section>
+      <section class="panel kpi"><span>Routers</span><strong id="kpi-routers">3 of 3 online</strong><small>last check-in a few seconds ago</small></section>
 
       <section class="panel chart-panel" aria-labelledby="sales-title">
         <div class="panel-head">
@@ -149,6 +187,56 @@
       </section>
     </div>
   </main>
+
+  <dialog class="wizard" id="wizard" aria-labelledby="wz-title">
+    <div class="wz-head"><div><h2 id="wz-title">Add a router</h2><p id="wz-sub">Sample walkthrough · nothing is changed</p></div><button class="wz-close" type="button" id="wz-close" aria-label="Close">×</button></div>
+    <ol class="wz-steps" aria-hidden="true"><li></li><li></li><li></li></ol>
+
+    <section class="wz-body" data-step="1">
+      <label class="field"><span>Location name</span><input type="text" id="wz-name" value="Stage Road Café" maxlength="40"></label>
+      <label class="field"><span>Your MikroTik router</span>
+        <select id="wz-model">
+          <option value="hap-lite">hAP lite (RB941)</option>
+          <option value="rb951">RB951Ui-2HnD</option>
+          <option value="hap-ac">hAP ac² / other wireless router</option>
+          <option value="hap-ax">hAP ax² / ax³ (new WiFi)</option>
+          <option value="unsure">Not sure</option>
+        </select></label>
+      <div class="wz-compat" id="wz-compat" role="status"></div>
+      <div class="wz-actions"><button class="btn secondary" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="wz-next1">Get pairing kit →</button></div>
+    </section>
+
+    <section class="wz-body" data-step="2" hidden>
+      <div class="kit-label"><span>Paste this into your MikroTik terminal</span><span class="sample-tag">SAMPLE</span></div>
+      <pre class="kit" id="wz-kit"></pre>
+      <ul class="kit-does">
+        <li>Connects out over HTTPS, so no public IP or port forwarding</li>
+        <li>Sets up the Hotspot and your branded customer portal</li>
+        <li>Stores a one-time key that works for this location only</li>
+      </ul>
+      <div class="wz-actions"><button class="btn secondary" type="button" id="wz-copy">Copy kit</button><button class="btn primary" type="button" id="wz-next2">I've pasted it →</button></div>
+    </section>
+
+    <section class="wz-body" data-step="3" hidden>
+      <p class="muted" style="margin:0 0 10px;font-size:14px" id="wz-wait">Waiting for <b id="wz-wait-name"></b> to check in…</p>
+      <ol class="checks" id="wz-checks">
+        <li><i></i><span>First check-in received<small>Router reached Wi‑Fi Fiti over HTTPS</small></span></li>
+        <li><i></i><span>Hotspot server found<small>Customer Wi‑Fi bridge is ready</small></span></li>
+        <li><i></i><span>Customer portal installed<small>Login page now shows your packages</small></span></li>
+        <li><i></i><span>Ready to sell<small>Payments will open the internet automatically</small></span></li>
+      </ol>
+    </section>
+
+    <section class="wz-body wz-done" data-step="4" hidden>
+      <div class="tick" aria-hidden="true">✓</div>
+      <h2 id="wz-done-title">Stage Road Café is online</h2>
+      <p>That's the whole setup. It's now in your Routers list, ready for its first customer.</p>
+      <div class="wz-actions">
+        <a class="btn primary" href="/business">Do it on my router: start trial</a>
+        <a class="btn secondary" id="wz-visit" href="/demo?contact=onsite#request">Not sure? Book a setup visit</a>
+      </div>
+    </section>
+  </dialog>
 
   <div class="toast" id="toast" role="status"></div>
   <footer class="footer shell">© <span id="year"></span> Wi‑Fi Fiti · <a href="/demo">All demo options</a></footer>
@@ -272,15 +360,20 @@
       }
       $('payments').innerHTML = rows.join('');
     }
-    function renderRouters() {
-      var list = [
+    var ROUTERS = [
         { name: 'Main Branch', model: 'hAP ac² · RouterOS 7.16', online: 21, seen: 'just now' },
-        { name: 'Milimani Estate', model: 'RB951Ui-2HnD · RouterOS 6.49', online: 17, seen: '4 seconds ago' },
+        { name: 'Milimani Estate', model: 'RB951Ui-2HnD · RouterOS 7.12', online: 17, seen: '4 seconds ago' },
         { name: 'Bus Park Cyber', model: 'hAP lite · RouterOS 7.14', online: 9, seen: '2 seconds ago' },
-      ];
-      $('routers').innerHTML = list.map(function (r) {
-        return '<div class="router"><div><strong>' + r.name + '</strong><br><small>' + r.model + '</small></div><span class="pill ok">Online</span><small>' + r.online + ' customers online</small><small style="text-align:right">checked in ' + r.seen + '</small></div>';
+    ];
+    function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+    function renderRouters() {
+      $('routers').innerHTML = ROUTERS.map(function (r) {
+        return '<div class="router' + (r.fresh ? ' fresh' : '') + '"><div><strong>' + esc(r.name) + (r.fresh ? ' <span class="new-tag">New</span>' : '') + '</strong><br><small>' + esc(r.model) + '</small></div><span class="pill ok">Online</span><small>' + r.online + ' customers online</small><small style="text-align:right">checked in ' + r.seen + '</small></div>';
       }).join('');
+      var n = ROUTERS.length;
+      $('kpi-routers').textContent = n + ' of ' + n + ' online';
+      $('loc-count').textContent = n + ' locations';
+      $('kpi-online-sub').textContent = 'across ' + n + ' locations';
     }
     function renderPayout() {
       var monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -316,6 +409,83 @@
     var resizeTimer; window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderChart, 120); });
 
     renderAll(); renderPayments(); renderRouters(); renderPayout(); renderSubs();
+
+    // "Add router" sample walkthrough. It mirrors real onboarding (pick
+    // router, paste one kit, watch it check in) but the kit shown is inert:
+    // every line is a comment or a :put, so pasting it into a real router
+    // changes nothing.
+    (function () {
+      var dlg = $('wizard'); if (!dlg || !dlg.showModal) { $('add-router').addEventListener('click', function () { toast('Sample dashboard. In your workspace: add a router by pasting one pairing kit into your MikroTik terminal.'); }); return; }
+      var MODELS = {
+        'hap-lite': { label: 'hAP lite (RB941)', ok: true, note: 'Supported on RouterOS 7. Great for a small café or kiosk.' },
+        'rb951': { label: 'RB951Ui-2HnD', ok: true, note: 'Supported on RouterOS 7. Tested on real hardware.' },
+        'hap-ac': { label: 'hAP ac² / wireless router', ok: true, note: 'Supported on RouterOS 7 with the classic wireless package.' },
+        'hap-ax': { label: 'hAP ax² / ax³', ok: true, note: 'Supported on RouterOS 7 with the new WiFi package.' },
+        'unsure': { label: 'MikroTik router', ok: false, note: 'Most MikroTik routers on RouterOS 7 work. We will check yours during setup, or visit to help.' },
+      };
+      var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var timers = [];
+      function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+      function name() { return ($('wz-name').value || '').trim() || 'New location'; }
+      function model() { return MODELS[$('wz-model').value] || MODELS.unsure; }
+      function go(step) {
+        Array.prototype.forEach.call(dlg.querySelectorAll('[data-step]'), function (s) { s.hidden = s.dataset.step !== String(step); });
+        Array.prototype.forEach.call(dlg.querySelectorAll('.wz-steps li'), function (li, i) { li.classList.toggle('on', i < Math.min(step, 3)); });
+        $('wz-title').textContent = step === 4 ? 'Router added' : ['Add a router', 'Add a router', 'Pairing kit', 'Connecting'][step];
+        var focus = dlg.querySelector('[data-step="' + step + '"] input, [data-step="' + step + '"] .btn.primary');
+        if (focus) focus.focus();
+      }
+      function compat() {
+        var m = model(), box = $('wz-compat');
+        box.className = 'wz-compat' + (m.ok ? '' : ' maybe');
+        box.innerHTML = '<span aria-hidden="true">' + (m.ok ? '✓' : 'ⓘ') + '</span><span><b>' + (m.ok ? 'Works with Wi‑Fi Fiti' : 'Probably works') + '</b>' + esc(m.note) + ' Needs internet, DNS and a Hotspot server. No public IP.</span>';
+      }
+      function kit() {
+        var n = name().replace(/"/g, ''), m = model().label;
+        $('wz-kit').innerHTML =
+          '<span class="c"># ── Wi‑Fi Fiti pairing kit · SAMPLE ───────────</span>\n' +
+          '<span class="c"># Location : ' + esc(n) + '</span>\n' +
+          '<span class="c"># Router   : ' + esc(m) + '</span>\n' +
+          '<span class="c"># Your real kit carries a one-time key for this</span>\n' +
+          '<span class="c"># location. This sample only prints a message.</span>\n' +
+          '<span class="k">:put</span> <span class="s">"Wi-Fi Fiti sample kit: nothing was changed."</span>';
+      }
+      function connect() {
+        $('wz-wait-name').textContent = name();
+        var items = $('wz-checks').querySelectorAll('li');
+        Array.prototype.forEach.call(items, function (li) { li.className = ''; li.querySelector('i').textContent = ''; });
+        var gap = reduce ? 0 : 1100;
+        Array.prototype.forEach.call(items, function (li, i) {
+          timers.push(setTimeout(function () { li.className = 'run'; }, gap * i + (reduce ? 0 : 300)));
+          timers.push(setTimeout(function () { li.className = 'ok'; li.querySelector('i').textContent = '✓'; }, gap * (i + 1)));
+        });
+        timers.push(setTimeout(function () {
+          ROUTERS.forEach(function (r) { r.fresh = false; });
+          ROUTERS.push({ name: name(), model: model().label + ' · RouterOS 7', online: 0, seen: 'just now', fresh: true });
+          renderRouters();
+          $('wz-done-title').textContent = name() + ' is online';
+          var q = new URLSearchParams({ contact: 'onsite', router: model().label, location: name(), from: 'add-router' });
+          $('wz-visit').href = '/demo?' + q.toString() + '#request';
+          go(4);
+        }, gap * items.length + (reduce ? 0 : 500)));
+      }
+      function close() { clearTimers(); if (dlg.open) dlg.close(); }
+      $('add-router').addEventListener('click', function () {
+        clearTimers(); $('wz-name').value = ROUTERS.length === 3 ? 'Stage Road Café' : 'Location ' + (ROUTERS.length + 1);
+        compat(); go(1); dlg.showModal();
+      });
+      $('wz-model').addEventListener('change', compat);
+      $('wz-next1').addEventListener('click', function () { kit(); go(2); });
+      $('wz-name').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); kit(); go(2); } });
+      $('wz-copy').addEventListener('click', function () { toast('Sample only. In your workspace this copies your router’s real kit.'); });
+      $('wz-next2').addEventListener('click', function () { go(3); connect(); });
+      $('wz-close').addEventListener('click', close);
+      Array.prototype.forEach.call(dlg.querySelectorAll('[data-close]'), function (b) { b.addEventListener('click', close); });
+      dlg.addEventListener('cancel', clearTimers);
+      dlg.addEventListener('click', function (e) { if (e.target === dlg) close(); });
+      Array.prototype.forEach.call(dlg.querySelectorAll('a'), function (a) { a.addEventListener('click', clearTimers); });
+    }());
+
   }());
   </script>
 </body>

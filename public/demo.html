@@ -212,6 +212,19 @@
     dateInput.min = today.toISOString().slice(0, 10);
     var latest = new Date(today.getTime() + 89 * 864e5); dateInput.max = latest.toISOString().slice(0, 10);
 
+    // Links such as the sample dashboard's "Book a setup visit" pre-fill
+    // what the visitor already told us.
+    (function prefill() {
+      var q = new URLSearchParams(location.search);
+      var contact = q.get('contact');
+      var radio = contact && form.querySelector('input[name=contactMethod][value="' + contact.replace(/[^a-z]/g, '') + '"]');
+      if (radio) radio.checked = true;
+      var router = (q.get('router') || '').slice(0, 60);
+      if (router && router !== 'MikroTik router') form.elements.routerModel.value = router;
+      var place = (q.get('location') || '').slice(0, 60);
+      if (place && !form.elements.notes.value) form.elements.notes.value = 'Setting up: ' + place + '.';
+    }());
+
     function num(name) { var v = Number(form.elements[name].value); return Number.isFinite(v) && v > 0 ? v : 0; }
     function feePercent() { var c = document.querySelector('input[name=feeMode]:checked'); return c ? Number(c.value) : 3; }
     function recalc() {
