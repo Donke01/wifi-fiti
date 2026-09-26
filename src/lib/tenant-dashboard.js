@@ -58,7 +58,7 @@ function attachTenantDashboardRoutes(app, { businessAuth, db }) {
     `).get(businessId, ...locationIds, since);
     const packages = db.prepare(`
       SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN active=1 THEN 1 ELSE 0 END),0) AS active
-        FROM business_packages WHERE business_id=?
+        FROM business_packages WHERE business_id=? AND deleted_at IS NULL
     `).get(businessId);
     let pppoe = { subscribers: 0, active: 0 };
     if (tableExists('pppoe_users')) pppoe = db.prepare(`

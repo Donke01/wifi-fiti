@@ -69,9 +69,10 @@ const at = (offsetDays) => new Date(NOW + offsetDays * DAY).toISOString().replac
     assert.match(sb.hotspotSaleBlock({ ...paid, billing_status: 'suspended' }, {}, NOW), /unavailable/);
   });
 
-  await test('paid hotspot capacity lifts the router limit, a trial does not', () => {
+  await test('paid hotspot capacity lifts the router limit, even when bought during the trial', () => {
     assert.equal(sb.routerLimitLifted(paid, NOW), true);
-    assert.equal(sb.routerLimitLifted({ billing_status: 'trial', billing_expires_at: at(3), hotspot_billing_expires_at: at(10) }, NOW), false);
+    assert.equal(sb.routerLimitLifted({ billing_status: 'trial', billing_expires_at: at(3), hotspot_billing_expires_at: at(10) }, NOW), true);
+    assert.equal(sb.routerLimitLifted({ billing_status: 'trial', billing_expires_at: at(3) }, NOW), false, 'a trial alone keeps one router');
   });
 
   console.log('\nPPPoE subscribers');

@@ -256,6 +256,9 @@ for (const stmt of [
   `ALTER TABLE locations ADD COLUMN router_pending_setup_json TEXT`,
   `ALTER TABLE locations ADD COLUMN router_portal_applied_host TEXT`,
   `ALTER TABLE business_packages ADD COLUMN rate_limit TEXT`,
+  // Deleted packages that have sales or vouchers are archived, not removed,
+  // so receipts and reports keep their name.
+  `ALTER TABLE business_packages ADD COLUMN deleted_at TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
@@ -699,7 +702,7 @@ const addBusinessPackage = db.prepare(`
   VALUES (@businessId, @name, @price, @seconds, @rateLimit)
 `);
 const packagesForBusiness = db.prepare(`
-  SELECT id, name, price, seconds, rate_limit, active FROM business_packages WHERE business_id = ? ORDER BY price
+  SELECT id, name, price, seconds, rate_limit, active FROM business_packages WHERE business_id = ? AND deleted_at IS NULL ORDER BY price
 `);
 
 module.exports = {

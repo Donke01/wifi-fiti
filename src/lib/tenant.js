@@ -1534,7 +1534,7 @@ const removeDevice = db.prepare(`
 `);
 
 const businessPackageById = db.prepare(`
-  SELECT * FROM business_packages WHERE id=? AND business_id=?
+  SELECT * FROM business_packages WHERE id=? AND business_id=? AND deleted_at IS NULL
 `);
 const updateBusinessPackage = db.prepare(`
   UPDATE business_packages SET name=@name, price=@price, seconds=@seconds, rate_limit=@rateLimit
@@ -3965,9 +3965,13 @@ function activateBusinessBilling(checkoutRequestId, { periodDays = 30 } = {}) {
     if (transaction.service_kind === 'platform') {
       setBusinessBilling.run({ businessId: transaction.business_id, plan: transaction.plan, expiresAt });
     } else {
+      // The 7-day trial is free: a service bought during it starts when the
+      // trial ends, so no trial day is lost.
+      const trialEnd = String(business.billing_status || '').toLowerCase() === 'trial' && business.billing_expires_at
+        ? new Date(String(business.billing_expires_at).replace(' ', 'T') + 'Z').getTime() : 0;
       const serviceExpiry = (raw) => {
         const current = raw ? new Date(String(raw).replace(' ', 'T') + 'Z').getTime() : 0;
-        return nowSql(Math.max(Date.now(), Number.isFinite(current) ? current : 0) + periodDays * 86400_000);
+        return nowSql(Math.max(Date.now(), Number.isFinite(current) ? current : 0, Number.isFinite(trialEnd) ? trialEnd : 0) + periodDays * 86400_000);
       };
       const pExpiry = transaction.pppoe_users > 0 ? serviceExpiry(business.pppoe_billing_expires_at) : business.pppoe_billing_expires_at;
       const hExpiry = transaction.hotspot_concurrent > 0 ? serviceExpiry(business.hotspot_billing_expires_at) : business.hotspot_billing_expires_at;
@@ -4061,7 +4065,26 @@ function claimPaymentDevice({ locationId, code, mac }) {
   }
 }
 
+/**
+ * Deletes a package. One that was never sold or used for vouchers is removed
+ * outright; otherwise it is archived (hidden everywhere, never sold again) so
+ * past sales, receipts and vouchers keep their package name.
+ */
+function deletePackageForOwner(packageId, businessId) {
+  const pkg = db.prepare('SELECT id FROM business_packages WHERE id=? AND business_id=? AND deleted_at IS NULL').get(packageId, businessId);
+  if (!pkg) return null;
+  const used = db.prepare('SELECT EXISTS(SELECT 1 FROM tenant_transactions WHERE package_id=?) OR EXISTS(SELECT 1 FROM tenant_vouchers WHERE package_id=?) AS n')
+    .get(packageId, packageId).n;
+  if (used) {
+    db.prepare(`UPDATE business_packages SET active=0, deleted_at=datetime('now') WHERE id=? AND business_id=?`).run(packageId, businessId);
+    return { result: 'archived' };
+  }
+  db.prepare('DELETE FROM business_packages WHERE id=? AND business_id=?').run(packageId, businessId);
+  return { result: 'removed' };
+}
+
 module.exports = {
+  deletePackageForOwner,
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,

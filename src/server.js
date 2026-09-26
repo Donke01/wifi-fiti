@@ -721,7 +721,9 @@ function canAddLocation(business, res) {
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   if (plan.routerLimit && existing.length >= plan.routerLimit) {
     res.status(402).json({
-      error: `${plan.name} includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Choose a larger plan before adding another location.`,
+      error: plan.trialUnlimited
+        ? 'Your free trial includes one router. Routers are unlimited once you choose hotspot capacity in Billing & payments.'
+        : `Your workspace includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Routers are unlimited with prepaid hotspot capacity: choose it in Billing & payments.`,
     });
     return false;
   }
@@ -1778,6 +1780,13 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
   }
   tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
   res.json({ packages: db.packagesForBusiness.all(business.id) });
+});
+
+app.delete('/api/business/packages/:packageId', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const deleted = tenant.deletePackageForOwner(Number(req.params.packageId), business.id);
+  if (!deleted) return res.status(404).json({ error: 'Package not found.' });
+  res.json({ ...deleted, packages: db.packagesForBusiness.all(business.id) });
 });
 
 app.patch('/api/business/packages/:packageId/availability', (req, res) => {
