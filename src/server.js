@@ -235,6 +235,9 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     // part of the portal refresh; offboarding removes/locks the router and is
     // handled separately by the command queue.
     ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ /ip hotspot enable [find where name=$fitiHotspotServer] }',
+    // Avoid RouterOS's local dns-name alias (for example login.net) taking
+    // over desktop captive assistants before they follow the external portal.
+    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]; /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }',
     '  :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiDesiredPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiDesiredPortalHost comment="Wi-Fi Fiti customer portal" }',
     '  :if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={',
     '    :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]',

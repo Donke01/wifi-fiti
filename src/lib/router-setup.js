@@ -307,6 +307,10 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     // offboarding/test action. Re-enable only the detected/configured server
     // so captive-portal redirects are available immediately after onboarding.
     ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ /ip hotspot enable [find where name=$fitiHotspotServer] }',
+    // Do not leave a router-local alias such as `login.net` in the HotSpot
+    // profile. Desktop captive assistants can stop at that alias instead of
+    // following the Wi-Fi Fiti external portal redirect.
+    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]; /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }',
     // A no-defaults reset deliberately leaves files behind. Never allow a
     // failed fetch to import an older Wi-Fi Fiti installer from that storage:
     // it could contain a different router credential or an obsolete agent.
