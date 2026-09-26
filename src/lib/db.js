@@ -242,6 +242,9 @@ for (const stmt of [
   `ALTER TABLE businesses ADD COLUMN pppoe_billing_expires_at TEXT`,
   `ALTER TABLE businesses ADD COLUMN hotspot_concurrent INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE businesses ADD COLUMN hotspot_billing_expires_at TEXT`,
+  // Capacity a tenant chose during setup, before paying (e.g. on the trial).
+  `ALTER TABLE businesses ADD COLUMN planned_hotspot INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE businesses ADD COLUMN planned_pppoe INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE businesses ADD COLUMN organisation_completed_at TEXT`,
   `ALTER TABLE businesses ADD COLUMN hotspot_name TEXT`,
   `ALTER TABLE businesses ADD COLUMN portal_setup_completed_at TEXT`,
@@ -637,7 +640,7 @@ const setBusinessPassword = db.prepare(`UPDATE businesses SET password_hash=? WH
 const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email, plan, collection_mode, billing_status, billing_expires_at,
   onboarding_state, organisation_completed_at, hotspot_name,
   portal_name, portal_setup_completed_at, support_phone, brand_primary_color, brand_logo_path, portal_message, created_at,
-  pppoe_users, pppoe_billing_expires_at, hotspot_concurrent, hotspot_billing_expires_at
+  pppoe_users, pppoe_billing_expires_at, hotspot_concurrent, hotspot_billing_expires_at, planned_hotspot, planned_pppoe
   FROM businesses WHERE id = ?`);
 const addBusinessSession = db.prepare(`
   INSERT INTO business_sessions (token_hash, business_id, expires_at)
@@ -647,7 +650,7 @@ const businessForSession = db.prepare(`
   SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode, b.billing_status, b.billing_expires_at,
          b.onboarding_state, b.organisation_completed_at, b.hotspot_name,
          b.portal_name, b.portal_setup_completed_at, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message,
-         b.pppoe_users, b.pppoe_billing_expires_at, b.hotspot_concurrent, b.hotspot_billing_expires_at
+         b.pppoe_users, b.pppoe_billing_expires_at, b.hotspot_concurrent, b.hotspot_billing_expires_at, b.planned_hotspot, b.planned_pppoe
     FROM business_sessions s JOIN businesses b ON b.id = s.business_id
    WHERE s.token_hash = ? AND s.expires_at > datetime('now')
 `);
