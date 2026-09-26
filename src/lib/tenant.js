@@ -101,6 +101,14 @@ function decryptSecret(value) {
 }
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS tuma_fee_payments (
+    business_id         TEXT NOT NULL,
+    month               TEXT NOT NULL,
+    amount              INTEGER NOT NULL,
+    checkout_request_id TEXT NOT NULL UNIQUE,
+    paid_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (business_id, month)
+  );
   CREATE TABLE IF NOT EXISTS tenant_subscriptions (
     id              TEXT PRIMARY KEY,
     business_id     TEXT NOT NULL,
@@ -3913,6 +3921,18 @@ function activateBusinessBilling(checkoutRequestId, { periodDays = 30 } = {}) {
     if (granted) {
       db.exec('COMMIT');
       return { expiresAt: granted.expires_at, alreadyActivated: true };
+    }
+    // Tuma's monthly KES 2,500 fee, passed on to the tenant. Paying it only
+    // records the month as settled; it never changes service expiry dates.
+    if (transaction.service_kind === 'tuma_fee') {
+      const month = String(transaction.plan || '').replace(/^tuma-fee-/, '');
+      db.prepare(`INSERT OR IGNORE INTO tuma_fee_payments (business_id, month, amount, checkout_request_id)
+        VALUES (?, ?, ?, ?)`).run(transaction.business_id, month, transaction.amount, checkoutRequestId);
+      const paidAt = nowSql(Date.now());
+      addBusinessBillingGrant.run(checkoutRequestId, transaction.business_id, paidAt);
+      setBusinessBillingActivated.run(checkoutRequestId);
+      db.exec('COMMIT');
+      return { expiresAt: null, tumaFeeMonth: month };
     }
     const business = db.prepare(`SELECT billing_expires_at, billing_status, plan, pppoe_billing_expires_at, hotspot_billing_expires_at FROM businesses WHERE id=?`).get(transaction.business_id);
     if (!business) throw new Error('Business account is missing.');

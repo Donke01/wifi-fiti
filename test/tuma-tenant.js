@@ -127,7 +127,7 @@ function harness() {
   await test('creates a Tuma business for an M-Pesa Till and keeps secrets encrypted', async () => {
     const h = harness(); h.addBusiness('t1');
     calls.length = 0;
-    const res = await h.call('POST', '/api/business/tuma/settlement', 't1', { destinationType: 'till', accountNumber: '512 3456', settlementName: 'Kitale Cyber', mobile: '0712345678' });
+    const res = await h.call('POST', '/api/business/tuma/settlement', 't1', { destinationType: 'till', accountNumber: '512 3456', settlementName: 'Wanjiru Akinyi Otieno', mobile: '0712345678' });
     assert.equal(res.status, 201, JSON.stringify(res.body));
     assert.equal(res.body.connected, true);
     assert.equal(res.body.account.destinationType, 'till');
@@ -147,7 +147,7 @@ function harness() {
 
   await test('STK pushes for that tenant authenticate as the tenant, not the platform', async () => {
     const h = harness(); h.addBusiness('t2');
-    await h.call('POST', '/api/business/tuma/settlement', 't2', { destinationType: 'paybill', accountNumber: '400200', mobile: '0712345678' });
+    await h.call('POST', '/api/business/tuma/settlement', 't2', { destinationType: 'paybill', accountNumber: '400200', mobile: '0712345678', settlementName: 'Juma Otieno' });
     const credentials = h.tenants.credentialsFor('t2');
     assert.equal(credentials.email, 't2@tenant.test');
     calls.length = 0;
@@ -161,10 +161,10 @@ function harness() {
 
   await test('changing the destination updates the same Tuma business', async () => {
     const h = harness(); h.addBusiness('t3');
-    await h.call('POST', '/api/business/tuma/settlement', 't3', { destinationType: 'till', accountNumber: '5123456', mobile: '0712345678' });
+    await h.call('POST', '/api/business/tuma/settlement', 't3', { destinationType: 'till', accountNumber: '5123456', mobile: '0712345678', settlementName: 'Juma Otieno' });
     const before = h.db.prepare('SELECT tuma_business_id FROM tenant_tuma_accounts WHERE business_id=?').get('t3').tuma_business_id;
     calls.length = 0;
-    const res = await h.call('POST', '/api/business/tuma/settlement', 't3', { destinationType: 'bank', bankId: 'b-equity', accountNumber: '0170299999999', mobile: '0712345678' });
+    const res = await h.call('POST', '/api/business/tuma/settlement', 't3', { destinationType: 'bank', bankId: 'b-equity', accountNumber: '0170299999999', mobile: '0712345678', settlementName: 'Juma Otieno' });
     assert.equal(res.status, 201, JSON.stringify(res.body));
     assert.equal(res.body.account.destinationName, 'Equity Bank');
     assert.equal(calls.filter(c => c.path === '/businesses').length, 0, 'no second business is created');
@@ -181,7 +181,9 @@ function harness() {
       [{ destinationType: 'till', accountNumber: '12', mobile: '0712345678' }, 'accountNumber'],
       [{ destinationType: 'bank', bankId: 'nope', accountNumber: '1234567', mobile: '0712345678' }, 'bankId'],
       [{ destinationType: 'bank', bankId: 'b-till', accountNumber: '1234567', mobile: '0712345678' }, 'bankId'],
-      [{ destinationType: 'till', accountNumber: '5123456', mobile: '555' }, 'mobile'],
+      [{ destinationType: 'till', accountNumber: '5123456', settlementName: 'Juma Otieno', mobile: '555' }, 'mobile'],
+      [{ destinationType: 'till', accountNumber: '5123456', settlementName: 'Juma', mobile: '0712345678' }, 'settlementName'],
+      [{ destinationType: 'till', accountNumber: '5123456', mobile: '0712345678' }, 'settlementName'],
     ];
     for (const [body, field] of cases) {
       const res = await h.call('POST', '/api/business/tuma/settlement', 't4', body);
@@ -195,7 +197,7 @@ function harness() {
   await test('a Tuma 401 is reported as 502, never as a dashboard sign-out', async () => {
     const h = harness(); h.addBusiness('t5');
     failCreate = 'auth';
-    const res = await h.call('POST', '/api/business/tuma/settlement', 't5', { destinationType: 'till', accountNumber: '5123456', mobile: '0712345678' });
+    const res = await h.call('POST', '/api/business/tuma/settlement', 't5', { destinationType: 'till', accountNumber: '5123456', mobile: '0712345678', settlementName: 'Juma Otieno' });
     failCreate = null;
     assert.equal(res.status, 502);
     assert.match(res.body.error, /Tuma did not accept/);
@@ -220,7 +222,7 @@ function harness() {
   await test('readiness test re-verifies the tenant credentials', async () => {
     const h = harness(); h.addBusiness('t7');
     assert.equal((await h.tenants.test('t7')).ok, false);
-    await h.call('POST', '/api/business/tuma/settlement', 't7', { destinationType: 'till', accountNumber: '5123456', mobile: '0712345678' });
+    await h.call('POST', '/api/business/tuma/settlement', 't7', { destinationType: 'till', accountNumber: '5123456', mobile: '0712345678', settlementName: 'Juma Otieno' });
     assert.equal((await h.tenants.test('t7')).ok, true);
     validKeys.set('t7@tenant.test', 'revoked');
     const result = await h.tenants.test('t7');

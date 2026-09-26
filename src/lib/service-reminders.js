@@ -38,7 +38,7 @@ function planText(stage, expiresRaw, name) {
   return `${who}new sales have stopped because your old Wi-Fi Fiti plan ended. Choose prepaid hotspot capacity in Billing & payments to resume. Customers already online keep their time.`;
 }
 
-function createServiceReminders({ db, smsProvider = null, sendEmail = null, now = () => Date.now(), log = console }) {
+function createServiceReminders({ db, smsProvider = null, sendEmail = null, tumaFee = null, now = () => Date.now(), log = console }) {
   db.exec(`CREATE TABLE IF NOT EXISTS business_billing_reminders (
     reminder_key TEXT NOT NULL,
     business_id  TEXT NOT NULL,
@@ -74,7 +74,7 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, now 
 
   async function deliver(business, item) {
     const name = business.portal_name || business.name || '';
-    const text = item.kind === 'trial' ? trialText(item.stage, item.expires, name)
+    const text = item.text ? item.text : item.kind === 'trial' ? trialText(item.stage, item.expires, name)
       : item.kind === 'plan' ? planText(item.stage, item.expires, name)
       : serviceBilling.reminderText(item.kind, item.stage, item.expires, name);
     const channels = [];
@@ -87,7 +87,7 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, now 
     if (sendEmail && business.email) {
       try {
         const safe = text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        await sendEmail({ to: business.email, subject: item.stage === 'before' ? 'Your Wi-Fi Fiti subscription ends soon' : 'Your Wi-Fi Fiti subscription needs renewing',
+        await sendEmail({ to: business.email, subject: item.subject ? item.subject : item.stage === 'before' ? 'Your Wi-Fi Fiti subscription ends soon' : 'Your Wi-Fi Fiti subscription needs renewing',
           text, html: `<p>${safe}</p><p><a href="https://cloud.wififiti.co.ke/business#payments">Open Billing &amp; payments</a></p>` });
         channels.push('email');
       } catch (error) { if (error.code !== 'EMAIL_NOT_CONFIGURED') log.error('[billing reminders] email failed:', error.message); }
@@ -106,6 +106,39 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, now 
         setChannels.run(channels.join(',') || 'none', item.key, business.id);
         sent += 1;
       }
+    }
+    if (tumaFee) sent += await runTumaFee();
+    return sent;
+  }
+
+  // Tuma's KES 2,500 fee at KES 100,000 monthly sales: remind as the tenant
+  // approaches it, when it falls due, and if sales pause for non-payment.
+  function tumaFeeReminder(fee, name) {
+    const kes = (n) => `KES ${Number(n).toLocaleString('en-KE')}`;
+    const who = name ? `${name}: ` : '';
+    const pause = fee.pauseAt ? new Date(fee.pauseAt).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' }) : '';
+    if (fee.stage === 'approaching') return { subject: 'Your Tuma sales are close to KES 100,000', text: `${who}your Tuma sales this month are ${kes(fee.salesKes)}. At ${kes(fee.thresholdKes)}, Tuma's flat ${kes(fee.feeKes)} monthly fee applies. Pay it early in your Wi-Fi Fiti dashboard (Billing & payments) to avoid any interruption.` };
+    if (fee.stage === 'due') return { subject: 'Your Tuma monthly fee is due', text: `${who}your Tuma sales passed ${kes(fee.thresholdKes)} this month, so the ${kes(fee.feeKes)} Tuma fee is due. Pay it in your Wi-Fi Fiti dashboard by ${pause} to keep taking payments.` };
+    return { subject: 'Sales paused: Tuma fee unpaid', text: `${who}new sales are paused because the ${kes(fee.feeKes)} Tuma fee was not paid. Pay it in your Wi-Fi Fiti dashboard (Billing & payments) to resume at once. Customers already online keep their time.` };
+  }
+
+  async function runTumaFee() {
+    let rows = [];
+    try {
+      rows = db.prepare(`SELECT b.id, b.name, b.portal_name, b.owner_phone, b.email FROM tenant_tuma_accounts a
+        JOIN businesses b ON b.id=a.business_id WHERE a.active=1 AND b.billing_status != 'suspended'`).all();
+    } catch { return 0; } // table not created yet on this deployment
+    let sent = 0;
+    for (const business of rows) {
+      const s = tumaFee.state(business.id);
+      const fee = s.outstanding || s.current;
+      if (!['approaching', 'due', 'overdue'].includes(fee.stage)) continue;
+      const key = `tumafee:${fee.month}:${fee.stage}`;
+      if (!claim.run(key, business.id).changes) continue;
+      const message = tumaFeeReminder(fee, business.portal_name || business.name || '');
+      const channels = await deliver(business, { key, kind: 'tumafee', stage: fee.stage, ...message });
+      setChannels.run(channels.join(',') || 'none', key, business.id);
+      sent += 1;
     }
     return sent;
   }

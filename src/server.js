@@ -24,6 +24,9 @@ const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
 const serviceBilling = require('./lib/service-billing');
 const { createTumaTenants } = require('./lib/tuma-tenants');
+const { createTumaFee, FEE_KES: TUMA_FEE_KES } = require('./lib/tuma-fee');
+// Created early: sales checks and the reminder worker both read it.
+const tumaFee = createTumaFee({ db: db.db });
 const { createDemo } = require('./lib/demo');
 
 const app = express();
@@ -985,7 +988,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1281,7 +1284,8 @@ app.get('/api/business/billing/status/:checkoutRequestId', async (req, res) => {
 app.get('/api/business/billing/recover', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const transaction = db.db.prepare(`SELECT * FROM business_billing_transactions
-    WHERE business_id=? AND ((status='pending' AND created_at>datetime('now','-2 hours'))
+    WHERE business_id=? AND COALESCE(service_kind,'platform')!='tuma_fee'
+      AND ((status='pending' AND created_at>datetime('now','-2 hours'))
       OR (status!='pending' AND updated_at>datetime('now','-30 minutes')))
     ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(business.id);
   if (!transaction) return res.json({ found: false });
@@ -1937,7 +1941,7 @@ function publicLocation(id, res) {
 // Whether this location may take a new sale at all: trial, a paid hotspot
 // service or a legacy plan, each with a 3-day grace period after expiry.
 function businessCanSell(location) {
-  return serviceBilling.hotspotSaleBlock(location, { renewing: true });
+  return serviceBilling.hotspotSaleBlock(location, { renewing: true }) || tumaFee.salesBlock(location.business_id);
 }
 
 const hotspotOnlineNow = db.db.prepare(`SELECT COUNT(*) AS n FROM tenant_subscriptions
@@ -4281,7 +4285,7 @@ const demo = createDemo({
 });
 demo.attachRoutes(app);
 // Prepaid subscription reminders: 3 days before expiry, grace, and stop.
-const serviceReminders = require('./lib/service-reminders').createServiceReminders({ db: db.db, smsProvider, sendEmail });
+const serviceReminders = require('./lib/service-reminders').createServiceReminders({ db: db.db, smsProvider, sendEmail, tumaFee });
 const runServiceReminders = () => serviceReminders.run().catch((err) => console.error('[billing reminders]', err.message));
 setTimeout(runServiceReminders, 60_000).unref();
 setInterval(runServiceReminders, 60 * 60_000).unref();
@@ -4314,6 +4318,35 @@ const tumaTenants = createTumaTenants({
   logoUrlFor: (business) => brandingPayload(business).logoUrl || `${config.domains.appUrl}/assets/wifi-fiti-logo.png`,
 });
 tumaTenants.attachRoutes(app, { businessAuth });
+
+// Tuma bills KES 2,500 a month once a tenant's Tuma sales reach KES 100,000.
+// Wi‑Fi Fiti charges the tenant KES 3,000 for it; the tenant pays here by M‑Pesa.
+app.get('/api/business/tuma/fee', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  res.json(tumaFee.state(business.id));
+});
+app.post('/api/business/tuma/fee/checkout', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const due = tumaFee.payableMonth(business.id);
+  if (!due) return res.status(409).json({ error: 'There is no Tuma fee to pay right now.' });
+  if (tumaFee.pendingCheckout(business.id, due.month)) return res.status(409).json({ error: 'Your Tuma fee payment is already processing. Check your phone.' });
+  const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
+  if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay the Tuma fee.' });
+  const throttleKey = `tuma-fee:${business.id}:${phone}`;
+  const previous = lastPush.get(throttleKey);
+  if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
+  try {
+    lastPush.set(throttleKey, Date.now());
+    const pushed = await mpesa.stkPush({ phone, amount: TUMA_FEE_KES, accountReference: 'WF-TUMAFEE', description: `Tuma fee ${due.month}` });
+    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+      businessId: business.id, plan: `tuma-fee-${due.month}`, phone, amount: TUMA_FEE_KES, serviceKind: 'tuma_fee', pppoeUsers: 0, hotspotConcurrent: 0 });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, month: due.month, amount: TUMA_FEE_KES, phoneDisplay: mpesa.displayPhone(phone) });
+  } catch (err) {
+    lastPush.delete(throttleKey);
+    console.error('[tuma fee] STK push failed:', err.message);
+    res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
+  }
+});
 paymentIntegrations.attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants });
 whatsapp.attachWhatsAppRoutes(app);
 // The admin module owns privileged dashboard routes and controls. It is

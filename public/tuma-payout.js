@@ -128,9 +128,9 @@
     var number = h('input', { name: 'accountNumber', inputmode: state.type === 'bank' ? 'text' : 'numeric', autocomplete: 'off',
       placeholder: state.type === 'till' ? 'e.g. 5123456' : state.type === 'paybill' ? 'e.g. 400200' : 'Account number' });
     grid.appendChild(field(state.type === 'till' ? 'Till number' : state.type === 'paybill' ? 'PayBill number' : 'Account number', number));
-    var name = h('input', { name: 'settlementName', autocomplete: 'organization', placeholder: 'Name on the account' });
+    var name = h('input', { name: 'settlementName', autocomplete: 'name', placeholder: 'e.g. Wanjiru Akinyi Otieno' });
     if (account && account.settlementName) name.value = account.settlementName;
-    grid.appendChild(field('Business name', name));
+    grid.appendChild(field('Full name as it appears on your ID', name));
     var mobile = h('input', { name: 'mobile', inputmode: 'tel', autocomplete: 'tel', placeholder: '0712 345 678' });
     if (account && account.mobile) mobile.value = '0' + String(account.mobile).slice(3);
     grid.appendChild(field('Contact phone', mobile));
@@ -199,6 +199,68 @@
     }).catch(function (error) { state.settlement = { account: null, platformReady: true }; state.loadError = error.message; })
       .finally(function () { state.loading = false; state.loaded = true; render(); if (state.loadError) root.appendChild(h('p', { class: 'tp-err', text: state.loadError })); });
   }
+
+  // ---- Tuma monthly fee card (Billing & payments) --------------------------
+  var feeStyle = document.createElement('style');
+  feeStyle.textContent = [
+    '.tf{margin:0 0 16px;padding:16px 18px;border:1px solid var(--line);border-radius:16px;background:var(--surface);text-align:left}',
+    '.tf h3{margin:0 0 4px;font-size:16px;color:var(--ink)}.tf p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}',
+    '.tf-bar{height:8px;margin:12px 0 8px;border-radius:999px;background:rgba(127,150,180,.18);overflow:hidden}.tf-bar i{display:block;height:100%;border-radius:999px;background:var(--good)}',
+    '.tf.approaching .tf-bar i,.tf.due .tf-bar i{background:var(--warn)}.tf.overdue .tf-bar i{background:var(--bad)}',
+    '.tf.due,.tf.approaching{border-color:rgba(168,107,0,.35)}.tf.overdue{border-color:rgba(189,56,82,.45)}',
+    '.tf-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}.tf-row input{max-width:200px}',
+    '.tf-msg{min-height:18px;margin-top:6px;font-size:13px;color:var(--muted)}',
+  ].join('');
+  document.head.appendChild(feeStyle);
+  var feeCard = h('div', { class: 'tf hidden', id: 'tuma-fee-card', 'aria-live': 'polite' });
+  var billing = document.getElementById('billing-section');
+  var billingPanel = billing && billing.querySelector('.panel');
+  if (billingPanel) billingPanel.insertBefore(feeCard, billingPanel.firstChild);
+  var feePoll = null;
+  function kesText(n) { return 'KES ' + Math.round(Number(n) || 0).toLocaleString('en-KE'); }
+  function dayText(raw) { var d = new Date(raw); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); }
+  function renderFee(data) {
+    if (!billingPanel) return;
+    var fee = data && (data.outstanding || data.current);
+    if (!fee || (fee.stage === 'below' && !fee.salesKes)) { feeCard.classList.add('hidden'); return; }
+    feeCard.className = 'tf ' + fee.stage; feeCard.replaceChildren();
+    var title = fee.stage === 'paid' ? 'Tuma fee paid for this month'
+      : fee.stage === 'overdue' ? 'Sales paused: Tuma fee unpaid'
+      : fee.stage === 'due' ? 'Tuma fee due: ' + kesText(fee.feeKes)
+      : fee.stage === 'approaching' ? 'You are close to the Tuma fee threshold' : 'Tuma sales this month';
+    var text = fee.stage === 'paid' ? 'Thank you. No further Tuma fee is due this month.'
+      : fee.stage === 'overdue' ? 'New customer payments are paused until the ' + kesText(fee.feeKes) + ' fee is paid. Customers already online keep their time.'
+      : fee.stage === 'due' ? 'Your Tuma sales passed ' + kesText(fee.thresholdKes) + '. Pay by ' + dayText(fee.pauseAt) + ' to keep taking payments.'
+      : 'When your Tuma sales reach ' + kesText(fee.thresholdKes) + ' in a month, a flat ' + kesText(fee.feeKes) + ' fee applies.' + (fee.canPay ? ' You can pay it early now to avoid any interruption.' : '');
+    feeCard.appendChild(h('h3', { text: title }));
+    feeCard.appendChild(h('p', { text: text }));
+    var pct = Math.min(100, Math.round(100 * fee.salesKes / fee.thresholdKes));
+    var bar = h('div', { class: 'tf-bar' }, [h('i', {})]); bar.firstChild.style.width = pct + '%';
+    feeCard.appendChild(bar);
+    feeCard.appendChild(h('p', { text: kesText(fee.salesKes) + ' of ' + kesText(fee.thresholdKes) + ' in Tuma sales this month' }));
+    if (!fee.canPay && fee.stage !== 'due' && fee.stage !== 'overdue') return;
+    var phone = h('input', { inputmode: 'tel', autocomplete: 'tel', placeholder: '0712 345 678', 'aria-label': 'M-Pesa number to pay' });
+    var pay = h('button', { type: 'button', text: 'Pay ' + kesText(fee.feeKes) + ' by M‑Pesa' });
+    var msg = h('p', { class: 'tf-msg' });
+    pay.addEventListener('click', function () {
+      pay.disabled = true; msg.textContent = 'Sending M‑Pesa prompt…';
+      api('/api/business/tuma/fee/checkout', { method: 'POST', body: JSON.stringify({ phone: phone.value }) }).then(function (result) {
+        msg.textContent = 'Prompt sent to ' + (result.phoneDisplay || 'your phone') + '. Enter your M‑Pesa PIN to pay.';
+        var tries = 0; clearTimeout(feePoll);
+        (function poll() {
+          api('/api/business/billing/status/' + encodeURIComponent(result.checkoutRequestId)).then(function (s) {
+            if (s.status === 'paid') { msg.textContent = 'Payment received.'; loadFee(); return; }
+            if (s.status === 'failed') { msg.textContent = s.reason || 'Payment was not completed.'; pay.disabled = false; return; }
+            if (++tries < 36) feePoll = setTimeout(poll, 5000); else pay.disabled = false;
+          }).catch(function () { if (++tries < 36) feePoll = setTimeout(poll, 5000); });
+        }());
+      }).catch(function (error) { msg.textContent = error.message; pay.disabled = false; });
+    });
+    feeCard.appendChild(h('div', { class: 'tf-row' }, [phone, pay]));
+    feeCard.appendChild(msg);
+  }
+  function loadFee() { api('/api/business/tuma/fee').then(renderFee).catch(function () { feeCard.classList.add('hidden'); }); }
+  if (billingPanel) { loadFee(); setInterval(loadFee, 5 * 60 * 1000); }
 
   function sync() {
     var on = select.value === 'tuma';

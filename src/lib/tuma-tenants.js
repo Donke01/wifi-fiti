@@ -138,8 +138,12 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = conso
     if (type === 'bank' && !/^[A-Za-z0-9]{5,34}$/.test(rawAccount)) {
       throw httpError(400, 'Enter a valid account number (at least 5 characters).', 'accountNumber');
     }
-    const settlementName = cleanText(body.settlementName || business.portal_name || business.name, 120);
-    if (settlementName.length < 2) throw httpError(400, 'Enter the business name for this account.', 'settlementName');
+    // Tuma registers each tenant under the account holder's full name exactly
+    // as it appears on their ID, so the bank can match the payout account.
+    const settlementName = cleanText(body.settlementName, 120);
+    if (!/^\p{L}[\p{L}'.-]*(\s+\p{L}[\p{L}'.-]*)+$/u.test(settlementName)) {
+      throw httpError(400, 'Enter your full name exactly as it appears on your ID (at least two names).', 'settlementName');
+    }
     const mobile = normaliseMobile(body.mobile || business.owner_phone);
     if (!mobile) throw httpError(400, 'Enter a Safaricom, Airtel or Telkom number, e.g. 0712 345 678.', 'mobile');
     return { type, bank, accountNumber: rawAccount, settlementName, mobile };
@@ -175,7 +179,7 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = conso
         bankId: destination.bank.id,
         accountNumber: destination.accountNumber,
         logo: logoUrlFor(business),
-        description: `Wi‑Fi hotspot payments for ${destination.settlementName} via Wi‑Fi Fiti`,
+        description: `Wi‑Fi hotspot payments for ${cleanText(business.portal_name || business.name, 200)} (owner: ${destination.settlementName}) via Wi‑Fi Fiti`,
       };
 
       if (existing && existing.mode === 'managed' && existing.tuma_business_id) {
