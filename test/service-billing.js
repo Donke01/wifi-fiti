@@ -123,6 +123,18 @@ const at = (offsetDays) => new Date(NOW + offsetDays * DAY).toISOString().replac
     assert.match(sms[3].message, /trial has ended/);
   });
 
+  await test('old Starter/Growth tenants are told to move to prepaid capacity', async () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec(`CREATE TABLE businesses (id TEXT, name TEXT, portal_name TEXT, owner_phone TEXT, email TEXT, billing_status TEXT,
+      billing_expires_at TEXT, hotspot_billing_expires_at TEXT, pppoe_billing_expires_at TEXT)`);
+    db.prepare(`INSERT INTO businesses VALUES ('old','Old Plan Co',NULL,'0712000000',NULL,'active',?,NULL,NULL)`).run(at(2));
+    db.prepare(`INSERT INTO businesses VALUES ('moved','Moved Co',NULL,'0712000001',NULL,'active',?,?,NULL)`).run(at(2), at(25));
+    const sms = [];
+    const reminders = createServiceReminders({ db, now: () => NOW, log: { error() {} }, smsProvider: { async send(m) { sms.push(m); } } });
+    assert.equal(await reminders.run(), 1, 'a tenant already on prepaid hotspot capacity is not nagged');
+    assert.match(sms[0].message, /Old Plan Co: .*replaced by prepaid capacity from KES 1,000/);
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) process.exit(1);
 })();

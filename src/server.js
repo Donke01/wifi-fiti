@@ -621,6 +621,9 @@ const BUSINESS_PLANS = {
   custom: { name: 'Custom', monthlyKes: null, routerLimit: null, activeDeviceLimit: null },
 };
 
+// Monthly plans that can no longer be bought or renewed.
+const RETIRED_PLANS = new Set(['starter', 'growth']);
+
 // Fixed prepaid network-service pricing. These charges are independent of
 // customer sales and never take a percentage of tenant revenue.
 const NETWORK_SERVICE_PRICING = Object.freeze({
@@ -1134,12 +1137,12 @@ app.post('/api/business/billing-plan', (req, res) => {
     return res.json({ plan: businessPlanEntitlements(updated), collectionMode,
       checkoutRequired: false, trial: true, trialDays: TRIAL_DAYS, requestedPlan: plan });
   }
-  // Changing collection mode is immediate. Changing the paid platform plan
-  // is completed only after the monthly M-Pesa checkout below settles.
+  // Changing collection mode is immediate. Starter/Growth can no longer be
+  // bought, so a plan change never starts a checkout; capacity is bought
+  // through /api/business/network-services/checkout instead.
   if (plan !== business.plan && plan !== 'custom') {
     db.setBusinessPlan.run({ id: business.id, plan: business.plan, collectionMode });
-    return res.json({ plan: BUSINESS_PLANS[business.plan], collectionMode,
-      checkoutRequired: true, requestedPlan: plan, amount: BUSINESS_PLANS[plan].monthlyKes });
+    return res.json({ plan: BUSINESS_PLANS[business.plan], collectionMode });
   }
   if (plan === 'custom') {
     db.setBusinessPlan.run({ id: business.id, plan: business.plan, collectionMode });
@@ -1197,6 +1200,11 @@ app.post('/api/business/billing/checkout', async (req, res) => {
   const definition = BUSINESS_PLANS[plan];
   const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
   if (!definition || !definition.monthlyKes) return res.status(400).json({ error: 'Custom plans are arranged with Wi-Fi Fiti directly.' });
+  // Starter and Growth are retired: every workspace now prepays hotspot and
+  // PPPoE capacity. Time already paid on an old plan is still honoured.
+  if (RETIRED_PLANS.has(plan)) {
+    return res.status(410).json({ error: 'Starter and Growth plans have been replaced by prepaid hotspot and PPPoE capacity. Choose your capacity under Prepaid network services.' });
+  }
   if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay for this plan.' });
   const activeLocations = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');

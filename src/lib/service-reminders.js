@@ -29,6 +29,15 @@ function trialText(stage, expiresRaw, name) {
     : `${who}your Wi-Fi Fiti free trial has ended, so new sales are paused. Subscribe in Billing & payments to resume. Customers already online keep their time.`;
 }
 
+function planText(stage, expiresRaw, name) {
+  const ends = serviceBilling.parseTime(expiresRaw);
+  const day = (ms) => new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' });
+  const who = name ? `${name}: ` : '';
+  if (stage === 'before') return `${who}your Wi-Fi Fiti plan ends on ${day(ends)}. Starter and Growth are being replaced by prepaid capacity from KES 1,000/month. Choose yours in Billing & payments to keep selling.`;
+  if (stage === 'grace') return `${who}your Wi-Fi Fiti plan has ended. Sales continue until ${day(ends + serviceBilling.GRACE_DAYS * DAY_MS)}. Choose prepaid hotspot capacity in Billing & payments to avoid interruption.`;
+  return `${who}new sales have stopped because your old Wi-Fi Fiti plan ended. Choose prepaid hotspot capacity in Billing & payments to resume. Customers already online keep their time.`;
+}
+
 function createServiceReminders({ db, smsProvider = null, sendEmail = null, now = () => Date.now(), log = console }) {
   db.exec(`CREATE TABLE IF NOT EXISTS business_billing_reminders (
     reminder_key TEXT NOT NULL,
@@ -46,6 +55,12 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, now 
 
   function dueFor(business, at) {
     const due = [...trialReminders(business, at)];
+    // Retired Starter/Growth plans: tell the owner to move to prepaid capacity
+    // before the old plan runs out, unless they already have hotspot capacity.
+    const hotspotLive = ['active', 'grace'].includes(serviceBilling.periodState(business.hotspot_billing_expires_at, at).status);
+    if (String(business.billing_status || '').toLowerCase() !== 'trial' && !hotspotLive) {
+      for (const item of serviceBilling.dueReminders('plan', business.billing_expires_at, at)) due.push({ ...item, kind: 'plan', expires: business.billing_expires_at });
+    }
     for (const kind of ['hotspot', 'pppoe']) {
       const raw = business[`${kind}_billing_expires_at`];
       for (const item of serviceBilling.dueReminders(kind, raw, at)) due.push({ ...item, kind, expires: raw });
@@ -59,7 +74,9 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, now 
 
   async function deliver(business, item) {
     const name = business.portal_name || business.name || '';
-    const text = item.kind === 'trial' ? trialText(item.stage, item.expires, name) : serviceBilling.reminderText(item.kind, item.stage, item.expires, name);
+    const text = item.kind === 'trial' ? trialText(item.stage, item.expires, name)
+      : item.kind === 'plan' ? planText(item.stage, item.expires, name)
+      : serviceBilling.reminderText(item.kind, item.stage, item.expires, name);
     const channels = [];
     const phone = String(business.owner_phone || '').replace(/\D/g, '');
     const intl = phone.startsWith('254') ? phone : phone.startsWith('0') ? `254${phone.slice(1)}` : phone;
