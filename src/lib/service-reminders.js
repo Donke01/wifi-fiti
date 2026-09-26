@@ -38,7 +38,7 @@ function planText(stage, expiresRaw, name) {
   return `${who}new sales have stopped because your old Wi-Fi Fiti plan ended. Choose prepaid hotspot capacity in Billing & payments to resume. Customers already online keep their time.`;
 }
 
-function createServiceReminders({ db, smsProvider = null, sendEmail = null, tumaFee = null, now = () => Date.now(), log = console }) {
+function createServiceReminders({ db, smsProvider = null, sendEmail = null, tumaFee = null, capacityUsage = null, now = () => Date.now(), log = console }) {
   db.exec(`CREATE TABLE IF NOT EXISTS business_billing_reminders (
     reminder_key TEXT NOT NULL,
     business_id  TEXT NOT NULL,
@@ -108,6 +108,51 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, tuma
       }
     }
     if (tumaFee) sent += await runTumaFee();
+    if (capacityUsage) sent += await runCapacity();
+    return sent;
+  }
+
+  // ---- Capacity prompts: add users before customers are turned away -------
+  const businessRow = capacityUsage ? db.prepare(`SELECT id, name, portal_name, owner_phone, email, billing_status,
+      hotspot_concurrent, hotspot_billing_expires_at, pppoe_users, pppoe_billing_expires_at FROM businesses WHERE id=?`) : null;
+
+  function capacityMessage(kind, level, usage, name) {
+    const label = kind === 'pppoe' ? 'PPPoE + Static IP' : 'hotspot';
+    const unit = kind === 'pppoe' ? 'active users' : 'users online at once';
+    const who = name ? `${name}: ` : '';
+    const used = `${usage.used} of ${usage.capacity} ${unit}`;
+    if (level === 'full') return { subject: `Your ${label} plan is full`, text: `${who}your ${label} plan is full (${used}), so new customers are being turned away. Add more users in your Wi-Fi Fiti dashboard (Billing & payments). You pay only for the days left this month.` };
+    return { subject: `Your ${label} plan is nearly full`, text: `${who}you are using ${used} on your ${label} plan. Add more users in your Wi-Fi Fiti dashboard (Billing & payments) before new customers are turned away. You pay only for the days left this month.` };
+  }
+
+  /** Sends one prompt per service, capacity, level and paid period. */
+  async function capacityPrompt(businessId, kind, level) {
+    if (!businessRow) return false;
+    const business = businessRow.get(businessId);
+    if (!business || String(business.billing_status || '') === 'suspended') return false;
+    const usage = capacityUsage(business)[kind];
+    if (!usage || !usage.capacity || (level === 'full' ? usage.level !== 'full' : usage.level === 'ok')) return false;
+    const stamp = String(business[`${kind}_billing_expires_at`] || 'none').slice(0, 10);
+    const key = `capacity:${kind}:${stamp}:${usage.capacity}:${level}`;
+    if (!claim.run(key, business.id).changes) return false;
+    const message = capacityMessage(kind, level, usage, business.portal_name || business.name || '');
+    const channels = await deliver(business, { key, kind: 'capacity', stage: level, ...message });
+    setChannels.run(channels.join(',') || 'none', key, business.id);
+    return true;
+  }
+
+  async function runCapacity() {
+    const ids = db.prepare(`SELECT id FROM businesses WHERE billing_status != 'suspended'
+      AND (hotspot_concurrent > 0 OR pppoe_users > 0)`).all();
+    let sent = 0;
+    for (const { id } of ids) {
+      const business = businessRow.get(id);
+      const usage = capacityUsage(business);
+      for (const kind of ['hotspot', 'pppoe']) {
+        const level = usage[kind].level;
+        if (level !== 'ok' && await capacityPrompt(id, kind, level)) sent += 1;
+      }
+    }
     return sent;
   }
 
@@ -143,7 +188,7 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, tuma
     return sent;
   }
 
-  return { run, dueFor };
+  return { run, dueFor, capacityPrompt };
 }
 
 module.exports = { createServiceReminders };

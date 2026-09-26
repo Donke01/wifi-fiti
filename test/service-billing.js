@@ -135,6 +135,54 @@ const at = (offsetDays) => new Date(NOW + offsetDays * DAY).toISOString().replac
     assert.match(sms[0].message, /Old Plan Co: .*replaced by prepaid capacity from KES 1,000/);
   });
 
+  console.log('\nAdding users mid-period');
+
+  const active = { billing_status: 'active', hotspot_concurrent: 200, hotspot_billing_expires_at: at(15), pppoe_users: 40, pppoe_billing_expires_at: at(15) };
+
+  await test('usage is ok, near at 90% and full at capacity', () => {
+    const u = sb.capacityUsage(active, { hotspotOnline: 179, pppoeActive: 36 });
+    assert.equal(u.hotspot.level, 'ok'); assert.equal(u.pppoe.level, 'near');
+    assert.equal(sb.capacityUsage(active, { hotspotOnline: 200 }).hotspot.level, 'full');
+    assert.equal(u.hotspot.suggested, 300); assert.equal(u.pppoe.suggested, 50);
+  });
+
+  await test('adding users costs the price difference for the days left only', () => {
+    const q = sb.upgradeQuote(active, { hotspotConcurrent: 300, pppoeUsers: 50 }, NOW);
+    assert.deepEqual(q.items.map(i => [i.kind, i.fullDiffKes, i.amountKes, i.daysLeft]), [['hotspot', 1000, 500, 15], ['pppoe', 150, 75, 15]]);
+    assert.equal(q.totalKes, 575);
+  });
+
+  await test('a move within the same hotspot tier is free', () => {
+    const q = sb.upgradeQuote({ ...active, hotspot_concurrent: 150 }, { hotspotConcurrent: 200 }, NOW);
+    assert.equal(q.totalKes, 0);
+  });
+
+  await test('an upgrade needs an active period and a bigger number', () => {
+    assert.throws(() => sb.upgradeQuote(active, { hotspotConcurrent: 200 }, NOW), /more users than you have/);
+    assert.throws(() => sb.upgradeQuote({ ...active, hotspot_billing_expires_at: at(-1) }, { hotspotConcurrent: 300 }, NOW), /Renew it/);
+  });
+
+  await test('the owner is prompted once when nearly full and once when full', async () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec(`CREATE TABLE businesses (id TEXT, name TEXT, portal_name TEXT, owner_phone TEXT, email TEXT, billing_status TEXT,
+      billing_expires_at TEXT, hotspot_billing_expires_at TEXT, pppoe_billing_expires_at TEXT, hotspot_concurrent INTEGER, pppoe_users INTEGER)`);
+    db.prepare(`INSERT INTO businesses VALUES ('b1','Kitale Cyber',NULL,'0712345678',NULL,'active',NULL,?,NULL,200,0)`).run(at(15));
+    let online = 185;
+    const sms = [];
+    const reminders = createServiceReminders({ db, now: () => NOW, log: { error() {} }, smsProvider: { async send(m) { sms.push(m.message); } },
+      capacityUsage: (b) => sb.capacityUsage(b, { hotspotOnline: online }) });
+    assert.equal(await reminders.run(), 1);
+    assert.equal(await reminders.run(), 0);
+    assert.match(sms[0], /185 of 200 users online at once.*days left this month/);
+    online = 200;
+    assert.equal(await reminders.capacityPrompt('b1', 'hotspot', 'full'), true);
+    assert.equal(await reminders.capacityPrompt('b1', 'hotspot', 'full'), false, 'once per capacity');
+    assert.match(sms[1], /plan is full .*turned away/);
+    db.prepare(`UPDATE businesses SET hotspot_concurrent=300`).run();
+    online = 300;
+    assert.equal(await reminders.capacityPrompt('b1', 'hotspot', 'full'), true, 'a new capacity can prompt again');
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) process.exit(1);
 })();

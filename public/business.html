@@ -284,6 +284,7 @@
     #dashboard.sequential-onboarding .content>.overview-insights{display:none!important}
     #dashboard.sequential-onboarding #onboarding-section{display:block!important}
   .svc-state{display:grid;gap:8px;margin:0 0 16px}.svc-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 14px;padding:12px 14px;border:1px solid var(--line);border-radius:14px}.svc-row span{color:var(--muted)}.svc-active span{color:var(--good)}.svc-grace span{color:var(--warn)}.svc-expired span{color:var(--bad)}.svc-note{margin:2px 0 0;color:var(--muted);font-size:13px}
+  .svc-up{padding:12px 14px;border:1px solid var(--line);border-radius:14px}.svc-up-near{border-color:rgba(168,107,0,.4)}.svc-up-full{border-color:rgba(189,56,82,.5)}.svc-bar{height:7px;border-radius:999px;background:rgba(127,150,180,.18);overflow:hidden}.svc-bar i{display:block;height:100%;border-radius:999px;background:var(--good)}.svc-up-near .svc-bar i{background:var(--warn)}.svc-up-full .svc-bar i{background:var(--bad)}.svc-use{margin:8px 0 0;font-size:14px;color:var(--ink)}.svc-up-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}.svc-up-row input{max-width:140px}
   </style>
 </head>
 <body>
@@ -1892,6 +1893,45 @@
           add(out, 'span', '', text);
         }
         row('Hotspot', s.hotspot, 'concurrent users'); row('PPPoE + Static IP', s.pppoe, 'users');
+        // Usage and "add users" for each active paid service.
+        var usage = state.workspace.serviceUsage || {};
+        [['hotspot', 'Hotspot', 'users online now', s.hotspot], ['pppoe', 'PPPoE + Static IP', 'active users', s.pppoe]].forEach(function (item) {
+          var kind = item[0], u = usage[kind]; if (!u || !u.capacity || item[3].status !== 'active') return;
+          var wrap = add(box, 'div', 'svc-up svc-up-' + u.level);
+          var bar = add(wrap, 'div', 'svc-bar'); var fill = add(bar, 'i', ''); fill.style.width = Math.min(100, u.pct) + '%';
+          add(wrap, 'p', 'svc-use', item[1] + ': ' + Number(u.used).toLocaleString() + ' of ' + Number(u.capacity).toLocaleString() + ' ' + item[2]
+            + (u.level === 'full' ? ' · full, new customers are being turned away' : u.level === 'near' ? ' · nearly full' : ''));
+          var line = add(wrap, 'div', 'svc-up-row');
+          var input = el('input'); input.type = 'number'; input.min = String(u.capacity + 1); input.step = kind === 'hotspot' ? '100' : '1'; input.value = String(u.suggested); input.setAttribute('aria-label', 'New number of ' + item[2]); line.appendChild(input);
+          var button = add(line, 'button', u.level === 'ok' ? 'secondary' : '', 'Add users'); button.type = 'button';
+          var note = add(wrap, 'p', 'svc-note', '');
+          function quote() {
+            var q = kind === 'hotspot' ? 'hotspotConcurrent=' : 'pppoeUsers='; button.disabled = true;
+            api('/api/business/network-services/upgrade-quote?' + q + encodeURIComponent(input.value)).then(function (r) {
+              var it = r.items[0]; button.disabled = false;
+              button.textContent = r.totalKes ? 'Pay ' + kes(r.totalKes) + ' to add users' : 'Add users (no charge)';
+              note.textContent = 'From ' + it.from + ' to ' + it.to + '. You pay only for the ' + it.daysLeft + ' days left; your renewal date stays the same.';
+            }).catch(function (error) { note.textContent = error.message; });
+          }
+          input.addEventListener('change', quote); quote();
+          button.addEventListener('click', function () {
+            var body = kind === 'hotspot' ? { hotspotConcurrent: Number(input.value) } : { pppoeUsers: Number(input.value) };
+            body.phone = ($('network-service-phone') || {}).value || '';
+            button.disabled = true; note.textContent = 'Sending M‑Pesa prompt…';
+            api('/api/business/network-services/upgrade', { method: 'POST', body: JSON.stringify(body) }).then(function (r) {
+              if (r.applied) { note.textContent = 'Done. Your plan now covers more users.'; load(); return; }
+              note.textContent = 'Prompt sent to ' + (r.phoneDisplay || 'your phone') + '. Enter your M‑Pesa PIN to add the users.';
+              var tries = 0;
+              (function poll() {
+                api('/api/business/billing/status/' + encodeURIComponent(r.checkoutRequestId)).then(function (st) {
+                  if (st.status === 'paid') { note.textContent = 'Payment received. Your plan now covers more users.'; load(); return; }
+                  if (st.status === 'failed') { note.textContent = st.reason || 'Payment was not completed.'; button.disabled = false; return; }
+                  if (++tries < 36) setTimeout(poll, 5000); else button.disabled = false;
+                }).catch(function () { if (++tries < 36) setTimeout(poll, 5000); });
+              }());
+            }).catch(function (error) { note.textContent = error.message; button.disabled = false; });
+          });
+        });
         add(box, 'p', 'svc-note', 'After a period ends, sales continue for ' + (s.graceDays || 3) + ' grace days. Customers already online always keep their time. Paying adds 30 days.');
       }
       function installNetworkServiceBilling() {
