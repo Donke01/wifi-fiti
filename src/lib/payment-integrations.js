@@ -87,6 +87,12 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants
     // the tenant selected it before this registry was introduced.
     const daraja = tenant.paymentConnectionSummary.get(business.id);
     if (result.selected === 'daraja' && daraja && result.status === 'not_configured') result.status = 'active';
+    // Tuma is only ready once this tenant's own payout account exists; an
+    // older "ready" from before payout accounts must not show as ready.
+    if (result.selected === 'tuma' && tumaTenants && !tumaTenants.connected(business.id) && ['ready', 'active'].includes(result.status)) {
+      result.status = 'pending_configuration';
+      result.lastError = 'Add where Tuma should send your money to finish.';
+    }
     res.json(result);
   });
 

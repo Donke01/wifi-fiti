@@ -777,7 +777,7 @@
         if (model && onboardingFlowState(model).active) { setSequentialOnboarding(true); moduleView = 'onboarding'; return; }
         moduleView = requested; var dashboard = $('dashboard'); if (!dashboard) return; dashboard.classList.add('module-view');
         var targets = moduleSections[requested] || moduleSections.overview;
-        document.querySelectorAll('#dashboard .content>.hero,#dashboard .content>.metrics,#dashboard .content>.section,#dashboard .content>#overview-insights-section').forEach(function (node) { var visible = targets.indexOf(node.id) !== -1; node.classList.toggle('module-hidden', !visible); node.classList.toggle('module-active', visible); });
+        document.querySelectorAll('#dashboard .content>.hero,#dashboard .content>.metrics,#dashboard .content>.section,#dashboard .content>#overview-insights-section,#dashboard .content>.overview-controls').forEach(function (node) { var visible = targets.indexOf(node.id) !== -1 || (node.classList.contains('overview-controls') && requested === 'overview'); node.classList.toggle('module-hidden', !visible); node.classList.toggle('module-active', visible); });
         document.querySelectorAll('.nav [data-module], .brand[data-module]').forEach(function (button) { var current = button.dataset.module === requested || (requested === 'routers' && button.dataset.module === 'routers'); if (button.tagName === 'BUTTON') { if (current) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); } });
         // Each page the owner opens gets its own history entry, so the
         // browser's Back button returns to the previous dashboard page
@@ -2232,5 +2232,6 @@
   </script>
   <script src="/tuma-payout.js" defer></script>
   <script src="/setup-flow.js" defer></script>
+  <script src="/billing-hub.js" defer></script>
 </body>
 </html>

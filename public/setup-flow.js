@@ -112,6 +112,9 @@
 
   // ---- Step 2: payments (Tuma by default) ---------------------------------
   function goToPayments() {
+    // With the tiles page, step 2 is the "How customers pay you" page with
+    // Tuma chosen; the gateway card and payout form open inside it.
+    if (window.fitiBillingHub) { window.fitiBillingHub.open('pay', { guided: true }); return; }
     if (window.location.hash !== '#payments') window.location.hash = '#payments';
     var select = $('integration-provider');
     var tries = 0;
@@ -168,6 +171,7 @@
         var button = step.done ? null : h('button', { type: 'button', class: isNext ? '' : 'secondary', text: isNext ? 'Start' : 'Open' });
         if (button) button.addEventListener('click', function () {
           if (step.tuma) { goToPayments(); return; }
+          if (step.target === 'network-services-section' && window.fitiBillingHub) { window.fitiBillingHub.open('plan'); return; }
           window.location.hash = '#' + step.go;
           if (step.target) setTimeout(function () { var el = $(step.target); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 400);
         });

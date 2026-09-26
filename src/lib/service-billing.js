@@ -189,7 +189,7 @@ function upgradeQuote(business, { hotspotConcurrent, pppoeUsers } = {}, now = Da
     const remaining = Math.max(0, parseTime(state.expiresAt) - now);
     const fraction = Math.min(1, remaining / (30 * DAY_MS));
     const fullDiffKes = price(target) - price(state.capacity);
-    items.push({ kind, from: state.capacity, to: target, fullDiffKes, amountKes: Math.max(0, Math.ceil(fullDiffKes * fraction)),
+    items.push({ kind, from: state.capacity, to: target, fullDiffKes, amountKes: Math.max(0, Math.min(fullDiffKes, Math.ceil((fullDiffKes * fraction) / 10) * 10)), // rounded up to KES 10
       daysLeft: Math.ceil(remaining / DAY_MS), expiresAt: state.expiresAt });
   }
   if (!items.length) throw Object.assign(new Error('Enter more users than you have now.'), { status: 400 });
