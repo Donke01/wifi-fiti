@@ -247,8 +247,8 @@
       if (template.backgroundStyle) document.body.dataset.portalBackground = template.backgroundStyle;
       if (template.showPackages === false) $('plans').classList.add('hidden');
       if (template.showUtilities === false) document.querySelector('.utilities').classList.add('hidden');
-      message('support', '© ' + new Date().getFullYear() + ' ' + name +
-        ((branding.supportPhone || config.supportPhone) ? ' · Help: ' + (branding.supportPhone || config.supportPhone) : ''));
+      message('support', '© ' + new Date().getFullYear() + ' ' + name + '. All rights reserved.' +
+        (branding.supportPhone ? ' · Help: ' + branding.supportPhone : ''));
     }
     function applyPreview(config) {
       portalConfig = config;

@@ -577,7 +577,10 @@ function brandingPayload(business, { assetOrigin = config.domains.appUrl } = {})
   const logo = business && business.brand_logo_path;
   return {
     name: business && (business.portal_name || business.name) || config.brandName,
-    supportPhone: business && business.support_phone || config.supportPhone || '',
+    // Customer-facing portals must use the tenant's support contact. Do not
+    // silently substitute Wi‑Fi Fiti's platform number when a tenant has not
+    // configured one.
+    supportPhone: business && business.support_phone || '',
     primaryColor: business && /^#[0-9A-Fa-f]{6}$/.test(String(business.brand_primary_color || '')) ? business.brand_primary_color.toUpperCase() : null,
     message: business && business.portal_message || '',
     logoUrl: logo && business && business.id
