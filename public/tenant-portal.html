@@ -154,6 +154,7 @@
       if (/^(http:|https:)$/.test(referrer.protocol) && referrer.hostname) referrerLoginUrl = referrer.origin + '/login';
     } catch (_) { /* no referrer in a normal browser */ }
     var key = 'fiti_' + site + '_' + mac, current = null, checkout = null, selected = null;
+    var profileKey = 'fiti_profile_' + site;
     var selectedSubscription = null, timer = null, clockTimer = null, generation = 0, bypassLookup = false, autoConnectStarted = false, portalConfig = null, portalUrl = '';
     var $ = function (id) { return document.getElementById(id); };
     function read(name) {
@@ -171,6 +172,13 @@
         try { if (value === null) storage().removeItem(key + name); else storage().setItem(key + name, JSON.stringify(value)); }
         catch (_) { /* The router can complete a paid connection even when browser storage is unavailable. */ }
       });
+    }
+    function readProfile() {
+      try { return JSON.parse(localStorage.getItem(profileKey) || '{}'); } catch (_) { return {}; }
+    }
+    function rememberPayerPhone(value) {
+      var normalized = String(value || '').trim(); if (!normalized) return;
+      try { localStorage.setItem(profileKey, JSON.stringify({ payerPhone: normalized })); } catch (_) {}
     }
     var selectedTvDevice = null;
     var sessionToken = read('_session') || '';
@@ -276,7 +284,7 @@
     function remember(result) {
       if (result.sessionToken) { sessionToken = result.sessionToken; write('_session', sessionToken); }
       current = result;
-      if (result.payerPhone) $('phone').value = result.payerPhone;
+      if (result.payerPhone) { $('phone').value = result.payerPhone; rememberPayerPhone(result.payerPhone); }
     }
     function active(result) {
       remember(result); stop(); show('active');
@@ -484,6 +492,7 @@
       var manualMac = String($('device-mac').value || '').trim();
       if (!selected || !phone()) { message('error', 'Choose a package and enter your M-Pesa number.'); return; }
       if (!mac && manualMac && !targetMac) { message('error', 'That device MAC address is incomplete. Leave it blank to use a claim code instead.'); return; }
+      rememberPayerPhone(phone());
       if (checkout && checkout.portalToken && checkout.startedAt > Date.now() - 2 * 3600000) {
         // The previous request is still recoverable. Checking it again is
         // safer than sending a second STK prompt to the same customer.
@@ -625,12 +634,18 @@
         }
         applyBranding(config);
         renderPackages(config.packages || []);
+        var savedProfile = readProfile();
+        if (savedProfile.payerPhone && !$('phone').value) $('phone').value = savedProfile.payerPhone;
         if (config.paybill && config.paybill.shortcode) message('paybill-details', 'PayBill number: ' + config.paybill.shortcode + ' · Account number: your M‑Pesa phone number.');
         configureDeviceTarget();
         checkout = read('_checkout');
         if (checkout && checkout.portalToken && Number(checkout.startedAt) > Date.now() - 2 * 3600000) { pollPayment(); return; }
         checkout = null; write('_checkout', null);
-        if (!mac) { message('error', 'Not connected? Enter the target device MAC above to buy a package now.'); return; }
+        if (!mac) {
+          message('error', savedProfile.payerPhone ? 'Your saved number is ready. Check your remaining time or start a new purchase.' : 'Not connected? You can buy now with a claim code, then join this Wi‑Fi on the target device.');
+          if (savedProfile.payerPhone) checkExisting(true).catch(function () {});
+          return;
+        }
         var session = await api('/session?mac=' + encodeURIComponent(mac));
         if (session.authenticated) {
           active(session);
@@ -665,6 +680,7 @@
     $('buy-anyway').onclick = function () { bypassLookup = true; show('buy'); message('error', 'You can continue with another purchase.'); };
     $('phone').oninput = function () {
       bypassLookup = false;
+      rememberPayerPhone(phone());
       // A different payer must never inherit the previous payer's pending
       // STK request or remain trapped on its router-wait screen.
       if (checkout && ((!checkout.payerPhone && $('waiting').classList.contains('hidden') === false) ||
