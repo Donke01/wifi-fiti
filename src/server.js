@@ -1782,6 +1782,13 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
   res.json({ packages: db.packagesForBusiness.all(business.id) });
 });
 
+app.delete('/api/business/packages/:packageId', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const deleted = tenant.deletePackageForOwner(Number(req.params.packageId), business.id);
+  if (!deleted) return res.status(404).json({ error: 'Package not found.' });
+  res.json({ ...deleted, packages: db.packagesForBusiness.all(business.id) });
+});
+
 app.patch('/api/business/packages/:packageId/availability', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const id = Number(req.params.packageId);

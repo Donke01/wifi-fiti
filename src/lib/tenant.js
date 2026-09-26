@@ -1534,7 +1534,7 @@ const removeDevice = db.prepare(`
 `);
 
 const businessPackageById = db.prepare(`
-  SELECT * FROM business_packages WHERE id=? AND business_id=?
+  SELECT * FROM business_packages WHERE id=? AND business_id=? AND deleted_at IS NULL
 `);
 const updateBusinessPackage = db.prepare(`
   UPDATE business_packages SET name=@name, price=@price, seconds=@seconds, rate_limit=@rateLimit
@@ -4065,7 +4065,26 @@ function claimPaymentDevice({ locationId, code, mac }) {
   }
 }
 
+/**
+ * Deletes a package. One that was never sold or used for vouchers is removed
+ * outright; otherwise it is archived (hidden everywhere, never sold again) so
+ * past sales, receipts and vouchers keep their package name.
+ */
+function deletePackageForOwner(packageId, businessId) {
+  const pkg = db.prepare('SELECT id FROM business_packages WHERE id=? AND business_id=? AND deleted_at IS NULL').get(packageId, businessId);
+  if (!pkg) return null;
+  const used = db.prepare('SELECT EXISTS(SELECT 1 FROM tenant_transactions WHERE package_id=?) OR EXISTS(SELECT 1 FROM tenant_vouchers WHERE package_id=?) AS n')
+    .get(packageId, packageId).n;
+  if (used) {
+    db.prepare(`UPDATE business_packages SET active=0, deleted_at=datetime('now') WHERE id=? AND business_id=?`).run(packageId, businessId);
+    return { result: 'archived' };
+  }
+  db.prepare('DELETE FROM business_packages WHERE id=? AND business_id=?').run(packageId, businessId);
+  return { result: 'removed' };
+}
+
 module.exports = {
+  deletePackageForOwner,
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
