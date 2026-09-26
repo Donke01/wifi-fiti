@@ -488,6 +488,9 @@ db.exec(`
     plan                TEXT NOT NULL,
     phone               TEXT NOT NULL,
     amount              INTEGER NOT NULL,
+    service_kind        TEXT NOT NULL DEFAULT 'platform',
+    pppoe_users         INTEGER NOT NULL DEFAULT 0,
+    hotspot_concurrent  INTEGER NOT NULL DEFAULT 0,
     status              TEXT NOT NULL DEFAULT 'pending',
     result_code         INTEGER,
     result_desc         TEXT,
@@ -581,6 +584,13 @@ for (const statement of [
   `ALTER TABLE tenant_router_telemetry ADD COLUMN uptime_seconds INTEGER`,
   `ALTER TABLE tenant_router_telemetry ADD COLUMN uptime_text TEXT`,
   `ALTER TABLE tenant_vouchers ADD COLUMN rate_limit TEXT`,
+  `ALTER TABLE businesses ADD COLUMN pppoe_users INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE businesses ADD COLUMN pppoe_billing_expires_at TEXT`,
+  `ALTER TABLE businesses ADD COLUMN hotspot_concurrent INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE businesses ADD COLUMN hotspot_billing_expires_at TEXT`,
+  `ALTER TABLE business_billing_transactions ADD COLUMN service_kind TEXT NOT NULL DEFAULT 'platform'`,
+  `ALTER TABLE business_billing_transactions ADD COLUMN pppoe_users INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE business_billing_transactions ADD COLUMN hotspot_concurrent INTEGER NOT NULL DEFAULT 0`,
   // An earlier version of the optional-support lifecycle did not retain the
   // router's non-secret public identifier. Keep this migration additive so
   // existing customer databases receive it without a table rebuild.
@@ -1589,8 +1599,8 @@ const upsertPaymentConnection = db.prepare(`
 `);
 const insertBusinessBilling = db.prepare(`
   INSERT INTO business_billing_transactions
-    (checkout_request_id, merchant_request_id, business_id, plan, phone, amount)
-  VALUES (@checkoutRequestId, @merchantRequestId, @businessId, @plan, @phone, @amount)
+    (checkout_request_id, merchant_request_id, business_id, plan, phone, amount, service_kind, pppoe_users, hotspot_concurrent)
+  VALUES (@checkoutRequestId, @merchantRequestId, @businessId, @plan, @phone, @amount, COALESCE(@serviceKind, 'platform'), COALESCE(@pppoeUsers, 0), COALESCE(@hotspotConcurrent, 0))
 `);
 const businessBillingTransaction = db.prepare(`SELECT * FROM business_billing_transactions WHERE checkout_request_id=?`);
 const setBusinessBillingResult = db.prepare(`
@@ -3904,7 +3914,7 @@ function activateBusinessBilling(checkoutRequestId, { periodDays = 30 } = {}) {
       db.exec('COMMIT');
       return { expiresAt: granted.expires_at, alreadyActivated: true };
     }
-    const business = db.prepare(`SELECT billing_expires_at, billing_status, plan FROM businesses WHERE id=?`).get(transaction.business_id);
+    const business = db.prepare(`SELECT billing_expires_at, billing_status, plan, pppoe_billing_expires_at, hotspot_billing_expires_at FROM businesses WHERE id=?`).get(transaction.business_id);
     if (!business) throw new Error('Business account is missing.');
     const currentExpiry = business.billing_expires_at ? new Date(business.billing_expires_at.replace(' ', 'T') + 'Z').getTime() : 0;
     let carryMs = Math.max(0, Number.isFinite(currentExpiry) ? currentExpiry - Date.now() : 0);
@@ -3915,8 +3925,24 @@ function activateBusinessBilling(checkoutRequestId, { periodDays = 30 } = {}) {
       carryMs *= (rates[business.plan] || 0) / (rates[transaction.plan] || 1);
     }
     const expiresAt = nowSql(Date.now() + carryMs + periodDays * 86400_000);
-    setBusinessBilling.run({ businessId: transaction.business_id, plan: transaction.plan, expiresAt });
-    addBusinessBillingGrant.run(checkoutRequestId, transaction.business_id, expiresAt);
+    if (transaction.service_kind === 'platform') {
+      setBusinessBilling.run({ businessId: transaction.business_id, plan: transaction.plan, expiresAt });
+    } else {
+      const serviceExpiry = (raw) => {
+        const current = raw ? new Date(String(raw).replace(' ', 'T') + 'Z').getTime() : 0;
+        return nowSql(Math.max(Date.now(), Number.isFinite(current) ? current : 0) + periodDays * 86400_000);
+      };
+      const pExpiry = transaction.pppoe_users > 0 ? serviceExpiry(business.pppoe_billing_expires_at) : business.pppoe_billing_expires_at;
+      const hExpiry = transaction.hotspot_concurrent > 0 ? serviceExpiry(business.hotspot_billing_expires_at) : business.hotspot_billing_expires_at;
+      db.prepare(`UPDATE businesses SET pppoe_users=CASE WHEN @pppoeUsers>0 THEN @pppoeUsers ELSE pppoe_users END,
+        hotspot_concurrent=CASE WHEN @hotspotConcurrent>0 THEN @hotspotConcurrent ELSE hotspot_concurrent END,
+        pppoe_billing_expires_at=@pppoeExpiresAt, hotspot_billing_expires_at=@hotspotExpiresAt WHERE id=@businessId`)
+        .run({ businessId: transaction.business_id, pppoeUsers: transaction.pppoe_users, hotspotConcurrent: transaction.hotspot_concurrent,
+          pppoeExpiresAt: pExpiry, hotspotExpiresAt: hExpiry });
+    }
+    const refreshed = transaction.service_kind === 'platform' ? null : db.prepare(`SELECT pppoe_billing_expires_at, hotspot_billing_expires_at FROM businesses WHERE id=?`).get(transaction.business_id);
+    const grantExpiry = transaction.service_kind === 'platform' ? expiresAt : [refreshed && refreshed.pppoe_billing_expires_at, refreshed && refreshed.hotspot_billing_expires_at].filter(Boolean).sort().pop() || expiresAt;
+    addBusinessBillingGrant.run(checkoutRequestId, transaction.business_id, grantExpiry);
     setBusinessBillingActivated.run(checkoutRequestId);
     db.exec('COMMIT');
     return { expiresAt };

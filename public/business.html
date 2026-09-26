@@ -353,6 +353,8 @@
           </div>
         </section>
 
+        <section class="section" id="network-services-section" data-module="payments"><div class="section-head"><div><h2>Prepaid network services</h2><p>Choose fixed monthly capacity for PPPoE/static IP and hotspot service. Customer sales are yours; Wi‑Fi Fiti does not deduct a percentage.</p></div></div><div class="panel"><div class="fields"><label><span>PPPoE + Static IP active users</span><input id="service-pppoe-users" type="number" min="0" step="1" inputmode="numeric" placeholder="e.g. 35"></label><label><span>Hotspot peak concurrent users</span><input id="service-hotspot-concurrent" type="number" min="0" step="100" inputmode="numeric" placeholder="e.g. 100"></label></div><div class="connection"><strong id="network-service-quote">Enter capacity to calculate your prepaid subscription.</strong><p id="network-service-explanation">PPPoE/static IP is KES 500 below 35 users, then KES 15 per active user. Hotspot starts at KES 1,000 for 100 concurrent users and increases by KES 1,000 per additional 100-user tier.</p></div><div class="fields"><label><span>M-Pesa number to pay</span><input id="network-service-phone" inputmode="tel" autocomplete="tel" placeholder="0712 345 678"></label><div class="buttons"><button type="button" id="network-service-pay">Pay and activate services</button></div></div><div class="form-note" id="network-service-status" aria-live="polite"></div></div></section>
+
         <section class="section" id="sales-section"><div class="section-head"><div><h2>Sales &amp; recent payments</h2><p>Actual completed transactions, grouped by location. Amounts are never estimated.</p></div><div class="section-actions"><label><span class="hidden">Period</span><select id="sales-period" aria-label="Sales period"><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="90d">Last 90 days</option></select></label></div></div><div class="panel"><div class="sales-metrics"><article class="metric"><div class="metric-label">Gross sales</div><div class="metric-value" id="sales-gross">KES 0</div><div class="metric-foot">Completed payments</div></article><article class="metric"><div class="metric-label">Payments</div><div class="metric-value" id="sales-payments">0</div><div class="metric-foot">In selected period</div></article><article class="metric"><div class="metric-label">Paying devices</div><div class="metric-value" id="sales-customers">0</div><div class="metric-foot">Distinct device MACs</div></article><article class="metric"><div class="metric-label">Net to business</div><div class="metric-value" id="sales-net">KES 0</div><div class="metric-foot" id="sales-fee">No platform fee</div></article></div><div class="split"><div><h3 class="list-title">By location</h3><div class="breakdown" id="sales-locations"></div></div><div><h3 class="list-title">Most recent payments</h3><div class="payments" id="recent-payments"></div></div></div></div></section>
 
         <section class="section" id="integrations-section"><div class="section-head"><div><h2>Payment integrations</h2><p>Choose how this workspace collects customer payments. Credentials are configured only inside the selected provider.</p></div></div><div class="panel"><div class="fields"><label><span>Collection method</span><select id="integration-provider"></select></label><div><span class="form-note" id="integration-description"></span></div></div><div class="fields hidden" id="c2b-settings"><label><span>PayBill shortcode</span><input id="c2b-shortcode" inputmode="numeric" placeholder="e.g. 123456"></label><label><span>Customer location</span><select id="c2b-location"></select></label></div><div class="buttons"><button type="button" id="save-integration">Save integration</button><button type="button" class="secondary" id="test-integration">Run readiness test</button><button type="button" class="secondary hidden" id="save-c2b">Save C2B settings</button></div><div class="connection" id="integration-status" aria-live="polite"></div><div class="form-note hidden" id="c2b-callback-note"></div></div></section>
@@ -1840,6 +1842,44 @@
           if (result.status === 'pending') retry(5000);
         }).catch(function (error) { if (pollVersion === billingPollVersion && state.billing && state.billing.checkoutRequestId === checkoutRequestId) { $('billing-checkout-error').textContent = error.message; if (error.status === 401) { clearSession(); $('login-error').textContent = 'Please sign in again to check your saved payment.'; } else if (error.status === 403 || error.status === 404) { $('billing-checkout-status').textContent = 'This payment could not be checked. Contact Wi-Fi Fiti with your M-Pesa receipt if you were charged.'; } else retry(10000); } });
       }
+      var networkServiceTimer = null;
+      function renderNetworkServices() {
+        var p = Math.max(0, Math.floor(Number(($('service-pppoe-users') || {}).value || 0) || 0));
+        var h = Math.max(0, Math.floor(Number(($('service-hotspot-concurrent') || {}).value || 0) || 0));
+        var pAmount = p ? (p < 35 ? 500 : p * 15) : 0;
+        var hAmount = h ? Math.max(1000, Math.ceil(h / 100) * 1000) : 0;
+        var quote = $('network-service-quote'); if (quote) quote.textContent = pAmount || hAmount ? 'Prepaid total: ' + kes(pAmount + hAmount) + ' per month' : 'Enter capacity to calculate your prepaid subscription.';
+        return { pppoeUsers: p, hotspotConcurrent: h, total: pAmount + hAmount };
+      }
+      function pollNetworkServicePayment(checkoutRequestId, attempt) {
+        var count = Number(attempt || 0); clearTimeout(networkServiceTimer);
+        api('/api/business/billing/status/' + encodeURIComponent(checkoutRequestId)).then(function (result) {
+          var status = $('network-service-status'); if (!status) return;
+          if (result.status === 'paid') { status.textContent = 'Payment received. Your network services are active for 30 days.'; load(); return; }
+          if (result.status === 'failed') { status.textContent = result.reason || 'Payment was not completed. Your existing services remain unchanged.'; return; }
+          status.textContent = 'Waiting for M-Pesa confirmation…';
+          if (count < 36) networkServiceTimer = setTimeout(function () { pollNetworkServicePayment(checkoutRequestId, count + 1); }, 5000);
+        }).catch(function (error) { var status = $('network-service-status'); if (status) status.textContent = error.message || 'Could not check this payment yet.'; });
+      }
+      function installNetworkServiceBilling() {
+        if (state.workspace && state.workspace.business) {
+          if ($('service-pppoe-users') && !$('service-pppoe-users').value) $('service-pppoe-users').value = state.workspace.business.pppoe_users || '';
+          if ($('service-hotspot-concurrent') && !$('service-hotspot-concurrent').value) $('service-hotspot-concurrent').value = state.workspace.business.hotspot_concurrent || '';
+          if ($('network-service-phone') && !$('network-service-phone').value) $('network-service-phone').value = state.workspace.business.owner_phone || '';
+        }
+        ['service-pppoe-users', 'service-hotspot-concurrent'].forEach(function (id) { var input = $(id); if (input && !input.dataset.bound) { input.dataset.bound = '1'; input.addEventListener('input', renderNetworkServices); } });
+        var pay = $('network-service-pay'); if (!pay || pay.dataset.bound) return; pay.dataset.bound = '1';
+        pay.addEventListener('click', function () {
+          var quote = renderNetworkServices(); var status = $('network-service-status');
+          if (!quote.total) { status.textContent = 'Enter at least one service capacity first.'; return; }
+          pay.disabled = true; status.textContent = 'Sending M-Pesa prompt…';
+          api('/api/business/network-services/checkout', { method: 'POST', body: JSON.stringify({ pppoeUsers: quote.pppoeUsers, hotspotConcurrent: quote.hotspotConcurrent, phone: $('network-service-phone').value }) })
+            .then(function (result) { status.textContent = 'Prompt sent to ' + (result.phoneDisplay || 'your phone') + '. Complete payment to activate.'; pollNetworkServicePayment(result.checkoutRequestId, 0); })
+            .catch(function (error) { status.textContent = error.message || 'Could not start payment.'; })
+            .finally(function () { pay.disabled = false; });
+        });
+        renderNetworkServices();
+      }
       function recoverBilling() {
         var requestToken = token;
         return api('/api/business/billing/recover').then(function (result) {
@@ -1913,7 +1953,7 @@
         showDashboard(); $('business-name').textContent = business.name || 'Your business'; $('business-email').textContent = business.email || ''; $('copyright-business-name').textContent = business.name || 'Your business'; $('copyright-support').textContent = business.support_phone ? ' · Help: ' + business.support_phone : ''; $('hero-plan').textContent = planName(business.plan) + ' plan · ' + (business.collection_mode === 'fiti' ? 'Wi-Fi Fiti collection' : 'Own payment collection'); $('hero-message').textContent = activeLocations.length ? 'Your workspace has ' + plural(activeLocations.length, 'location') + '. Keep packages clear for customers and make sure each router checks in.' : 'Start with a location, save its secure pairing kit, then add customer packages for your Wi‑Fi service.';
         $('locations-count').textContent = activeLocations.length; $('packages-count').textContent = packages.length; $('active-count').textContent = active; $('locations-foot').textContent = online ? plural(online, 'router') + ' online' : activeLocations.length ? 'Awaiting router check-in' : 'Ready to set up'; $('packages-foot').textContent = packages.length ? 'Available across your business' : 'Add your first time plan'; $('active-foot').textContent = data.note || 'Measured at paired locations'; $('sidebar-plan-name').textContent = plan.trialUnlimited ? '7-day trial' : planName(business.plan) + ' plan'; $('sidebar-plan-detail').textContent = plan.trialUnlimited ? '1 router · unlimited resources' : plan.monthlyKes ? kes(plan.monthlyKes) + ' per month' : 'Tailored billing arrangement';
         $('plan-choice').value = business.plan || 'starter'; $('collection-choice').value = business.collection_mode || 'own'; $('plan-summary').textContent = plan.trialUnlimited ? 'Seven-day trial · one router · unlimited customer devices, PPPoE and SMS access. No charge until the trial ends.' : plan.monthlyKes ? kes(plan.monthlyKes) + ' per month · up to ' + plural(plan.routerLimit, 'router') + ' and ' + Number(plan.activeDeviceLimit || 0).toLocaleString() + ' active devices per month.' : 'Custom plan — Wi-Fi Fiti will agree your router, active-device and support arrangement with you.'; $('collection-note').textContent = business.collection_mode === 'fiti' ? 'Wi-Fi Fiti collection applies a 5% platform fee to each completed customer payment. The sales balance subtracts the exact recorded fee; any provider charges are separate.' : 'With your own Till / PayBill, Wi-Fi Fiti does not charge a Wi‑Fi sales fee. You can connect verified Daraja credentials below.';
-        renderPairingKits(); renderLocations(); renderRouterObservability(); renderPackages(); renderVoucherChoices(); renderPaymentCollection(); renderBillingCheckout(); renderBranding(); renderOnboarding(); renderSmsModule(); renderOverviewInsights(); installCardNavigation(); installControlEnhancements(); loadAnalytics().catch(function () {}); loadCustomers(); loadSmsModule(); activateDashboardModule(moduleView, { silent: true });
+        renderPairingKits(); renderLocations(); renderRouterObservability(); renderPackages(); renderVoucherChoices(); renderPaymentCollection(); renderBillingCheckout(); installNetworkServiceBilling(); renderBranding(); renderOnboarding(); renderSmsModule(); renderOverviewInsights(); installCardNavigation(); installControlEnhancements(); loadAnalytics().catch(function () {}); loadCustomers(); loadSmsModule(); activateDashboardModule(moduleView, { silent: true });
       }
       function load() {
         if (!token) { clearOnboardingPolling(); showWelcome(); return Promise.resolve(); }

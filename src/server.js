@@ -620,6 +620,21 @@ const BUSINESS_PLANS = {
   custom: { name: 'Custom', monthlyKes: null, routerLimit: null, activeDeviceLimit: null },
 };
 
+// Fixed prepaid network-service pricing. These charges are independent of
+// customer sales and never take a percentage of tenant revenue.
+const NETWORK_SERVICE_PRICING = Object.freeze({
+  pppoe: { label: 'PPPoE + Static IP', floorUsers: 35, floorKes: 500, perUserKes: 15 },
+  hotspot: { label: 'Hotspot', floorConcurrent: 100, floorKes: 1000, stepConcurrent: 100, stepKes: 1000 },
+});
+
+function networkServiceQuote({ pppoeUsers = 0, hotspotConcurrent = 0 } = {}) {
+  const p = Math.max(0, Math.floor(Number(pppoeUsers) || 0));
+  const h = Math.max(0, Math.floor(Number(hotspotConcurrent) || 0));
+  const pppoeAmount = p ? (p < NETWORK_SERVICE_PRICING.pppoe.floorUsers ? NETWORK_SERVICE_PRICING.pppoe.floorKes : p * NETWORK_SERVICE_PRICING.pppoe.perUserKes) : 0;
+  const hotspotAmount = h ? Math.max(NETWORK_SERVICE_PRICING.hotspot.floorKes, Math.ceil(h / NETWORK_SERVICE_PRICING.hotspot.stepConcurrent) * NETWORK_SERVICE_PRICING.hotspot.stepKes) : 0;
+  return { pppoeUsers: p, hotspotConcurrent: h, pppoeAmount, hotspotAmount, total: pppoeAmount + hotspotAmount };
+}
+
 // Trial access is intentionally time-bound but feature-complete.  Keep this
 // entitlement calculation in one place so onboarding, dashboards and sales
 // limits cannot drift apart.
@@ -1132,6 +1147,47 @@ app.post('/api/business/billing-plan', (req, res) => {
   res.json({ plan: BUSINESS_PLANS[plan], collectionMode });
 });
 
+app.get('/api/business/network-services', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const quote = networkServiceQuote({
+    pppoeUsers: req.query.pppoeUsers ?? business.pppoe_users,
+    hotspotConcurrent: req.query.hotspotConcurrent ?? business.hotspot_concurrent,
+  });
+  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, current: {
+    pppoeUsers: Number(business.pppoe_users || 0),
+    pppoeExpiresAt: business.pppoe_billing_expires_at || null,
+    hotspotConcurrent: Number(business.hotspot_concurrent || 0),
+    hotspotExpiresAt: business.hotspot_billing_expires_at || null,
+  }});
+});
+
+app.post('/api/business/network-services/checkout', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const quote = networkServiceQuote(req.body || {});
+  if (!quote.pppoeUsers && !quote.hotspotConcurrent) return res.status(400).json({ error: 'Enter at least one PPPoE/static-IP user or hotspot concurrency tier.' });
+  const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
+  if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay for these services.' });
+  const pending = db.db.prepare(`SELECT checkout_request_id FROM business_billing_transactions
+    WHERE business_id=? AND status='pending' AND created_at>datetime('now','-3 minutes') ORDER BY created_at DESC LIMIT 1`).get(business.id);
+  if (pending) return res.status(409).json({ error: 'A service subscription payment is already processing.' });
+  const throttleKey = `network-services:${business.id}:${phone}`;
+  const previous = lastPush.get(throttleKey);
+  if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A service payment request is already on its way. Please wait a moment.' });
+  try {
+    lastPush.set(throttleKey, Date.now());
+    const pushed = await mpesa.stkPush({ phone, amount: quote.total, accountReference: 'WF-SERVICES', description: 'Wi-Fi Fiti network services' });
+    const serviceKind = quote.pppoeUsers && quote.hotspotConcurrent ? 'combined' : quote.pppoeUsers ? 'pppoe' : 'hotspot';
+    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+      businessId: business.id, plan: `services-${serviceKind}`, phone, amount: quote.total, serviceKind,
+      pppoeUsers: quote.pppoeUsers, hotspotConcurrent: quote.hotspotConcurrent });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, serviceKind, quote, phoneDisplay: mpesa.displayPhone(phone) });
+  } catch (err) {
+    lastPush.delete(throttleKey);
+    console.error('[network services] STK push failed:', err.message);
+    res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
+  }
+});
+
 app.post('/api/business/billing/checkout', async (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const plan = String(req.body && req.body.plan || business.plan);
@@ -1156,7 +1212,8 @@ app.post('/api/business/billing/checkout', async (req, res) => {
     const pushed = await mpesa.stkPush({ phone, amount: definition.monthlyKes,
       accountReference: `WF-${plan}`, description: `${definition.name} plan` });
     tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId,
-      merchantRequestId: pushed.merchantRequestId, businessId: business.id, plan, phone, amount: definition.monthlyKes });
+      merchantRequestId: pushed.merchantRequestId, businessId: business.id, plan, phone, amount: definition.monthlyKes,
+      serviceKind: 'platform', pppoeUsers: 0, hotspotConcurrent: 0 });
     res.json({ checkoutRequestId: pushed.checkoutRequestId, plan, amount: definition.monthlyKes,
       phoneDisplay: mpesa.displayPhone(phone) });
   } catch (err) {
@@ -1199,8 +1256,10 @@ app.get('/api/business/billing/status/:checkoutRequestId', async (req, res) => {
     catch (err) { console.error('[business billing] activation failed:', err.message); }
   }
   transaction = tenant.businessBillingTransaction.get(transaction.checkout_request_id);
+  const updatedBusiness = db.businessById.get(business.id);
   res.json({ status: transaction.status === 'paid' && !transaction.activated ? 'pending' : transaction.status, plan: transaction.plan, amount: transaction.amount,
-    expiresAt: transaction.status === 'paid' ? db.businessById.get(business.id).billing_expires_at : null,
+    serviceKind: transaction.service_kind || 'platform', quote: transaction.service_kind && transaction.service_kind !== 'platform' ? networkServiceQuote(transaction) : null,
+    expiresAt: transaction.status === 'paid' ? (transaction.service_kind && transaction.service_kind !== 'platform' ? (updatedBusiness.pppoe_billing_expires_at || updatedBusiness.hotspot_billing_expires_at) : updatedBusiness.billing_expires_at) : null,
     reason: transaction.status === 'failed' ? friendlyFailure(transaction.result_code, transaction.result_desc) : null });
 });
 
@@ -1212,7 +1271,7 @@ app.get('/api/business/billing/recover', (req, res) => {
     ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(business.id);
   if (!transaction) return res.json({ found: false });
   res.json({ found: true, checkoutRequestId: transaction.checkout_request_id,
-    plan: transaction.plan, amount: transaction.amount, phoneDisplay: mpesa.displayPhone(transaction.phone),
+    plan: transaction.plan, amount: transaction.amount, serviceKind: transaction.service_kind || 'platform', quote: transaction.service_kind && transaction.service_kind !== 'platform' ? networkServiceQuote(transaction) : null, phoneDisplay: mpesa.displayPhone(transaction.phone),
     status: transaction.status === 'paid' && !transaction.activated ? 'pending' : transaction.status,
     expiresAt: transaction.activated ? business.billing_expires_at : null,
     reason: transaction.status === 'failed' ? friendlyFailure(transaction.result_code, transaction.result_desc) : null });
