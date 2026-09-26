@@ -192,6 +192,8 @@ function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_fiti_signal_messages_queue ON fiti_signal_messages(status, created_at);
   `);
+  // Messages sent free during a 7-day trial never touch purchased credits.
+  try { db.exec(`ALTER TABLE fiti_signal_messages ADD COLUMN trial INTEGER NOT NULL DEFAULT 0`); } catch (_) { /* present */ }
   const insert = db.prepare(`INSERT OR IGNORE INTO fiti_signal_packages (id, amount, credits) VALUES (?, ?, ?)`);
   for (const item of PACKAGES) insert.run(item.id, item.amount, item.credits);
 }
@@ -269,6 +271,18 @@ function setSettings(business, patch) {
   return next;
 }
 
+const TRIAL_SMS_SEGMENTS = 300;
+
+function onTrial(businessIdValue) {
+  try {
+    const row = db.prepare('SELECT billing_status, billing_expires_at FROM businesses WHERE id=?').get(businessIdValue);
+    if (!row || String(row.billing_status || '').toLowerCase() !== 'trial' || !row.billing_expires_at) return false;
+    const raw = String(row.billing_expires_at);
+    const ends = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z');
+    return Number.isFinite(ends) && ends > Date.now();
+  } catch (_) { return false; }
+}
+
 function enqueue({ businessId: business, eventId, serviceKey, to, message, essential, confirmed = true, provider = null }) {
   const b = businessId(business);
   const service = SERVICE_CATALOGUE[serviceKey];
@@ -296,6 +310,17 @@ function enqueue({ businessId: business, eventId, serviceKey, to, message, essen
   if (controls.maxPerCustomer !== null) {
     const customer = db.prepare(`SELECT COALESCE(SUM(segments),0) AS n FROM fiti_signal_messages WHERE business_id=? AND recipient=? AND status IN ('queued','sent')`).get(b, recipient);
     if (Number(customer.n) + segments > controls.maxPerCustomer) return { queued: false, skipped: true, reason: 'customer-limit', limit: controls.maxPerCustomer };
+  }
+  // Free SMS during an active 7-day trial, up to TRIAL_SMS_SEGMENTS so a
+  // trial cannot run up an unlimited bill. Purchased credits are untouched.
+  if (onTrial(b)) {
+    const used = Number(db.prepare(`SELECT COALESCE(SUM(segments),0) AS n FROM fiti_signal_messages WHERE business_id=? AND trial=1 AND status IN ('queued','sent')`).get(b).n);
+    if (used + segments <= TRIAL_SMS_SEGMENTS) {
+      const row = db.prepare(`INSERT INTO fiti_signal_messages (id,business_id,event_id,service_key,recipient,message,segments,essential,trial) VALUES (?,?,?,?,?,?,?,?,1) RETURNING *`)
+        .get(id('sms'), b, event, serviceKey, recipient, safeText, segments, essentialFlag ? 1 : 0);
+      ledger(b, 0, 'trial', row.id, { serviceKey, recipient, segments });
+      return row;
+    }
   }
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -327,15 +352,17 @@ async function processQueue(provider, { limit = 50 } = {}) {
       const result = await provider.send({ to: row.recipient, message: row.message, id: row.id });
       db.exec('BEGIN IMMEDIATE');
       db.prepare(`UPDATE fiti_signal_messages SET status='sent',provider_id=?,updated_at=datetime('now') WHERE id=? AND status='queued'`).run(result?.id || result?.messageId || null, row.id);
-      db.prepare(`UPDATE fiti_signal_accounts SET credits_reserved=MAX(0,credits_reserved-?),credits_used=credits_used+?,updated_at=datetime('now') WHERE business_id=?`).run(row.segments, row.segments, row.business_id);
+      if (!row.trial) db.prepare(`UPDATE fiti_signal_accounts SET credits_reserved=MAX(0,credits_reserved-?),credits_used=credits_used+?,updated_at=datetime('now') WHERE business_id=?`).run(row.segments, row.segments, row.business_id);
       ledger(row.business_id, 0, 'sent', row.id, { segments: row.segments });
       db.exec('COMMIT'); results.push({ id: row.id, status: 'sent' });
     } catch (error) {
       try { db.exec('ROLLBACK'); } catch (_) {}
       db.exec('BEGIN IMMEDIATE');
       db.prepare(`UPDATE fiti_signal_messages SET status='failed',error=?,updated_at=datetime('now') WHERE id=? AND status='queued'`).run(String(error.message || error).slice(0, 500), row.id);
-      db.prepare(`UPDATE fiti_signal_accounts SET credits_reserved=MAX(0,credits_reserved-?),credits_available=credits_available+?,updated_at=datetime('now') WHERE business_id=?`).run(row.segments, row.segments, row.business_id);
-      ledger(row.business_id, row.segments, 'refund', row.id, { error: String(error.message || error).slice(0, 200) });
+      if (!row.trial) {
+        db.prepare(`UPDATE fiti_signal_accounts SET credits_reserved=MAX(0,credits_reserved-?),credits_available=credits_available+?,updated_at=datetime('now') WHERE business_id=?`).run(row.segments, row.segments, row.business_id);
+        ledger(row.business_id, row.segments, 'refund', row.id, { error: String(error.message || error).slice(0, 200) });
+      }
       db.exec('COMMIT'); results.push({ id: row.id, status: 'failed', error: String(error.message || error) });
     }
   }
@@ -371,7 +398,8 @@ function attachFitiSignalRoutes(app, { businessAuth }) {
     res.set('Cache-Control', 'no-store').json({
       sms: { credits: account.credits_available, reserved: account.credits_reserved,
         sent: account.credits_used, services: getServices(b), controls: getSettings(b),
-        usage: messages, packageName: null, trialUnlimited },
+        usage: messages, packageName: null, trialUnlimited,
+        trialSms: trialUnlimited ? { limit: TRIAL_SMS_SEGMENTS, used: Number(db.prepare(`SELECT COALESCE(SUM(segments),0) AS n FROM fiti_signal_messages WHERE business_id=? AND trial=1 AND status IN ('queued','sent')`).get(b).n) } : null },
       packages: packages(), catalogue: SERVICE_CATALOGUE,
     });
   }));

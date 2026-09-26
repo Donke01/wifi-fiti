@@ -721,7 +721,9 @@ function canAddLocation(business, res) {
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   if (plan.routerLimit && existing.length >= plan.routerLimit) {
     res.status(402).json({
-      error: `${plan.name} includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Choose a larger plan before adding another location.`,
+      error: plan.trialUnlimited
+        ? 'Your free trial includes one router. Routers are unlimited once you choose hotspot capacity in Billing & payments.'
+        : `Your workspace includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Routers are unlimited with prepaid hotspot capacity: choose it in Billing & payments.`,
     });
     return false;
   }

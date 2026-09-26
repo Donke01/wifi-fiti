@@ -105,10 +105,9 @@ function pppoeAddBlock(business, { activeUsers = 0, adding = true } = {}, now = 
   return null;
 }
 
-/** Routers are unlimited while hotspot capacity is paid; otherwise the plan's limit applies. */
+/** Routers are unlimited while hotspot capacity is paid (even if bought during the trial). */
 function routerLimitLifted(business, now = Date.now()) {
-  const s = summary(business, now);
-  return !s.trial.active && usable(s.hotspot);
+  return usable(summary(business, now).hotspot);
 }
 
 /**

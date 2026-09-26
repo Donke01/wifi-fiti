@@ -3965,9 +3965,13 @@ function activateBusinessBilling(checkoutRequestId, { periodDays = 30 } = {}) {
     if (transaction.service_kind === 'platform') {
       setBusinessBilling.run({ businessId: transaction.business_id, plan: transaction.plan, expiresAt });
     } else {
+      // The 7-day trial is free: a service bought during it starts when the
+      // trial ends, so no trial day is lost.
+      const trialEnd = String(business.billing_status || '').toLowerCase() === 'trial' && business.billing_expires_at
+        ? new Date(String(business.billing_expires_at).replace(' ', 'T') + 'Z').getTime() : 0;
       const serviceExpiry = (raw) => {
         const current = raw ? new Date(String(raw).replace(' ', 'T') + 'Z').getTime() : 0;
-        return nowSql(Math.max(Date.now(), Number.isFinite(current) ? current : 0) + periodDays * 86400_000);
+        return nowSql(Math.max(Date.now(), Number.isFinite(current) ? current : 0, Number.isFinite(trialEnd) ? trialEnd : 0) + periodDays * 86400_000);
       };
       const pExpiry = transaction.pppoe_users > 0 ? serviceExpiry(business.pppoe_billing_expires_at) : business.pppoe_billing_expires_at;
       const hExpiry = transaction.hotspot_concurrent > 0 ? serviceExpiry(business.hotspot_billing_expires_at) : business.hotspot_billing_expires_at;
