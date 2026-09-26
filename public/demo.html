@@ -204,11 +204,11 @@
         <section class="card calc" aria-live="polite">
           <p class="eyebrow">Live calculator</p>
           <div class="fee-tabs" role="radiogroup" aria-label="How payments are collected">
-            <label><input type="radio" name="feeMode" value="3" checked><span>Own Till / PayBill <b>3%</b></span></label>
+            <label><input type="radio" name="feeMode" value="0" checked><span>Own Till / PayBill / Tuma <b>0%</b></span></label>
             <label><input type="radio" name="feeMode" value="5"><span>Wi‑Fi Fiti collection <b>5%</b></span></label>
           </div>
           <div class="calc-part"><span class="calc-label">You sell</span><div class="calc-sell" id="calc-gross">KES 24,000</div><small id="calc-users-label">40 users × KES 20 × 30 days, per month</small></div>
-          <div class="calc-part"><span class="calc-label">You keep</span><div class="calc-figure" id="calc-net">KES 23,280</div><small id="calc-fee">Wi‑Fi Fiti takes KES 720, only on confirmed sales.</small></div>
+          <div class="calc-part"><span class="calc-label">You keep</span><div class="calc-figure" id="calc-net">KES 24,000</div><small id="calc-fee">100% of your sales. Your prepaid plan starts at KES 1,000 a month.</small></div>
           <div class="calc-bar" aria-hidden="true"><i id="calc-bar"></i></div>
           <p class="calc-note">An estimate, not a promise. Change the users and price in the form.</p>
         </section>
@@ -254,13 +254,13 @@
     }());
 
     function num(name) { var v = Number(form.elements[name].value); return Number.isFinite(v) && v > 0 ? v : 0; }
-    function feePercent() { var c = document.querySelector('input[name=feeMode]:checked'); return c ? Number(c.value) : 3; }
+    function feePercent() { var c = document.querySelector('input[name=feeMode]:checked'); return c ? Number(c.value) : 0; }
     function recalc() {
       var users = num('usersPerDay'), price = num('avgPriceKes'), fee = feePercent();
       var gross = users * price * 30, cut = Math.round(gross * fee / 100);
       $('calc-gross').textContent = kes(gross);
       $('calc-users-label').textContent = users.toLocaleString('en-KE') + ' users × KES ' + price.toLocaleString('en-KE') + ' × 30 days, per month';
-      $('calc-fee').textContent = 'Wi‑Fi Fiti takes ' + kes(cut) + ', only on confirmed sales.';
+      $('calc-fee').textContent = fee ? 'Wi‑Fi Fiti collection takes ' + kes(cut) + ' (5%), only on confirmed sales.' : '100% of your sales. Your prepaid plan starts at KES 1,000 a month.';
       $('calc-net').textContent = kes(gross - cut);
       $('calc-bar').style.width = (gross ? 100 - fee : 0) + '%';
     }

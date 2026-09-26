@@ -22,6 +22,7 @@ const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
+const serviceBilling = require('./lib/service-billing');
 const { createDemo } = require('./lib/demo');
 
 const app = express();
@@ -704,6 +705,8 @@ function locationDraftInput(body, { routerNameRequired = false } = {}) {
 
 function canAddLocation(business, res) {
   const plan = businessPlanEntitlements(business);
+  // Paid hotspot capacity is priced per concurrent customer, not per router.
+  if (serviceBilling.routerLimitLifted(business)) return true;
   const existing = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   if (plan.routerLimit && existing.length >= plan.routerLimit) {
@@ -975,7 +978,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1153,7 +1156,7 @@ app.get('/api/business/network-services', (req, res) => {
     pppoeUsers: req.query.pppoeUsers ?? business.pppoe_users,
     hotspotConcurrent: req.query.hotspotConcurrent ?? business.hotspot_concurrent,
   });
-  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, current: {
+  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, services: serviceBilling.summary(business), current: {
     pppoeUsers: Number(business.pppoe_users || 0),
     pppoeExpiresAt: business.pppoe_billing_expires_at || null,
     hotspotConcurrent: Number(business.hotspot_concurrent || 0),
@@ -1919,12 +1922,26 @@ function publicLocation(id, res) {
   return location;
 }
 
+// Whether this location may take a new sale at all: trial, a paid hotspot
+// service or a legacy plan, each with a 3-day grace period after expiry.
 function businessCanSell(location) {
-  if (location.billing_status === 'suspended') return 'This WiFi service is temporarily unavailable.';
-  if (!location.billing_expires_at) return null; // existing operators are migrated without interruption
-  const expiry = new Date(location.billing_expires_at.replace(' ', 'T') + 'Z').getTime();
-  if (Number.isFinite(expiry) && expiry <= Date.now()) {
-    return 'This WiFi service needs its business plan renewed before it can take a new payment.';
+  return serviceBilling.hotspotSaleBlock(location, { renewing: true });
+}
+
+const hotspotOnlineNow = db.db.prepare(`SELECT COUNT(*) AS n FROM tenant_subscriptions
+  WHERE business_id=? AND expires_at>datetime('now')`);
+
+// Capacity check for one new sale. Prepaid hotspot capacity counts customers
+// online right now; legacy Starter/Growth plans keep their monthly device cap.
+function hotspotCapacityBlock(location, renewing) {
+  if (renewing || trialActive(location)) return null;
+  const services = serviceBilling.summary(location);
+  if (services.hotspot.status === 'active' || services.hotspot.status === 'grace') {
+    return serviceBilling.hotspotSaleBlock(location, { activeNow: hotspotOnlineNow.get(location.business_id).n, renewing: false });
+  }
+  const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
+  if (plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
+    return 'This WiFi location has reached its current monthly customer limit. Please contact the operator.';
   }
   return null;
 }
@@ -2033,11 +2050,9 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   if (!pkg || !phone || !deviceType || (deviceType === 'tv' && !mac)) return res.status(400).json({ error: 'Choose a package, enter a valid number, and select the device.' });
   const offlineClaim = !mac && deviceType === 'phone';
   if (offlineClaim) mac = `CLAIM:${crypto.randomBytes(12).toString('hex')}`;
-  const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
   const existingSubscription = offlineClaim ? null : tenant.subscriptionByMac.get(location.id, mac);
-  if (!trialActive(location) && !existingSubscription && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
-    return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
-  }
+  const capacityBlocked = hotspotCapacityBlock(location, Boolean(existingSubscription));
+  if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
   const pendingPayment = tenant.pendingPaymentForPhone.get(location.id, phone);
   if (pendingPayment) {
     return res.status(429).json({ error: 'A payment request is already on its way to this number. Please check the phone first.' });
@@ -2303,10 +2318,8 @@ app.post('/api/tenant/:locationId/voucher/redeem', (req, res) => {
   const mac = cleanMac(req.body && req.body.mac);
   const ip = cleanIp(req.body && req.body.ip);
   if (code.length < 6 || !phone || !mac) return res.status(400).json({ error: 'Enter a valid voucher code, phone number, and reconnect to this WiFi.' });
-  const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
-  if (!trialActive(location) && !tenant.subscriptionByMac.get(location.id, mac) && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
-    return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
-  }
+  const capacityBlocked = hotspotCapacityBlock(location, Boolean(tenant.subscriptionByMac.get(location.id, mac)));
+  if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
   try {
     const result = tenant.redeemVoucher({ locationId: location.id, code, phone, mac, ip });
     if (!result) return res.status(409).json({ error: 'That voucher is not available at this location, or it has already been used.' });
@@ -4245,6 +4258,11 @@ const demo = createDemo({
   db: db.db, adminOk, tuma, publicUrl: config.publicUrl, smsProvider, sendEmail, whatsapp,
 });
 demo.attachRoutes(app);
+// Prepaid subscription reminders: 3 days before expiry, grace, and stop.
+const serviceReminders = require('./lib/service-reminders').createServiceReminders({ db: db.db, smsProvider, sendEmail });
+const runServiceReminders = () => serviceReminders.run().catch((err) => console.error('[billing reminders]', err.message));
+setTimeout(runServiceReminders, 60_000).unref();
+setInterval(runServiceReminders, 60 * 60_000).unref();
 if (smsProvider) {
   const smsWorker = () => fitiSignal.processQueue(smsProvider, { limit: 50 })
     .catch((error) => console.error('[fiti-signal] provider worker failed:', error.message));
@@ -4262,7 +4280,7 @@ const whatsappWorker = () => whatsappNotifications.processQueue({ limit: 50 })
 whatsappWorker();
 const whatsappWorkerTimer = setInterval(whatsappWorker, 5000);
 whatsappWorkerTimer.unref?.();
-require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth });
+require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth, subscriptionBlock: (business, usage) => serviceBilling.pppoeAddBlock(business, usage) });
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.
 require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db });

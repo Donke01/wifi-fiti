@@ -212,15 +212,27 @@ function scriptForLocation(locationId) {
   return lines.join('\n');
 }
 
-function attachPppoeRoutes(app, { businessAuth }) {
+function activeUserCount(businessId) {
+  return db.prepare(`SELECT COUNT(*) AS n FROM pppoe_users WHERE business_id=? AND status='active'
+    AND (expires_at IS NULL OR julianday(expires_at) > julianday('now'))`).get(businessId).n;
+}
+
+function attachPppoeRoutes(app, { businessAuth, subscriptionBlock = null }) {
   const operator = handler => (req, res) => {
     const current = businessAuth(req, res); if (!current) return;
-    try { return handler(req, res, current.id || current.business_id); } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+    try { return handler(req, res, current.id || current.business_id, current); } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  };
+  // Prepaid PPPoE: adding or re-provisioning a subscriber needs an active
+  // (or grace-period) subscription with room for one more active user.
+  const guard = (current, adding) => {
+    if (!subscriptionBlock) return;
+    const blocked = subscriptionBlock(current, { activeUsers: activeUserCount(current.id || current.business_id), adding });
+    if (blocked) throw Object.assign(new Error(blocked), { status: 402 });
   };
   app.get('/api/business/pppoe', operator((req, res, b) => res.json({ profiles: profilesFor(b), users: usersFor(b, req.query.locationId || null) })));
   app.post('/api/business/pppoe/profiles', operator((req, res, b) => res.status(201).json({ profile: profileCreate({ businessId: b, name: req.body?.name, downloadRate: req.body?.downloadRate, uploadRate: req.body?.uploadRate, maxSessions: req.body?.maxSessions, sessionTimeoutSeconds: req.body?.sessionTimeoutSeconds, idleTimeoutSeconds: req.body?.idleTimeoutSeconds }) })));
-  app.post('/api/business/pppoe/users', operator((req, res, b) => res.status(201).json({ user: userCreate({ businessId: b, locationId: req.body?.locationId, profileId: req.body?.profileId, username: req.body?.username, secret: req.body?.secret, serviceName: req.body?.serviceName, expiresAt: req.body?.expiresAt, maxSessions: req.body?.maxSessions }) })));
-  app.post('/api/business/pppoe/users/:userId/provision', operator((req, res, b) => res.status(202).json({ job: jobFor({ businessId: b, userId: req.params.userId, action: req.body?.action || 'upsert', locationId: req.body?.locationId }) })));
+  app.post('/api/business/pppoe/users', operator((req, res, b, current) => guard(current, true) || res.status(201).json({ user: userCreate({ businessId: b, locationId: req.body?.locationId, profileId: req.body?.profileId, username: req.body?.username, secret: req.body?.secret, serviceName: req.body?.serviceName, expiresAt: req.body?.expiresAt, maxSessions: req.body?.maxSessions }) })));
+  app.post('/api/business/pppoe/users/:userId/provision', operator((req, res, b, current) => guard(current, false) || res.status(202).json({ job: jobFor({ businessId: b, userId: req.params.userId, action: req.body?.action || 'upsert', locationId: req.body?.locationId }) })));
   app.post('/api/business/pppoe/users/:userId/lock', operator((req, res, b) => res.json(setUserLock({ businessId: b, userId: req.params.userId, minutes: req.body?.minutes }))));
   app.post('/api/business/pppoe/users/:userId/unlock', operator((req, res, b) => res.json(clearUserLock({ businessId: b, userId: req.params.userId }))));
   app.get('/api/business/pppoe/jobs/:jobId', operator((req, res, b) => { const job = jobStatus(b, req.params.jobId); if (!job) return res.status(404).json({ error: 'PPPoE job was not found.' }); res.json({ job }); }));

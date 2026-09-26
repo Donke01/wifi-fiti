@@ -135,7 +135,7 @@ function validateRequest(body, { today = new Date() } = {}) {
  * Hotspot billing is 3% of confirmed sales on the operator's own rail and 5%
  * when Wi-Fi Fiti collects on their behalf (see the pricing section).
  */
-function estimateEarnings({ usersPerDay, avgPriceKes, days = 30, feePercent = 3 }) {
+function estimateEarnings({ usersPerDay, avgPriceKes, days = 30, feePercent = 0 }) {
   const users = Math.max(0, Number(usersPerDay) || 0);
   const price = Math.max(0, Number(avgPriceKes) || 0);
   const gross = Math.round(users * price * days);
