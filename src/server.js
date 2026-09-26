@@ -616,8 +616,11 @@ app.get('/media/logo/:businessId', (req, res) => {
 });
 
 const BUSINESS_PLANS = {
-  starter: { name: 'Starter', monthlyKes: 1500, routerLimit: 2, activeDeviceLimit: 2000 },
-  growth: { name: 'Growth', monthlyKes: 3500, routerLimit: 5, activeDeviceLimit: 5000 },
+  // Workspace access has no platform subscription.  Keep these internal
+  // entitlement names for backwards-compatible records and limits; tenants
+  // pay only for the prepaid network services they activate.
+  starter: { name: 'Workspace', monthlyKes: null, routerLimit: 2, activeDeviceLimit: 2000 },
+  growth: { name: 'Workspace Plus', monthlyKes: null, routerLimit: 5, activeDeviceLimit: 5000 },
   custom: { name: 'Custom', monthlyKes: null, routerLimit: null, activeDeviceLimit: null },
 };
 
@@ -1199,12 +1202,12 @@ app.post('/api/business/billing/checkout', async (req, res) => {
   const plan = String(req.body && req.body.plan || business.plan);
   const definition = BUSINESS_PLANS[plan];
   const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
-  if (!definition || !definition.monthlyKes) return res.status(400).json({ error: 'Custom plans are arranged with Wi-Fi Fiti directly.' });
   // Starter and Growth are retired: every workspace now prepays hotspot and
   // PPPoE capacity. Time already paid on an old plan is still honoured.
   if (RETIRED_PLANS.has(plan)) {
     return res.status(410).json({ error: 'Starter and Growth plans have been replaced by prepaid hotspot and PPPoE capacity. Choose your capacity under Prepaid network services.' });
   }
+  if (!definition || !definition.monthlyKes) return res.status(400).json({ error: 'Custom plans are arranged with Wi-Fi Fiti directly.' });
   if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay for this plan.' });
   const activeLocations = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
