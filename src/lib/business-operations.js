@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 
 /** Business records and manually processed settlements. This module never transfers money. */
-function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
+function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provisionTenantPayment }) {
   const db = store.db;
   db.exec(`
     CREATE TABLE IF NOT EXISTS business_support_tickets (
@@ -81,6 +81,14 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
   const messagesForTicket = db.prepare(`SELECT id, author, body, created_at FROM business_support_messages
     WHERE ticket_id=? AND business_id=? ORDER BY id`);
   const locationOwned = db.prepare('SELECT id FROM locations WHERE id=? AND business_id=?');
+  const tenantJobForRetry = db.prepare(`SELECT id FROM tenant_jobs
+    WHERE location_id=? AND username=? AND acked_at IS NULL
+      AND action IN ('upsert','transfer','tv-upsert')
+      AND id=(SELECT MAX(newer.id) FROM tenant_jobs newer WHERE newer.location_id=tenant_jobs.location_id AND newer.username=tenant_jobs.username)
+    LIMIT 1`);
+  const tenantJobInsert = db.prepare(`INSERT INTO tenant_jobs
+    (location_id,username,password,profile,total_seconds,rate_limit,mac,ip,action)
+    VALUES(?,?,?,?,?,?,?,?,?)`);
   const billingRows = db.prepare(`SELECT t.checkout_request_id, t.plan, t.amount, t.mpesa_receipt,
     t.created_at, g.created_at AS paid_at, g.expires_at FROM business_billing_transactions t
     JOIN business_billing_grants g ON g.checkout_request_id=t.checkout_request_id AND g.business_id=t.business_id
@@ -167,6 +175,29 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
       WHERE business_id=? AND location_id=? AND redeemed_subscription_id=? ORDER BY redeemed_at DESC LIMIT 100`)
       .all(business.id, subscription.location_id, subscription.id);
     res.json({ subscription, history, devices, vouchers });
+  }));
+
+  // A confirmed customer payment can be safely retried by the tenant. This
+  // only requeues the existing package grant; it never creates a new charge.
+  app.post(`${base}/transactions/:checkoutRequestId/retry`, operator((req, res, business) => {
+    const transaction = db.prepare(`SELECT * FROM tenant_transactions
+      WHERE checkout_request_id=? AND business_id=? AND status='paid'`).get(req.params.checkoutRequestId, business.id);
+    if (!transaction) throw fail('Confirmed customer payment not found.', 404);
+    if (typeof provisionTenantPayment !== 'function') throw fail('Payment recovery is temporarily unavailable.', 503);
+    const provisioned = provisionTenantPayment(transaction.checkout_request_id) || transaction;
+    const current = db.prepare('SELECT * FROM tenant_transactions WHERE checkout_request_id=?').get(transaction.checkout_request_id);
+    const subscription = current && current.subscription_id
+      ? db.prepare('SELECT * FROM tenant_subscriptions WHERE id=? AND business_id=?').get(current.subscription_id, business.id)
+      : null;
+    if (!subscription) throw fail('The payment is confirmed but its package grant is incomplete. Try again shortly.', 409);
+    let job = tenantJobForRetry.get(subscription.location_id, subscription.router_username);
+    if (!job) {
+      const result = tenantJobInsert.run(subscription.location_id, subscription.router_username, subscription.password,
+        'standard', subscription.total_seconds, subscription.rate_limit || null, subscription.mac, null,
+        subscription.device_type === 'tv' ? 'tv-upsert' : 'upsert');
+      job = { id: Number(result.lastInsertRowid) };
+    }
+    res.json({ ok: true, recovered: true, transaction: current || provisioned, provisioningJobId: Number(job.id) });
   }));
 
   app.get(`${base}/tickets`, operator((req, res, business) => {

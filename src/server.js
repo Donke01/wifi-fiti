@@ -2168,6 +2168,38 @@ app.post('/api/tenant/:locationId/session/connect', (req, res) => {
   res.json({ ...tenantSessionPayload(subscription), status: 'pending', provisioningJobId: Number(job.lastInsertRowid) });
 });
 
+// Recover a confirmed payment whose router job was missed or never
+// acknowledged. Receipt + paying number are required, and the existing grant
+// is reused so recovery cannot create a second package or charge.
+app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  const receipt = String(req.body && req.body.receipt || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!phone || !/^[A-Z0-9]{6,32}$/.test(receipt)) return res.status(400).json({ error: 'Enter the paying number and the M-Pesa transaction code.' });
+  let transaction = tenant.paidTransactionByReceipt.get(location.id, phone, receipt);
+  if (!transaction) return res.status(404).json({ error: 'We could not find a confirmed payment for that number and transaction code.' });
+  if (String(transaction.mac || '').startsWith('CLAIM:')) return res.status(409).json({ error: 'This payment is waiting for its one-time claim code on the target device.' });
+  try {
+    if (!transaction.provisioned) provisionTenantPayment(transaction.checkout_request_id);
+    transaction = tenant.getTransaction.get(transaction.checkout_request_id);
+    const subscription = tenant.subscriptionById.get(transaction.subscription_id, location.id);
+    if (!subscription) return res.status(409).json({ error: 'The payment is confirmed but its package grant is incomplete. Try again shortly.' });
+    if (!tenantRemaining(subscription)) return res.status(410).json({ error: 'That package has already expired.' });
+    let pending = tenant.pendingProvisioningJobForUsername.get(location.id, subscription.router_username);
+    if (!pending) {
+      const job = tenant.insertJob.run({ locationId: location.id, username: subscription.router_username,
+        password: subscription.password, profile: 'standard', totalSeconds: subscription.total_seconds,
+        rateLimit: subscription.rate_limit, mac: subscription.mac, ip: cleanIp(req.body && req.body.ip),
+        action: subscription.device_type === 'tv' ? 'tv-upsert' : 'upsert' });
+      pending = { id: Number(job.lastInsertRowid) };
+    }
+    res.json({ status: 'pending', recovered: true, provisioningJobId: Number(pending.id), ...tenantSessionPayload(subscription, true) });
+  } catch (error) {
+    console.error(`[tenant recovery] could not requeue ${transaction.checkout_request_id}:`, error.message);
+    res.status(409).json({ error: 'The payment was found, but the router job could not be requeued yet. Try again shortly.' });
+  }
+});
+
 app.post('/api/tenant/:locationId/pay', async (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const salesBlocked = businessCanSell(location);
@@ -4439,7 +4471,7 @@ app.get('/api/health', async (req, res) => {
   res.status(out.ok ? 200 : 503).json(out);
 });
 
-require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk });
+require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk, provisionTenantPayment });
 const fitiSignal = require('./lib/fiti-signal');
 fitiSignal.attachFitiSignalRoutes(app, { businessAuth });
 // Start the notification worker only when a provider key is configured. This

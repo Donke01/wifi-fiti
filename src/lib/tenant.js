@@ -1368,6 +1368,11 @@ const insertTransaction = db.prepare(`
           @packageName, @amount, @seconds, @rateLimit, @mac, @ip)
 `);
 const getTransaction = db.prepare(`SELECT * FROM tenant_transactions WHERE checkout_request_id = ?`);
+const paidTransactionByReceipt = db.prepare(`
+  SELECT * FROM tenant_transactions
+   WHERE location_id=? AND phone=? AND mpesa_receipt=? AND status='paid'
+   ORDER BY updated_at DESC, created_at DESC LIMIT 1
+`);
 const setTransactionDevice = db.prepare(`UPDATE tenant_transactions SET device_type=@deviceType, device_label=@deviceLabel WHERE checkout_request_id=@checkoutRequestId`);
 const setSubscriptionDevice = db.prepare(`UPDATE tenant_subscriptions SET device_type=@deviceType, device_label=@deviceLabel WHERE id=@id AND location_id=@locationId`);
 const setTransactionResult = db.prepare(`
@@ -4096,7 +4101,7 @@ module.exports = {
   provisionRemoteVpn, allocateDesiredVpnPeer, desiredVpnPeersForGateway, reportVpnGatewaySync,
   recordVpnGatewayPeer, recordVpnGatewayError, recordVpnPeerHandshake, revokeVpnPeer,
   pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,
-  packageForLocation, packagesForLocation, insertTransaction, getTransaction, setTransactionDevice,
+  packageForLocation, packagesForLocation, insertTransaction, getTransaction, paidTransactionByReceipt, setTransactionDevice,
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, latestPaidTransactionForSubscription, setSubscriptionMac,
   grantSubscription, provisionPaidTransaction, createPaymentClaim, claimPaymentDevice, recordUsage, expiredSubscriptions, activeMeter,
