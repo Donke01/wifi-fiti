@@ -589,7 +589,7 @@
         sales: ['sales-section'],
         vouchers: ['vouchers-section'],
         branding: ['branding-section'],
-        payments: ['billing-section', 'collection-section', 'integrations-section'],
+        payments: ['billing-section', 'network-services-section', 'collection-section', 'integrations-section'],
         sms: ['sms-section'],
         analytics: ['analytics-section'],
         support: ['support-section'],
@@ -605,7 +605,7 @@
       function moduleFromHash() { var raw = String(window.location.hash || '').replace(/^#/, '').split('=')[1] || String(window.location.hash || '').replace(/^#/, ''); return Object.prototype.hasOwnProperty.call(moduleSections, raw) ? raw : 'overview'; }
       function configureModuleTargets() {
         var metrics = document.querySelector('#dashboard .metrics'); if (metrics && !metrics.id) metrics.id = 'metrics';
-        var groups = { overview: ['overview', 'metrics', 'overview-insights-section', 'onboarding-section'], onboarding: ['onboarding-section'], routers: ['router-observability-section', 'locations-section', 'location-setup-section', 'remote-onboarding-section'], 'router-setup': ['router-setup-section', 'location-setup-section'], packages: ['packages-section'], sales: ['sales-section'], vouchers: ['vouchers-section'], branding: ['branding-section'], payments: ['billing-section', 'collection-section', 'integrations-section'], sms: ['sms-section'], analytics: ['analytics-section'], support: ['support-section'], customers: ['customers-section'], settings: ['settings-section'], transactions: ['transactions-section'], disbursements: ['disbursements-section'], remote: ['remote-section'], team: ['team-section'], account: ['account-section'], 'portal-templates': ['portal-templates-section'] };
+        var groups = { overview: ['overview', 'metrics', 'overview-insights-section', 'onboarding-section'], onboarding: ['onboarding-section'], routers: ['router-observability-section', 'locations-section', 'location-setup-section', 'remote-onboarding-section'], 'router-setup': ['router-setup-section', 'location-setup-section'], packages: ['packages-section'], sales: ['sales-section'], vouchers: ['vouchers-section'], branding: ['branding-section'], payments: ['billing-section', 'network-services-section', 'collection-section', 'integrations-section'], sms: ['sms-section'], analytics: ['analytics-section'], support: ['support-section'], customers: ['customers-section'], settings: ['settings-section'], transactions: ['transactions-section'], disbursements: ['disbursements-section'], remote: ['remote-section'], team: ['team-section'], account: ['account-section'], 'portal-templates': ['portal-templates-section'] };
         Object.keys(groups).forEach(function (module) { groups[module].forEach(function (id) { var node = $(id); if (node) node.dataset.module = module; }); });
       }
       function installExtendedNavigation() {
