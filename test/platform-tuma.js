@@ -140,6 +140,27 @@ async function test(name, fn) {
     assert.equal(row(res.body.checkoutRequestId).payment_source, 'daraja');
   });
 
+  console.log('\nRouter limits');
+
+  const tokenFor = (id) => { const tok = `session-${id}`; database.prepare(`INSERT INTO business_sessions (token_hash, business_id, expires_at) VALUES (?, ?, datetime('now','+1 day'))`).run(crypto.createHash('sha256').update(tok).digest('hex'), id); return tok; };
+  database.prepare(`INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash, billing_status, billing_expires_at, onboarding_state)
+    VALUES ('trialbiz', 'Trial Cafe', 'Amina', '0722000111', 'trial@test.ke', 'x', 'trial', datetime('now','+5 days'), 'complete'),
+           ('paidbiz', 'Paid Cafe', 'Otieno', '0722000222', 'paid@test.ke', 'x', 'active', NULL, 'complete')`).run();
+  const addRouter = (tok, n) => call('POST', '/api/business/locations', { location: `Branch ${n}`, routerName: `R${n}` }, { Authorization: `Bearer ${tok}` });
+
+  await test('a trial workspace is limited to one router', async () => {
+    const tok = tokenFor('trialbiz');
+    assert.equal((await addRouter(tok, 1)).status, 201);
+    const second = await addRouter(tok, 2);
+    assert.equal(second.status, 402);
+    assert.match(second.body.error, /free trial includes one router/);
+  });
+
+  await test('every other workspace can add unlimited routers', async () => {
+    const tok = tokenFor('paidbiz');
+    for (let n = 1; n <= 6; n += 1) assert.equal((await addRouter(tok, n)).status, 201, `router ${n}`);
+  });
+
   server.close();
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

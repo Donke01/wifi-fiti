@@ -623,8 +623,10 @@ const BUSINESS_PLANS = {
   // Workspace access has no platform subscription.  Keep these internal
   // entitlement names for backwards-compatible records and limits; tenants
   // pay only for the prepaid network services they activate.
-  starter: { name: 'Workspace', monthlyKes: null, routerLimit: 2, activeDeviceLimit: 2000 },
-  growth: { name: 'Workspace Plus', monthlyKes: null, routerLimit: 5, activeDeviceLimit: 5000 },
+  // Routers are unlimited for every paying workspace: pricing is by users.
+  // Only the 7-day trial is limited to one router (businessPlanEntitlements).
+  starter: { name: 'Workspace', monthlyKes: null, routerLimit: null, activeDeviceLimit: 2000 },
+  growth: { name: 'Workspace Plus', monthlyKes: null, routerLimit: null, activeDeviceLimit: 5000 },
   custom: { name: 'Custom', monthlyKes: null, routerLimit: null, activeDeviceLimit: null },
 };
 
@@ -721,9 +723,7 @@ function canAddLocation(business, res) {
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   if (plan.routerLimit && existing.length >= plan.routerLimit) {
     res.status(402).json({
-      error: plan.trialUnlimited
-        ? 'Your free trial includes one router. Routers are unlimited once you choose hotspot capacity in Billing & payments.'
-        : `Your workspace includes ${plan.routerLimit} router${plan.routerLimit === 1 ? '' : 's'}. Routers are unlimited with prepaid hotspot capacity: choose it in Billing & payments.`,
+      error: 'Your free trial includes one router. After the trial, or as soon as you pay for hotspot capacity in Billing & payments, you can add as many routers as you need.',
     });
     return false;
   }
