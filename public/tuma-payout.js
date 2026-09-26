@@ -222,16 +222,18 @@
   function renderFee(data) {
     if (!billingPanel) return;
     var fee = data && (data.outstanding || data.current);
-    if (!fee || (fee.stage === 'below' && !fee.salesKes)) { feeCard.classList.add('hidden'); return; }
+    // Tuma's charge is never hidden from a Tuma tenant: it always shows on
+    // their billing, whatever this month's sales are.
+    if (!fee || !data.isTuma) { feeCard.classList.add('hidden'); return; }
     feeCard.className = 'tf ' + fee.stage; feeCard.replaceChildren();
     var title = fee.stage === 'paid' ? 'Tuma fee paid for this month'
       : fee.stage === 'overdue' ? 'Sales paused: Tuma fee unpaid'
       : fee.stage === 'due' ? 'Tuma fee due: ' + kesText(fee.feeKes)
-      : fee.stage === 'approaching' ? 'You are close to the Tuma fee threshold' : 'Tuma sales this month';
+      : fee.stage === 'approaching' ? 'You are close to the Tuma fee threshold' : 'Tuma charges';
     var text = fee.stage === 'paid' ? 'Thank you. No further Tuma fee is due this month.'
       : fee.stage === 'overdue' ? 'New customer payments are paused until the ' + kesText(fee.feeKes) + ' fee is paid. Customers already online keep their time.'
       : fee.stage === 'due' ? 'Your Tuma sales passed ' + kesText(fee.thresholdKes) + '. Pay by ' + dayText(fee.pauseAt) + ' to keep taking payments.'
-      : 'When your Tuma sales reach ' + kesText(fee.thresholdKes) + ' in a month, a flat ' + kesText(fee.feeKes) + ' fee applies.' + (fee.canPay ? ' You can pay it early now to avoid any interruption.' : '');
+      : 'Tuma charges a flat ' + kesText(fee.feeKes) + ' in any calendar month your Tuma sales reach ' + kesText(fee.thresholdKes) + '. You are notified at ' + kesText(fee.warnAtKes) + (fee.canPay ? '. You can pay it early now to avoid any interruption.' : ', and you can pay it early from then.');
     feeCard.appendChild(h('h3', { text: title }));
     feeCard.appendChild(h('p', { text: text }));
     var pct = Math.min(100, Math.round(100 * fee.salesKes / fee.thresholdKes));
@@ -259,7 +261,12 @@
     feeCard.appendChild(h('div', { class: 'tf-row' }, [phone, pay]));
     feeCard.appendChild(msg);
   }
-  function loadFee() { api('/api/business/tuma/fee').then(renderFee).catch(function () { feeCard.classList.add('hidden'); }); }
+  function loadFee() {
+    return Promise.all([api('/api/business/tuma/fee'), api('/api/business/integrations').catch(function () { return {}; })])
+      .then(function (r) { var data = r[0]; data.isTuma = r[1].selected === 'tuma'; renderFee(data); return data; })
+      .catch(function () { feeCard.classList.add('hidden'); });
+  }
+  window.fitiTumaFee = { card: feeCard, load: loadFee };
   if (billingPanel) { loadFee(); setInterval(loadFee, 5 * 60 * 1000); }
 
   function sync() {
