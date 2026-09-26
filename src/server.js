@@ -615,8 +615,11 @@ app.get('/media/logo/:businessId', (req, res) => {
 });
 
 const BUSINESS_PLANS = {
-  starter: { name: 'Starter', monthlyKes: 1500, routerLimit: 2, activeDeviceLimit: 2000 },
-  growth: { name: 'Growth', monthlyKes: 3500, routerLimit: 5, activeDeviceLimit: 5000 },
+  // Workspace access has no platform subscription.  Keep these internal
+  // entitlement names for backwards-compatible records and limits; tenants
+  // pay only for the prepaid network services they activate.
+  starter: { name: 'Workspace', monthlyKes: null, routerLimit: 2, activeDeviceLimit: 2000 },
+  growth: { name: 'Workspace Plus', monthlyKes: null, routerLimit: 5, activeDeviceLimit: 5000 },
   custom: { name: 'Custom', monthlyKes: null, routerLimit: null, activeDeviceLimit: null },
 };
 
@@ -1921,11 +1924,8 @@ function publicLocation(id, res) {
 
 function businessCanSell(location) {
   if (location.billing_status === 'suspended') return 'This WiFi service is temporarily unavailable.';
-  if (!location.billing_expires_at) return null; // existing operators are migrated without interruption
-  const expiry = new Date(location.billing_expires_at.replace(' ', 'T') + 'Z').getTime();
-  if (Number.isFinite(expiry) && expiry <= Date.now()) {
-    return 'This WiFi service needs its business plan renewed before it can take a new payment.';
-  }
+  // There is no platform subscription gate. Service access is controlled by
+  // the prepaid network-service entitlements, not by an old plan expiry.
   return null;
 }
 
