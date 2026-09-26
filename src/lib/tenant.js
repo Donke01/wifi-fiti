@@ -3922,6 +3922,20 @@ function activateBusinessBilling(checkoutRequestId, { periodDays = 30 } = {}) {
       db.exec('COMMIT');
       return { expiresAt: granted.expires_at, alreadyActivated: true };
     }
+    // Mid-period capacity upgrade: raise the paid number of users, keep the
+    // renewal date (the tenant paid only for the days left).
+    if (transaction.service_kind === 'upgrade') {
+      db.prepare(`UPDATE businesses SET
+          hotspot_concurrent=CASE WHEN @hotspot>hotspot_concurrent THEN @hotspot ELSE hotspot_concurrent END,
+          pppoe_users=CASE WHEN @pppoe>pppoe_users THEN @pppoe ELSE pppoe_users END
+        WHERE id=@businessId`).run({ businessId: transaction.business_id, hotspot: transaction.hotspot_concurrent || 0, pppoe: transaction.pppoe_users || 0 });
+      const current = db.prepare(`SELECT pppoe_billing_expires_at, hotspot_billing_expires_at FROM businesses WHERE id=?`).get(transaction.business_id);
+      const keep = [current.pppoe_billing_expires_at, current.hotspot_billing_expires_at].filter(Boolean).sort().pop() || nowSql(Date.now());
+      addBusinessBillingGrant.run(checkoutRequestId, transaction.business_id, keep);
+      setBusinessBillingActivated.run(checkoutRequestId);
+      db.exec('COMMIT');
+      return { expiresAt: keep, upgraded: true };
+    }
     // Tuma's monthly KES 2,500 fee, passed on to the tenant. Paying it only
     // records the month as settled; it never changes service expiry dates.
     if (transaction.service_kind === 'tuma_fee') {

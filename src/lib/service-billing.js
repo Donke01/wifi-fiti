@@ -100,7 +100,7 @@ function pppoeAddBlock(business, { activeUsers = 0, adding = true } = {}, now = 
       : 'Your PPPoE + Static IP subscription has ended. Renew it in Billing & payments to manage subscribers.';
   }
   if (adding && s.pppoe.capacity > 0 && activeUsers >= s.pppoe.capacity) {
-    return `Your plan covers ${s.pppoe.capacity} PPPoE users. Increase it in Billing & payments to add more.`;
+    return `Your plan covers ${s.pppoe.capacity} PPPoE users. Add more users in Billing & payments; you pay only for the days left this month.`;
   }
   return null;
 }
@@ -138,6 +138,66 @@ function reminderText(kind, stage, expiresRaw, businessName) {
   return `${name}new ${label} sales have stopped because the subscription was not renewed. Customers already online keep their time. Renew in your dashboard to resume.`;
 }
 
+// ---- Capacity: prices, usage and mid-period upgrades ------------------------
+
+function hotspotPrice(users) {
+  const h = Math.max(0, Math.floor(Number(users) || 0));
+  return h ? Math.max(1000, Math.ceil(h / 100) * 1000) : 0;
+}
+
+function pppoePrice(users) {
+  const p = Math.max(0, Math.floor(Number(users) || 0));
+  return p ? (p < 35 ? 500 : p * 15) : 0;
+}
+
+const NEAR_PCT = 90;
+
+/** How full each paid service is. level: ok | near (90%+) | full. */
+function capacityUsage(business, { hotspotOnline = 0, pppoeActive = 0 } = {}) {
+  const one = (used, capacity) => {
+    const cap = Number(capacity || 0);
+    const pct = cap ? Math.floor((100 * used) / cap) : 0;
+    return { used, capacity: cap, pct, level: !cap ? 'ok' : used >= cap ? 'full' : pct >= NEAR_PCT ? 'near' : 'ok' };
+  };
+  const hotspot = one(hotspotOnline, business && business.hotspot_concurrent);
+  const pppoe = one(pppoeActive, business && business.pppoe_users);
+  // Suggested next step: the next 100-user hotspot tier, or +10 PPPoE users.
+  hotspot.suggested = hotspot.capacity ? (Math.floor(hotspot.capacity / 100) + 1) * 100 : 100;
+  pppoe.suggested = pppoe.capacity ? Math.max(35, pppoe.capacity + 10) : 35;
+  return { hotspot, pppoe };
+}
+
+/**
+ * Price to add users to an active paid period. The tenant pays only the
+ * price difference for the days left; the renewal date does not move.
+ * Throws with a tenant-facing message when an upgrade is not possible.
+ */
+function upgradeQuote(business, { hotspotConcurrent, pppoeUsers } = {}, now = Date.now()) {
+  const s = summary(business, now);
+  const items = [];
+  const plan = [
+    ['hotspot', hotspotConcurrent, s.hotspot, hotspotPrice],
+    ['pppoe', pppoeUsers, s.pppoe, pppoePrice],
+  ];
+  for (const [kind, rawTarget, state, price] of plan) {
+    if (rawTarget === undefined || rawTarget === null || rawTarget === '') continue;
+    const target = Math.floor(Number(rawTarget));
+    if (!Number.isFinite(target) || target <= state.capacity) continue;
+    if (target > 100000) throw Object.assign(new Error('That capacity is too large. Contact Wi‑Fi Fiti for a custom plan.'), { status: 400 });
+    if (state.status !== 'active') {
+      throw Object.assign(new Error(`Your ${kind === 'pppoe' ? 'PPPoE + Static IP' : 'hotspot'} subscription is not active. Renew it with the new number of users instead.`), { status: 409 });
+    }
+    const remaining = Math.max(0, parseTime(state.expiresAt) - now);
+    const fraction = Math.min(1, remaining / (30 * DAY_MS));
+    const fullDiffKes = price(target) - price(state.capacity);
+    items.push({ kind, from: state.capacity, to: target, fullDiffKes, amountKes: Math.max(0, Math.ceil(fullDiffKes * fraction)),
+      daysLeft: Math.ceil(remaining / DAY_MS), expiresAt: state.expiresAt });
+  }
+  if (!items.length) throw Object.assign(new Error('Enter more users than you have now.'), { status: 400 });
+  return { items, totalKes: items.reduce((sum, item) => sum + item.amountKes, 0) };
+}
+
 module.exports = {
+  hotspotPrice, pppoePrice, capacityUsage, upgradeQuote,
   GRACE_DAYS, parseTime, periodState, summary, hotspotSaleBlock, pppoeAddBlock, routerLimitLifted, dueReminders, reminderText,
 };

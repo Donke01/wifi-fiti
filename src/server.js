@@ -988,7 +988,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1166,12 +1166,62 @@ app.get('/api/business/network-services', (req, res) => {
     pppoeUsers: req.query.pppoeUsers ?? business.pppoe_users,
     hotspotConcurrent: req.query.hotspotConcurrent ?? business.hotspot_concurrent,
   });
-  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, services: serviceBilling.summary(business), current: {
+  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, services: serviceBilling.summary(business), usage: serviceUsage(business), current: {
     pppoeUsers: Number(business.pppoe_users || 0),
     pppoeExpiresAt: business.pppoe_billing_expires_at || null,
     hotspotConcurrent: Number(business.hotspot_concurrent || 0),
     hotspotExpiresAt: business.hotspot_billing_expires_at || null,
   }});
+});
+
+// Users online / active now against each paid capacity.
+const pppoeActiveNow = db.db.prepare(`SELECT COUNT(*) AS n FROM pppoe_users WHERE business_id=? AND status='active'
+  AND (expires_at IS NULL OR julianday(expires_at) > julianday('now'))`);
+function serviceUsage(business) {
+  let pppoeActive = 0;
+  try { pppoeActive = pppoeActiveNow.get(business.id).n; } catch { /* PPPoE tables not created yet */ }
+  return serviceBilling.capacityUsage(business, { hotspotOnline: hotspotOnlineNow.get(business.id).n, pppoeActive });
+}
+
+// Add users mid-period: pay the price difference for the days left.
+app.get('/api/business/network-services/upgrade-quote', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { res.json(serviceBilling.upgradeQuote(business, { hotspotConcurrent: req.query.hotspotConcurrent, pppoeUsers: req.query.pppoeUsers })); }
+  catch (error) { res.status(error.status || 400).json({ error: error.message }); }
+});
+
+app.post('/api/business/network-services/upgrade', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  let quote;
+  try { quote = serviceBilling.upgradeQuote(business, { hotspotConcurrent: req.body && req.body.hotspotConcurrent, pppoeUsers: req.body && req.body.pppoeUsers }); }
+  catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  const target = (kind) => (quote.items.find(item => item.kind === kind) || {}).to || 0;
+  // Moving up within the same price tier (e.g. 150 to 200 hotspot users) costs nothing.
+  if (!quote.totalKes) {
+    db.db.prepare(`UPDATE businesses SET hotspot_concurrent=MAX(hotspot_concurrent, ?), pppoe_users=MAX(pppoe_users, ?) WHERE id=?`)
+      .run(target('hotspot'), target('pppoe'), business.id);
+    return res.json({ applied: true, quote });
+  }
+  const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
+  if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay for the extra users.' });
+  const pending = db.db.prepare(`SELECT checkout_request_id FROM business_billing_transactions
+    WHERE business_id=? AND status='pending' AND created_at>datetime('now','-3 minutes') LIMIT 1`).get(business.id);
+  if (pending) return res.status(409).json({ error: 'A service payment is already processing. Check your phone.' });
+  const throttleKey = `network-upgrade:${business.id}:${phone}`;
+  const previous = lastPush.get(throttleKey);
+  if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
+  try {
+    lastPush.set(throttleKey, Date.now());
+    const pushed = await mpesa.stkPush({ phone, amount: quote.totalKes, accountReference: 'WF-ADDUSERS', description: 'Wi-Fi Fiti extra users' });
+    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+      businessId: business.id, plan: 'services-upgrade', phone, amount: quote.totalKes, serviceKind: 'upgrade',
+      pppoeUsers: target('pppoe'), hotspotConcurrent: target('hotspot') });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, quote, phoneDisplay: mpesa.displayPhone(phone) });
+  } catch (err) {
+    lastPush.delete(throttleKey);
+    console.error('[network upgrade] STK push failed:', err.message);
+    res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
+  }
 });
 
 app.post('/api/business/network-services/checkout', async (req, res) => {
@@ -1953,7 +2003,10 @@ function hotspotCapacityBlock(location, renewing) {
   if (renewing || trialActive(location)) return null;
   const services = serviceBilling.summary(location);
   if (services.hotspot.status === 'active' || services.hotspot.status === 'grace') {
-    return serviceBilling.hotspotSaleBlock(location, { activeNow: hotspotOnlineNow.get(location.business_id).n, renewing: false });
+    const blocked = serviceBilling.hotspotSaleBlock(location, { activeNow: hotspotOnlineNow.get(location.business_id).n, renewing: false });
+    // A customer was turned away: prompt the owner to add users (once per level).
+    if (blocked && serviceReminders) serviceReminders.capacityPrompt(location.business_id, 'hotspot', 'full').catch((err) => console.error('[capacity prompt]', err.message));
+    return blocked;
   }
   const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
   if (plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
@@ -4285,7 +4338,7 @@ const demo = createDemo({
 });
 demo.attachRoutes(app);
 // Prepaid subscription reminders: 3 days before expiry, grace, and stop.
-const serviceReminders = require('./lib/service-reminders').createServiceReminders({ db: db.db, smsProvider, sendEmail, tumaFee });
+const serviceReminders = require('./lib/service-reminders').createServiceReminders({ db: db.db, smsProvider, sendEmail, tumaFee, capacityUsage: serviceUsage });
 const runServiceReminders = () => serviceReminders.run().catch((err) => console.error('[billing reminders]', err.message));
 setTimeout(runServiceReminders, 60_000).unref();
 setInterval(runServiceReminders, 60 * 60_000).unref();
