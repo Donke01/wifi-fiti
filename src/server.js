@@ -990,7 +990,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1168,12 +1168,38 @@ app.get('/api/business/network-services', (req, res) => {
     pppoeUsers: req.query.pppoeUsers ?? business.pppoe_users,
     hotspotConcurrent: req.query.hotspotConcurrent ?? business.hotspot_concurrent,
   });
-  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, services: serviceBilling.summary(business), usage: serviceUsage(business), current: {
+  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, services: serviceBilling.summary(business), usage: serviceUsage(business), plan: servicePlan(business), current: {
     pppoeUsers: Number(business.pppoe_users || 0),
     pppoeExpiresAt: business.pppoe_billing_expires_at || null,
     hotspotConcurrent: Number(business.hotspot_concurrent || 0),
     hotspotExpiresAt: business.hotspot_billing_expires_at || null,
   }});
+});
+
+// The capacity a tenant has chosen, what they pay now and what it renews at.
+// On an active trial the answer is always "KES 0 now", renewing when the
+// trial ends.
+function servicePlan(business) {
+  const services = serviceBilling.summary(business);
+  const hotspotConcurrent = Math.max(Number(business.planned_hotspot || 0), Number(business.hotspot_concurrent || 0));
+  const pppoeUsers = Math.max(Number(business.planned_pppoe || 0), Number(business.pppoe_users || 0));
+  const quote = networkServiceQuote({ hotspotConcurrent, pppoeUsers });
+  const onTrial = services.trial.active;
+  return {
+    hotspotConcurrent, pppoeUsers, quote, chosen: Boolean(quote.total),
+    trial: services.trial, payNowKes: onTrial ? 0 : quote.total, renewKes: quote.total,
+    renewsAt: onTrial ? services.trial.endsAt : null,
+  };
+}
+
+// Save the chosen capacity without paying (used by the setup flow).
+app.post('/api/business/network-services/plan', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const quote = networkServiceQuote(req.body || {});
+  if (!quote.pppoeUsers && !quote.hotspotConcurrent) return res.status(400).json({ error: 'Choose hotspot users, PPPoE users, or both.' });
+  if (quote.hotspotConcurrent > 100000 || quote.pppoeUsers > 100000) return res.status(400).json({ error: 'That capacity is too large. Contact Wi‑Fi Fiti for a custom plan.' });
+  db.db.prepare('UPDATE businesses SET planned_hotspot=?, planned_pppoe=? WHERE id=?').run(quote.hotspotConcurrent, quote.pppoeUsers, business.id);
+  res.json({ plan: servicePlan(db.businessById.get(business.id)) });
 });
 
 // Users online / active now against each paid capacity.

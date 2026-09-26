@@ -20,12 +20,15 @@ function trialReminders(business, now) {
   return [];
 }
 
-function trialText(stage, expiresRaw, name) {
+function trialText(stage, expiresRaw, name, business = {}) {
+  const planKes = serviceBilling.hotspotPrice(business.planned_hotspot) + serviceBilling.pppoePrice(business.planned_pppoe);
   const ends = serviceBilling.parseTime(expiresRaw);
   const day = new Date(ends).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' });
   const who = name ? `${name}: ` : '';
   return stage === 'before'
-    ? `${who}your Wi-Fi Fiti free trial ends on ${day}. Choose your hotspot capacity in Billing & payments to keep taking payments without a break.`
+    ? (planKes
+      ? `${who}your Wi-Fi Fiti free trial ends on ${day}. Your chosen plan is KES ${planKes.toLocaleString('en-KE')}/month: pay it in Billing & payments to keep taking payments without a break.`
+      : `${who}your Wi-Fi Fiti free trial ends on ${day}. Choose your hotspot capacity in Billing & payments to keep taking payments without a break.`)
     : `${who}your Wi-Fi Fiti free trial has ended, so new sales are paused. Subscribe in Billing & payments to resume. Customers already online keep their time.`;
 }
 
@@ -46,8 +49,10 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, tuma
     sent_at      TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (business_id, reminder_key)
   )`);
+  const businessColumns = db.prepare('PRAGMA table_info(businesses)').all().map((c) => c.name);
+  const plannedColumns = businessColumns.includes('planned_hotspot') ? 'planned_hotspot, planned_pppoe' : '0 AS planned_hotspot, 0 AS planned_pppoe';
   const candidates = db.prepare(`SELECT id, name, portal_name, owner_phone, email, billing_status, billing_expires_at,
-      hotspot_billing_expires_at, pppoe_billing_expires_at
+      hotspot_billing_expires_at, pppoe_billing_expires_at, ${plannedColumns}
     FROM businesses WHERE billing_status != 'suspended'
       AND (billing_expires_at IS NOT NULL OR hotspot_billing_expires_at IS NOT NULL OR pppoe_billing_expires_at IS NOT NULL)`);
   const claim = db.prepare(`INSERT OR IGNORE INTO business_billing_reminders (reminder_key, business_id) VALUES (?, ?)`);
@@ -74,7 +79,7 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, tuma
 
   async function deliver(business, item) {
     const name = business.portal_name || business.name || '';
-    const text = item.text ? item.text : item.kind === 'trial' ? trialText(item.stage, item.expires, name)
+    const text = item.text ? item.text : item.kind === 'trial' ? trialText(item.stage, item.expires, name, business)
       : item.kind === 'plan' ? planText(item.stage, item.expires, name)
       : serviceBilling.reminderText(item.kind, item.stage, item.expires, name);
     const channels = [];
