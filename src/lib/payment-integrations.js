@@ -79,7 +79,7 @@ function summary(businessId) {
   };
 }
 
-function attachPaymentIntegrationRoutes(app, { businessAuth, tenant }) {
+function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants }) {
   app.get('/api/business/integrations', (req, res) => {
     const business = businessAuth(req, res); if (!business) return;
     const result = summary(business.id);
@@ -118,13 +118,18 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant }) {
     if (providerId === 'fiti' || providerId === 'manual') status = 'ready';
     else if (providerId === 'daraja' && tenant.paymentConnectionSummary.get(business.id)) status = 'ready';
     else if (providerId === 'tuma') {
-      const tumaConfig = tuma.configurationStatus();
-      if (tumaConfig.missing.length) {
+      // Ready means: Tuma can reach our callback, and this tenant has its own
+      // Tuma business so money settles to them rather than the platform.
+      if (!tuma.callbackConfigured()) {
         status = 'pending_configuration';
-        error = `Missing Railway variable(s): ${tumaConfig.missing.join(', ')}`;
+        error = 'Wi‑Fi Fiti is finishing its Tuma setup (callback secret). Please try again later.';
+      } else if (!tumaTenants || !tumaTenants.connected(business.id)) {
+        status = 'pending_configuration';
+        error = 'Add where Tuma should send your money (Till, PayBill or bank) below, then run the test again.';
       } else {
-        try { await tuma.verify(); status = 'ready'; }
-        catch (err) { status = 'error'; error = String(err.message || 'Tuma verification failed.').slice(0, 240); }
+        const result = await tumaTenants.test(business.id);
+        status = result.ok ? 'ready' : 'error';
+        error = result.ok ? null : result.error;
       }
     }
     markTested.run({ businessId: business.id, status, error });

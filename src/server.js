@@ -22,6 +22,7 @@ const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
+const { createTumaTenants } = require('./lib/tuma-tenants');
 const { createDemo } = require('./lib/demo');
 
 const app = express();
@@ -1820,7 +1821,7 @@ async function queryTenantMpesa(transaction) {
   // checkout-query call to make for a Tuma checkout; keeping it pending here
   // prevents the browser's status poll from declaring a payment failed before
   // Tuma delivers its callback.
-  if (transaction.payment_source === 'tuma') return { settled: false, resultCode: null, resultDesc: 'Waiting for Tuma callback.' };
+  if (transaction.payment_source === 'tuma' || transaction.payment_source === 'tuma_direct') return { settled: false, resultCode: null, resultDesc: 'Waiting for Tuma callback.' };
   if (transaction.payment_source === 'own') {
     const credentials = tenant.paymentCredentials(transaction.business_id);
     if (!credentials) throw new Error('Business M-Pesa credentials are unavailable.');
@@ -1995,13 +1996,23 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
     let platformFee = pkg.price * 5 / 100;
     const selectedProvider = paymentIntegrations.summary(location.business_id).selected;
     if (selectedProvider === 'tuma') {
-      if (!tuma.configured()) {
+      // Prefer the tenant's own Tuma business: the money settles directly to
+      // the Till / PayBill / bank they chose. Without one, the platform Tuma
+      // account collects and the sale is owed to the tenant ('tuma').
+      let tenantTuma = null;
+      try { tenantTuma = tumaTenants.credentialsFor(location.business_id); }
+      catch (err) {
+        lastPush.delete(throttleKey);
+        return res.status(409).json({ error: 'This operator needs to reconnect their Tuma payout account.' });
+      }
+      // Both paths need the callback secret: it is how Tuma's result reaches us.
+      if (!tuma.callbackConfigured() || (!tenantTuma && !tuma.configured())) {
         lastPush.delete(throttleKey);
         return res.status(409).json({ error: 'Tuma is selected but its API credentials are not configured yet.' });
       }
-      pushed = await tuma.stkPush({ phone, amount: pkg.price, publicUrl: config.publicUrl,
-        description: pkg.name });
-      paymentSource = 'tuma';
+      pushed = await tuma.stkPush({ credentials: tenantTuma || undefined, phone, amount: pkg.price,
+        publicUrl: config.publicUrl, description: pkg.name });
+      paymentSource = tenantTuma ? 'tuma_direct' : 'tuma';
       platformFee = 0;
     } else if (location.collection_mode === 'own') {
       let credentials;
@@ -2745,7 +2756,7 @@ async function handleTumaCallback(body) {
   const checkoutRequestId = String(body && body.checkout_request_id || '').trim();
   if (!/^[-A-Za-z0-9_]{8,160}$/.test(checkoutRequestId)) return;
   const tx = tenant.getTransaction.get(checkoutRequestId);
-  if (!tx || tx.payment_source !== 'tuma') return;
+  if (!tx || (tx.payment_source !== 'tuma' && tx.payment_source !== 'tuma_direct')) return;
   const resultCode = Number(body && body.result_code);
   const completed = String(body && body.status || '').toLowerCase() === 'completed' || resultCode === 0;
   const settledCode = Number.isFinite(resultCode) ? resultCode : (completed ? 0 : 1);
@@ -4208,7 +4219,14 @@ require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth });
 // its UI can be rebuilt incrementally without touching router or payment code.
 require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db });
 require('./lib/tenant-portal-templates').attachTenantPortalTemplateRoutes(app, { businessAuth, db: db.db });
-paymentIntegrations.attachPaymentIntegrationRoutes(app, { businessAuth, tenant });
+// Per-tenant Tuma settlement: each tenant gets its own Tuma business so
+// customer payments settle straight to that tenant's Till, PayBill or bank.
+const tumaTenants = createTumaTenants({
+  db: db.db, tuma, encrypt: tenant.encryptSecret, decrypt: tenant.decryptSecret,
+  logoUrlFor: (business) => brandingPayload(business).logoUrl || `${config.domains.appUrl}/assets/wifi-fiti-logo.png`,
+});
+tumaTenants.attachRoutes(app, { businessAuth });
+paymentIntegrations.attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants });
 whatsapp.attachWhatsAppRoutes(app);
 // The admin module owns privileged dashboard routes and controls. It is
 // intentionally mounted separately from tenant, router, and portal modules.
