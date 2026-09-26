@@ -167,6 +167,8 @@ async function main() {
   });
 
   await test('serves the exact encrypted automatic kit through the same short authenticated loader', async () => {
+    // A second router needs a workspace past its one-router free trial.
+    require('../src/lib/db').db.prepare(`UPDATE businesses SET billing_status='active', billing_expires_at=NULL WHERE email='alpha-remote@example.test'`).run();
     const created = await api('/api/business/router-setup', {
       method: 'POST', token: alphaToken,
       body: {
