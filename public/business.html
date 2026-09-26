@@ -531,12 +531,13 @@
       // location, using the location token only in an HTTPS request header.
       function routerBootstrapCommand(setup, compatibility) {
         var telemetryTest = arguments[2];
+        var vlanTest = arguments[3];
         var locationId = String(setup && setup.id || '');
         var routerToken = String(setup && setup.token || '');
         var loader = Boolean(setup && setup.setup && setup.setup.loader === true);
         if (!loader || !/^loc-[A-Za-z0-9_-]{1,96}$/.test(locationId) || !/^[A-Za-z0-9_-]{16,160}$/.test(routerToken)) return '';
         var origin = window.location.origin;
-        var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId) + (compatibility ? '&compat=1' : '') + (telemetryTest ? '&telemetry=1' : '');
+        var bootstrapUrl = origin + '/api/router/v1/bootstrap?site=' + encodeURIComponent(locationId) + (compatibility ? '&compat=1' : '') + (telemetryTest ? '&telemetry=1' : '') + (vlanTest ? '&vlan=1' : '');
         return [
           ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={ :do { [:parse "/certificate settings set builtin-trust-anchors=trusted"] } on-error={} }',
           ':do { /file remove [find where name="wifi-fiti-bootstrap.rsc"] } on-error={}',
@@ -1372,6 +1373,7 @@
         var script = routerBootstrapCommand(saved);
         var compatibilityScript = routerBootstrapCommand(saved, true);
         var telemetryTestScript = routerBootstrapCommand(saved, false, true);
+        var vlanTestScript = routerBootstrapCommand(saved, false, false, true);
         add(box, 'h4', '', script ? 'Secure bootstrap command' : 'Secure bootstrap unavailable');
         if (script) {
           add(box, 'p', '', 'paste this complete kit once as one short command in a new WinBox terminal. It securely downloads the exact router kit over HTTPS, imports it locally, and removes the temporary file. Your administrator password is never requested.');
@@ -1388,7 +1390,12 @@
         var telemetryCopy = setupAction(actions, 'Copy telemetry TEST kit', 'secondary', function () {
           copyText(telemetryTestScript, telemetryCopy);
         }); telemetryCopy.disabled = !telemetryTestScript;
+        var vlanCopy = setupAction(actions, 'Copy VLAN TEST kit', 'secondary', function () {
+          if (!window.confirm('This fourth kit stages VLAN interfaces disabled on the customer bridge. It does not enable VLAN filtering. Continue?')) return;
+          copyText(vlanTestScript, vlanCopy);
+        }); vlanCopy.disabled = !vlanTestScript;
         add(box, 'small', 'form-note', 'TEST KIT only: reports guarded CPU, memory, traffic and active-user samples. It is isolated from the production kit and should be used on a test router/location.');
+        add(box, 'small', 'form-note', 'VLAN KIT only: copies the stable kit, then stages VLAN 10 management, 20 hotspot, 30 PPPoE and 40 TV interfaces disabled for safe hardware testing.');
         add(box, 'small', 'form-note', 'CA compatibility is a recovery option only. It disables certificate verification for the initial download; all other routers must use the standard connection kit.');
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);

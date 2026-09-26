@@ -55,4 +55,35 @@ function telemetryTestRouterKit(source) {
   return withReads.replace(bridgeMarker, telemetrySuffix);
 }
 
-module.exports = { compatibilityRouterKit, telemetryTestRouterKit };
+/**
+ * Render the fourth, isolated VLAN test kit. It deliberately starts from the
+ * exact production kit and adds only disabled VLAN interfaces on the Wi-Fi
+ * Fiti customer bridge. Bridge VLAN filtering is not enabled automatically:
+ * that is the safety boundary that prevents a test kit from locking an owner
+ * out before tagged/untagged ports have been verified on real hardware.
+ */
+function vlanTestRouterKit(source) {
+  const input = String(source || '').trimEnd();
+  const block = [
+    '',
+    '# Wi-Fi Fiti VLAN KIT (TEST) — copied from the stable connection kit',
+    '# VLAN interfaces are staged disabled until the tenant confirms switch/AP port mapping.',
+    ':onerror fitiVlanError in={',
+    '  :global fitiBridge',
+    '  :local fitiVlanBridge $fitiBridge',
+    '  :if ([:len $fitiVlanBridge] = 0 || [:len [/interface bridge find where name=$fitiVlanBridge]] != 1) do={ :error "Wi-Fi Fiti VLAN kit could not find the paired customer bridge. Complete stable onboarding first." }',
+    '  :if ([:len [/interface vlan find where name="fiti-vlan-management"]] = 0) do={ /interface vlan add name="fiti-vlan-management" vlan-id=10 interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test: management" }',
+    '  :if ([:len [/interface vlan find where name="fiti-vlan-hotspot"]] = 0) do={ /interface vlan add name="fiti-vlan-hotspot" vlan-id=20 interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test: hotspot" }',
+    '  :if ([:len [/interface vlan find where name="fiti-vlan-pppoe"]] = 0) do={ /interface vlan add name="fiti-vlan-pppoe" vlan-id=30 interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test: PPPoE" }',
+    '  :if ([:len [/interface vlan find where name="fiti-vlan-tv"]] = 0) do={ /interface vlan add name="fiti-vlan-tv" vlan-id=40 interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test: TV" }',
+    '  :put "Wi-Fi Fiti VLAN test interfaces staged: 10 management, 20 hotspot, 30 PPPoE, 40 TV"',
+    '} do={',
+    '  :log warning ("Wi-Fi Fiti VLAN test kit stopped: " . $fitiVlanError)',
+    '  :put ("Wi-Fi Fiti VLAN test kit stopped: " . $fitiVlanError)',
+    '}',
+    '',
+  ].join('\n');
+  return input + block;
+}
+
+module.exports = { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit };

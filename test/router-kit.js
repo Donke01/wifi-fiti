@@ -3,7 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { compatibilityRouterKit } = require('../src/lib/router-kit');
+const { compatibilityRouterKit, vlanTestRouterKit } = require('../src/lib/router-kit');
 
 const standard = fs.readFileSync(path.join(__dirname, '../public/tenant-router-install.rsc'), 'utf8');
 const compat = compatibilityRouterKit(standard);
@@ -17,3 +17,12 @@ assert.strictEqual(
   'CA kit must be exactly the current production kit apart from TLS compatibility'
 );
 console.log('router-kit parity tests passed');
+
+const vlan = vlanTestRouterKit(standard);
+assert.ok(vlan.startsWith(standard.trimEnd()), 'VLAN kit must preserve the stable kit exactly');
+assert.ok(vlan.includes('fiti-vlan-management') && vlan.includes('vlan-id=10'));
+assert.ok(vlan.includes('fiti-vlan-hotspot') && vlan.includes('vlan-id=20'));
+assert.ok(vlan.includes('fiti-vlan-pppoe') && vlan.includes('vlan-id=30'));
+assert.ok(vlan.includes('fiti-vlan-tv') && vlan.includes('vlan-id=40'));
+assert.ok(vlan.includes('disabled=yes'), 'VLAN test interfaces must be staged safely');
+console.log('VLAN kit isolation tests passed');

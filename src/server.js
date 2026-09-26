@@ -17,7 +17,7 @@ const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
-const { compatibilityRouterKit, telemetryTestRouterKit } = require('./lib/router-kit');
+const { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
@@ -3880,6 +3880,9 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
       // telemetry endpoint, which transforms the same stable source.
       script = script.replace(/tenant-router-install\.rsc/g, 'tenant-router-install-telemetry-test.rsc');
     }
+    // Fourth, standalone kit: exact stable source plus disabled VLAN test
+    // interfaces. It never changes the production kit or enables filtering.
+    if (String(req.query.vlan || '') === '1') script = vlanTestRouterKit(script);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);
