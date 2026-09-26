@@ -597,6 +597,8 @@ for (const statement of [
   `ALTER TABLE businesses ADD COLUMN hotspot_concurrent INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE businesses ADD COLUMN hotspot_billing_expires_at TEXT`,
   `ALTER TABLE business_billing_transactions ADD COLUMN service_kind TEXT NOT NULL DEFAULT 'platform'`,
+  // Which rail collected a tenant's payment to Wi‑Fi Fiti: 'daraja' or 'tuma'.
+  `ALTER TABLE business_billing_transactions ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'daraja'`,
   `ALTER TABLE business_billing_transactions ADD COLUMN pppoe_users INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE business_billing_transactions ADD COLUMN hotspot_concurrent INTEGER NOT NULL DEFAULT 0`,
   // An earlier version of the optional-support lifecycle did not retain the
@@ -1611,6 +1613,7 @@ const insertBusinessBilling = db.prepare(`
   VALUES (@checkoutRequestId, @merchantRequestId, @businessId, @plan, @phone, @amount, COALESCE(@serviceKind, 'platform'), COALESCE(@pppoeUsers, 0), COALESCE(@hotspotConcurrent, 0))
 `);
 const businessBillingTransaction = db.prepare(`SELECT * FROM business_billing_transactions WHERE checkout_request_id=?`);
+const setBusinessBillingSource = db.prepare(`UPDATE business_billing_transactions SET payment_source=? WHERE checkout_request_id=?`);
 const setBusinessBillingResult = db.prepare(`
   UPDATE business_billing_transactions SET status=@status, result_code=@resultCode, result_desc=@resultDesc,
     mpesa_receipt=COALESCE(@receipt, mpesa_receipt), updated_at=datetime('now')
@@ -4059,6 +4062,7 @@ function claimPaymentDevice({ locationId, code, mac }) {
 }
 
 module.exports = {
+  setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId,

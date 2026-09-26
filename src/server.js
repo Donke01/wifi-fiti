@@ -1212,8 +1212,8 @@ app.post('/api/business/network-services/upgrade', async (req, res) => {
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
   try {
     lastPush.set(throttleKey, Date.now());
-    const pushed = await mpesa.stkPush({ phone, amount: quote.totalKes, accountReference: 'WF-ADDUSERS', description: 'Wi-Fi Fiti extra users' });
-    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+    const pushed = await platformStkPush({ phone, amount: quote.totalKes, accountReference: 'WF-ADDUSERS', description: 'Wi-Fi Fiti extra users' });
+    recordPlatformBilling(pushed, { checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
       businessId: business.id, plan: 'services-upgrade', phone, amount: quote.totalKes, serviceKind: 'upgrade',
       pppoeUsers: target('pppoe'), hotspotConcurrent: target('hotspot') });
     res.json({ checkoutRequestId: pushed.checkoutRequestId, quote, phoneDisplay: mpesa.displayPhone(phone) });
@@ -1238,9 +1238,9 @@ app.post('/api/business/network-services/checkout', async (req, res) => {
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A service payment request is already on its way. Please wait a moment.' });
   try {
     lastPush.set(throttleKey, Date.now());
-    const pushed = await mpesa.stkPush({ phone, amount: quote.total, accountReference: 'WF-SERVICES', description: 'Wi-Fi Fiti network services' });
+    const pushed = await platformStkPush({ phone, amount: quote.total, accountReference: 'WF-SERVICES', description: 'Wi-Fi Fiti network services' });
     const serviceKind = quote.pppoeUsers && quote.hotspotConcurrent ? 'combined' : quote.pppoeUsers ? 'pppoe' : 'hotspot';
-    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+    recordPlatformBilling(pushed, { checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
       businessId: business.id, plan: `services-${serviceKind}`, phone, amount: quote.total, serviceKind,
       pppoeUsers: quote.pppoeUsers, hotspotConcurrent: quote.hotspotConcurrent });
     res.json({ checkoutRequestId: pushed.checkoutRequestId, serviceKind, quote, phoneDisplay: mpesa.displayPhone(phone) });
@@ -1277,9 +1277,9 @@ app.post('/api/business/billing/checkout', async (req, res) => {
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A plan payment request is already on its way. Please wait a moment.' });
   try {
     lastPush.set(throttleKey, Date.now());
-    const pushed = await mpesa.stkPush({ phone, amount: definition.monthlyKes,
+    const pushed = await platformStkPush({ phone, amount: definition.monthlyKes,
       accountReference: `WF-${plan}`, description: `${definition.name} plan` });
-    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId,
+    recordPlatformBilling(pushed, { checkoutRequestId: pushed.checkoutRequestId,
       merchantRequestId: pushed.merchantRequestId, businessId: business.id, plan, phone, amount: definition.monthlyKes,
       serviceKind: 'platform', pppoeUsers: 0, hotspotConcurrent: 0 });
     res.json({ checkoutRequestId: pushed.checkoutRequestId, plan, amount: definition.monthlyKes,
@@ -1291,7 +1291,34 @@ app.post('/api/business/billing/checkout', async (req, res) => {
   }
 });
 
+/**
+ * Tenant payments to Wi‑Fi Fiti (prepaid services, extra users, the Tuma
+ * fee) go to Wi‑Fi Fiti's own Tuma account when it is configured, and fall
+ * back to the platform Daraja shortcode otherwise or if Tuma is unreachable.
+ * Set PLATFORM_COLLECTION=daraja to force Daraja.
+ */
+async function platformStkPush({ phone, amount, accountReference, description }) {
+  const preferTuma = String(process.env.PLATFORM_COLLECTION || 'tuma').toLowerCase() !== 'daraja';
+  if (preferTuma && tuma.configured()) {
+    try {
+      const pushed = await tuma.stkPush({ phone, amount, publicUrl: config.publicUrl, description: `${description} (${accountReference})` });
+      return { ...pushed, source: 'tuma' };
+    } catch (err) {
+      console.warn(`[platform collection] Tuma prompt failed, using Daraja: ${err.message}`);
+    }
+  }
+  const pushed = await mpesa.stkPush({ phone, amount, accountReference, description });
+  return { ...pushed, source: 'daraja' };
+}
+
+function recordPlatformBilling(pushed, row) {
+  tenant.insertBusinessBilling.run(row);
+  tenant.setBusinessBillingSource.run(pushed.source || 'daraja', row.checkoutRequestId);
+}
+
 async function queryBusinessBillingNow(transaction) {
+  // Tuma confirms through its callback; there is no Daraja query to make.
+  if (transaction.payment_source === 'tuma') return transaction;
   const age = Date.now() - new Date(transaction.created_at + 'Z').getTime();
   if (!Number.isFinite(age) || age < QUERY_AFTER_MS) return transaction;
   const last = lastQueryAt.get(transaction.checkout_request_id) || 0;
@@ -2725,9 +2752,50 @@ app.post('/api/tuma/callback', (req, res) => {
     // billing; the demo module claims only checkout ids it created.
     try { if (demo.handleTumaCallback(req.body)) return; }
     catch (err) { console.error('[tuma callback] demo handler threw:', err); return; }
-    handleTumaCallback(req.body).catch((err) => console.error('[tuma callback] handler threw:', err));
+    handleTumaBusinessBilling(req.body)
+      .then((handled) => handled ? null : handleTumaCallback(req.body))
+      .catch((err) => console.error('[tuma callback] handler threw:', err));
   });
 });
+
+// A tenant paying Wi‑Fi Fiti (prepaid services, extra users, Tuma fee)
+// through Wi‑Fi Fiti's own Tuma account. Returns true when the checkout id
+// belongs to a platform billing payment.
+async function handleTumaBusinessBilling(body) {
+  const checkoutRequestId = String(body && body.checkout_request_id || '').trim();
+  if (!/^[-A-Za-z0-9_]{8,160}$/.test(checkoutRequestId)) return false;
+  const transaction = tenant.businessBillingTransaction.get(checkoutRequestId);
+  if (!transaction || transaction.payment_source !== 'tuma') return false;
+  // A late success may still recover a payment marked failed after a
+  // timeout; a paid one is never processed twice.
+  if (transaction.status === 'paid') {
+    console.log(`[tuma billing callback] ${checkoutRequestId} already paid, ignoring replay`);
+    return true;
+  }
+  const resultCode = Number(body && body.result_code);
+  const completed = String(body && body.status || '').toLowerCase() === 'completed' || resultCode === 0;
+  const resultDesc = String(body && (body.result_desc || body.failure_reason) || '').slice(0, 240) || null;
+  if (!completed || (Number.isFinite(resultCode) && resultCode !== 0)) {
+    tenant.setBusinessBillingResult.run({ checkoutRequestId, status: 'failed',
+      resultCode: Number.isFinite(resultCode) ? resultCode : 1, resultDesc: resultDesc || 'Tuma payment was not completed.', receipt: null });
+    return true;
+  }
+  // The amount must match what was asked; a short payment never activates.
+  if (Math.round(Number(body.amount)) !== Math.round(Number(transaction.amount))) {
+    console.error(`[tuma billing callback] ${checkoutRequestId} amount ${body.amount} does not match ${transaction.amount}; not activating`);
+    return true;
+  }
+  const receipt = String(body.mpesa_receipt_number || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{6,32}$/.test(receipt) || db.isDuplicateReceipt(receipt, checkoutRequestId) ||
+      tenant.duplicateReceipt.get(receipt, checkoutRequestId) || tenant.duplicateBusinessBillingReceipt.get(receipt, checkoutRequestId)) {
+    console.error(`[tuma billing callback] receipt ${receipt || 'missing'} invalid or already used; not activating ${checkoutRequestId}`);
+    return true;
+  }
+  tenant.setBusinessBillingResult.run({ checkoutRequestId, status: 'paid', resultCode: 0, resultDesc: resultDesc || 'Tuma payment completed.', receipt });
+  try { tenant.activateBusinessBilling(checkoutRequestId); }
+  catch (err) { console.error(`[tuma billing callback] activation ${checkoutRequestId} failed:`, err.message); }
+  return true;
+}
 
 function callbackReceipt(callback) {
   const receipt = String(callback && callback.receipt || '').trim().toUpperCase();
@@ -3055,6 +3123,14 @@ async function reconcile() {
   }
 
   for (const tx of tenant.staleBusinessBilling.all(STALE_AFTER_SECONDS)) {
+    // Tuma-collected payments settle only by callback. Give up on one after
+    // an hour so the tenant can try again; it never activates without proof.
+    if (tx.payment_source === 'tuma') {
+      const age = Date.now() - new Date(String(tx.created_at).replace(' ', 'T') + 'Z').getTime();
+      if (age > 60 * 60_000) tenant.setBusinessBillingResult.run({ checkoutRequestId: tx.checkout_request_id,
+        status: 'failed', resultCode: 1037, resultDesc: 'No confirmation was received from Tuma.', receipt: null });
+      continue;
+    }
     try {
       const q = await mpesa.stkQuery(tx.checkout_request_id);
       if (!q.settled) continue;
@@ -4390,8 +4466,8 @@ app.post('/api/business/tuma/fee/checkout', async (req, res) => {
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
   try {
     lastPush.set(throttleKey, Date.now());
-    const pushed = await mpesa.stkPush({ phone, amount: TUMA_FEE_KES, accountReference: 'WF-TUMAFEE', description: `Tuma fee ${due.month}` });
-    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+    const pushed = await platformStkPush({ phone, amount: TUMA_FEE_KES, accountReference: 'WF-TUMAFEE', description: `Tuma fee ${due.month}` });
+    recordPlatformBilling(pushed, { checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
       businessId: business.id, plan: `tuma-fee-${due.month}`, phone, amount: TUMA_FEE_KES, serviceKind: 'tuma_fee', pppoeUsers: 0, hotspotConcurrent: 0 });
     res.json({ checkoutRequestId: pushed.checkoutRequestId, month: due.month, amount: TUMA_FEE_KES, phoneDisplay: mpesa.displayPhone(phone) });
   } catch (err) {
