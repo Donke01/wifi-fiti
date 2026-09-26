@@ -101,6 +101,14 @@ function decryptSecret(value) {
 }
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS tuma_fee_payments (
+    business_id         TEXT NOT NULL,
+    month               TEXT NOT NULL,
+    amount              INTEGER NOT NULL,
+    checkout_request_id TEXT NOT NULL UNIQUE,
+    paid_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (business_id, month)
+  );
   CREATE TABLE IF NOT EXISTS tenant_subscriptions (
     id              TEXT PRIMARY KEY,
     business_id     TEXT NOT NULL,
@@ -753,7 +761,7 @@ const locationById = db.prepare(`
   SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_pending_setup_json, l.router_setup_script_cipher, l.router_pending_setup_script_cipher, l.router_auth_mode, l.router_status, l.last_seen_at, l.last_router_contact_at, l.last_successful_sync_at, l.router_setup_nonce, l.router_pending_setup_nonce, l.router_setup_verified_at, l.router_setup_health, l.router_setup_checked_at, l.portal_setup_completed_at, l.router_portal_update_sent_host, l.router_portal_applied_host,
          l.setup_mode, l.router_model, l.routeros_version, l.wifi_stack, l.customer_bridge, l.wan_interface, l.wifi_interface, l.wifi_ssid, l.customer_ports, l.hotspot_subnet,
          b.name AS business_name, b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message, b.collection_mode, b.plan AS business_plan,
-         b.billing_status, b.billing_expires_at,
+         b.billing_status, b.billing_expires_at, b.hotspot_concurrent, b.hotspot_billing_expires_at,
          (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=l.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
     FROM locations l JOIN businesses b ON b.id = l.business_id
    WHERE l.id = ?
@@ -3914,6 +3922,18 @@ function activateBusinessBilling(checkoutRequestId, { periodDays = 30 } = {}) {
       db.exec('COMMIT');
       return { expiresAt: granted.expires_at, alreadyActivated: true };
     }
+    // Tuma's monthly KES 2,500 fee, passed on to the tenant. Paying it only
+    // records the month as settled; it never changes service expiry dates.
+    if (transaction.service_kind === 'tuma_fee') {
+      const month = String(transaction.plan || '').replace(/^tuma-fee-/, '');
+      db.prepare(`INSERT OR IGNORE INTO tuma_fee_payments (business_id, month, amount, checkout_request_id)
+        VALUES (?, ?, ?, ?)`).run(transaction.business_id, month, transaction.amount, checkoutRequestId);
+      const paidAt = nowSql(Date.now());
+      addBusinessBillingGrant.run(checkoutRequestId, transaction.business_id, paidAt);
+      setBusinessBillingActivated.run(checkoutRequestId);
+      db.exec('COMMIT');
+      return { expiresAt: null, tumaFeeMonth: month };
+    }
     const business = db.prepare(`SELECT billing_expires_at, billing_status, plan, pppoe_billing_expires_at, hotspot_billing_expires_at FROM businesses WHERE id=?`).get(transaction.business_id);
     if (!business) throw new Error('Business account is missing.');
     const currentExpiry = business.billing_expires_at ? new Date(business.billing_expires_at.replace(' ', 'T') + 'Z').getTime() : 0;
@@ -4025,7 +4045,7 @@ function claimPaymentDevice({ locationId, code, mac }) {
 }
 
 module.exports = {
-  tokenHash, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,

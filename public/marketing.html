@@ -328,8 +328,13 @@
     .fee-sell small,.fee-keep small{margin-top:10px;color:#627487;font-size:14px}
     .fee-keep strong{color:#13885e;font-size:39px;font-weight:880;line-height:1.15;letter-spacing:-.07em;font-variant-numeric:tabular-nums}
     .fee-bar{height:8px;border-radius:999px;background:#e4ecf5;overflow:hidden}
-    .fee-bar i{display:block;width:97%;height:100%;border-radius:999px;background:var(--good);transition:width .35s ease}
-    @media (max-width:620px){.fee-calc{padding:22px 16px}.fee-grid{grid-template-columns:1fr;gap:20px}.fee-tabs{gap:4px 16px}.fee-tabs button{font-size:14px}}
+    .fee-plan{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:end;margin:22px 0 4px;padding-bottom:20px;border-bottom:1px solid #d4e1ee}
+    .fee-plan label,.fee-pay{display:flex;flex-direction:column;align-items:center}
+    .fee-input.small{max-width:200px}.fee-input.small input{font-size:28px}
+    .fee-pay strong{color:#173653;font-size:28px;font-weight:880;line-height:1.2;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+    .fee-pay small{margin-top:6px;color:#627487;font-size:13px}
+    .fee-bar i{display:block;width:100%;height:100%;border-radius:999px;background:var(--good);transition:width .35s ease}
+    @media (max-width:620px){.fee-calc{padding:22px 16px}.fee-grid{grid-template-columns:1fr;gap:20px}.fee-plan{grid-template-columns:1fr 1fr;gap:16px}.fee-pay{grid-column:1/-1}.fee-tabs{gap:4px 16px}.fee-tabs button{font-size:14px}}
     @media (prefers-reduced-motion:reduce){.fee-bar i{transition:none}}
 
     /* Live hero: the customer journey plays on a phone while the sale lands
@@ -541,10 +546,10 @@
 
       <section class="shell pppoe-landing glass" id="pppoe" data-reveal>
         <div class="pppoe-copy"><p class="eyebrow">PPPoE &amp; STATIC IP</p><h2>Offer managed internet beyond hotspot Wi‑Fi.</h2><p>Provision named PPPoE subscribers and dedicated static-IP services with speed profiles, secure credentials, and router-delivered access from one dashboard.</p><div class="service-price"><strong>KES 500</strong><span>monthly floor · then KES 15 per active user</span></div><a class="primary" href="https://cloud.wififiti.co.ke/pppoe.html">Explore PPPoE &amp; Static IP <span aria-hidden="true">→</span></a></div>
-        <div class="pppoe-features"><article><span>01</span><strong>Prepaid capacity</strong><small>Below 35 active users is a flat KES 500/month; 35+ users are KES 15 each.</small></article><article class="featured"><span>02</span><strong>Static IP services</strong><small>Assign dedicated addresses to approved business subscribers and devices.</small></article><article><span>03</span><strong>Secure delivery</strong><small>Access changes reach the paired MikroTik through authenticated polling.</small></article></div>
+        <div class="pppoe-features"><article><span>01</span><strong>PPPoE billing</strong><small>Prepaid at KES 15 per active user a month, or KES 500 below 35 users. No cut of your sales.</small></article><article class="featured"><span>02</span><strong>Static IP services</strong><small>Assign dedicated addresses to approved business subscribers and devices.</small></article><article><span>03</span><strong>Secure delivery</strong><small>Access changes reach the paired MikroTik through authenticated polling.</small></article></div>
       </section>
 
-      <section class="shell payment glass" data-reveal><div><h3>Collect payments your way.</h3><p>Use your own Till, PayBill, Tuma or bank settlement. Service subscriptions are prepaid fixed fees; Wi‑Fi Fiti does not take a percentage of your customer sales.</p></div><a class="secondary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></section>
+      <section class="shell payment glass" data-reveal><div><h3>Collect payments your way.</h3><p>Use your own Till, PayBill or Tuma account and keep 100% of every sale. Prefer Wi‑Fi Fiti collection? It carries a 5% fee because the money passes through us.</p></div><a class="secondary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></section>
 
       <section class="shell section" id="integrations" data-reveal>
         <div class="section-head"><p class="eyebrow">PAYMENT INTEGRATIONS</p><h2>Connect the payment rail that fits your business.</h2><p>Use managed Wi‑Fi Fiti collection, your own Daraja account, Tuma bank settlement, PayBill or Till reconciliation. Switch integrations from your tenant dashboard.</p></div>
@@ -554,19 +559,28 @@
       <section class="shell section" id="pricing" data-reveal>
         <div class="section-head"><p class="eyebrow">SERVICE PRICING</p><h2>Simple pricing for every service.</h2><p>Every workspace starts with a 7-day trial: one router and unlimited platform resources. Choose the service model that fits your network.</p></div>
         <div class="plans">
-          <article class="plan-card glass"><p class="plan-name">HOTSPOT BILLING</p><div class="plan-price">KES 1,000 <small>/ month · 100 concurrent users</small></div><p class="plan-capacity">Unlimited vouchers and customer accounts. Add KES 1,000 for each additional 100 concurrent-user tier.</p><a class="secondary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></article>
-          <article class="plan-card highlight glass"><p class="plan-name">PPPoE &amp; STATIC IP</p><div class="plan-price">KES 500 <small>/ month floor · KES 15 per user above 35</small></div><p class="plan-capacity">Managed subscriber access, speed profiles, PPPoE credentials, and dedicated IP services.</p><a class="primary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></article>
+          <article class="plan-card glass"><p class="plan-name">HOTSPOT</p><div class="plan-price">KES 1,000 <small>/ month</small></div><p class="plan-capacity">For up to 100 users online at once; each extra 100 is +KES 1,000. Unlimited vouchers, registered customers and routers.</p><a class="secondary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></article>
+          <article class="plan-card highlight glass"><p class="plan-name">PPPoE &amp; STATIC IP</p><div class="plan-price">KES 15 <small>/ active user / month</small></div><p class="plan-capacity">KES 500 a month below 35 users. Managed subscriber access, speed profiles, PPPoE credentials and dedicated IPs.</p><a class="primary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></article>
           <article class="plan-card glass"><p class="plan-name">CUSTOM</p><div class="plan-price">Let’s talk</div><p class="plan-capacity">A tailored router, device, and support plan.</p><a class="secondary" href="#contact">Contact sales</a></article>
         </div>
-        <p class="fine">Hotspot pricing is based on peak concurrent users. PPPoE &amp; Static IP pricing is based on active subscriber accounts. Both services are prepaid monthly.</p>
+        <p class="fine">Prepaid monthly by M‑Pesa, with no percentage taken from sales on your own Till, PayBill or Tuma account. Each service renews on its own 30‑day date, with a 3‑day grace period.</p>
         <div class="fee-calc glass" id="fee-calc">
           <p class="eyebrow">LIVE CALCULATOR</p>
-          <h3>Estimate your prepaid service cost.</h3>
-          <div class="fee-grid">
-            <label class="fee-sell"><span class="fee-label">PPPoE + static IP users</span><span class="fee-input"><input id="fee-pppoe" type="number" min="0" step="1" value="35" aria-describedby="fee-sell-note" autocomplete="off"></span><small id="fee-sell-note">Below 35 users: KES 500/month. Above 35: KES 15/user.</small></label>
-            <label class="fee-sell"><span class="fee-label">Hotspot peak concurrent users</span><span class="fee-input"><input id="fee-hotspot" type="number" min="0" step="100" value="100" aria-describedby="fee-hotspot-note" autocomplete="off"></span><small id="fee-hotspot-note">KES 1,000/month per 100 concurrent-user tier.</small></label>
-            <div class="fee-keep" aria-live="polite"><span class="fee-label">Prepaid monthly total</span><strong id="fee-keep">KES 1,525</strong><small id="fee-note">No percentage is deducted from your customer sales.</small></div>
+          <h3>See what you pay, and what you keep.</h3>
+          <div class="fee-tabs" role="radiogroup" aria-label="How payments are collected">
+            <button type="button" role="radio" aria-checked="true" data-fee="0">Own Till / PayBill / Tuma <b>0%</b></button>
+            <button type="button" role="radio" aria-checked="false" data-fee="5">Wi‑Fi Fiti collection <b>5%</b></button>
           </div>
+          <div class="fee-plan">
+            <label><span class="fee-label">Hotspot users online at once</span><span class="fee-input small"><input id="calc-hotspot" type="text" inputmode="numeric" value="100" autocomplete="off"></span></label>
+            <label><span class="fee-label">PPPoE subscribers</span><span class="fee-input small"><input id="calc-pppoe" type="text" inputmode="numeric" value="0" autocomplete="off"></span></label>
+            <div class="fee-pay" aria-live="polite"><span class="fee-label">Your plan</span><strong id="calc-plan">KES 1,000</strong><small id="calc-plan-note">per month, prepaid</small></div>
+          </div>
+          <div class="fee-grid">
+            <label class="fee-sell"><span class="fee-label">You sell</span><span class="fee-input"><em>KES</em><input id="fee-amount" type="text" inputmode="numeric" value="30,000" aria-describedby="fee-sell-note" autocomplete="off"></span><small id="fee-sell-note">Your confirmed sales for the month.</small></label>
+            <div class="fee-keep" aria-live="polite"><span class="fee-label">You keep</span><strong id="fee-keep">KES 30,000</strong><small id="fee-note">100% of your sales, paid straight to your account.</small></div>
+          </div>
+          <div class="fee-bar" aria-hidden="true"><i id="fee-bar"></i></div>
         </div>
       </section>
 
@@ -581,7 +595,7 @@
           <details><summary>Do I need a public IP address?</summary><p>No. Your router polls Wi-Fi Fiti over HTTPS, so WinBox and the RouterOS API stay private.</p></details>
           <details><summary>Which routers work?</summary><p>MikroTik RouterOS Hotspot. The router needs internet, DNS, HTTPS fetch permission, a customer bridge, and a Hotspot server.</p></details>
           <details><summary>Does time pause when a customer disconnects?</summary><p>No. Time continues from the payment-confirmed expiry, online or offline.</p></details>
-          <details><summary>Can I use my own Till or PayBill?</summary><p>Yes. Connect verified Daraja credentials, Tuma, a Till, PayBill or bank settlement. Service subscriptions remain fixed prepaid fees; Wi‑Fi Fiti does not deduct a percentage from your customer sales. Provider transaction charges, if any, are separate.</p></details>
+          <details><summary>Can I use my own Till or PayBill?</summary><p>Yes. Connect verified Daraja credentials, Tuma, a Till, PayBill or bank settlement. Service subscriptions remain fixed prepaid fees; Wi‑Fi Fiti does not deduct a percentage from sales on your own account. Wi‑Fi Fiti collection is also available, with a 5% fee. Provider transaction charges, if any, are separate.</p></details>
           <details><summary>When Wi-Fi Fiti collects payments, are payouts automatic?</summary><p>No. Payout requests are reviewed before payment. Wi-Fi Fiti does not send money automatically.</p></details>
         </div>
       </section>
@@ -666,17 +680,45 @@
 
     (function () {
       var box = document.getElementById('fee-calc'); if (!box) return;
-      var pppoe = document.getElementById('fee-pppoe'), hotspot = document.getElementById('fee-hotspot');
+      var input = document.getElementById('fee-amount'), hotspot = document.getElementById('calc-hotspot'), pppoe = document.getElementById('calc-pppoe'), fee = 0;
       var kes = function (n) { return 'KES ' + Math.round(n).toLocaleString('en-KE'); };
-      function update() {
-        var p = Math.max(0, Math.floor(Number(pppoe.value) || 0));
-        var h = Math.max(0, Math.floor(Number(hotspot.value) || 0));
-        var pCost = p ? (p < 35 ? 500 : p * 15) : 0;
-        var hCost = h ? Math.max(1000, Math.ceil(h / 100) * 1000) : 0;
-        document.getElementById('fee-keep').textContent = kes(pCost + hCost);
-        document.getElementById('fee-note').textContent = 'PPPoE/static: ' + kes(pCost) + ' · Hotspot: ' + kes(hCost) + '. No percentage is deducted.';
+      function num(el, max) { var n = Number(String(el.value).replace(/[^0-9]/g, '')); return Number.isFinite(n) ? Math.min(n, max) : 0; }
+      function fit(el, min) { el.style.width = Math.max(min, el.value.length + 0.5) + 'ch'; }
+      // Same formula as the dashboard and server (NETWORK_SERVICE_PRICING).
+      function planPrice(h, p) {
+        var hotspotKes = h ? Math.max(1000, Math.ceil(h / 100) * 1000) : 0;
+        var pppoeKes = p ? (p < 35 ? 500 : p * 15) : 0;
+        return { hotspotKes: hotspotKes, pppoeKes: pppoeKes, total: hotspotKes + pppoeKes };
       }
-      pppoe.addEventListener('input', update); hotspot.addEventListener('input', update);
+      function update() {
+        fit(input, 3); fit(hotspot, 2); fit(pppoe, 2);
+        var h = num(hotspot, 100000), p = num(pppoe, 100000), plan = planPrice(h, p);
+        document.getElementById('calc-plan').textContent = plan.total ? kes(plan.total) : 'KES 0';
+        document.getElementById('calc-plan-note').textContent = plan.hotspotKes && plan.pppoeKes
+          ? 'per month: hotspot ' + kes(plan.hotspotKes) + ' + PPPoE ' + kes(plan.pppoeKes)
+          : plan.total ? 'per month, prepaid' : 'Enter your users above';
+        var sell = num(input, 99999999), cut = Math.round(sell * fee / 100);
+        document.getElementById('fee-keep').textContent = kes(sell - cut);
+        document.getElementById('fee-note').textContent = fee
+          ? 'Wi‑Fi Fiti collection takes ' + kes(cut) + ' (5%), only on confirmed sales.'
+          : '100% of your sales, paid straight to your account.';
+        document.getElementById('fee-bar').style.width = (sell ? (100 - fee) : 0) + '%';
+      }
+      [input, hotspot, pppoe].forEach(function (el) {
+        el.addEventListener('input', function () {
+          var n = num(el, 99999999), end = el.value.length - el.selectionEnd;
+          el.value = n ? n.toLocaleString('en-KE') : (el === input ? '' : '0');
+          var pos = Math.max(0, el.value.length - end); try { el.setSelectionRange(pos, pos); } catch (_) { /* ignore */ }
+          update();
+        });
+      });
+      Array.prototype.forEach.call(box.querySelectorAll('[data-fee]'), function (b) {
+        b.addEventListener('click', function () {
+          fee = Number(b.dataset.fee);
+          Array.prototype.forEach.call(box.querySelectorAll('[data-fee]'), function (x) { x.setAttribute('aria-checked', String(x === b)); });
+          update();
+        });
+      });
       update();
     }());
 

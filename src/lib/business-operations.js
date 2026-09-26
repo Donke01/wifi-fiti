@@ -63,10 +63,13 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk }) {
   const hasMinorFee = db.prepare('PRAGMA table_info(tenant_transactions)').all().some(row => row.name === 'platform_fee_minor');
   const feeSql = hasMinorFee ? 'COALESCE(platform_fee_minor, CAST(ROUND(platform_fee * 100) AS INTEGER))'
     : 'CAST(ROUND(platform_fee * 100) AS INTEGER)';
+  // Money Wi‑Fi Fiti collected on the tenant's behalf is owed to them: its own
+  // M‑Pesa collection ('fiti') and the platform Tuma fallback ('tuma'). Direct
+  // rails ('own', 'tuma_direct', 'c2b') already settled to the tenant.
   const earnedStatement = db.prepare(`SELECT COALESCE(SUM(amount * 100),0) AS gross_minor,
     COALESCE(SUM(${feeSql}),0) AS fee_minor,
     COALESCE(SUM(amount * 100 - ${feeSql}),0) AS earned_minor
-    FROM tenant_transactions WHERE business_id=? AND payment_source='fiti' AND status='paid'`);
+    FROM tenant_transactions WHERE business_id=? AND payment_source IN ('fiti','tuma') AND status='paid'`);
   const reservedStatement = db.prepare(`SELECT
     COALESCE(SUM(CASE WHEN status IN ('pending','approved') THEN amount_minor ELSE 0 END),0) AS reserved_minor,
     COALESCE(SUM(CASE WHEN status='paid' THEN amount_minor ELSE 0 END),0) AS paid_minor

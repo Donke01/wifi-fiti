@@ -306,7 +306,7 @@
         <strong id="payout-total">—</strong>
         <dl>
           <div><dt>Collected this month</dt><dd id="payout-gross">—</dd></div>
-          <div><dt>Wi‑Fi Fiti fee (3%)</dt><dd id="payout-fee">—</dd></div>
+          <div><dt>Prepaid hotspot plan (100 online)</dt><dd id="payout-fee">—</dd></div>
           <div><dt>Yours to keep</dt><dd id="payout-net">—</dd></div>
         </dl>
         <button class="btn small secondary" type="button" data-demo="Download a monthly statement with every receipt number.">Download statement</button>
@@ -585,7 +585,7 @@
     function renderPayout() {
       var monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
       var gross = days.filter(function (d) { return d.date >= monthStart; }).reduce(function (s, d) { return s + d.sales; }, 0);
-      var fee = Math.round(gross * 0.03);
+      var fee = 1000; // prepaid hotspot plan: KES 1,000 per 100 users online
       $('payout-total').textContent = kes(gross - fee);
       $('payout-gross').textContent = kes(gross); $('payout-fee').textContent = '− ' + kes(fee); $('payout-net').textContent = kes(gross - fee);
     }

@@ -1,0 +1,149 @@
+'use strict';
+
+/**
+ * Subscription reminders for tenant owners: 3 days before a prepaid service
+ * or trial ends, when a paid service enters its grace period, and when sales
+ * stop. Sent by SMS (platform Africa's Talking account) and email; each
+ * reminder key is recorded so it is sent at most once.
+ */
+const serviceBilling = require('./service-billing');
+
+const DAY_MS = 86400_000;
+
+function trialReminders(business, now) {
+  if (String(business.billing_status || '').toLowerCase() !== 'trial') return [];
+  const ends = serviceBilling.parseTime(business.billing_expires_at);
+  if (ends == null) return [];
+  const stamp = new Date(ends).toISOString().slice(0, 10);
+  if (now >= ends - 3 * DAY_MS && now < ends) return [{ key: `trial:${stamp}:before`, kind: 'trial', stage: 'before', expires: business.billing_expires_at }];
+  if (now >= ends && now < ends + 7 * DAY_MS) return [{ key: `trial:${stamp}:ended`, kind: 'trial', stage: 'ended', expires: business.billing_expires_at }];
+  return [];
+}
+
+function trialText(stage, expiresRaw, name) {
+  const ends = serviceBilling.parseTime(expiresRaw);
+  const day = new Date(ends).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' });
+  const who = name ? `${name}: ` : '';
+  return stage === 'before'
+    ? `${who}your Wi-Fi Fiti free trial ends on ${day}. Choose your hotspot capacity in Billing & payments to keep taking payments without a break.`
+    : `${who}your Wi-Fi Fiti free trial has ended, so new sales are paused. Subscribe in Billing & payments to resume. Customers already online keep their time.`;
+}
+
+function planText(stage, expiresRaw, name) {
+  const ends = serviceBilling.parseTime(expiresRaw);
+  const day = (ms) => new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' });
+  const who = name ? `${name}: ` : '';
+  if (stage === 'before') return `${who}your Wi-Fi Fiti plan ends on ${day(ends)}. Starter and Growth are being replaced by prepaid capacity from KES 1,000/month. Choose yours in Billing & payments to keep selling.`;
+  if (stage === 'grace') return `${who}your Wi-Fi Fiti plan has ended. Sales continue until ${day(ends + serviceBilling.GRACE_DAYS * DAY_MS)}. Choose prepaid hotspot capacity in Billing & payments to avoid interruption.`;
+  return `${who}new sales have stopped because your old Wi-Fi Fiti plan ended. Choose prepaid hotspot capacity in Billing & payments to resume. Customers already online keep their time.`;
+}
+
+function createServiceReminders({ db, smsProvider = null, sendEmail = null, tumaFee = null, now = () => Date.now(), log = console }) {
+  db.exec(`CREATE TABLE IF NOT EXISTS business_billing_reminders (
+    reminder_key TEXT NOT NULL,
+    business_id  TEXT NOT NULL,
+    channels     TEXT,
+    sent_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (business_id, reminder_key)
+  )`);
+  const candidates = db.prepare(`SELECT id, name, portal_name, owner_phone, email, billing_status, billing_expires_at,
+      hotspot_billing_expires_at, pppoe_billing_expires_at
+    FROM businesses WHERE billing_status != 'suspended'
+      AND (billing_expires_at IS NOT NULL OR hotspot_billing_expires_at IS NOT NULL OR pppoe_billing_expires_at IS NOT NULL)`);
+  const claim = db.prepare(`INSERT OR IGNORE INTO business_billing_reminders (reminder_key, business_id) VALUES (?, ?)`);
+  const setChannels = db.prepare(`UPDATE business_billing_reminders SET channels=? WHERE reminder_key=? AND business_id=?`);
+
+  function dueFor(business, at) {
+    const due = [...trialReminders(business, at)];
+    // Retired Starter/Growth plans: tell the owner to move to prepaid capacity
+    // before the old plan runs out, unless they already have hotspot capacity.
+    const hotspotLive = ['active', 'grace'].includes(serviceBilling.periodState(business.hotspot_billing_expires_at, at).status);
+    if (String(business.billing_status || '').toLowerCase() !== 'trial' && !hotspotLive) {
+      for (const item of serviceBilling.dueReminders('plan', business.billing_expires_at, at)) due.push({ ...item, kind: 'plan', expires: business.billing_expires_at });
+    }
+    for (const kind of ['hotspot', 'pppoe']) {
+      const raw = business[`${kind}_billing_expires_at`];
+      for (const item of serviceBilling.dueReminders(kind, raw, at)) due.push({ ...item, kind, expires: raw });
+    }
+    // A reminder that is already past (e.g. "before" once "grace" is due)
+    // is superseded; only the latest stage for each kind is sent.
+    const latest = new Map();
+    for (const item of due) latest.set(item.kind, item);
+    return [...latest.values()];
+  }
+
+  async function deliver(business, item) {
+    const name = business.portal_name || business.name || '';
+    const text = item.text ? item.text : item.kind === 'trial' ? trialText(item.stage, item.expires, name)
+      : item.kind === 'plan' ? planText(item.stage, item.expires, name)
+      : serviceBilling.reminderText(item.kind, item.stage, item.expires, name);
+    const channels = [];
+    const phone = String(business.owner_phone || '').replace(/\D/g, '');
+    const intl = phone.startsWith('254') ? phone : phone.startsWith('0') ? `254${phone.slice(1)}` : phone;
+    if (smsProvider && /^254[17]\d{8}$/.test(intl)) {
+      try { await smsProvider.send({ to: `+${intl}`, message: text }); channels.push('sms'); }
+      catch (error) { log.error('[billing reminders] SMS failed:', error.message); }
+    }
+    if (sendEmail && business.email) {
+      try {
+        const safe = text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        await sendEmail({ to: business.email, subject: item.subject ? item.subject : item.stage === 'before' ? 'Your Wi-Fi Fiti subscription ends soon' : 'Your Wi-Fi Fiti subscription needs renewing',
+          text, html: `<p>${safe}</p><p><a href="https://cloud.wififiti.co.ke/business#payments">Open Billing &amp; payments</a></p>` });
+        channels.push('email');
+      } catch (error) { if (error.code !== 'EMAIL_NOT_CONFIGURED') log.error('[billing reminders] email failed:', error.message); }
+    }
+    return channels;
+  }
+
+  async function run() {
+    const at = now();
+    let sent = 0;
+    for (const business of candidates.all()) {
+      for (const item of dueFor(business, at)) {
+        // Claim first so two overlapping runs never double-send.
+        if (!claim.run(item.key, business.id).changes) continue;
+        const channels = await deliver(business, item);
+        setChannels.run(channels.join(',') || 'none', item.key, business.id);
+        sent += 1;
+      }
+    }
+    if (tumaFee) sent += await runTumaFee();
+    return sent;
+  }
+
+  // Tuma's KES 2,500 fee at KES 100,000 monthly sales: remind as the tenant
+  // approaches it, when it falls due, and if sales pause for non-payment.
+  function tumaFeeReminder(fee, name) {
+    const kes = (n) => `KES ${Number(n).toLocaleString('en-KE')}`;
+    const who = name ? `${name}: ` : '';
+    const pause = fee.pauseAt ? new Date(fee.pauseAt).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' }) : '';
+    if (fee.stage === 'approaching') return { subject: 'Your Tuma sales are close to KES 100,000', text: `${who}your Tuma sales this month are ${kes(fee.salesKes)}. At ${kes(fee.thresholdKes)}, Tuma's flat ${kes(fee.feeKes)} monthly fee applies. Pay it early in your Wi-Fi Fiti dashboard (Billing & payments) to avoid any interruption.` };
+    if (fee.stage === 'due') return { subject: 'Your Tuma monthly fee is due', text: `${who}your Tuma sales passed ${kes(fee.thresholdKes)} this month, so the ${kes(fee.feeKes)} Tuma fee is due. Pay it in your Wi-Fi Fiti dashboard by ${pause} to keep taking payments.` };
+    return { subject: 'Sales paused: Tuma fee unpaid', text: `${who}new sales are paused because the ${kes(fee.feeKes)} Tuma fee was not paid. Pay it in your Wi-Fi Fiti dashboard (Billing & payments) to resume at once. Customers already online keep their time.` };
+  }
+
+  async function runTumaFee() {
+    let rows = [];
+    try {
+      rows = db.prepare(`SELECT b.id, b.name, b.portal_name, b.owner_phone, b.email FROM tenant_tuma_accounts a
+        JOIN businesses b ON b.id=a.business_id WHERE a.active=1 AND b.billing_status != 'suspended'`).all();
+    } catch { return 0; } // table not created yet on this deployment
+    let sent = 0;
+    for (const business of rows) {
+      const s = tumaFee.state(business.id);
+      const fee = s.outstanding || s.current;
+      if (!['approaching', 'due', 'overdue'].includes(fee.stage)) continue;
+      const key = `tumafee:${fee.month}:${fee.stage}`;
+      if (!claim.run(key, business.id).changes) continue;
+      const message = tumaFeeReminder(fee, business.portal_name || business.name || '');
+      const channels = await deliver(business, { key, kind: 'tumafee', stage: fee.stage, ...message });
+      setChannels.run(channels.join(',') || 'none', key, business.id);
+      sent += 1;
+    }
+    return sent;
+  }
+
+  return { run, dueFor };
+}
+
+module.exports = { createServiceReminders };

@@ -22,6 +22,11 @@ const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
+const serviceBilling = require('./lib/service-billing');
+const { createTumaTenants } = require('./lib/tuma-tenants');
+const { createTumaFee, FEE_KES: TUMA_FEE_KES } = require('./lib/tuma-fee');
+// Created early: sales checks and the reminder worker both read it.
+const tumaFee = createTumaFee({ db: db.db });
 const { createDemo } = require('./lib/demo');
 
 const app = express();
@@ -623,6 +628,9 @@ const BUSINESS_PLANS = {
   custom: { name: 'Custom', monthlyKes: null, routerLimit: null, activeDeviceLimit: null },
 };
 
+// Monthly plans that can no longer be bought or renewed.
+const RETIRED_PLANS = new Set(['starter', 'growth']);
+
 // Fixed prepaid network-service pricing. These charges are independent of
 // customer sales and never take a percentage of tenant revenue.
 const NETWORK_SERVICE_PRICING = Object.freeze({
@@ -707,6 +715,8 @@ function locationDraftInput(body, { routerNameRequired = false } = {}) {
 
 function canAddLocation(business, res) {
   const plan = businessPlanEntitlements(business);
+  // Paid hotspot capacity is priced per concurrent customer, not per router.
+  if (serviceBilling.routerLimitLifted(business)) return true;
   const existing = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   if (plan.routerLimit && existing.length >= plan.routerLimit) {
@@ -978,7 +988,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1134,12 +1144,12 @@ app.post('/api/business/billing-plan', (req, res) => {
     return res.json({ plan: businessPlanEntitlements(updated), collectionMode,
       checkoutRequired: false, trial: true, trialDays: TRIAL_DAYS, requestedPlan: plan });
   }
-  // Changing collection mode is immediate. Changing the paid platform plan
-  // is completed only after the monthly M-Pesa checkout below settles.
+  // Changing collection mode is immediate. Starter/Growth can no longer be
+  // bought, so a plan change never starts a checkout; capacity is bought
+  // through /api/business/network-services/checkout instead.
   if (plan !== business.plan && plan !== 'custom') {
     db.setBusinessPlan.run({ id: business.id, plan: business.plan, collectionMode });
-    return res.json({ plan: BUSINESS_PLANS[business.plan], collectionMode,
-      checkoutRequired: true, requestedPlan: plan, amount: BUSINESS_PLANS[plan].monthlyKes });
+    return res.json({ plan: BUSINESS_PLANS[business.plan], collectionMode });
   }
   if (plan === 'custom') {
     db.setBusinessPlan.run({ id: business.id, plan: business.plan, collectionMode });
@@ -1156,7 +1166,7 @@ app.get('/api/business/network-services', (req, res) => {
     pppoeUsers: req.query.pppoeUsers ?? business.pppoe_users,
     hotspotConcurrent: req.query.hotspotConcurrent ?? business.hotspot_concurrent,
   });
-  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, current: {
+  res.json({ pricing: NETWORK_SERVICE_PRICING, quote, services: serviceBilling.summary(business), current: {
     pppoeUsers: Number(business.pppoe_users || 0),
     pppoeExpiresAt: business.pppoe_billing_expires_at || null,
     hotspotConcurrent: Number(business.hotspot_concurrent || 0),
@@ -1196,6 +1206,11 @@ app.post('/api/business/billing/checkout', async (req, res) => {
   const plan = String(req.body && req.body.plan || business.plan);
   const definition = BUSINESS_PLANS[plan];
   const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
+  // Starter and Growth are retired: every workspace now prepays hotspot and
+  // PPPoE capacity. Time already paid on an old plan is still honoured.
+  if (RETIRED_PLANS.has(plan)) {
+    return res.status(410).json({ error: 'Starter and Growth plans have been replaced by prepaid hotspot and PPPoE capacity. Choose your capacity under Prepaid network services.' });
+  }
   if (!definition || !definition.monthlyKes) return res.status(400).json({ error: 'Custom plans are arranged with Wi-Fi Fiti directly.' });
   if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay for this plan.' });
   const activeLocations = tenant.locationsForBusiness.all(business.id)
@@ -1269,7 +1284,8 @@ app.get('/api/business/billing/status/:checkoutRequestId', async (req, res) => {
 app.get('/api/business/billing/recover', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const transaction = db.db.prepare(`SELECT * FROM business_billing_transactions
-    WHERE business_id=? AND ((status='pending' AND created_at>datetime('now','-2 hours'))
+    WHERE business_id=? AND COALESCE(service_kind,'platform')!='tuma_fee'
+      AND ((status='pending' AND created_at>datetime('now','-2 hours'))
       OR (status!='pending' AND updated_at>datetime('now','-30 minutes')))
     ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(business.id);
   if (!transaction) return res.json({ found: false });
@@ -1882,7 +1898,7 @@ async function queryTenantMpesa(transaction) {
   // checkout-query call to make for a Tuma checkout; keeping it pending here
   // prevents the browser's status poll from declaring a payment failed before
   // Tuma delivers its callback.
-  if (transaction.payment_source === 'tuma') return { settled: false, resultCode: null, resultDesc: 'Waiting for Tuma callback.' };
+  if (transaction.payment_source === 'tuma' || transaction.payment_source === 'tuma_direct') return { settled: false, resultCode: null, resultDesc: 'Waiting for Tuma callback.' };
   if (transaction.payment_source === 'own') {
     const credentials = tenant.paymentCredentials(transaction.business_id);
     if (!credentials) throw new Error('Business M-Pesa credentials are unavailable.');
@@ -1922,10 +1938,27 @@ function publicLocation(id, res) {
   return location;
 }
 
+// Whether this location may take a new sale at all: trial, a paid hotspot
+// service or a legacy plan, each with a 3-day grace period after expiry.
 function businessCanSell(location) {
-  if (location.billing_status === 'suspended') return 'This WiFi service is temporarily unavailable.';
-  // There is no platform subscription gate. Service access is controlled by
-  // the prepaid network-service entitlements, not by an old plan expiry.
+  return serviceBilling.hotspotSaleBlock(location, { renewing: true }) || tumaFee.salesBlock(location.business_id);
+}
+
+const hotspotOnlineNow = db.db.prepare(`SELECT COUNT(*) AS n FROM tenant_subscriptions
+  WHERE business_id=? AND expires_at>datetime('now')`);
+
+// Capacity check for one new sale. Prepaid hotspot capacity counts customers
+// online right now; legacy Starter/Growth plans keep their monthly device cap.
+function hotspotCapacityBlock(location, renewing) {
+  if (renewing || trialActive(location)) return null;
+  const services = serviceBilling.summary(location);
+  if (services.hotspot.status === 'active' || services.hotspot.status === 'grace') {
+    return serviceBilling.hotspotSaleBlock(location, { activeNow: hotspotOnlineNow.get(location.business_id).n, renewing: false });
+  }
+  const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
+  if (plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
+    return 'This WiFi location has reached its current monthly customer limit. Please contact the operator.';
+  }
   return null;
 }
 
@@ -2033,11 +2066,9 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   if (!pkg || !phone || !deviceType || (deviceType === 'tv' && !mac)) return res.status(400).json({ error: 'Choose a package, enter a valid number, and select the device.' });
   const offlineClaim = !mac && deviceType === 'phone';
   if (offlineClaim) mac = `CLAIM:${crypto.randomBytes(12).toString('hex')}`;
-  const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
   const existingSubscription = offlineClaim ? null : tenant.subscriptionByMac.get(location.id, mac);
-  if (!trialActive(location) && !existingSubscription && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
-    return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
-  }
+  const capacityBlocked = hotspotCapacityBlock(location, Boolean(existingSubscription));
+  if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
   const pendingPayment = tenant.pendingPaymentForPhone.get(location.id, phone);
   if (pendingPayment) {
     return res.status(429).json({ error: 'A payment request is already on its way to this number. Please check the phone first.' });
@@ -2054,13 +2085,23 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
     let platformFee = pkg.price * 5 / 100;
     const selectedProvider = paymentIntegrations.summary(location.business_id).selected;
     if (selectedProvider === 'tuma') {
-      if (!tuma.configured()) {
+      // Prefer the tenant's own Tuma business: the money settles directly to
+      // the Till / PayBill / bank they chose. Without one, the platform Tuma
+      // account collects and the sale is owed to the tenant ('tuma').
+      let tenantTuma = null;
+      try { tenantTuma = tumaTenants.credentialsFor(location.business_id); }
+      catch (err) {
+        lastPush.delete(throttleKey);
+        return res.status(409).json({ error: 'This operator needs to reconnect their Tuma payout account.' });
+      }
+      // Both paths need the callback secret: it is how Tuma's result reaches us.
+      if (!tuma.callbackConfigured() || (!tenantTuma && !tuma.configured())) {
         lastPush.delete(throttleKey);
         return res.status(409).json({ error: 'Tuma is selected but its API credentials are not configured yet.' });
       }
-      pushed = await tuma.stkPush({ phone, amount: pkg.price, publicUrl: config.publicUrl,
-        description: pkg.name });
-      paymentSource = 'tuma';
+      pushed = await tuma.stkPush({ credentials: tenantTuma || undefined, phone, amount: pkg.price,
+        publicUrl: config.publicUrl, description: pkg.name });
+      paymentSource = tenantTuma ? 'tuma_direct' : 'tuma';
       platformFee = 0;
     } else if (location.collection_mode === 'own') {
       let credentials;
@@ -2303,10 +2344,8 @@ app.post('/api/tenant/:locationId/voucher/redeem', (req, res) => {
   const mac = cleanMac(req.body && req.body.mac);
   const ip = cleanIp(req.body && req.body.ip);
   if (code.length < 6 || !phone || !mac) return res.status(400).json({ error: 'Enter a valid voucher code, phone number, and reconnect to this WiFi.' });
-  const plan = BUSINESS_PLANS[location.business_plan] || BUSINESS_PLANS.starter;
-  if (!trialActive(location) && !tenant.subscriptionByMac.get(location.id, mac) && plan.activeDeviceLimit && tenant.activeMeter.get(location.business_id).n >= plan.activeDeviceLimit) {
-    return res.status(402).json({ error: 'This WiFi location has reached its current monthly customer limit. Please contact the operator.' });
-  }
+  const capacityBlocked = hotspotCapacityBlock(location, Boolean(tenant.subscriptionByMac.get(location.id, mac)));
+  if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
   try {
     const result = tenant.redeemVoucher({ locationId: location.id, code, phone, mac, ip });
     if (!result) return res.status(409).json({ error: 'That voucher is not available at this location, or it has already been used.' });
@@ -2804,7 +2843,7 @@ async function handleTumaCallback(body) {
   const checkoutRequestId = String(body && body.checkout_request_id || '').trim();
   if (!/^[-A-Za-z0-9_]{8,160}$/.test(checkoutRequestId)) return;
   const tx = tenant.getTransaction.get(checkoutRequestId);
-  if (!tx || tx.payment_source !== 'tuma') return;
+  if (!tx || (tx.payment_source !== 'tuma' && tx.payment_source !== 'tuma_direct')) return;
   const resultCode = Number(body && body.result_code);
   const completed = String(body && body.status || '').toLowerCase() === 'completed' || resultCode === 0;
   const settledCode = Number.isFinite(resultCode) ? resultCode : (completed ? 0 : 1);
@@ -4245,6 +4284,11 @@ const demo = createDemo({
   db: db.db, adminOk, tuma, publicUrl: config.publicUrl, smsProvider, sendEmail, whatsapp,
 });
 demo.attachRoutes(app);
+// Prepaid subscription reminders: 3 days before expiry, grace, and stop.
+const serviceReminders = require('./lib/service-reminders').createServiceReminders({ db: db.db, smsProvider, sendEmail, tumaFee });
+const runServiceReminders = () => serviceReminders.run().catch((err) => console.error('[billing reminders]', err.message));
+setTimeout(runServiceReminders, 60_000).unref();
+setInterval(runServiceReminders, 60 * 60_000).unref();
 if (smsProvider) {
   const smsWorker = () => fitiSignal.processQueue(smsProvider, { limit: 50 })
     .catch((error) => console.error('[fiti-signal] provider worker failed:', error.message));
@@ -4262,12 +4306,48 @@ const whatsappWorker = () => whatsappNotifications.processQueue({ limit: 50 })
 whatsappWorker();
 const whatsappWorkerTimer = setInterval(whatsappWorker, 5000);
 whatsappWorkerTimer.unref?.();
-require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth });
+require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth, subscriptionBlock: (business, usage) => serviceBilling.pppoeAddBlock(business, usage) });
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.
 require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db });
 require('./lib/tenant-portal-templates').attachTenantPortalTemplateRoutes(app, { businessAuth, db: db.db });
-paymentIntegrations.attachPaymentIntegrationRoutes(app, { businessAuth, tenant });
+// Per-tenant Tuma settlement: each tenant gets its own Tuma business so
+// customer payments settle straight to that tenant's Till, PayBill or bank.
+const tumaTenants = createTumaTenants({
+  db: db.db, tuma, encrypt: tenant.encryptSecret, decrypt: tenant.decryptSecret,
+  logoUrlFor: (business) => brandingPayload(business).logoUrl || `${config.domains.appUrl}/assets/wifi-fiti-logo.png`,
+});
+tumaTenants.attachRoutes(app, { businessAuth });
+
+// Tuma bills KES 2,500 a month once a tenant's Tuma sales reach KES 100,000.
+// Wi‑Fi Fiti charges the tenant KES 3,000 for it; the tenant pays here by M‑Pesa.
+app.get('/api/business/tuma/fee', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  res.json(tumaFee.state(business.id));
+});
+app.post('/api/business/tuma/fee/checkout', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const due = tumaFee.payableMonth(business.id);
+  if (!due) return res.status(409).json({ error: 'There is no Tuma fee to pay right now.' });
+  if (tumaFee.pendingCheckout(business.id, due.month)) return res.status(409).json({ error: 'Your Tuma fee payment is already processing. Check your phone.' });
+  const phone = mpesa.normalizePhone(req.body && req.body.phone || business.owner_phone);
+  if (!phone) return res.status(400).json({ error: 'Enter the M-Pesa number that should pay the Tuma fee.' });
+  const throttleKey = `tuma-fee:${business.id}:${phone}`;
+  const previous = lastPush.get(throttleKey);
+  if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
+  try {
+    lastPush.set(throttleKey, Date.now());
+    const pushed = await mpesa.stkPush({ phone, amount: TUMA_FEE_KES, accountReference: 'WF-TUMAFEE', description: `Tuma fee ${due.month}` });
+    tenant.insertBusinessBilling.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+      businessId: business.id, plan: `tuma-fee-${due.month}`, phone, amount: TUMA_FEE_KES, serviceKind: 'tuma_fee', pppoeUsers: 0, hotspotConcurrent: 0 });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, month: due.month, amount: TUMA_FEE_KES, phoneDisplay: mpesa.displayPhone(phone) });
+  } catch (err) {
+    lastPush.delete(throttleKey);
+    console.error('[tuma fee] STK push failed:', err.message);
+    res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
+  }
+});
+paymentIntegrations.attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants });
 whatsapp.attachWhatsAppRoutes(app);
 // The admin module owns privileged dashboard routes and controls. It is
 // intentionally mounted separately from tenant, router, and portal modules.

@@ -100,7 +100,7 @@ function harness({ live = false, env = {} } = {}) {
   });
 
   await test('estimates monthly sales and fees at 3% and 5%', () => {
-    assert.deepEqual(estimateEarnings({ usersPerDay: 40, avgPriceKes: 20 }), { gross: 24000, fee: 720, net: 23280 });
+    assert.deepEqual(estimateEarnings({ usersPerDay: 40, avgPriceKes: 20 }), { gross: 24000, fee: 0, net: 24000 });
     assert.deepEqual(estimateEarnings({ usersPerDay: 40, avgPriceKes: 20, feePercent: 5 }), { gross: 24000, fee: 1200, net: 22800 });
     assert.deepEqual(estimateEarnings({ usersPerDay: 0, avgPriceKes: 20 }), { gross: 0, fee: 0, net: 0 });
   });
