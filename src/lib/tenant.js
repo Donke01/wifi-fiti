@@ -1063,6 +1063,10 @@ const cancelPendingMappedDeployments = db.prepare(`
 // them cannot affect paid customers or the active router's job queue.
 const deleteRouterMapping = db.prepare(`DELETE FROM tenant_router_mappings WHERE location_id=?`);
 const deleteRouterTopology = db.prepare(`DELETE FROM tenant_router_topologies WHERE location_id=?`);
+// Router health samples and the nearby-device list reference the location by
+// foreign key; they must go before the location row itself.
+const deleteRouterTelemetryForLocation = db.prepare(`DELETE FROM tenant_router_telemetry WHERE location_id=?`);
+const deleteRouterDevicesForLocation = db.prepare(`DELETE FROM tenant_router_devices WHERE location_id=?`);
 // A location may be discarded only while it is a genuinely unused setup
 // draft. Most tenant tables intentionally do not use cascading foreign keys:
 // payment and customer history must survive ordinary lifecycle operations.
@@ -3620,6 +3624,8 @@ function deleteLocationForOwner({ locationId, businessId, confirm }) {
     deleteMappedDeploymentsForLocation.run(locationId);
     deleteRouterMapping.run(locationId);
     deleteRouterTopology.run(locationId);
+    deleteRouterTelemetryForLocation.run(locationId);
+    deleteRouterDevicesForLocation.run(locationId);
     deleteVpnPeerForLocation.run(locationId);
     deleteRemoteSupportControlsForLocation.run(locationId);
     deleteRemoteAccessEventsForLocation.run(locationId);
@@ -3697,6 +3703,7 @@ function deleteOffboardedLocation(locationId, businessId, knownLocation) {
   db.exec('BEGIN IMMEDIATE');
   try {
     deleteMappedDeploymentsForLocation.run(locationId); deleteRouterMapping.run(locationId); deleteRouterTopology.run(locationId);
+    deleteRouterTelemetryForLocation.run(locationId); deleteRouterDevicesForLocation.run(locationId);
     deleteVpnPeerForLocation.run(locationId); deleteRemoteSupportControlsForLocation.run(locationId); deleteRemoteAccessEventsForLocation.run(locationId);
     deleteRemoteAccessForLocation.run(locationId); deleteProvisioningJobsForLocation.run(locationId); deleteDevicesForLocation.run(locationId);
     deletePortalDomainsForLocation.run(locationId); deleteLocationForBusiness.run(locationId, businessId); db.exec('COMMIT');

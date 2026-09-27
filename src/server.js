@@ -2011,6 +2011,7 @@ app.delete('/api/business/locations/:locationId', (req, res) => {
     if (!location) return res.status(404).json({ error: 'Location not found.' });
     res.json({ deleted: true, locationId: location.id });
   } catch (error) {
+    if (!error.status) console.error(`[business] router delete failed for ${req.params.locationId}:`, error.message);
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not delete this router.' });
   }
 });
