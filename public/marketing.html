@@ -559,7 +559,7 @@
       <section class="shell section" id="pricing" data-reveal>
         <div class="section-head"><p class="eyebrow">SERVICE PRICING</p><h2>Simple pricing for every service.</h2><p>Every workspace starts with a free 7-day trial on one router. After that, add as many routers as you need: you pay only for users, never per router. Choose the service model that fits your network.</p></div>
         <div class="plans">
-          <article class="plan-card glass"><p class="plan-name">HOTSPOT</p><div class="plan-price">KES 1,000 <small>/ month</small></div><p class="plan-capacity">For up to 100 users online at once; each extra 100 is +KES 1,000. Unlimited vouchers, registered customers and routers.</p><a class="secondary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></article>
+          <article class="plan-card glass"><p class="plan-name">HOTSPOT</p><div class="plan-price">KES 1,000 <small>/ month</small></div><p class="plan-capacity">For up to 100 users online at once, then KES 10 for each extra user. Unlimited vouchers, registered customers and routers.</p><a class="secondary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></article>
           <article class="plan-card highlight glass"><p class="plan-name">PPPoE &amp; STATIC IP</p><div class="plan-price">KES 15 <small>/ active user / month</small></div><p class="plan-capacity">KES 500 a month below 35 users. Managed subscriber access, speed profiles, PPPoE credentials and dedicated IPs.</p><a class="primary" href="https://cloud.wififiti.co.ke/business">Start 7-day trial</a></article>
           <article class="plan-card glass"><p class="plan-name">CUSTOM</p><div class="plan-price">Let’s talk</div><p class="plan-capacity">A tailored router, device, and support plan.</p><a class="secondary" href="#contact">Contact sales</a></article>
         </div>
@@ -686,7 +686,7 @@
       function fit(el, min) { el.style.width = Math.max(min, el.value.length + 0.5) + 'ch'; }
       // Same formula as the dashboard and server (NETWORK_SERVICE_PRICING).
       function planPrice(h, p) {
-        var hotspotKes = h ? Math.max(1000, Math.ceil(h / 100) * 1000) : 0;
+        var hotspotKes = h ? 1000 + Math.max(0, h - 100) * 10 : 0;
         var pppoeKes = p ? (p < 35 ? 500 : p * 15) : 0;
         return { hotspotKes: hotspotKes, pppoeKes: pppoeKes, total: hotspotKes + pppoeKes };
       }

@@ -637,14 +637,16 @@ const RETIRED_PLANS = new Set(['starter', 'growth']);
 // customer sales and never take a percentage of tenant revenue.
 const NETWORK_SERVICE_PRICING = Object.freeze({
   pppoe: { label: 'PPPoE + Static IP', floorUsers: 35, floorKes: 500, perUserKes: 15 },
-  hotspot: { label: 'Hotspot', floorConcurrent: 100, floorKes: 1000, stepConcurrent: 100, stepKes: 1000 },
+  // KES 1,000 covers up to 100 concurrent users; each user above 100 is KES 10.
+  hotspot: { label: 'Hotspot', floorConcurrent: 100, floorKes: 1000, perExtraUserKes: 10 },
 });
 
 function networkServiceQuote({ pppoeUsers = 0, hotspotConcurrent = 0 } = {}) {
   const p = Math.max(0, Math.floor(Number(pppoeUsers) || 0));
   const h = Math.max(0, Math.floor(Number(hotspotConcurrent) || 0));
   const pppoeAmount = p ? (p < NETWORK_SERVICE_PRICING.pppoe.floorUsers ? NETWORK_SERVICE_PRICING.pppoe.floorKes : p * NETWORK_SERVICE_PRICING.pppoe.perUserKes) : 0;
-  const hotspotAmount = h ? Math.max(NETWORK_SERVICE_PRICING.hotspot.floorKes, Math.ceil(h / NETWORK_SERVICE_PRICING.hotspot.stepConcurrent) * NETWORK_SERVICE_PRICING.hotspot.stepKes) : 0;
+  const hp = NETWORK_SERVICE_PRICING.hotspot;
+  const hotspotAmount = h ? hp.floorKes + Math.max(0, h - hp.floorConcurrent) * hp.perExtraUserKes : 0;
   return { pppoeUsers: p, hotspotConcurrent: h, pppoeAmount, hotspotAmount, total: pppoeAmount + hotspotAmount };
 }
 
@@ -1224,7 +1226,7 @@ app.post('/api/business/network-services/upgrade', async (req, res) => {
   try { quote = serviceBilling.upgradeQuote(business, { hotspotConcurrent: req.body && req.body.hotspotConcurrent, pppoeUsers: req.body && req.body.pppoeUsers }); }
   catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
   const target = (kind) => (quote.items.find(item => item.kind === kind) || {}).to || 0;
-  // Moving up within the same price tier (e.g. 150 to 200 hotspot users) costs nothing.
+  // Moving up within the KES 1,000 base (e.g. 50 to 100 hotspot users) costs nothing.
   if (!quote.totalKes) {
     db.db.prepare(`UPDATE businesses SET hotspot_concurrent=MAX(hotspot_concurrent, ?), pppoe_users=MAX(pppoe_users, ?) WHERE id=?`)
       .run(target('hotspot'), target('pppoe'), business.id);
