@@ -341,6 +341,16 @@ async function test(name, fn) {
     const response = await call('POST', '/api/tenant/tloc/pay', { packageId: trialPkg, phone: '0711000031', mac: 'AA:BB:CC:31:00:01' });
     assert.equal(response.status, 402, JSON.stringify(response.body));
   });
+  await test('a lapsed trial with no plan keeps a one-router limit', async () => {
+    database.prepare(`INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash, billing_status, billing_expires_at, onboarding_state)
+      VALUES ('lapsed', 'Lapsed', 'Owner', '254722444444', 'lapsed@test.ke', 'x', 'trial', datetime('now','-10 day'), 'complete')`).run();
+    sessionFor('lapsed', 'lapsed-token');
+    database.prepare(`INSERT INTO locations (id, business_id, name, router_token) VALUES ('lloc', 'lapsed', 'One', 'rt3')`).run();
+    const second = await call('POST', '/api/business/locations', { location: 'Two', routerName: 'R2' }, as('lapsed'));
+    assert.equal(second.status, 402, JSON.stringify(second.body));
+    assert.match(second.body.error, /Choose a plan/);
+  });
+
   console.log('\nAccount recovery');
   await test('forgot-password answers the same for unknown emails', async () => {
     const response = await call('POST', '/api/business/forgot-password', { email: 'nobody@nowhere.test' });

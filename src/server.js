@@ -780,14 +780,21 @@ function locationDraftInput(body, { routerNameRequired = false } = {}) {
 function canAddLocation(business, res) {
   const plan = businessPlanEntitlements(business);
   // Paid hotspot capacity is priced per concurrent customer, not per router.
-  // Only the free trial is limited to one router (Don's rule); a lapsed trial
-  // with no plan cannot sell, so its extra routers earn it nothing.
+  // One router while on the free trial, and still one after a trial ends
+  // without a plan (each router also takes a VPN peer). Paying for hotspot or
+  // PPPoE, or a paid account, lifts the limit.
   if (serviceBilling.routerLimitLifted(business)) return true;
+  const services = serviceBilling.summary(business);
+  if (services.pppoe && ['active', 'grace'].includes(services.pppoe.status)) return true;
+  const onTrialAccount = String(business.billing_status || '').toLowerCase() === 'trial';
+  const limit = plan.routerLimit || (onTrialAccount ? 1 : null);
   const existing = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
-  if (plan.routerLimit && existing.length >= plan.routerLimit) {
+  if (limit && existing.length >= limit) {
     res.status(402).json({
-      error: 'Your free trial includes one router. After the trial, or as soon as you pay for hotspot capacity in Billing & payments, you can add as many routers as you need.',
+      error: trialActive(business)
+        ? 'Your free trial includes one router. As soon as you pay for hotspot or PPPoE users in Billing & payments, you can add as many routers as you need.'
+        : 'Choose a plan in Billing & payments to add more routers. Once you pay for hotspot or PPPoE users, you can add as many as you need.',
     });
     return false;
   }
