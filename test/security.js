@@ -379,7 +379,7 @@ async function test(name, fn) {
   const statusAs = (id, token) => call('GET', `/api/tenant/loc/status/${id}`, null, { 'X-WiFi-Fiti-Portal': token });
   await test('a claim code hands the purchase to the device that entered it', async () => {
     const bought = await offlineBuy('0711000401');
-    const claimed = await call('POST', '/api/tenant/loc/claim', { code: bought.claimCode, mac: 'AA:BB:CC:40:00:01' });
+    const claimed = await call('POST', '/api/tenant/loc/claim', { code: bought.claimCode, mac: 'AA:BB:CC:40:00:01', ip: '10.5.50.77' });
     assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
     assert.ok(claimed.body.portalToken && claimed.body.portalToken !== bought.portalToken, 'the claiming device gets its own payment page');
     const buyer = await statusAs(bought.checkoutRequestId, bought.portalToken);
@@ -388,6 +388,8 @@ async function test(name, fn) {
     assert.equal(buyer.body.sessionToken, undefined);
     const tx = database.prepare('SELECT * FROM tenant_transactions WHERE checkout_request_id=?').get(bought.checkoutRequestId);
     assert.equal(tx.mac, 'AA:BB:CC:40:00:01');
+    const job = database.prepare('SELECT mac, ip FROM tenant_jobs WHERE id=?').get(tx.provisioning_job_id);
+    assert.deepEqual({ ...job }, { mac: 'AA:BB:CC:40:00:01', ip: '10.5.50.77' }, 'the router logs the claiming device in straight away');
     database.prepare("UPDATE tenant_jobs SET acked_at=datetime('now') WHERE id=?").run(tx.provisioning_job_id);
     const again = await call('POST', '/api/tenant/loc/claim', { code: bought.claimCode, mac: 'AA:BB:CC:40:00:01' });
     assert.equal(again.status, 200, 'tapping Connect again on the same device is not an error');

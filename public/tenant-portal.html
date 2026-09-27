@@ -551,7 +551,7 @@
       if (!/^\d{8}$/.test(code)) { message('claim-error', 'Enter the 8-digit code shown after payment.'); return; }
       $('claim').disabled = true; message('claim-error', 'Checking your code…');
       try {
-        var result = await api('/claim', { code: code, mac: mac });
+        var result = await api('/claim', { code: code, mac: mac, ip: ip });
         if (result.awaitingPayment && !result.portalToken) {
           message('claim-error', 'The payment is still being confirmed. Keep this page open and try again shortly.'); return;
         }

@@ -1431,6 +1431,12 @@ const bindUnboundPaymentMac = db.prepare(`
   UPDATE tenant_transactions SET mac=@mac, updated_at=datetime('now')
    WHERE checkout_request_id=@checkoutRequestId AND mac LIKE 'C2B:%'
 `);
+// The device's hotspot IP lets the router log it straight in when the
+// package is created, exactly as for a purchase made on the Wi-Fi.
+const setTransactionIp = db.prepare(`UPDATE tenant_transactions SET ip=@ip, updated_at=datetime('now') WHERE checkout_request_id=@checkoutRequestId AND provisioned=0`);
+function setPaymentDeviceIp({ checkoutRequestId, ip }) {
+  if (ip) setTransactionIp.run({ checkoutRequestId, ip });
+}
 function bindPayBillPayment({ checkoutRequestId, mac }) {
   return bindUnboundPaymentMac.run({ checkoutRequestId, mac }).changes > 0;
 }
@@ -4188,7 +4194,7 @@ function deletePackageForOwner(packageId, businessId) {
 }
 
 module.exports = {
-  deletePackageForOwner, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
+  deletePackageForOwner, setPaymentDeviceIp, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,

@@ -2369,6 +2369,7 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
       return res.status(409).json({ code: 'device_taken', error: 'This device already has a package bought with another number. Recover your payment on another device, or wait for that package to end.' });
     }
     tenant.bindUnclaimedPayment({ checkoutRequestId: transaction.checkout_request_id, mac });
+    tenant.setPaymentDeviceIp({ checkoutRequestId: transaction.checkout_request_id, ip: cleanIp(req.body && req.body.ip) });
     transaction = tenant.getTransaction.get(transaction.checkout_request_id);
   }
   if (unboundPayBillPayment(transaction)) {
@@ -2377,6 +2378,7 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
     const capacityBlocked = hotspotCapacityBlock(location, Boolean(tenant.subscriptionByMac.get(location.id, mac)));
     if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
     tenant.bindPayBillPayment({ checkoutRequestId: transaction.checkout_request_id, mac });
+    tenant.setPaymentDeviceIp({ checkoutRequestId: transaction.checkout_request_id, ip: cleanIp(req.body && req.body.ip) });
     transaction = tenant.getTransaction.get(transaction.checkout_request_id);
   }
   try {
@@ -2674,6 +2676,9 @@ app.post('/api/tenant/:locationId/claim', async (req, res) => {
   if (claimed.error === 'expired') return res.status(410).json({ error: 'This claim code has expired. Start a new payment.' });
   if (claimed.error === 'locked') return res.status(429).json({ error: 'This claim code is locked. Start a new payment.' });
   if (claimed.error || !claimed.checkoutRequestId) return res.status(403).json({ error: 'That claim code is not valid for this Wi‑Fi.' });
+  // Record the claiming device's hotspot IP so the router logs it in as soon
+  // as the package is created (a claim has no IP from the purchase).
+  tenant.setPaymentDeviceIp({ checkoutRequestId: claimed.checkoutRequestId, ip: cleanIp(req.body && req.body.ip) });
   let tx = tenant.getTransaction.get(claimed.checkoutRequestId);
   // The code is single-use, so hand this device the payment page: a fresh
   // capability replaces the buying device's, and this device follows the
@@ -2687,6 +2692,17 @@ app.post('/api/tenant/:locationId/claim', async (req, res) => {
   if (tx.status === 'paid') {
     try { tx = provisionTenantPayment(tx.checkout_request_id); }
     catch (err) { return res.json({ status: 'pending', awaitingRouter: true, ...handoff }); }
+    // A repeat claim after the package was already created: ask the router
+    // to log this device in again, now with its current hotspot IP.
+    const claimIp = cleanIp(req.body && req.body.ip);
+    if (claimed.reclaimed && claimIp && tx.subscription_id) {
+      const subscription = tenant.subscriptionById.get(tx.subscription_id, location.id);
+      if (subscription && subscription.mac === mac && tenantRemaining(subscription)) {
+        tenant.insertJob.run({ locationId: location.id, username: subscription.router_username, password: subscription.password,
+          profile: 'standard', totalSeconds: subscription.total_seconds, rateLimit: subscription.rate_limit, mac: subscription.mac,
+          ip: claimIp, action: 'upsert' });
+      }
+    }
     return res.json({ ...tenantPaidPayload(tx), ...handoff });
   }
   res.json({ status: 'pending', awaitingPayment: true, ...handoff });
