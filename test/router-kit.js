@@ -33,4 +33,8 @@ assert.ok(customVlan.includes('vlan-id=53') && customVlan.includes('vlan-id=54')
 assert.ok(customVlan.includes('VLAN 51 is already used'), 'custom VLAN kit must include collision checks');
 assert.throws(() => vlanTestRouterKit(standard, { baseId: 4093 }), /VLAN IDs must be integers/);
 assert.ok(customVlan.startsWith(standard.trimEnd()), 'custom VLAN kit must preserve stable source exactly');
+assert.ok(customVlan.includes('/ip dhcp-client find where status=bound'), 'VLAN kit must detect DHCP WANs');
+assert.ok(customVlan.includes('/interface pppoe-client find where running=yes'), 'VLAN kit must detect PPPoE WANs');
+assert.ok(customVlan.includes('/interface lte find where running=yes'), 'VLAN kit must guard LTE WAN detection');
+assert.ok(customVlan.includes('gateway-interface'), 'VLAN kit must prefer the route gateway interface');
 console.log('custom VLAN staging tests passed');
