@@ -351,6 +351,20 @@ async function test(name, fn) {
     assert.match(second.body.error, /Choose a plan/);
   });
 
+  console.log('\nWi-Fi Fiti collection through Tuma');
+  await test('a Wi-Fi Fiti collection sale goes to Wi-Fi Fiti\'s Tuma account and keeps the 5%', async () => {
+    database.prepare("UPDATE businesses SET collection_mode='fiti' WHERE id='biz'").run();
+    database.prepare("UPDATE business_payment_integrations SET provider='fiti' WHERE business_id='biz'").run();
+    const started = await call('POST', '/api/tenant/loc/pay', { packageId: 1, phone: '0711000077', mac: 'AA:BB:CC:77:77:01' });
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+    const row = database.prepare('SELECT payment_source, platform_fee, amount, merchant_request_id FROM tenant_transactions WHERE checkout_request_id=?').get(started.body.checkoutRequestId);
+    assert.equal(row.payment_source, 'tuma');
+    assert.equal(row.platform_fee, row.amount * 5 / 100);
+    await tuma({ checkout_request_id: started.body.checkoutRequestId, merchant_request_id: row.merchant_request_id, status: 'completed', result_code: 0, amount: row.amount, mpesa_receipt_number: 'FITITUMA01' });
+    await settle();
+    assert.equal(database.prepare('SELECT status FROM tenant_transactions WHERE checkout_request_id=?').get(started.body.checkoutRequestId).status, 'paid');
+  });
+
   console.log('\nDevice already used by another number');
   const paidTx = (id, phone, mac) => {
     tenantLib.insertTransaction.run({ checkoutRequestId: id, merchantRequestId: `m-${id}`, businessId: 'biz', locationId: 'loc', phone,

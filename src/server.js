@@ -2499,8 +2499,25 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
       paymentSource = 'own';
       platformFee = 0;
     } else {
-      pushed = await mpesa.stkPush({ phone, amount: pkg.price,
-        accountReference: `WF-${location.id.slice(-6)}`, description: pkg.name });
+      // Wi-Fi Fiti collection: the customer pays Wi-Fi Fiti's Tuma account
+      // and the sale, less Wi-Fi Fiti's 5%, is owed to the tenant ('tuma').
+      // Daraja on the platform shortcode stays as the fallback ('fiti').
+      // PLATFORM_COLLECTION=daraja forces Daraja.
+      const preferTuma = String(process.env.PLATFORM_COLLECTION || 'tuma').toLowerCase() !== 'daraja';
+      if (preferTuma && tuma.configured() && tuma.callbackConfigured()) {
+        try {
+          pushed = await tuma.stkPush({ phone, amount: pkg.price, publicUrl: config.publicUrl,
+            description: `${pkg.name} (WF-${location.id.slice(-6)})` });
+          paymentSource = 'tuma';
+        } catch (err) {
+          console.warn(`[tenant collection] Wi-Fi Fiti Tuma prompt failed, using Daraja: ${err.message}`);
+        }
+      }
+      if (!pushed) {
+        pushed = await mpesa.stkPush({ phone, amount: pkg.price,
+          accountReference: `WF-${location.id.slice(-6)}`, description: pkg.name });
+        paymentSource = 'fiti';
+      }
     }
     const portalToken = tenantPortalCapability();
     tenant.insertTransaction.run({ checkoutRequestId: pushed.checkoutRequestId,
@@ -3417,6 +3434,14 @@ async function reconcile() {
   }
 
   for (const tx of tenant.staleTransactions.all(STALE_AFTER_SECONDS)) {
+    // Tuma checkouts settle only by callback; there is nothing to query.
+    // Give up on one after an hour so the customer can simply pay again.
+    if (tx.payment_source === 'tuma' || tx.payment_source === 'tuma_direct') {
+      const age = Date.now() - new Date(String(tx.created_at).replace(' ', 'T') + 'Z').getTime();
+      if (age > 60 * 60_000) tenant.setTransactionResult.run({ checkoutRequestId: tx.checkout_request_id,
+        status: 'failed', resultCode: 1037, resultDesc: 'No confirmation was received from Tuma.', receipt: null });
+      continue;
+    }
     try {
       const q = await queryTenantMpesa(tx);
       if (!q.settled) continue;

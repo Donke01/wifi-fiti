@@ -48,7 +48,7 @@ function c2bCallbackUrls(setting) {
 }
 
 const providers = [
-  { id: 'fiti', name: 'Wi-Fi Fiti collection', description: 'Use Wi-Fi Fiti’s managed M-Pesa collection account.', available: true },
+  { id: 'fiti', name: 'Wi-Fi Fiti collection', description: 'Customers pay Wi-Fi Fiti’s Tuma M-Pesa account; your sales, less 5%, build your payout balance.', available: true },
   { id: 'daraja', name: 'Safaricom Daraja API', description: 'Connect your own M-Pesa PayBill or Till credentials.', available: true },
   { id: 'tuma', name: 'Tuma Gateway', description: 'Accept bank and M-Pesa payments with direct settlement to your account.', available: true },
   { id: 'c2b', name: 'C2B PayBill reconciliation', description: 'Match customer PayBill references and reconcile them automatically.', available: true },
