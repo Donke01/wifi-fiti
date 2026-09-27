@@ -1410,6 +1410,15 @@ const bindTransactionDeviceMac = db.prepare(`
   UPDATE tenant_transactions SET mac=@mac, updated_at=datetime('now')
    WHERE checkout_request_id=@checkoutRequestId AND mac LIKE 'CLAIM:%'
 `);
+// A manual PayBill (C2B) payment arrives with no device. It is bound to the
+// first device that presents the paying number and the M-Pesa receipt.
+const bindUnboundPaymentMac = db.prepare(`
+  UPDATE tenant_transactions SET mac=@mac, updated_at=datetime('now')
+   WHERE checkout_request_id=@checkoutRequestId AND mac LIKE 'C2B:%'
+`);
+function bindPayBillPayment({ checkoutRequestId, mac }) {
+  return bindUnboundPaymentMac.run({ checkoutRequestId, mac }).changes > 0;
+}
 const setTransactionProvisioned = db.prepare(`
   UPDATE tenant_transactions SET provisioned=1, subscription_id=@subscriptionId,
     provisioning_job_id=@provisioningJobId, updated_at=datetime('now')
@@ -4089,7 +4098,7 @@ function deletePackageForOwner(packageId, businessId) {
 }
 
 module.exports = {
-  deletePackageForOwner,
+  deletePackageForOwner, bindPayBillPayment,
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,

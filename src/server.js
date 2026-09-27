@@ -22,6 +22,7 @@ const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
+const mpesaCallbackGuard = require('./lib/mpesa-callback-guard');
 const serviceBilling = require('./lib/service-billing');
 const { createTumaTenants } = require('./lib/tuma-tenants');
 const { createTumaFee, FEE_KES: TUMA_FEE_KES } = require('./lib/tuma-fee');
@@ -2013,6 +2014,8 @@ function tenantProvisioningPending(transaction) {
   return !job || !job.acked_at;
 }
 
+function unboundPayBillPayment(transaction) { return String(transaction && transaction.mac || '').startsWith('C2B:'); }
+
 function tenantPaidPayload(transaction) {
   if (transaction && String(transaction.mac || '').startsWith('CLAIM:')) {
     return { status: transaction.status === 'paid' ? 'awaiting_claim' : 'pending', awaitingClaim: true };
@@ -2031,6 +2034,7 @@ function provisionTenantPayment(checkoutRequestId) {
   // Offline purchases stay paid-but-unbound until the customer presents the
   // one-time claim code from the target device's captive portal.
   if (String(transaction.mac || '').startsWith('CLAIM:')) return transaction;
+  if (unboundPayBillPayment(transaction)) return transaction;
   if (!transaction.provisioned) tenant.provisionPaidTransaction(checkoutRequestId);
   const provisioned = tenant.getTransaction.get(checkoutRequestId);
   whatsappNotifications.enqueuePayment(provisioned, { eventIdPrefix: 'tenant-payment' });
@@ -2207,10 +2211,19 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
   const receipt = String(req.body && req.body.receipt || '').trim().toUpperCase().replace(/\s+/g, '');
+  const mac = cleanMac(req.body && req.body.mac);
   if (!phone || !/^[A-Z0-9]{6,32}$/.test(receipt)) return res.status(400).json({ error: 'Enter the paying number and the M-Pesa transaction code.' });
   let transaction = tenant.paidTransactionByReceipt.get(location.id, phone, receipt);
   if (!transaction) return res.status(404).json({ error: 'We could not find a confirmed payment for that number and transaction code.' });
   if (String(transaction.mac || '').startsWith('CLAIM:')) return res.status(409).json({ error: 'This payment is waiting for its one-time claim code on the target device.' });
+  if (unboundPayBillPayment(transaction)) {
+    // A PayBill payment is bound to the first device that recovers it.
+    if (!mac) return res.status(400).json({ error: 'Join this Wi‑Fi on the device you want to connect, then try again.' });
+    const capacityBlocked = hotspotCapacityBlock(location, Boolean(tenant.subscriptionByMac.get(location.id, mac)));
+    if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
+    tenant.bindPayBillPayment({ checkoutRequestId: transaction.checkout_request_id, mac });
+    transaction = tenant.getTransaction.get(transaction.checkout_request_id);
+  }
   try {
     if (!transaction.provisioned) provisionTenantPayment(transaction.checkout_request_id);
     transaction = tenant.getTransaction.get(transaction.checkout_request_id);
@@ -2221,9 +2234,17 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
     if (!pending) {
       const job = tenant.insertJob.run({ locationId: location.id, username: subscription.router_username,
         password: subscription.password, profile: 'standard', totalSeconds: subscription.total_seconds,
-        rateLimit: subscription.rate_limit, mac: subscription.mac, ip: cleanIp(req.body && req.body.ip),
+        rateLimit: subscription.rate_limit, mac: subscription.mac,
+        ip: subscription.mac === mac ? cleanIp(req.body && req.body.ip) : null,
         action: subscription.device_type === 'tv' ? 'tv-upsert' : 'upsert' });
       pending = { id: Number(job.lastInsertRowid) };
+    }
+    // Phone + receipt are printed on an SMS that people forward. They may
+    // re-send the package to the device that owns it, but credentials and a
+    // session token are only handed to that same device.
+    if (!mac || subscription.mac !== mac) {
+      return res.status(409).json({ code: 'other_device', recovered: true,
+        error: 'Your package was re-sent to the device it belongs to. To use it on this device, choose Check remaining time and enter your WiFi recovery code.' });
     }
     res.json({ status: 'pending', recovered: true, provisioningJobId: Number(pending.id), ...tenantSessionPayload(subscription, true) });
   } catch (error) {
@@ -3609,16 +3630,23 @@ app.post('/api/admin/vouchers', (req, res) => {
  * Some customers cancel the STK prompt, or their SIM toolkit misbehaves.
  * They can pay the shortcode manually instead, using their phone number
  * as the account reference. Safaricom posts the result here.
+ *
+ * Safaricom does not sign callbacks, so a confirmation is only acted on when
+ * it arrives on the secret URL (/api/c2b/site/<MPESA_C2B_CALLBACK_TOKEN>/…),
+ * or on the original URL from one of Safaricom's callback addresses.
  */
-app.post('/api/mpesa/c2b/confirmation', (req, res) => {
-  res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
-
+function handleSiteC2bConfirmation(req) {
   setImmediate(async () => {
     try {
       const b = req.body || {};
       const phone = mpesa.normalizePhone(b.BillRefNumber || b.MSISDN);
       const amount = Math.round(Number(b.TransAmount));
-      const receipt = String(b.TransID || '');
+      const receipt = String(b.TransID || '').trim().toUpperCase();
+      const shortcode = String(b.BusinessShortCode || b.ShortCode || '').trim();
+      if (!receipt || (config.mpesa.shortcode && shortcode !== String(config.mpesa.shortcode))) {
+        console.warn('[c2b] callback without a receipt or for another shortcode ignored');
+        return;
+      }
 
       if (!phone || !Number.isFinite(amount) || amount <= 0) {
         console.warn('[c2b] unusable payload:', JSON.stringify(b));
@@ -3653,29 +3681,50 @@ app.post('/api/mpesa/c2b/confirmation', (req, res) => {
       console.error('[c2b] handler threw:', err);
     }
   });
+}
+
+function siteC2bTokenOk(token) {
+  const expected = Buffer.from(String(config.mpesa.c2bCallbackToken || ''));
+  const supplied = Buffer.from(String(token || ''));
+  return expected.length >= 16 && supplied.length === expected.length && crypto.timingSafeEqual(expected, supplied);
+}
+function ackC2b(res) { res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' }); }
+function untrustedCallback(label, req) {
+  console.warn(`[${label}] ignored callback from untrusted address ${req.ip}`);
+}
+
+app.post('/api/c2b/site/:token/confirm', (req, res) => {
+  if (!siteC2bTokenOk(req.params.token)) return res.status(404).json({ error: 'Not found' });
+  ackC2b(res);
+  handleSiteC2bConfirmation(req);
+});
+app.post('/api/c2b/site/:token/validate', (req, res) => {
+  if (!siteC2bTokenOk(req.params.token)) return res.status(404).json({ error: 'Not found' });
+  ackC2b(res);
+});
+
+app.post('/api/mpesa/c2b/confirmation', (req, res) => {
+  ackC2b(res);
+  if (!mpesaCallbackGuard.fromSafaricom(req)) return untrustedCallback('c2b', req);
+  handleSiteC2bConfirmation(req);
 });
 
 app.post('/api/mpesa/c2b/validation', (req, res) => {
-  res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
+  ackC2b(res);
 });
 
-/* Tenant C2B callback. Safaricom requires an immediate response, so the
- * package lookup and provisioning run after acknowledgement. */
-app.post('/api/mpesa/c2b/tenant/validation', (req, res) => {
-  const shortcode = String(req.body?.BusinessShortCode || req.body?.ShortCode || '').trim();
-  const setting = paymentIntegrations.c2bSettingForShortcode(shortcode);
-  res.status(200).json(setting ? { ResultCode: 0, ResultDesc: 'Accepted' } : { ResultCode: 1, ResultDesc: 'Rejected' });
-});
-
-app.post('/api/mpesa/c2b/tenant/confirmation', (req, res) => {
-  res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
+/* Tenant C2B callbacks. Safaricom requires an immediate response, so the
+ * package lookup and provisioning run after acknowledgement. The secret path
+ * token identifies the tenant; the original shortcode-only URLs are honoured
+ * only from Safaricom's callback addresses while tenants re-register. */
+function handleTenantC2bConfirmation(req, setting) {
   setImmediate(async () => {
     try {
       const body = req.body || {};
       const receipt = String(body.TransID || '').trim().toUpperCase();
       const shortcode = String(body.BusinessShortCode || body.ShortCode || '').trim();
-      const setting = paymentIntegrations.c2bSettingForShortcode(shortcode);
-      if (!setting || !receipt) return;
+      // The token decides the tenant; the body must name the same shortcode.
+      if (!setting || !receipt || shortcode !== String(setting.shortcode)) return;
       if (tenant.duplicateReceipt.get(receipt, '') || db.isDuplicateReceipt(receipt, '')) return;
 
       const rawReference = String(body.BillRefNumber || '').trim();
@@ -3699,7 +3748,9 @@ app.post('/api/mpesa/c2b/tenant/confirmation', (req, res) => {
         businessId: setting.business_id, locationId: setting.location_id,
         phone, packageId: pkg.id, packageName: pkg.name, amount: Number(pkg.price),
         seconds: Number(pkg.seconds), rateLimit: pkg.rate_limit || null,
-        mac: null, ip: null,
+        // No device yet: the customer binds it from the portal with the
+        // paying number and this receipt (payment-recover).
+        mac: `C2B:${receipt}`.slice(0, 64), ip: null,
       });
       tenant.setTransactionTerms.run({ checkoutRequestId, paymentSource: 'c2b', platformFee: 0 });
       tenant.setTransactionResult.run({ checkoutRequestId, status: 'paid', resultCode: 0,
@@ -3710,19 +3761,20 @@ app.post('/api/mpesa/c2b/tenant/confirmation', (req, res) => {
       console.error('[tenant c2b] handler failed:', error.message);
     }
   });
-});
+}
 
 // Safaricom may notify us later that a previously accepted C2B payment was
 // reversed. Reversals never grant a second package and immediately queue the
 // router revoke job for any subscription created from that receipt.
-app.post('/api/mpesa/c2b/tenant/reversal', (req, res) => {
-  res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
+function handleTenantC2bReversal(req, setting) {
+  if (!setting) return;
   setImmediate(() => {
     try {
       const body = req.body || {};
       const receipt = String(body.OriginalTransactionID || body.OriginalReceipt || body.TransID || '').trim().toUpperCase();
       if (!receipt) return;
-      const transaction = db.db.prepare('SELECT * FROM tenant_transactions WHERE mpesa_receipt=? AND status=\'paid\' LIMIT 1').get(receipt);
+      // Only a receipt this tenant's own shortcode was paid with can be reversed.
+      const transaction = db.db.prepare('SELECT * FROM tenant_transactions WHERE mpesa_receipt=? AND location_id=? AND payment_source=\'c2b\' AND status=\'paid\' LIMIT 1').get(receipt, setting.location_id);
       if (!transaction) return;
       db.db.prepare("UPDATE tenant_transactions SET status='reversed', result_desc='C2B payment reversed', updated_at=datetime('now') WHERE checkout_request_id=? AND status='paid'").run(transaction.checkout_request_id);
       if (transaction.subscription_id) {
@@ -3735,6 +3787,52 @@ app.post('/api/mpesa/c2b/tenant/reversal', (req, res) => {
       console.log(`[tenant c2b] reversed ${receipt}`);
     } catch (error) { console.error('[tenant c2b] reversal failed:', error.message); }
   });
+}
+
+function tenantC2bValidation(setting, req) {
+  const shortcode = String(req.body?.BusinessShortCode || req.body?.ShortCode || '').trim();
+  return setting && shortcode === String(setting.shortcode)
+    ? { ResultCode: 0, ResultDesc: 'Accepted' } : { ResultCode: 1, ResultDesc: 'Rejected' };
+}
+
+app.post('/api/c2b/t/:token/validate', (req, res) => {
+  res.status(200).json(tenantC2bValidation(paymentIntegrations.c2bSettingForToken(req.params.token), req));
+});
+app.post('/api/c2b/t/:token/confirm', (req, res) => {
+  const setting = paymentIntegrations.c2bSettingForToken(req.params.token);
+  if (!setting) return res.status(404).json({ error: 'Not found' });
+  ackC2b(res);
+  handleTenantC2bConfirmation(req, setting);
+});
+app.post('/api/c2b/t/:token/reversal', (req, res) => {
+  const setting = paymentIntegrations.c2bSettingForToken(req.params.token);
+  if (!setting) return res.status(404).json({ error: 'Not found' });
+  ackC2b(res);
+  handleTenantC2bReversal(req, setting);
+});
+
+function legacyTenantSetting(req) {
+  const shortcode = String(req.body?.BusinessShortCode || req.body?.ShortCode || '').trim();
+  return paymentIntegrations.c2bSettingForShortcode(shortcode);
+}
+app.post('/api/mpesa/c2b/tenant/validation', (req, res) => {
+  if (!mpesaCallbackGuard.fromSafaricom(req)) return res.status(200).json({ ResultCode: 1, ResultDesc: 'Rejected' });
+  res.status(200).json(tenantC2bValidation(legacyTenantSetting(req), req));
+});
+app.post('/api/mpesa/c2b/tenant/confirmation', (req, res) => {
+  ackC2b(res);
+  if (!mpesaCallbackGuard.fromSafaricom(req)) return untrustedCallback('tenant c2b', req);
+  handleTenantC2bConfirmation(req, legacyTenantSetting(req));
+});
+app.post('/api/mpesa/c2b/tenant/reversal', (req, res) => {
+  ackC2b(res);
+  if (!mpesaCallbackGuard.fromSafaricom(req)) return untrustedCallback('tenant c2b', req);
+  // A reversal names the original receipt, not always the shortcode; scope it
+  // to the receipt's own tenant.
+  const receipt = String(req.body?.OriginalTransactionID || req.body?.OriginalReceipt || req.body?.TransID || '').trim().toUpperCase();
+  const row = receipt && db.db.prepare("SELECT location_id FROM tenant_transactions WHERE mpesa_receipt=? AND payment_source='c2b' LIMIT 1").get(receipt);
+  const setting = row && db.db.prepare('SELECT * FROM business_c2b_settings WHERE location_id=? AND active=1').get(row.location_id);
+  handleTenantC2bReversal(req, setting);
 });
 
 /* ------------------------------------------------------------------ */

@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { db } = require('./db');
 const tuma = require('./tuma');
 
@@ -28,6 +29,23 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
+
+// Each C2B shortcode gets its own secret callback path. Safaricom does not
+// sign callbacks, so the path token is what proves a confirmation came from
+// the URL the tenant registered rather than from someone who knows the Till.
+if (!db.prepare('PRAGMA table_info(business_c2b_settings)').all().some(c => c.name === 'callback_token')) {
+  db.exec('ALTER TABLE business_c2b_settings ADD COLUMN callback_token TEXT');
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_c2b_callback_token ON business_c2b_settings(callback_token)');
+function newCallbackToken() { return crypto.randomBytes(24).toString('hex'); }
+for (const row of db.prepare('SELECT business_id FROM business_c2b_settings WHERE callback_token IS NULL').all()) {
+  db.prepare('UPDATE business_c2b_settings SET callback_token=? WHERE business_id=?').run(newCallbackToken(), row.business_id);
+}
+
+function c2bCallbackUrls(setting) {
+  const base = `${process.env.PUBLIC_URL || ''}/api/c2b/t/${setting.callback_token}`;
+  return { confirmation: `${base}/confirm`, validation: `${base}/validate` };
+}
 
 const providers = [
   { id: 'fiti', name: 'Wi-Fi Fiti collection', description: 'Use Wi-Fi Fiti’s managed M-Pesa collection account.', available: true },
@@ -59,9 +77,10 @@ const c2bReport = db.prepare(`
 `);
 const c2bByShortcode = db.prepare('SELECT * FROM business_c2b_settings WHERE shortcode=? AND active=1');
 const c2bByBusiness = db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=?');
+const c2bByToken = db.prepare('SELECT * FROM business_c2b_settings WHERE callback_token=? AND active=1');
 const saveC2b = db.prepare(`
-  INSERT INTO business_c2b_settings (business_id, location_id, shortcode, account_prefix, updated_at)
-  VALUES (@businessId, @locationId, @shortcode, @accountPrefix, datetime('now'))
+  INSERT INTO business_c2b_settings (business_id, location_id, shortcode, account_prefix, callback_token, updated_at)
+  VALUES (@businessId, @locationId, @shortcode, @accountPrefix, @callbackToken, datetime('now'))
   ON CONFLICT(business_id) DO UPDATE SET location_id=excluded.location_id,
     shortcode=excluded.shortcode, account_prefix=excluded.account_prefix,
     active=1, updated_at=datetime('now')
@@ -145,10 +164,11 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants
   app.get('/api/business/integrations/c2b', (req, res) => {
     const business = businessAuth(req, res); if (!business) return;
     const setting = c2bByBusiness.get(business.id);
+    const urls = setting ? c2bCallbackUrls(setting) : null;
     res.json({ configured: Boolean(setting), setting: setting ? {
       locationId: setting.location_id, shortcode: setting.shortcode,
       accountPrefix: setting.account_prefix, active: Boolean(setting.active),
-    } : null, callbackUrl: `${process.env.PUBLIC_URL || ''}/api/mpesa/c2b/tenant/confirmation` });
+    } : null, callbackUrl: urls ? urls.confirmation : null, validationUrl: urls ? urls.validation : null });
   });
 
   app.post('/api/business/integrations/c2b', (req, res) => {
@@ -160,9 +180,13 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants
     const location = tenant.locationById.get(locationId);
     if (!location || location.business_id !== business.id) return res.status(404).json({ error: 'Location not found.' });
     try {
-      saveC2b.run({ businessId: business.id, locationId, shortcode, accountPrefix });
+      const existing = c2bByBusiness.get(business.id);
+      saveC2b.run({ businessId: business.id, locationId, shortcode, accountPrefix,
+        callbackToken: (existing && existing.callback_token) || newCallbackToken() });
       save.run(business.id, 'c2b');
-      res.status(201).json({ configured: true, setting: { locationId, shortcode, accountPrefix, active: true }, callbackUrl: `${process.env.PUBLIC_URL || ''}/api/mpesa/c2b/tenant/confirmation` });
+      const urls = c2bCallbackUrls(c2bByBusiness.get(business.id));
+      res.status(201).json({ configured: true, setting: { locationId, shortcode, accountPrefix, active: true },
+        callbackUrl: urls.confirmation, validationUrl: urls.validation });
     } catch (error) {
       if (String(error.message).includes('UNIQUE')) return res.status(409).json({ error: 'That shortcode is already linked to another workspace.' });
       return res.status(400).json({ error: 'C2B settings could not be saved.' });
@@ -177,5 +201,9 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants
 }
 
 function c2bSettingForShortcode(shortcode) { return c2bByShortcode.get(String(shortcode || '').trim()); }
+function c2bSettingForToken(token) {
+  const value = String(token || '');
+  return /^[a-f0-9]{48}$/.test(value) ? c2bByToken.get(value) : undefined;
+}
 
-module.exports = { providers, summary, attachPaymentIntegrationRoutes, c2bSettingForShortcode };
+module.exports = { providers, summary, attachPaymentIntegrationRoutes, c2bSettingForShortcode, c2bSettingForToken, c2bCallbackUrls };

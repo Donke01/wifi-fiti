@@ -215,6 +215,8 @@ module.exports = {
     consumerKey: process.env.MPESA_CONSUMER_KEY,
     consumerSecret: process.env.MPESA_CONSUMER_SECRET,
     shortcode: process.env.MPESA_SHORTCODE,
+    // Secret path segment for the site's own C2B URLs: /api/c2b/site/<token>/confirm
+    c2bCallbackToken: process.env.MPESA_C2B_CALLBACK_TOKEN || '',
     passkey: process.env.MPESA_PASSKEY,
     transactionType:
       process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline',
