@@ -298,6 +298,93 @@
   .svc-up{padding:12px 14px;border:1px solid var(--line);border-radius:14px}.svc-up-near{border-color:rgba(168,107,0,.4)}.svc-up-full{border-color:rgba(189,56,82,.5)}.svc-bar{height:7px;border-radius:999px;background:rgba(127,150,180,.18);overflow:hidden}.svc-bar i{display:block;height:100%;border-radius:999px;background:var(--good)}.svc-up-near .svc-bar i{background:var(--warn)}.svc-up-full .svc-bar i{background:var(--bad)}.svc-use{margin:8px 0 0;font-size:14px;color:var(--ink)}.svc-up-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}.svc-up-row input{max-width:140px}
   .trial-limit-note{margin:0 0 12px;padding:10px 14px;border-radius:12px;background:rgba(168,107,0,.08);color:var(--warn);font-size:13px;font-weight:700;line-height:1.45}
   </style>
+<style>
+/* Routerboard glass map */
+.router-map{position:relative;overflow:hidden;border-color:rgba(190,212,236,.8);background:linear-gradient(160deg,rgba(255,255,255,.82),rgba(240,247,255,.66));backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);box-shadow:0 24px 60px rgba(40,86,140,.12),inset 0 1px rgba(255,255,255,.95)}
+.router-map::before{content:"";position:absolute;inset:-40% -20% auto auto;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(93,178,255,.18),transparent 65%);pointer-events:none}
+.router-map::after{content:"";position:absolute;inset:auto auto -45% -15%;width:380px;height:380px;border-radius:50%;background:radial-gradient(circle,rgba(69,214,170,.14),transparent 65%);pointer-events:none}
+.router-map>*{position:relative;z-index:1}
+.router-map-board.rb{position:relative;overflow:hidden;padding:26px 24px 30px;border:1px solid rgba(170,200,232,.75);border-radius:22px;
+  background:
+    linear-gradient(90deg,rgba(23,105,216,.05) 1px,transparent 1px) 0 0/22px 22px,
+    linear-gradient(0deg,rgba(23,105,216,.05) 1px,transparent 1px) 0 0/22px 22px,
+    linear-gradient(150deg,rgba(255,255,255,.9),rgba(232,243,255,.62) 55%,rgba(226,247,240,.6));
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  box-shadow:0 30px 60px -22px rgba(26,72,128,.35),0 2px 0 rgba(255,255,255,.9) inset,0 -10px 30px rgba(23,105,216,.05) inset}
+.rb-screw{position:absolute;width:11px;height:11px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#c4d2e2 55%,#8ea3bb);box-shadow:0 1px 2px rgba(20,50,90,.3)}
+.rb-screw::after{content:"";position:absolute;left:2px;right:2px;top:5px;height:1px;background:#7489a3;transform:rotate(35deg)}
+.rb-screw.tl{top:10px;left:10px}.rb-screw.tr{top:10px;right:10px}.rb-screw.bl{bottom:10px;left:10px}.rb-screw.br{bottom:10px;right:10px}
+.rb-sheen{position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.55) 48%,transparent 60%);transform:translateX(-120%)}
+.rb .router-map-board-head{position:relative;z-index:1;display:grid;grid-template-columns:1fr auto;gap:10px 16px;align-items:start}
+.rb .router-map-key{grid-column:1/-1;margin-top:2px}
+.rb-silk{display:block;margin-bottom:5px;color:#8aa0b8;font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.22em;text-transform:uppercase}
+.rb-status{display:flex;gap:12px;padding:7px 11px;border:1px solid rgba(160,190,225,.6);border-radius:10px;background:rgba(14,32,56,.86);box-shadow:inset 0 1px 3px rgba(0,0,0,.4)}
+.rb-led-label{display:inline-flex;align-items:center;gap:5px;color:#9fb6cf;font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em}
+.rb-led{display:inline-block;width:7px;height:7px;border-radius:50%;background:#3b4a5c;box-shadow:inset 0 1px 1px rgba(0,0,0,.4)}
+.rb-led.on,.rb-led.beat{background:#3fe39b;box-shadow:0 0 6px #3fe39b,0 0 12px rgba(63,227,155,.6)}
+.rb-led.beat{background:#5db8ff;box-shadow:0 0 6px #5db8ff,0 0 12px rgba(93,184,255,.6)}
+.rb .router-port-grid{position:relative;z-index:1;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:12px;perspective:900px}
+.rb .router-port{position:relative;display:flex;flex-direction:column;min-height:150px;padding:12px 12px 13px;border:1px solid rgba(190,210,232,.9);border-radius:16px;
+  background:linear-gradient(165deg,rgba(255,255,255,.95),rgba(244,249,255,.75));backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:0 10px 24px -12px rgba(26,72,128,.35),inset 0 1px rgba(255,255,255,1);transform-style:preserve-3d;transition:transform .35s cubic-bezier(.2,.8,.2,1),box-shadow .35s,border-color .35s}
+.rb .router-port:hover{transform:translateY(-6px) rotateX(6deg);box-shadow:0 22px 34px -14px rgba(26,72,128,.45),inset 0 1px #fff;border-color:#9cc2ea}
+.rb .router-port.wan{border-color:rgba(120,172,232,.95);background:linear-gradient(165deg,rgba(242,248,255,.97),rgba(221,236,255,.8))}
+.rb .router-port.customer{border-color:rgba(142,220,192,.95);background:linear-gradient(165deg,rgba(245,255,250,.97),rgba(223,247,237,.78))}
+.rb .router-port.bridge{border-color:rgba(200,182,238,.95);background:linear-gradient(165deg,rgba(252,249,255,.97),rgba(238,230,255,.8))}
+.port-part{position:relative;display:flex;align-items:flex-end;justify-content:center;height:52px;margin:0 0 10px}
+/* RJ45 jack */
+.rb-jack{position:relative;width:52px;height:40px;border-radius:5px 5px 3px 3px;background:linear-gradient(180deg,#d9e2ec,#aab8c8);box-shadow:0 2px 4px rgba(20,50,90,.3),inset 0 1px rgba(255,255,255,.8)}
+.rb-jack::before{content:"";position:absolute;left:6px;right:6px;top:6px;bottom:4px;border-radius:2px;background:linear-gradient(180deg,#0e1a28,#233448);box-shadow:inset 0 3px 6px rgba(0,0,0,.6)}
+.rb-jack::after{content:"";position:absolute;left:50%;bottom:4px;width:16px;height:7px;margin-left:-8px;border-radius:2px 2px 0 0;background:#0a131e}
+.rb-pins{position:absolute;left:10px;right:10px;top:8px;height:7px;background:repeating-linear-gradient(90deg,#e7b64c 0 2px,transparent 2px 4px);filter:drop-shadow(0 0 1px rgba(231,182,76,.6))}
+.rb-port-leds{position:absolute;top:2px;left:50%;display:flex;gap:30px;transform:translateX(-50%)}
+.rb-port-leds .rb-led{width:6px;height:6px;border-radius:2px}
+.router-port.up .rb-led.link{background:#3fe39b;box-shadow:0 0 6px #3fe39b}
+.router-port.up .rb-led.act{background:#ffb938;box-shadow:0 0 6px #ffb938}
+.router-port.wan.up .rb-led.link{background:#5db8ff;box-shadow:0 0 7px #5db8ff}
+/* Wi-Fi radio */
+.rb-antenna{position:relative;width:8px;height:44px;border-radius:4px 4px 2px 2px;background:linear-gradient(90deg,#1c2a3a,#46607c 50%,#1c2a3a);box-shadow:0 2px 4px rgba(20,50,90,.3)}
+.rb-antenna::after{content:"";position:absolute;left:-6px;right:-6px;bottom:-4px;height:6px;border-radius:3px;background:linear-gradient(180deg,#b9c7d6,#8196ad)}
+.rb-waves{position:absolute;left:50%;bottom:38px;width:0;height:0}
+.rb-waves i{position:absolute;left:50%;bottom:0;border:2px solid transparent;border-top-color:#19b88a;border-top-width:2.5px;border-radius:50%;transform:translateX(-50%);opacity:.4}
+.rb-waves i:nth-child(1){width:14px;height:14px;margin-bottom:-7px}.rb-waves i:nth-child(2){width:24px;height:24px;margin-bottom:-12px}.rb-waves i:nth-child(3){width:34px;height:34px;margin-bottom:-17px}
+.router-port.down .rb-waves i{border-top-color:#9fb1c4}
+/* Bridge SoC chip */
+.rb-chip{position:relative;width:44px;height:44px;margin-bottom:2px;border-radius:6px;background:linear-gradient(145deg,#2a3547,#141c28);box-shadow:0 4px 8px rgba(20,30,60,.35),inset 0 1px rgba(255,255,255,.15)}
+.rb-chip::before,.rb-chip::after{content:"";position:absolute;background:repeating-linear-gradient(90deg,#c9a24a 0 3px,transparent 3px 7px)}
+.rb-chip::before{left:6px;right:6px;top:-5px;bottom:-5px;z-index:-1;border-radius:1px}
+.rb-chip::after{top:6px;bottom:6px;left:-5px;right:-5px;z-index:-1;background:repeating-linear-gradient(0deg,#c9a24a 0 3px,transparent 3px 7px)}
+.rb-chip-core{position:absolute;inset:10px;border-radius:3px;background:linear-gradient(135deg,#7b5cff,#3f8cff 60%,#35d3b0);opacity:.85;box-shadow:0 0 12px rgba(123,92,255,.55)}
+.rb .router-port .port-type{margin-bottom:6px}
+.rb .router-port b{font-size:15px}
+/* Data bus trace */
+.rb-bus{position:relative;z-index:1;height:3px;margin:18px 4px 0;border-radius:3px;background:linear-gradient(90deg,rgba(231,182,76,.5),rgba(23,105,216,.35),rgba(25,184,138,.45))}
+.rb-bus i{position:absolute;top:-2px;left:0;width:36px;height:7px;border-radius:7px;background:radial-gradient(closest-side,#fff,rgba(93,184,255,.9) 45%,transparent);opacity:0}
+@media (prefers-reduced-motion:no-preference){
+  .router-map{animation:rbRise .7s cubic-bezier(.2,.8,.2,1) both}
+  .router-map-board.rb{animation:rbFloat 7s ease-in-out 0.7s infinite}
+  .rb-sheen{animation:rbSheen 7.5s ease-in-out 1.2s infinite}
+  .rb .router-port{animation:rbPortIn .6s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0) * 70ms + .25s)}
+  .rb .router-port:hover{animation:none}
+  .rb-led.beat{animation:rbBeat 1.6s ease-in-out infinite}
+  .router-port.up .rb-led.act{animation:rbAct 1.1s steps(2,end) infinite;animation-delay:calc(var(--i,0) * 130ms)}
+  .router-port.up .rb-waves i{animation:rbWave 2.4s ease-out infinite}
+  .router-port.up .rb-waves i:nth-child(2){animation-delay:.3s}.router-port.up .rb-waves i:nth-child(3){animation-delay:.6s}
+  .rb-chip-core{animation:rbCore 3.2s ease-in-out infinite}
+  .rb-bus i{animation:rbPacket 3.6s cubic-bezier(.45,0,.55,1) infinite}.rb-bus i:nth-child(2){animation-delay:1.8s}
+  .map-check-group{animation:rbRise .6s cubic-bezier(.2,.8,.2,1) both}
+}
+@keyframes rbRise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes rbFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes rbSheen{0%,60%{transform:translateX(-120%)}85%,100%{transform:translateX(120%)}}
+@keyframes rbPortIn{from{opacity:0;transform:translateY(18px) rotateX(-18deg) scale(.96)}to{opacity:1;transform:none}}
+@keyframes rbBeat{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes rbAct{0%{opacity:1}100%{opacity:.25}}
+@keyframes rbWave{0%{opacity:0;transform:translateX(-50%) scale(.7)}35%{opacity:.95}100%{opacity:0;transform:translateX(-50%) scale(1.15)}}
+@keyframes rbCore{0%,100%{filter:hue-rotate(0deg);box-shadow:0 0 10px rgba(123,92,255,.45)}50%{filter:hue-rotate(40deg);box-shadow:0 0 18px rgba(63,140,255,.7)}}
+@keyframes rbPacket{0%{left:0;opacity:0}10%{opacity:1}90%{opacity:1}100%{left:calc(100% - 36px);opacity:0}}
+@media(max-width:650px){.rb .router-map-board-head{grid-template-columns:1fr}.rb-status{justify-self:start}.rb .router-port-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.router-map-board.rb{padding:26px 14px 28px}.rb-silk{padding-left:10px}}
+</style>
 </head>
 <body>
   <main class="app">
@@ -1534,11 +1621,19 @@
       }
       function appendRouterPortMap(parent, topology, mapping) {
         var defaults = routerMapDefaults(topology, mapping); var customerMembers = routerMapMembers(topology, defaults.customerBridge); var wifiNames = new Set((topology.wifiInterfaces || []).map(function (item) { return item.name; }));
-        var board = el('section', 'router-map-board'); var head = el('div', 'router-map-board-head'); var title = el('div'); add(title, 'strong', '', 'Detected router layout'); add(title, 'small', '', topology.routerosVersion ? 'RouterOS ' + topology.routerosVersion : 'RouterOS version reported by this router'); head.appendChild(title); var key = el('div', 'router-map-key'); add(key, 'span', 'wan', 'WAN'); add(key, 'span', 'customer', 'Customer network'); add(key, 'span', '', 'Reported interface'); head.appendChild(key); board.appendChild(head);
-        var grid = el('div', 'router-port-grid'); (topology.interfaces || []).forEach(function (item) {
-          var isWan = item.name === defaults.wanInterface; var isCustomer = item.name !== defaults.customerBridge && customerMembers.has(item.name); var className = 'router-port' + (isWan ? ' wan' : '') + (!isWan && isCustomer ? ' customer' : '') + (item.name === defaults.customerBridge ? ' bridge' : '') + (item.state === 'disabled' ? ' disabled' : '');
-          var port = el('div', className); var kind = item.type === 'bridge' ? 'Bridge' : wifiNames.has(item.name) ? 'Wi-Fi' : item.type === 'ether' ? 'Ethernet' : item.type; add(port, 'span', 'port-type', kind); add(port, 'b', '', item.name); add(port, 'small', '', isWan ? 'WAN · ' + item.state : item.name === defaults.customerBridge ? 'Customer bridge' : isCustomer ? 'Customer network · ' + item.state : item.state); grid.appendChild(port);
-        }); board.appendChild(grid); parent.appendChild(board);
+        var board = el('section', 'router-map-board rb'); ['tl', 'tr', 'bl', 'br'].forEach(function (corner) { add(board, 'i', 'rb-screw ' + corner); }); add(board, 'i', 'rb-sheen');
+        var head = el('div', 'router-map-board-head'); var title = el('div'); var brand = add(title, 'span', 'rb-silk', 'Wi-Fi Fiti · Routerboard'); brand.setAttribute('aria-hidden', 'true'); add(title, 'strong', '', 'Detected router layout'); add(title, 'small', '', topology.routerosVersion ? 'RouterOS ' + topology.routerosVersion : 'RouterOS version reported by this router'); head.appendChild(title);
+        var status = el('div', 'rb-status'); status.setAttribute('aria-hidden', 'true'); [['PWR', 'on'], ['SYS', 'beat'], ['NET', defaults.wanInterface ? 'on' : 'off']].forEach(function (led) { var wrap = add(status, 'span', 'rb-led-label'); add(wrap, 'i', 'rb-led ' + led[1]); wrap.appendChild(document.createTextNode(led[0])); }); head.appendChild(status);
+        var key = el('div', 'router-map-key'); add(key, 'span', 'wan', 'WAN'); add(key, 'span', 'customer', 'Customer network'); add(key, 'span', '', 'Reported interface'); head.appendChild(key); board.appendChild(head);
+        var grid = el('div', 'router-port-grid'); (topology.interfaces || []).forEach(function (item, index) {
+          var isWan = item.name === defaults.wanInterface; var isCustomer = item.name !== defaults.customerBridge && customerMembers.has(item.name); var isBridge = item.type === 'bridge'; var isWifi = wifiNames.has(item.name); var isUp = /^(up|running)$/i.test(String(item.state || '')); var className = 'router-port' + (isWan ? ' wan' : '') + (!isWan && isCustomer ? ' customer' : '') + (item.name === defaults.customerBridge ? ' bridge' : '') + (item.state === 'disabled' ? ' disabled' : '') + (isBridge ? ' is-bridge' : isWifi ? ' is-wifi' : ' is-ether') + (isUp ? ' up' : ' down');
+          var port = el('div', className); port.style.setProperty('--i', index);
+          var part = add(port, 'span', 'port-part'); part.setAttribute('aria-hidden', 'true');
+          if (isBridge) { var chip = add(part, 'span', 'rb-chip'); add(chip, 'i', 'rb-chip-core'); }
+          else if (isWifi) { add(part, 'span', 'rb-antenna'); var waves = add(part, 'span', 'rb-waves'); add(waves, 'i'); add(waves, 'i'); add(waves, 'i'); }
+          else { var jack = add(part, 'span', 'rb-jack'); add(jack, 'i', 'rb-pins'); var leds = add(part, 'span', 'rb-port-leds'); add(leds, 'i', 'rb-led link'); add(leds, 'i', 'rb-led act'); }
+          var kind = isBridge ? 'Bridge' : isWifi ? 'Wi-Fi' : item.type === 'ether' ? 'Ethernet' : item.type; add(port, 'span', 'port-type', kind); add(port, 'b', '', item.name); add(port, 'small', '', isWan ? 'WAN · ' + item.state : item.name === defaults.customerBridge ? 'Customer bridge' : isCustomer ? 'Customer network · ' + item.state : item.state); grid.appendChild(port);
+        }); board.appendChild(grid); var bus = add(board, 'div', 'rb-bus'); bus.setAttribute('aria-hidden', 'true'); add(bus, 'i'); add(bus, 'i'); parent.appendChild(board);
       }
       function appendMapCheckGroup(parent, title, name, items, checkedNames) {
         var group = el('div', 'map-check-group'); add(group, 'strong', '', title); var choices = el('div', 'map-checks');
