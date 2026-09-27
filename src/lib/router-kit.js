@@ -101,7 +101,60 @@ function vlanTestRouterKit(source, options = {}) {
     '}',
     '',
   ].join('\n');
-  return input + block;
+  return input + '\n' + block;
 }
 
-module.exports = { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit };
+/**
+ * Render the explicit VLAN overlay kit. This is intentionally separate from
+ * vlanTestRouterKit: it can enable bridge VLAN filtering only when the caller
+ * supplies a trunk and an explicit activation flag. The stable connection kit
+ * is never modified in-place.
+ */
+function vlanOverlayRouterKit(source, options = {}) {
+  const input = String(source || '').trimEnd();
+  const baseId = Number(options.baseId == null ? 51 : options.baseId);
+  const trunk = String(options.trunk || '').trim();
+  const activate = options.activate === true;
+  const subnet = String(options.subnet || `10.250.${baseId + 1}.0/24`).trim();
+  const ids = { management: baseId, hotspot: baseId + 1, pppoe: baseId + 2, tv: baseId + 3 };
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(trunk)) throw Object.assign(new Error('VLAN overlay requires a valid trunk interface.'), { status: 400 });
+  if (!Object.values(ids).every((id) => Number.isInteger(id) && id >= 1 && id <= 4094)) throw Object.assign(new Error('VLAN overlay IDs must be integers from 1 to 4094.'), { status: 400 });
+  const subnetMatch = subnet.match(/^(10|172\.(1[6-9]|2\d|3[01])|192\.168)\.(\d{1,3})\.(\d{1,3})\.0\/24$/);
+  const subnetParts = subnet.replace(/\/24$/, '').split('.').map(Number);
+  if (!subnetMatch || subnetParts.some((part) => !Number.isInteger(part) || part < 0 || part > 255) || subnetParts[3] !== 0) throw Object.assign(new Error('VLAN overlay subnet must be a private /24 ending in .0.'), { status: 400 });
+  const prefix = subnet.replace(/\.0\/24$/, '');
+  const gateway = `${prefix}.1`;
+  const pool = `${prefix}.10-${prefix}.250`;
+  const tag = `fiti-vlan-${baseId}`;
+  const block = [
+    '',
+    '# Wi-Fi Fiti VLAN OVERLAY KIT (EXPLICIT TEST/APPLY)',
+    `# Base VLAN ${baseId}; trunk ${trunk}; customer subnet ${subnet}`,
+    `:onerror fitiVlanOverlayError in={`,
+    '  :global fitiBridge',
+    `  :local fitiOverlayBridge $fitiBridge`,
+    `  :local fitiOverlayTrunk "${trunk}"`,
+    `  :local fitiOverlayBase ${baseId}`,
+    `  :if ([:len $fitiOverlayBridge] = 0 || [:len [/interface bridge find where name=$fitiOverlayBridge]] != 1) do={ :error "Wi-Fi Fiti VLAN overlay could not find the paired customer bridge." }`,
+    `  :if ([:len [/interface bridge port find where bridge=$fitiOverlayBridge interface=$fitiOverlayTrunk]] != 1) do={ :error "The selected VLAN trunk is not a port of the customer bridge." }`,
+    activate ? `  :local fitiOverlayOriginalFiltering [/interface bridge get $fitiOverlayBridge vlan-filtering]` : '',
+    `  :if ([:len [/interface vlan find where vlan-id=${ids.management} interface=$fitiOverlayBridge]] > 0 || [:len [/interface vlan find where vlan-id=${ids.hotspot} interface=$fitiOverlayBridge]] > 0 || [:len [/interface vlan find where vlan-id=${ids.pppoe} interface=$fitiOverlayBridge]] > 0 || [:len [/interface vlan find where vlan-id=${ids.tv} interface=$fitiOverlayBridge]] > 0) do={ :error "One or more requested VLAN IDs are already in use on the customer bridge." }`,
+    `  :if ([:len [/ip address find where address="${gateway}/24"]] > 0 || [:len [/ip pool find where name="${tag}-pool"]] > 0) do={ :error "The requested VLAN overlay subnet or pool already exists." }`,
+    `  :put "Wi-Fi Fiti VLAN overlay preflight passed: trunk ${trunk}, VLANs ${ids.management}/${ids.hotspot}/${ids.pppoe}/${ids.tv}, subnet ${subnet}"`,
+    activate ? `  :local fitiOverlayCreatedVlan ""` : '  :put "Validation-only mode: no VLAN filtering or customer traffic changes were applied."',
+    activate ? `  :do { /interface vlan add name="${tag}-management" vlan-id=${ids.management} interface=$fitiOverlayBridge disabled=no comment="Wi-Fi Fiti VLAN overlay management"; /interface vlan add name="${tag}-hotspot" vlan-id=${ids.hotspot} interface=$fitiOverlayBridge disabled=no comment="Wi-Fi Fiti VLAN overlay hotspot"; /interface vlan add name="${tag}-pppoe" vlan-id=${ids.pppoe} interface=$fitiOverlayBridge disabled=no comment="Wi-Fi Fiti VLAN overlay PPPoE"; /interface vlan add name="${tag}-tv" vlan-id=${ids.tv} interface=$fitiOverlayBridge disabled=no comment="Wi-Fi Fiti VLAN overlay TV" } on-error={ :error "Could not create VLAN interfaces; no overlay was applied." }` : '',
+    activate ? `  :do { /ip address add address="${gateway}/24" interface="${tag}-hotspot" comment="Wi-Fi Fiti VLAN overlay hotspot gateway"; /ip pool add name="${tag}-pool" ranges="${pool}" comment="Wi-Fi Fiti VLAN overlay hotspot pool"; /ip dhcp-server add name="${tag}-dhcp" interface="${tag}-hotspot" address-pool="${tag}-pool" disabled=no comment="Wi-Fi Fiti VLAN overlay DHCP"; /ip dhcp-server network add address="${subnet}" gateway="${gateway}" dns-server="${gateway}" comment="Wi-Fi Fiti VLAN overlay DHCP network"; /ip hotspot profile add name="${tag}-hsprof" hotspot-address="${gateway}" login-by=http-chap,http-pap html-directory=hotspot comment="Wi-Fi Fiti VLAN overlay profile"; /ip hotspot add name="${tag}-hotspot" interface="${tag}-hotspot" address-pool="${tag}-pool" profile="${tag}-hsprof" disabled=no comment="Wi-Fi Fiti VLAN overlay HotSpot" } on-error={ :error "HotSpot overlay resources could not be created; review and remove only Wi-Fi Fiti tagged resources before retrying." }` : '',
+    activate ? `  :do { /ip firewall nat add chain=srcnat action=masquerade src-address="${subnet}" out-interface=$fitiWanInterface comment="Wi-Fi Fiti VLAN overlay NAT ${baseId}"; /ip firewall filter add chain=input action=accept protocol=udp dst-port=53 src-address="${subnet}" comment="Wi-Fi Fiti VLAN overlay DNS ${baseId}"; /ip firewall filter add chain=input action=accept protocol=tcp dst-port=53 src-address="${subnet}" comment="Wi-Fi Fiti VLAN overlay DNS ${baseId}" } on-error={ :error "VLAN overlay firewall/NAT resources could not be created." }` : '',
+    activate ? `  :do { /interface bridge vlan add bridge=$fitiOverlayBridge vlan-ids=${ids.management},${ids.hotspot},${ids.pppoe},${ids.tv} tagged=$fitiOverlayBridge,$fitiOverlayTrunk comment="Wi-Fi Fiti VLAN overlay tagged trunk ${baseId}"; /interface bridge set $fitiOverlayBridge vlan-filtering=yes } on-error={ :error "Bridge VLAN tagging could not be enabled; existing bridge traffic was not intentionally changed." }` : '',
+    activate ? `  :put "Wi-Fi Fiti VLAN overlay applied. Confirm trunk reachability and HotSpot DHCP before enrolling customers."` : '',
+    '} do={',
+    activate ? `  :do { /interface bridge vlan remove [find where bridge=$fitiOverlayBridge comment~"Wi-Fi Fiti VLAN overlay tagged trunk ${baseId}"] } on-error={}; :do { /ip hotspot remove [find where name="${tag}-hotspot"] } on-error={}; :do { /ip hotspot profile remove [find where name="${tag}-hsprof"] } on-error={}; :do { /ip dhcp-server network remove [find where comment="Wi-Fi Fiti VLAN overlay DHCP network"] } on-error={}; :do { /ip dhcp-server remove [find where name="${tag}-dhcp"] } on-error={}; :do { /ip pool remove [find where name="${tag}-pool"] } on-error={}; :do { /ip address remove [find where comment="Wi-Fi Fiti VLAN overlay hotspot gateway"] } on-error={}; :do { /ip firewall nat remove [find where comment="Wi-Fi Fiti VLAN overlay NAT ${baseId}"] } on-error={}; :do { /ip firewall filter remove [find where comment="Wi-Fi Fiti VLAN overlay DNS ${baseId}"] } on-error={}; :do { /interface vlan remove [find where name="${tag}-management" || name="${tag}-hotspot" || name="${tag}-pppoe" || name="${tag}-tv"] } on-error={}; :do { /interface bridge set $fitiOverlayBridge vlan-filtering=$fitiOverlayOriginalFiltering } on-error={}` : '',
+    '  :log warning ("Wi-Fi Fiti VLAN overlay stopped: " . $fitiVlanOverlayError)',
+    '  :put ("Wi-Fi Fiti VLAN overlay stopped: " . $fitiVlanOverlayError)',
+    '}',
+    '',
+  ].filter(Boolean).join('\n');
+  return input + '\n' + block;
+}
+
+module.exports = { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit, vlanOverlayRouterKit };

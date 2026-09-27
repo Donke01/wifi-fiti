@@ -17,7 +17,7 @@ const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
-const { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit } = require('./lib/router-kit');
+const { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit, vlanOverlayRouterKit } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
@@ -4374,6 +4374,16 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
       const requestedBaseId = String(req.query.vlan_id || '').trim();
       const baseId = requestedBaseId === '' ? undefined : Number(requestedBaseId);
       script = vlanTestRouterKit(script, { baseId });
+    }
+    // Explicit core-router overlay kit. It is never returned by the existing
+    // VLAN TEST button: callers must request mode=overlay, provide a bridge
+    // trunk, and opt into activation with activate=1.
+    if (String(req.query.mode || '') === 'overlay') {
+      const requestedBaseId = String(req.query.vlan_id || '').trim();
+      const baseId = requestedBaseId === '' ? undefined : Number(requestedBaseId);
+      const trunk = String(req.query.trunk || '').trim();
+      const subnet = String(req.query.subnet || '').trim() || undefined;
+      script = vlanOverlayRouterKit(script, { baseId, trunk, subnet, activate: String(req.query.activate || '') === '1' });
     }
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');

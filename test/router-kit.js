@@ -3,7 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { compatibilityRouterKit, vlanTestRouterKit } = require('../src/lib/router-kit');
+const { compatibilityRouterKit, vlanTestRouterKit, vlanOverlayRouterKit } = require('../src/lib/router-kit');
 
 const standard = fs.readFileSync(path.join(__dirname, '../public/tenant-router-install.rsc'), 'utf8');
 const compat = compatibilityRouterKit(standard);
@@ -38,3 +38,16 @@ assert.ok(customVlan.includes('/interface pppoe-client find where running=yes'),
 assert.ok(customVlan.includes('/interface lte find where running=yes'), 'VLAN kit must guard LTE WAN detection');
 assert.ok(customVlan.includes('gateway-interface'), 'VLAN kit must prefer the route gateway interface');
 console.log('custom VLAN staging tests passed');
+
+const overlayPlan = vlanOverlayRouterKit(standard, { baseId: 51, trunk: 'ether1', activate: false });
+assert.ok(overlayPlan.startsWith(standard.trimEnd()), 'overlay kit must preserve the stable source exactly');
+assert.ok(overlayPlan.includes('VLAN overlay preflight passed'));
+assert.ok(overlayPlan.includes('Validation-only mode'));
+assert.ok(!overlayPlan.includes('vlan-filtering=yes'), 'validation-only overlay must not enable bridge filtering');
+const overlayApply = vlanOverlayRouterKit(standard, { baseId: 51, trunk: 'sfp-sfpplus1', activate: true, subnet: '10.250.52.0/24' });
+assert.ok(overlayApply.includes('/interface bridge set $fitiOverlayBridge vlan-filtering=yes'));
+assert.ok(overlayApply.includes('Wi-Fi Fiti VLAN overlay tagged trunk 51'));
+assert.ok(overlayApply.includes('vlan-id=52') && overlayApply.includes('vlan-id=53'));
+assert.ok(overlayApply.includes('Wi-Fi Fiti VLAN overlay stopped'), 'overlay must include a failure path');
+assert.throws(() => vlanOverlayRouterKit(standard, { baseId: 51, trunk: 'ether1', subnet: '192.0.2.0/24' }), /private \/24/);
+console.log('VLAN overlay tests passed');
