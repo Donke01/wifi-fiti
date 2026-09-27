@@ -2358,7 +2358,16 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
   if (!phone || !/^[A-Z0-9]{6,32}$/.test(receipt)) return res.status(400).json({ error: 'Enter the paying number and the M-Pesa transaction code.' });
   let transaction = tenant.paidTransactionByReceipt.get(location.id, phone, receipt);
   if (!transaction) return res.status(404).json({ error: 'We could not find a confirmed payment for that number and transaction code.' });
-  if (String(transaction.mac || '').startsWith('CLAIM:')) return res.status(409).json({ error: 'This payment is waiting for its one-time claim code on the target device.' });
+  if (String(transaction.mac || '').startsWith('CLAIM:')) {
+    // Bought before joining the Wi-Fi and the claim code was never used (or
+    // expired): the paying number and receipt bind it to this device.
+    if (!mac) return res.status(400).json({ error: 'Join this Wi‑Fi on the device you want to connect, then try again.' });
+    if (tenant.subscriptionLive(tenant.subscriptionByMac.get(location.id, mac) || {}) && tenant.subscriptionByMac.get(location.id, mac).payer_phone !== transaction.phone) {
+      return res.status(409).json({ code: 'device_taken', error: 'This device already has a package bought with another number. Recover your payment on another device, or wait for that package to end.' });
+    }
+    tenant.bindUnclaimedPayment({ checkoutRequestId: transaction.checkout_request_id, mac });
+    transaction = tenant.getTransaction.get(transaction.checkout_request_id);
+  }
   if (unboundPayBillPayment(transaction)) {
     // A PayBill payment is bound to the first device that recovers it.
     if (!mac) return res.status(400).json({ error: 'Join this Wi‑Fi on the device you want to connect, then try again.' });
@@ -2551,6 +2560,10 @@ app.get('/api/tenant/:locationId/status/:checkoutRequestId', async (req, res) =>
   let tx = tenant.getTransaction.get(req.params.checkoutRequestId);
   if (!tx || tx.location_id !== location.id) return res.status(404).json({ error: 'Payment not found.' });
   if (!tenantPortalCapabilityOk(tx, req.get('X-WiFi-Fiti-Portal'))) {
+    // An offline purchase whose code was entered on another device: that
+    // device now holds the payment page. Tell the buying page where the
+    // package went; its credentials and session stay on the claiming device.
+    if (tenant.claimedElsewhere(tx.checkout_request_id)) return res.json({ status: 'claimed', claimed: true });
     return res.status(403).json({ error: 'This payment page has expired. Start a new M-Pesa request from this WiFi.' });
   }
   if (tx.status === 'pending') {
@@ -2658,13 +2671,21 @@ app.post('/api/tenant/:locationId/claim', async (req, res) => {
   if (claimed.error === 'locked') return res.status(429).json({ error: 'This claim code is locked. Start a new payment.' });
   if (claimed.error || !claimed.checkoutRequestId) return res.status(403).json({ error: 'That claim code is not valid for this Wi‑Fi.' });
   let tx = tenant.getTransaction.get(claimed.checkoutRequestId);
+  // The code is single-use, so hand this device the payment page: a fresh
+  // capability replaces the buying device's, and this device follows the
+  // router setup and signs in exactly like an on-Wi-Fi purchase.
+  const portalToken = tenantPortalCapability();
+  tenant.setTransactionPortalCapability.run({ checkoutRequestId: tx.checkout_request_id,
+    portalTokenHash: tenant.tokenHash(portalToken),
+    portalTokenExpiresAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+  const handoff = { checkoutRequestId: tx.checkout_request_id, portalToken };
   if (tx.status === 'pending') tx = await queryTenantNow(tx);
   if (tx.status === 'paid') {
     try { tx = provisionTenantPayment(tx.checkout_request_id); }
-    catch (err) { return res.json({ status: 'pending', awaitingRouter: true }); }
-    return res.json(tenantPaidPayload(tx));
+    catch (err) { return res.json({ status: 'pending', awaitingRouter: true, ...handoff }); }
+    return res.json({ ...tenantPaidPayload(tx), ...handoff });
   }
-  res.json({ status: 'pending', awaitingPayment: true });
+  res.json({ status: 'pending', awaitingPayment: true, ...handoff });
 });
 
 function deviceMac(value) {

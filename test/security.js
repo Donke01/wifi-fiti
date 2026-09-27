@@ -365,6 +365,43 @@ async function test(name, fn) {
     assert.equal(database.prepare('SELECT status FROM tenant_transactions WHERE checkout_request_id=?').get(started.body.checkoutRequestId).status, 'paid');
   });
 
+  console.log('\nBuying before joining the Wi-Fi');
+  database.prepare('DELETE FROM request_limits').run(); // earlier tests spent this location's claim budget
+  const offlineBuy = async (phone) => {
+    const started = await call('POST', '/api/tenant/loc/pay', { packageId: 1, phone });
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+    assert.ok(started.body.claimCode);
+    const tx = database.prepare('SELECT * FROM tenant_transactions WHERE checkout_request_id=?').get(started.body.checkoutRequestId);
+    await tuma({ checkout_request_id: tx.checkout_request_id, merchant_request_id: tx.merchant_request_id, status: 'completed', result_code: 0, amount: tx.amount, mpesa_receipt_number: `OFF${phone.slice(-6)}` });
+    await settle();
+    return started.body;
+  };
+  const statusAs = (id, token) => call('GET', `/api/tenant/loc/status/${id}`, null, { 'X-WiFi-Fiti-Portal': token });
+  await test('a claim code hands the purchase to the device that entered it', async () => {
+    const bought = await offlineBuy('0711000401');
+    const claimed = await call('POST', '/api/tenant/loc/claim', { code: bought.claimCode, mac: 'AA:BB:CC:40:00:01' });
+    assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
+    assert.ok(claimed.body.portalToken && claimed.body.portalToken !== bought.portalToken, 'the claiming device gets its own payment page');
+    const buyer = await statusAs(bought.checkoutRequestId, bought.portalToken);
+    assert.equal(buyer.body.status, 'claimed');
+    assert.equal(buyer.body.password, undefined, 'the buying device never gets the claimed package\'s credentials');
+    assert.equal(buyer.body.sessionToken, undefined);
+    const tx = database.prepare('SELECT * FROM tenant_transactions WHERE checkout_request_id=?').get(bought.checkoutRequestId);
+    assert.equal(tx.mac, 'AA:BB:CC:40:00:01');
+    database.prepare("UPDATE tenant_jobs SET acked_at=datetime('now') WHERE id=?").run(tx.provisioning_job_id);
+    const claimer = await statusAs(bought.checkoutRequestId, claimed.body.portalToken);
+    assert.equal(claimer.body.status, 'paid', JSON.stringify(claimer.body));
+    assert.ok(claimer.body.password && claimer.body.sessionToken, 'the claiming device signs in');
+  });
+  await test('an unused claim can be recovered later with the number and receipt', async () => {
+    const bought = await offlineBuy('0711000402');
+    const recovered = await call('POST', '/api/tenant/loc/payment-recover', { phone: '0711000402', receipt: 'OFF000402', mac: 'AA:BB:CC:40:00:02' });
+    assert.equal(recovered.status, 200, JSON.stringify(recovered.body));
+    assert.ok(recovered.body.password);
+    const again = await call('POST', '/api/tenant/loc/claim', { code: bought.claimCode, mac: 'AA:BB:CC:40:00:03' });
+    assert.notEqual(again.status, 200, 'the claim code is spent once the payment is recovered');
+  });
+
   console.log('\nDevice already used by another number');
   const paidTx = (id, phone, mac) => {
     tenantLib.insertTransaction.run({ checkoutRequestId: id, merchantRequestId: `m-${id}`, businessId: 'biz', locationId: 'loc', phone,

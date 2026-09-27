@@ -1423,6 +1423,23 @@ const bindUnboundPaymentMac = db.prepare(`
 function bindPayBillPayment({ checkoutRequestId, mac }) {
   return bindUnboundPaymentMac.run({ checkoutRequestId, mac }).changes > 0;
 }
+// An offline (claim-code) purchase whose code was never used, e.g. it expired,
+// can also be recovered onto a device with the paying number and receipt.
+function bindUnclaimedPayment({ checkoutRequestId, mac }) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const bound = bindTransactionDeviceMac.run({ checkoutRequestId, mac }).changes > 0;
+    if (bound) bindPaymentClaim.run(checkoutRequestId);
+    db.exec('COMMIT');
+    return bound;
+  } catch (error) { try { db.exec('ROLLBACK'); } catch (_) {} throw error; }
+}
+const claimForTransaction = db.prepare('SELECT claimed_at FROM tenant_payment_claims WHERE checkout_request_id=?');
+// True when an offline purchase was bound to another device by its code.
+function claimedElsewhere(checkoutRequestId) {
+  const claim = claimForTransaction.get(checkoutRequestId);
+  return Boolean(claim && claim.claimed_at);
+}
 const setTransactionProvisioned = db.prepare(`
   UPDATE tenant_transactions SET provisioned=1, subscription_id=@subscriptionId,
     provisioning_job_id=@provisioningJobId, updated_at=datetime('now')
@@ -4156,7 +4173,7 @@ function deletePackageForOwner(packageId, businessId) {
 }
 
 module.exports = {
-  deletePackageForOwner, bindPayBillPayment, setProvisionError, clearProvisionError, subscriptionLive,
+  deletePackageForOwner, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
