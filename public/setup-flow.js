@@ -30,7 +30,7 @@
   function day(raw) { var d = new Date(raw); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); }
   function daysLeft(raw) { var ms = new Date(raw).getTime() - Date.now(); return Number.isFinite(ms) ? Math.max(0, Math.ceil(ms / 86400000)) : 0; }
   // Same formula as the server (NETWORK_SERVICE_PRICING).
-  function price(h, p) { var hk = h ? Math.max(1000, Math.ceil(h / 100) * 1000) : 0; var pk = p ? (p < 35 ? 500 : p * 15) : 0; return { hotspot: hk, pppoe: pk, total: hk + pk }; }
+  function price(h, p) { var hk = h ? 1000 + Math.max(0, h - 100) : 0; var pk = p ? (p < 35 ? 500 : p * 15) : 0; return { hotspot: hk, pppoe: pk, total: hk + pk }; }
 
   var style = document.createElement('style');
   style.textContent = [

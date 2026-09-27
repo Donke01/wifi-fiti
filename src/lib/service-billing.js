@@ -5,7 +5,8 @@
  *
  * Tenants prepay monthly capacity instead of giving up a share of their
  * sales:
- *   - Hotspot: KES 1,000 per 100 peak concurrent customers.
+ *   - Hotspot: KES 1,000 for up to 100 peak concurrent customers, then
+ *     KES 1 for every customer above 100.
  *   - PPPoE + Static IP: KES 500 under 35 users, then KES 15 per active user.
  * Wi‑Fi Fiti collection (the tenant has no Till of their own) still carries
  * its 5% fee, because that money passes through Wi‑Fi Fiti.
@@ -141,7 +142,7 @@ function reminderText(kind, stage, expiresRaw, businessName) {
 
 function hotspotPrice(users) {
   const h = Math.max(0, Math.floor(Number(users) || 0));
-  return h ? Math.max(1000, Math.ceil(h / 100) * 1000) : 0;
+  return h ? 1000 + Math.max(0, h - 100) : 0; // KES 1,000 up to 100 users, then KES 1 per extra user
 }
 
 function pppoePrice(users) {
@@ -160,7 +161,7 @@ function capacityUsage(business, { hotspotOnline = 0, pppoeActive = 0 } = {}) {
   };
   const hotspot = one(hotspotOnline, business && business.hotspot_concurrent);
   const pppoe = one(pppoeActive, business && business.pppoe_users);
-  // Suggested next step: the next 100-user hotspot tier, or +10 PPPoE users.
+  // Suggested next step: 100 more hotspot users, or +10 PPPoE users.
   hotspot.suggested = hotspot.capacity ? (Math.floor(hotspot.capacity / 100) + 1) * 100 : 100;
   pppoe.suggested = pppoe.capacity ? Math.max(35, pppoe.capacity + 10) : 35;
   return { hotspot, pppoe };

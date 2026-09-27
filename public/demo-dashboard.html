@@ -585,7 +585,7 @@
     function renderPayout() {
       var monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
       var gross = days.filter(function (d) { return d.date >= monthStart; }).reduce(function (s, d) { return s + d.sales; }, 0);
-      var fee = 1000; // prepaid hotspot plan: KES 1,000 per 100 users online
+      var fee = 1000; // prepaid hotspot plan: KES 1,000 for up to 100 users online
       $('payout-total').textContent = kes(gross - fee);
       $('payout-gross').textContent = kes(gross); $('payout-fee').textContent = '− ' + kes(fee); $('payout-net').textContent = kes(gross - fee);
     }
