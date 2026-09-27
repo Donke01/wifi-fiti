@@ -1406,6 +1406,17 @@ const paymentClaimByCode = db.prepare(`
    WHERE c.location_id=? AND c.code_hash=? AND c.claimed_at IS NULL
    LIMIT 1
 `);
+// A code already used by this same device (e.g. the customer tapped Connect
+// again, or an older page retried): hand the purchase back to it instead of
+// calling the code invalid. Another device still gets 'invalid'.
+const claimedPaymentByCode = db.prepare(`
+  SELECT c.*, t.status, t.mac, t.device_type
+    FROM tenant_payment_claims c
+    JOIN tenant_transactions t ON t.checkout_request_id = c.checkout_request_id
+   WHERE c.location_id=? AND c.code_hash=? AND c.claimed_at IS NOT NULL
+     AND c.claimed_at > datetime('now', '-1 day')
+   LIMIT 1
+`);
 const bindPaymentClaim = db.prepare(`
   UPDATE tenant_payment_claims SET claimed_at=datetime('now')
    WHERE checkout_request_id=? AND claimed_at IS NULL
@@ -4135,7 +4146,11 @@ function claimPaymentDevice({ locationId, code, mac }) {
   if (!normalized) return { error: 'mac' };
   const hash = tokenHash(String(code || '').trim());
   const claim = paymentClaimByCode.get(locationId, hash);
-  if (!claim) return { error: 'invalid' };
+  if (!claim) {
+    const used = claimedPaymentByCode.get(locationId, hash);
+    if (used && used.mac === normalized) return { checkoutRequestId: used.checkout_request_id, mac: normalized, status: used.status, reclaimed: true };
+    return { error: 'invalid' };
+  }
   if (claim.status !== 'paid') return { error: 'pending' };
   if (claim.attempts >= 5) return { error: 'locked' };
   if (new Date(String(claim.expires_at).replace(' ', 'T') + 'Z').getTime() <= Date.now()) return { error: 'expired' };

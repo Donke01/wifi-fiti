@@ -2258,6 +2258,9 @@ function hotspotCapacityBlock(location, renewing) {
 
 app.get('/p/:locationId', (req, res) => {
   if (!tenant.locationById.get(req.params.locationId)) return res.status(404).send('WiFi location not found.');
+  // Always revalidate: a captive browser holding yesterday's portal script is
+  // how fixed bugs keep reappearing.
+  res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, '..', 'public', 'tenant-portal.html'));
 });
 
@@ -2666,6 +2669,7 @@ app.post('/api/tenant/:locationId/claim', async (req, res) => {
   if (!budget.allowed) return res.status(429).set('Retry-After', String(budget.retryAfter)).json({ error: 'Too many attempts. Wait a few minutes and try again.' });
   const claimed = tenant.claimPaymentDevice({ locationId: location.id, code, mac });
   if (claimed.error === 'invalid' || claimed.error === 'mac') tenantAccess.allowed(failures, 100, 10 * 60_000);
+  console.log(`[tenant claim] ${location.id} ${claimed.error ? `refused (${claimed.error})` : claimed.reclaimed ? 'handed back to the same device' : 'bound to a device'}`);
   if (claimed.error === 'pending') return res.json({ status: 'pending', awaitingPayment: true });
   if (claimed.error === 'expired') return res.status(410).json({ error: 'This claim code has expired. Start a new payment.' });
   if (claimed.error === 'locked') return res.status(429).json({ error: 'This claim code is locked. Start a new payment.' });

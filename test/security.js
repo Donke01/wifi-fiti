@@ -389,7 +389,12 @@ async function test(name, fn) {
     const tx = database.prepare('SELECT * FROM tenant_transactions WHERE checkout_request_id=?').get(bought.checkoutRequestId);
     assert.equal(tx.mac, 'AA:BB:CC:40:00:01');
     database.prepare("UPDATE tenant_jobs SET acked_at=datetime('now') WHERE id=?").run(tx.provisioning_job_id);
-    const claimer = await statusAs(bought.checkoutRequestId, claimed.body.portalToken);
+    const again = await call('POST', '/api/tenant/loc/claim', { code: bought.claimCode, mac: 'AA:BB:CC:40:00:01' });
+    assert.equal(again.status, 200, 'tapping Connect again on the same device is not an error');
+    assert.ok(again.body.portalToken);
+    const thief = await call('POST', '/api/tenant/loc/claim', { code: bought.claimCode, mac: 'AA:BB:CC:40:00:99' });
+    assert.equal(thief.status, 403, 'another device cannot reuse the code');
+    const claimer = await statusAs(bought.checkoutRequestId, again.body.portalToken);
     assert.equal(claimer.body.status, 'paid', JSON.stringify(claimer.body));
     assert.ok(claimer.body.password && claimer.body.sessionToken, 'the claiming device signs in');
   });
