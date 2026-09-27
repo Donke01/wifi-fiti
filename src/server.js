@@ -17,7 +17,7 @@ const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topo
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
-const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller } = require('./lib/router-kit');
+const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
@@ -4578,7 +4578,22 @@ function tenantOpenWifiScript(location) {
   ].join('\n') + '\n';
 }
 
-function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
+// Universal-kit routers paired with an older layout report get the current
+// one in place on their next poll (at most every 10 minutes), so a fix does
+// not need a re-pairing. Support-control replies stay narrow and never carry it.
+const inventoryUpdateSentAt = new Map();
+function tenantRouterScript(location, options = {}) {
+  const result = tenantRouterScriptCore(location, options);
+  if (location.router_kit !== 'universal' || (result.supportEmitted && result.supportEmitted.length)) return result;
+  const layout = tenant.routerInventoryForLocation(location.id);
+  if (!layout || (Number(layout.agent) || 1) >= INVENTORY_AGENT) return result;
+  const last = inventoryUpdateSentAt.get(location.id) || 0;
+  if (Date.now() - last < 10 * 60_000) return result;
+  inventoryUpdateSentAt.set(location.id, Date.now());
+  return { ...result, script: [result.script, inventoryScriptUpdate()].filter(Boolean).join('\n') };
+}
+
+function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
   // A candidate replacement must not collect jobs or acknowledge old work
   // before it has completed the receipt challenge. This protects a live
   // router from a partially imported or misdirected replacement kit.

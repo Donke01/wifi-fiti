@@ -309,7 +309,7 @@ function parseRouterInventory(rawBody) {
   if (lines.indexOf(INVENTORY_BEGIN, start + 1) >= 0) throw topologyError('Duplicate router inventory report.');
   const end = lines.indexOf(INVENTORY_END, start + 1);
   if (end < 0 || end - start - 1 > INVENTORY_LIMITS.lines) throw topologyError('Incomplete router inventory report.');
-  const inv = { version: 2, routerosVersion: null, board: null, wan: null, skipped: 0,
+  const inv = { version: 2, agent: 1, routerosVersion: null, board: null, wan: null, skipped: 0,
     interfaces: new Map(), vlans: [], bridgePorts: [], pppoeClients: [], pppoeServers: [],
     addressed: new Set(), dhcpServers: [], dhcpClients: [], hotspots: [] };
   const tok = (value, label) => safeToken(value, label);
@@ -321,6 +321,7 @@ function parseRouterInventory(rawBody) {
     switch (f[1]) {
       case 'system': if (f[2] === 'routeros' && ROUTEROS_VERSION.test(f[3] || '')) inv.routerosVersion = f[3]; break;
       case 'board': inv.board = tok(f[2], 'board name'); break;
+      case 'agent': inv.agent = Math.max(1, Math.min(99, Math.floor(Number(f[2]) || 1))); break;
       case 'if': {
         if (f.length !== 5 || !INVENTORY_STATES.has(f[4])) throw topologyError('Invalid router inventory interface.');
         const name = tok(f[2], 'interface name');
@@ -396,6 +397,7 @@ function describeInventory(inv) {
   }).sort((a, b) => Number(b.physical) - Number(a.physical) || a.name.localeCompare(b.name, undefined, { numeric: true }));
   return {
     version: 2,
+    agent: inv.agent,
     routerosVersion: inv.routerosVersion,
     board: inv.board,
     wan: inv.wan,

@@ -72,6 +72,11 @@ const inventorySource = decodeScriptSource(installer, 'name=fiti-inventory polic
 assert.equal(inventorySource, inventoryScriptLines().join('\r\n') + '\r\n', 'the layout report is embedded exactly');
 assert.doesNotMatch(inventorySource, NETWORK_CHANGES, 'the layout report is read-only');
 assert.ok(braces(inventorySource));
+assert.doesNotMatch(inventorySource, /dynamic=no/, 'the generic interface find (returns only bridges on RouterOS 7.24) is not used');
+for (const menu of ['ethernet', 'wireless', 'wifi', 'bridge', 'vlan', 'pppoe-client', 'lte', 'wireguard']) {
+  assert.match(inventorySource, new RegExp(`\\[/interface ${menu} find\\]`), `interfaces are listed from the ${menu} menu`);
+}
+assert.match(inventorySource, /inv\|agent\|2/);
 const pollerSource = decodeScriptSource(installer, 'name=fiti-poll policy=read,write,ftp,test,policy source="');
 assert.match(pollerSource, /:global fitiInventory/);
 assert.match(pollerSource, /:set report \(\$report \. \$fitiInventory\)/, 'the poller sends the layout report with its sync');
@@ -187,10 +192,17 @@ async function createBusiness(email, name) {
   for (const response of [paired]) {
     assert.doesNotMatch(response.text, /security-profiles|security\.passphrase|authentication-types/, 'a universal-kit router\'s Wi-Fi is never opened');
     assert.doesNotMatch(response.text, /\/ip hotspot user|254700000001/, 'Hotspot work is held until the router is mapped');
-    assert.doesNotMatch(response.text, /pppoe-server|login\.html/, 'no PPPoE or portal work either');
+    assert.doesNotMatch(response.text, /pppoe-server server (?:add|set)|\/ppp secret|login\.html/, 'no PPPoE or portal work either');
   }
+  // A router on the old layout report (no agent line) gets the current one in place.
+  const { inventoryScriptLines: currentLines } = require('../src/lib/router-kit');
+  const update = paired.text.match(/\/system script set \[find where name="fiti-inventory"\] source="((?:[^"\\]|\\.)*)"/);
+  assert.ok(update, 'an old layout report is replaced on the next poll');
+  const decodedUpdate = update[1].replace(/\\(["\\$nr])/g, (m, c) => ({ n: '\n', r: '\r' })[c] || c);
+  assert.equal(decodedUpdate, currentLines().join('\r\n') + '\r\n', 'with exactly the current script');
   const again = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
   assert.doesNotMatch(again.text, /security-profiles|security\.passphrase|\/ip hotspot user/);
+  assert.doesNotMatch(again.text, /name="fiti-inventory"\] source=/, 'the update is not resent on every poll');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM tenant_jobs WHERE location_id=? AND delivered_at IS NULL').get(location.id).n, 1, 'the held job is still queued');
 
   // The owner sees the layout; another business cannot.

@@ -213,19 +213,28 @@ const UNIVERSAL_INSTALLER = 'tenant-router-install-universal.rsc';
 // RouterOS source for the layout report. Read-only: every command is a
 // find/get, and the result is only stored in the fitiInventory global that
 // the poller sends with its next authenticated sync.
+// Bump when the layout report changes; paired routers are updated in place.
+const INVENTORY_AGENT = 2;
 function inventoryScriptLines() {
   const safe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-';
   const add = (expr) => `:if ($fitiInvLines < 190) do={ :set fitiInvOut ($fitiInvOut . ${expr} . "\\n"); :set fitiInvLines ($fitiInvLines + 1) }`;
   return [
     ':global fitiInventory',
-    ':local fitiInvOut "fiti-inventory-v2\\n"',
+    ':local fitiInvOut "fiti-inventory-v2\\ninv|agent|' + INVENTORY_AGENT + '\\n"',
     ':local fitiInvLines 0',
     ':local fitiInvSkipped 0',
     `:local fitiInvSafe do={ :local v [:tostr $1]; :if ([:len $v] = 0 || [:len $v] > 64) do={ :return false }; :local i 0; :while ($i < [:len $v]) do={ :if ([:typeof [:find "${safe}" [:pick $v $i ($i + 1)]]] = "nil") do={ :return false }; :set i ($i + 1) }; :return true }`,
     `:local fitiInvClean do={ :local v [:tostr $1]; :local o ""; :local i 0; :while ($i < [:len $v] && $i < 48) do={ :local c [:pick $v $i ($i + 1)]; :if ([:typeof [:find "${safe}" $c]] = "nil") do={ :set o ($o . "_") } else={ :set o ($o . $c) }; :set i ($i + 1) }; :return $o }`,
     `:do { :local v [/system resource get version]; :local sp [:find $v " "]; :if ([:typeof $sp] != "nil") do={ :set v [:pick $v 0 $sp] }; :if ([$fitiInvSafe $v]) do={ ${add('("inv|system|routeros|" . $v)')} } } on-error={}`,
     `:do { :local b [$fitiInvClean [/system resource get board-name]]; :if ([$fitiInvSafe $b]) do={ ${add('("inv|board|" . $b)')} } } on-error={}`,
-    `:do { :foreach i in=[/interface find where dynamic=no] do={ :local nm [/interface get $i name]; :local tp [/interface get $i type]; :local st "down"; :do { :if ([/interface get $i running] = true) do={ :set st "up" } } on-error={}; :do { :if ([/interface get $i disabled] = true) do={ :set st "disabled" } } on-error={}; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $tp]) do={ ${add('("inv|if|" . $nm . "|" . $tp . "|" . $st)')} } else={ :set fitiInvSkipped ($fitiInvSkipped + 1) } } } on-error={}`,
+    // Interfaces are listed menu by menu, as the stable v1 report does. The
+    // generic `/interface find where dynamic=no` returns only bridges on
+    // RouterOS 7.24 (hAP lite, RB951), so it must not be used here.
+    ...[
+      ['/interface ethernet', 'ether'], ['/interface wireless', 'wlan'], ['/interface wifi', 'wifi'],
+      ['/interface bridge', 'bridge'], ['/interface vlan', 'vlan'], ['/interface pppoe-client', 'pppoe-out'],
+      ['/interface lte', 'lte'], ['/interface wireguard', 'wg'],
+    ].map(([menu, type]) => `:do { :local fitiInvList ""; :do { :set fitiInvList [${menu} find] } on-error={}; :foreach x in=$fitiInvList do={ :local nm [${menu} get $x name]; :local st "down"; :do { :if ([${menu} get $x running] = true) do={ :set st "up" } } on-error={}; :do { :if ([${menu} get $x disabled] = true) do={ :set st "disabled" } } on-error={}; :if ([$fitiInvSafe $nm]) do={ ${add(`("inv|if|" . $nm . "|${type}|" . $st)`)} } else={ :set fitiInvSkipped ($fitiInvSkipped + 1) } } } on-error={}`),
     `:do { :foreach v in=[/interface vlan find] do={ :local nm [/interface vlan get $v name]; :local id [/interface vlan get $v vlan-id]; :local pr [/interface vlan get $v interface]; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $pr]) do={ ${add('("inv|vlan|" . $nm . "|" . $id . "|" . $pr)')} } } } on-error={}`,
     `:do { :foreach p in=[/interface bridge port find] do={ :local br [/interface bridge port get $p bridge]; :local ifc [/interface bridge port get $p interface]; :if ([$fitiInvSafe $br] && [$fitiInvSafe $ifc]) do={ ${add('("inv|bport|" . $br . "|" . $ifc)')} } } } on-error={}`,
     `:do { :foreach c in=[/interface pppoe-client find] do={ :local nm [/interface pppoe-client get $c name]; :local ifc [/interface pppoe-client get $c interface]; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $ifc]) do={ ${add('("inv|pppoe-client|" . $nm . "|" . $ifc)')} } } } on-error={}`,
@@ -253,6 +262,16 @@ function inventoryScriptLines() {
 function routerScriptSource(lines) {
   const esc = (line) => line.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$');
   return 'source="\\\n' + lines.map(esc).join('\\r\\\n\\n') + '\\r\\\n\\n"';
+}
+
+// A poll-reply command that replaces an older layout report script on an
+// already paired universal-kit router and runs it once, so a fix reaches
+// routers without re-pairing. It only rewrites Wi-Fi Fiti's own read-only
+// fiti-inventory script.
+function inventoryScriptUpdate() {
+  const esc = (text) => text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+  const source = inventoryScriptLines().join('\r\n') + '\r\n';
+  return ':do { :if ([:len [/system script find where name="fiti-inventory"]] = 1) do={ /system script set [find where name="fiti-inventory"] source="' + esc(source) + '"; /system script run fiti-inventory } } on-error={ :log warning "fiti: layout report update failed" }';
 }
 
 function replaceOnce(text, find, replacement, label) {
@@ -322,4 +341,4 @@ function universalInstaller(source) {
   return out;
 }
 
-module.exports = { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptLines, UNIVERSAL_INSTALLER };
+module.exports = { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptLines, inventoryScriptUpdate, UNIVERSAL_INSTALLER, INVENTORY_AGENT };
