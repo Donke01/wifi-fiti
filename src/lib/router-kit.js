@@ -132,6 +132,14 @@ function vlanOverlayRouterKit(source, options = {}) {
   const gateway = `${prefix}.1`;
   const pool = `${prefix}.10-${prefix}.250`;
   const tag = `fiti-vlan-${baseId}`;
+  // The overlay must not reuse the /24 that Wi-Fi Fiti PPPoE already gives
+  // this router's subscribers, or both would hand out the same addresses.
+  const overlayPrefixes = [prefix, `10.250.${ids.pppoe}`];
+  if (options.pppoeSubnet) {
+    const pppoePrefix = String(options.pppoeSubnet).replace(/\.0\/24$/, '');
+    if (overlayPrefixes.includes(pppoePrefix)) throw Object.assign(new Error(`This router's PPPoE subscribers already use ${options.pppoeSubnet}. Choose another VLAN base ID or subnet.`), { status: 409 });
+  }
+  const pppoePoolCheck = `  :foreach fitiPppPool in=[/ip pool find where name="fiti-pppoe-pool"] do={ :local fitiPppRanges [:tostr [/ip pool get $fitiPppPool ranges]]; ${overlayPrefixes.map((value) => `:if ([:typeof [:find $fitiPppRanges "${value}."]] != "nil") do={ :error "The VLAN overlay subnet clashes with Wi-Fi Fiti PPPoE addresses on this router. Choose another VLAN base ID or subnet." }`).join('; ')} }`;
   const accessPortChecks = accessPorts
     ? accessPorts.split(',').map((name) => `  :if ([:len [/interface bridge port find where bridge=$fitiOverlayBridge interface="${name.trim()}"]] != 1) do={ :error "The selected VLAN access port is not on the customer bridge: ${name.trim()}" }`).join('\n')
     : '';
@@ -166,6 +174,7 @@ function vlanOverlayRouterKit(source, options = {}) {
     `  :if ([:len [/interface bridge port find where bridge=$fitiOverlayBridge interface=$fitiOverlayTrunk]] != 1) do={ :error "The selected VLAN trunk is not a port of the customer bridge." }`,
     accessPortChecks,
     nativePortChecks,
+    pppoePoolCheck,
     activate ? `  :local fitiOverlayOriginalFiltering [/interface bridge get $fitiOverlayBridge vlan-filtering]` : '',
     `  :if ([:len [/interface vlan find where vlan-id=${ids.management} interface=$fitiOverlayBridge]] > 0 || [:len [/interface vlan find where vlan-id=${ids.hotspot} interface=$fitiOverlayBridge]] > 0 || [:len [/interface vlan find where vlan-id=${ids.pppoe} interface=$fitiOverlayBridge]] > 0 || [:len [/interface vlan find where vlan-id=${ids.tv} interface=$fitiOverlayBridge]] > 0) do={ :error "One or more requested VLAN IDs are already in use on the customer bridge." }`,
     `  :if ([:len [/ip address find where address="${gateway}/24"]] > 0 || [:len [/ip pool find where name="${tag}-pool"]] > 0) do={ :error "The requested VLAN overlay subnet or pool already exists." }`,

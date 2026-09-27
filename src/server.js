@@ -4385,7 +4385,7 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
       const accessPorts = String(req.query.access || '').trim();
       const nativePorts = String(req.query.native || '').trim();
       const subnet = String(req.query.subnet || '').trim() || undefined;
-      script = vlanOverlayRouterKit(script, { baseId, trunk, accessPorts, nativePorts, subnet, activate: String(req.query.activate || '') === '1' });
+      script = vlanOverlayRouterKit(script, { baseId, trunk, accessPorts, nativePorts, subnet, pppoeSubnet: pppoe.pppoeSubnetForLocation(location.id).network, activate: String(req.query.activate || '') === '1' });
     }
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
@@ -4393,8 +4393,9 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
   } catch (error) {
     const status = error.status || 500;
     if (status >= 500) console.error('[router bootstrap] could not render location kit:', error.message);
-    return res.status(status).type('text/plain').send(
-      '# Wi-Fi Fiti bootstrap is unavailable. Generate a fresh full connection kit from the dashboard.\n'
+    return res.status(status).type('text/plain').send(status < 500
+      ? `# ${String(error.message).replace(/[\r\n]/g, ' ')}\n`
+      : '# Wi-Fi Fiti bootstrap is unavailable. Generate a fresh full connection kit from the dashboard.\n'
     );
   }
 });
