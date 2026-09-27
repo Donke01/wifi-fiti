@@ -16,6 +16,7 @@ process.env.MIKROTIK_HOTSPOT_SERVER = 'hotspot1';
 process.env.MIKROTIK_HOST = '';
 process.env.MIKROTIK_USER = '';
 process.env.MIKROTIK_PASSWORD = '';
+process.env.ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'health-admin-token';
 process.env.DATABASE_PATH = '/tmp/poll-test.db';
 
 for (const f of ['', '-wal', '-shm']) {
@@ -110,7 +111,7 @@ async function buy(phone, pkg, mac, ip) {
   await t('acknowledging retires the job', async () => {
     const r = await api('/api/router/ack?site=kitale-1&token=test-token-abc123&ids=1');
     assert.strictEqual(r.status, 200);
-    const h = await json('/api/health');
+    const h = await json('/api/health', { headers: { 'x-admin-token': process.env.ADMIN_TOKEN } });
     assert.strictEqual(h.b.pendingJobs, 0);
   });
 
@@ -134,7 +135,7 @@ async function buy(phone, pkg, mac, ip) {
   });
 
   await t('health reports poll mode and the site', async () => {
-    const h = await json('/api/health');
+    const h = await json('/api/health', { headers: { 'x-admin-token': process.env.ADMIN_TOKEN } });
     assert.strictEqual(h.b.provisionMode, 'poll');
     assert.strictEqual(h.b.site, 'kitale-1');
     assert.strictEqual(h.b.tokenSet, true);

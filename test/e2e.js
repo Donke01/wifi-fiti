@@ -16,6 +16,7 @@ process.env.MIKROTIK_HOST = '127.0.0.1';
 process.env.MIKROTIK_PORT = '18729';
 process.env.MIKROTIK_USER = 'test';
 process.env.MIKROTIK_PASSWORD = 'test';
+process.env.ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'health-admin-token';
 process.env.DATABASE_PATH = '/tmp/hotspot-e2e.db';
 process.env.BRAND_NAME = 'Wi-Fi Fiti';
 
@@ -271,7 +272,7 @@ const api = (path, init) =>
   });
 
   await t('health check reports the router', async () => {
-    const r = await api('/api/health');
+    const r = await api('/api/health', { headers: { 'x-admin-token': process.env.ADMIN_TOKEN } });
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.body.router.board, 'hAP lite');
   });

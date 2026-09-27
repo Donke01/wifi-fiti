@@ -6,6 +6,7 @@ process.env.MPESA_CONSUMER_SECRET = 's';
 process.env.MPESA_SHORTCODE = '174379';
 process.env.PROVISION_MODE = 'api';
 process.env.MPESA_PASSKEY = 'passkey';
+process.env.ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'health-admin-token';
 process.env.DATABASE_PATH = '/tmp/dryrun.db';
 // Set empty rather than delete: config.js loads dotenv, and dotenv will
 // happily repopulate a deleted variable from a real .env file, silently
@@ -37,7 +38,7 @@ setTimeout(async () => {
   const assert = require('assert');
   let ok = 0;
 
-  const h = await api('/api/health');
+  const h = await api('/api/health', { headers: { 'x-admin-token': process.env.ADMIN_TOKEN } });
   assert.strictEqual(h.b.router.configured, false);
   console.log('  ok   health reports router not configured'); ok++;
 

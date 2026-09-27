@@ -3766,8 +3766,9 @@ app.post('/api/voucher/redeem', async (req, res) => {
 
 /** Batch generation. Protected by ADMIN_TOKEN; no token, no endpoint. */
 app.post('/api/admin/vouchers', (req, res) => {
-  const admin = process.env.ADMIN_TOKEN;
-  if (!admin || String(req.headers['x-admin-token'] || '') !== admin) {
+  const expected = Buffer.from(String(process.env.ADMIN_TOKEN || ''));
+  const supplied = Buffer.from(String(req.headers['x-admin-token'] || ''));
+  if (!expected.length || expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
@@ -4746,6 +4747,9 @@ app.get('/api/router/ack', (req, res) => {
 /* ------------------------------------------------------------------ */
 
 app.get('/api/health', async (req, res) => {
+  // Anyone may ask whether the service is up; the details (database counts,
+  // provisioning mode, router test) are for the platform admin only.
+  if (!adminOk(req)) return res.json({ ok: true });
   const out = { ok: true, mpesaEnv: config.mpesa.env, database: db.stats() };
 
   out.provisionMode = config.provisionMode;
@@ -4898,6 +4902,10 @@ whatsapp.attachWhatsAppRoutes(app);
 // The admin module owns privileged dashboard routes and controls. It is
 // intentionally mounted separately from tenant, router, and portal modules.
 require('./lib/admin').attachAdminModule(app, { db, adminOk, tenant });
+
+if (config.mpesa.env !== 'production' && /^https:\/\//.test(String(config.publicUrl || '')) && !/\.(test|localhost)(\/|$)/.test(String(config.publicUrl || ''))) {
+  console.warn('*** WARNING: MPESA_ENV is not "production". Sandbox M-Pesa callbacks are trusted without a Daraja query. Set MPESA_ENV=production on a live deployment. ***');
+}
 
 app.listen(config.port, () => {
   console.log(`${config.brandName} hotspot billing on :${config.port}`);
