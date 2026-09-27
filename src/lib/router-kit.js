@@ -62,8 +62,16 @@ function telemetryTestRouterKit(source) {
  * that is the safety boundary that prevents a test kit from locking an owner
  * out before tagged/untagged ports have been verified on real hardware.
  */
-function vlanTestRouterKit(source) {
+function vlanTestRouterKit(source, options = {}) {
   const input = String(source || '').trimEnd();
+  const baseId = Number(options.baseId == null ? 10 : options.baseId);
+  // A VLAN test kit is deliberately limited to four consecutive IDs. The
+  // default remains 10/20/30/40 for compatibility with the existing test kit.
+  const ids = options.baseId == null
+    ? { management: 10, hotspot: 20, pppoe: 30, tv: 40 }
+    : { management: baseId, hotspot: baseId + 1, pppoe: baseId + 2, tv: baseId + 3 };
+  const validIds = Object.values(ids).every((id) => Number.isInteger(id) && id >= 1 && id <= 4094);
+  if (!validIds) throw Object.assign(new Error('VLAN IDs must be integers from 1 to 4094.'), { status: 400 });
   const block = [
     '',
     '# Wi-Fi Fiti VLAN KIT (TEST) — copied from the stable connection kit',
@@ -72,11 +80,11 @@ function vlanTestRouterKit(source) {
     '  :global fitiBridge',
     '  :local fitiVlanBridge $fitiBridge',
     '  :if ([:len $fitiVlanBridge] = 0 || [:len [/interface bridge find where name=$fitiVlanBridge]] != 1) do={ :error "Wi-Fi Fiti VLAN kit could not find the paired customer bridge. Complete stable onboarding first." }',
-    '  :if ([:len [/interface vlan find where name="fiti-vlan-management"]] = 0) do={ /interface vlan add name="fiti-vlan-management" vlan-id=10 interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test: management" }',
-    '  :if ([:len [/interface vlan find where name="fiti-vlan-hotspot"]] = 0) do={ /interface vlan add name="fiti-vlan-hotspot" vlan-id=20 interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test: hotspot" }',
-    '  :if ([:len [/interface vlan find where name="fiti-vlan-pppoe"]] = 0) do={ /interface vlan add name="fiti-vlan-pppoe" vlan-id=30 interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test: PPPoE" }',
-    '  :if ([:len [/interface vlan find where name="fiti-vlan-tv"]] = 0) do={ /interface vlan add name="fiti-vlan-tv" vlan-id=40 interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test: TV" }',
-    '  :put "Wi-Fi Fiti VLAN test interfaces staged: 10 management, 20 hotspot, 30 PPPoE, 40 TV"',
+    `  :if ([:len [/interface vlan find where name="fiti-vlan-management"]] = 0) do={ :if ([:len [/interface vlan find where vlan-id=${ids.management} interface=$fitiVlanBridge]] > 0) do={ :error "VLAN ${ids.management} is already used on the customer bridge." }; /interface vlan add name="fiti-vlan-management" vlan-id=${ids.management} interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test management" }`,
+    `  :if ([:len [/interface vlan find where name="fiti-vlan-hotspot"]] = 0) do={ :if ([:len [/interface vlan find where vlan-id=${ids.hotspot} interface=$fitiVlanBridge]] > 0) do={ :error "VLAN ${ids.hotspot} is already used on the customer bridge." }; /interface vlan add name="fiti-vlan-hotspot" vlan-id=${ids.hotspot} interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test hotspot" }`,
+    `  :if ([:len [/interface vlan find where name="fiti-vlan-pppoe"]] = 0) do={ :if ([:len [/interface vlan find where vlan-id=${ids.pppoe} interface=$fitiVlanBridge]] > 0) do={ :error "VLAN ${ids.pppoe} is already used on the customer bridge." }; /interface vlan add name="fiti-vlan-pppoe" vlan-id=${ids.pppoe} interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test PPPoE" }`,
+    `  :if ([:len [/interface vlan find where name="fiti-vlan-tv"]] = 0) do={ :if ([:len [/interface vlan find where vlan-id=${ids.tv} interface=$fitiVlanBridge]] > 0) do={ :error "VLAN ${ids.tv} is already used on the customer bridge." }; /interface vlan add name="fiti-vlan-tv" vlan-id=${ids.tv} interface=$fitiVlanBridge disabled=yes comment="Wi-Fi Fiti VLAN test TV" }`,
+    `  :put "Wi-Fi Fiti VLAN test interfaces staged: ${ids.management} management, ${ids.hotspot} hotspot, ${ids.pppoe} PPPoE, ${ids.tv} TV"`,
     '} do={',
     '  :log warning ("Wi-Fi Fiti VLAN test kit stopped: " . $fitiVlanError)',
     '  :put ("Wi-Fi Fiti VLAN test kit stopped: " . $fitiVlanError)',

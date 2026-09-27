@@ -4368,7 +4368,13 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     }
     // Fourth, standalone kit: exact stable source plus disabled VLAN test
     // interfaces. It never changes the production kit or enables filtering.
-    if (String(req.query.vlan || '') === '1') script = vlanTestRouterKit(script);
+    // An optional base ID stages four consecutive IDs for a planned overlay;
+    // omitted IDs preserve the original 10/20/30/40 test layout.
+    if (String(req.query.vlan || '') === '1' || String(req.query.mode || '') === 'vlan') {
+      const requestedBaseId = String(req.query.vlan_id || '').trim();
+      const baseId = requestedBaseId === '' ? undefined : Number(requestedBaseId);
+      script = vlanTestRouterKit(script, { baseId });
+    }
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);

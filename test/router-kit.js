@@ -26,3 +26,11 @@ assert.ok(vlan.includes('fiti-vlan-pppoe') && vlan.includes('vlan-id=30'));
 assert.ok(vlan.includes('fiti-vlan-tv') && vlan.includes('vlan-id=40'));
 assert.ok(vlan.includes('disabled=yes'), 'VLAN test interfaces must be staged safely');
 console.log('VLAN kit isolation tests passed');
+
+const customVlan = vlanTestRouterKit(standard, { baseId: 51 });
+assert.ok(customVlan.includes('vlan-id=51') && customVlan.includes('vlan-id=52'));
+assert.ok(customVlan.includes('vlan-id=53') && customVlan.includes('vlan-id=54'));
+assert.ok(customVlan.includes('VLAN 51 is already used'), 'custom VLAN kit must include collision checks');
+assert.throws(() => vlanTestRouterKit(standard, { baseId: 4093 }), /VLAN IDs must be integers/);
+assert.ok(customVlan.startsWith(standard.trimEnd()), 'custom VLAN kit must preserve stable source exactly');
+console.log('custom VLAN staging tests passed');
