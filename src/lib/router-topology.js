@@ -378,8 +378,12 @@ function describeInventory(inv) {
   inv.hotspots.forEach((h) => use(h.interface, `Hotspot ${h.name}`));
   const members = new Map();
   inv.bridgePorts.forEach((p) => { if (!members.has(p.bridge)) members.set(p.bridge, []); members.get(p.bridge).push(p.interface); });
+  // Most important first: a card shows its first two uses.
+  const weight = (label) => [/^Internet connection/, /^Carries the internet/, /^Hotspot /, /^PPPoE server/, /^Runs PPPoE client/, /^DHCP server/, /^DHCP client/, /^Has an IP address/, /^In bridge /, /^Carries VLAN /]
+    .findIndex((pattern) => pattern.test(label));
+  const rank = (label) => { const w = weight(label); return w < 0 ? 99 : w; };
   const interfaces = [...inv.interfaces.values()].map((item) => {
-    const usage = uses.get(item.name) || [];
+    const usage = (uses.get(item.name) || []).slice().sort((a, b) => rank(a) - rank(b));
     const physical = PHYSICAL_TYPES.has(item.type);
     const vlan = inv.vlans.find((v) => v.name === item.name);
     return {
@@ -414,6 +418,83 @@ function describeInventory(inv) {
   };
 }
 
+/*
+ * Network plan (stage 2 of the universal kit). The owner maps where hotspot
+ * and PPPoE customers connect: new bridges built only from FREE ports and
+ * radios, and/or a job for an existing bridge or VLAN. The plan is checked
+ * against the router's latest layout report and only saved here; nothing is
+ * sent to the router until the owner applies it (stage 3).
+ *
+ *   { version: 1,
+ *     bridges:  [{ name: 'fiti-hotspot', job: 'hotspot', ports: ['ether2', 'wlan1'] }],
+ *     existing: [{ interface: 'bridge-home', job: 'pppoe' }] }
+ */
+const PLAN_JOBS = new Set(['hotspot', 'pppoe']);
+const PLAN_BRIDGE_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,23}$/;
+const PLAN_EXISTING_TYPES = new Set(['bridge', 'vlan']);
+
+function planError(message) { const error = new Error(message); error.status = 400; return error; }
+
+function validateNetworkPlan(input, layout) {
+  if (!layout || !Array.isArray(layout.interfaces)) throw mappingError('Wait for the router to report its layout before saving a map.', 409);
+  const byName = new Map(layout.interfaces.map((item) => [item.name, item]));
+  const hotspotOn = new Map((layout.hotspots || []).map((h) => [h.interface, h.name]));
+  const pppoeOn = new Set((layout.pppoeServers || []).map((p) => p.interface));
+  const rawBridges = Array.isArray(input && input.bridges) ? input.bridges : [];
+  const rawExisting = Array.isArray(input && input.existing) ? input.existing : [];
+  if (rawBridges.length > 4) throw planError('Add up to 4 new bridges.');
+  if (rawExisting.length > 4) throw planError('Choose up to 4 existing bridges or VLANs.');
+  const usedPorts = new Set();
+  const names = new Set();
+  const jobs = [];
+  const bridges = rawBridges.map((raw) => {
+    const name = String(raw && raw.name || '').trim();
+    if (!PLAN_BRIDGE_NAME.test(name)) throw planError('Give each new bridge a short name: letters, numbers, - or _, starting with a letter.');
+    if (byName.has(name)) throw planError(`${name} already exists on the router. Choose another name.`);
+    if (names.has(name)) throw planError(`Two new bridges are both called ${name}.`);
+    names.add(name);
+    const job = String(raw && raw.job || '');
+    if (!PLAN_JOBS.has(job)) throw planError(`Choose Hotspot or PPPoE for ${name}.`);
+    const ports = Array.isArray(raw && raw.ports) ? raw.ports.map((p) => String(p || '').trim()) : [];
+    if (!ports.length) throw planError(`Drag at least one free port or Wi-Fi into ${name}.`);
+    if (ports.length > 16) throw planError(`${name} has too many ports.`);
+    for (const port of ports) {
+      const item = byName.get(port);
+      if (!item) throw planError(`${port} is not on this router's latest report.`);
+      if (!item.free) throw planError(`${port} is already in use on the router, so it stays as it is. Choose a free port.`);
+      if (usedPorts.has(port)) throw planError(`${port} can only belong to one bridge.`);
+      usedPorts.add(port);
+    }
+    jobs.push(job);
+    return { name, job, ports: ports.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) };
+  });
+  const seenExisting = new Set();
+  const existing = rawExisting.map((raw) => {
+    const name = String(raw && raw.interface || '').trim();
+    const item = byName.get(name);
+    if (!item) throw planError(`${name || 'That interface'} is not on this router's latest report.`);
+    if (!PLAN_EXISTING_TYPES.has(item.type)) throw planError(`Only an existing bridge or VLAN can be given a job. Put ${name} into a new bridge instead.`);
+    if (item.internet) throw planError(`${name} carries the internet connection, so it stays as it is.`);
+    if (seenExisting.has(name)) throw planError(`${name} is listed twice.`);
+    seenExisting.add(name);
+    const job = String(raw && raw.job || '');
+    if (!PLAN_JOBS.has(job)) throw planError(`Choose Hotspot or PPPoE for ${name}.`);
+    jobs.push(job);
+    return { interface: name, job, alreadyRunning: job === 'hotspot' ? hotspotOn.has(name) : pppoeOn.has(name) };
+  });
+  if (!bridges.length && !existing.length) throw planError('Add a bridge or choose an existing bridge or VLAN first.');
+  if (jobs.filter((j) => j === 'hotspot').length > 1) throw planError('Choose one place for hotspot customers.');
+  if (jobs.filter((j) => j === 'pppoe').length > 1) throw planError('Choose one place for PPPoE customers.');
+  // One customer Hotspot per router: if the router already runs one somewhere
+  // else, the plan must use that one rather than add a second.
+  const hotspotPlan = [...bridges, ...existing].find((entry) => entry.job === 'hotspot');
+  const runningHotspot = [...hotspotOn.keys()][0];
+  if (hotspotPlan && runningHotspot && (hotspotPlan.interface || hotspotPlan.name) !== runningHotspot) {
+    throw planError(`This router already runs a hotspot on ${runningHotspot}. Use it for hotspot customers instead of adding another.`);
+  }
+  return { version: 1, bridges, existing };
+}
+
 module.exports = {
   BEGIN,
   END,
@@ -427,4 +508,5 @@ module.exports = {
   INVENTORY_END,
   parseRouterInventory,
   describeInventory,
+  validateNetworkPlan,
 };

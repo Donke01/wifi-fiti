@@ -12,6 +12,7 @@ const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./
 const {
   topologyFreshAt,
   validateRouterMapping,
+  validateNetworkPlan,
   mappingFingerprint,
   topologyFingerprint,
 } = require('./router-topology');
@@ -333,6 +334,13 @@ db.exec(`
   -- Inventory v2 from the universal kit: every configured interface and what
   -- it is already used for (names, types and roles only; no addresses, MACs,
   -- secrets or routes). It drives the owner's network map.
+  -- The owner's network map (universal kit stage 2): where hotspot and PPPoE
+  -- customers connect. Saved only; applying it to the router is stage 3.
+  CREATE TABLE IF NOT EXISTS tenant_router_plans (
+    location_id TEXT PRIMARY KEY REFERENCES locations(id),
+    plan_json   TEXT NOT NULL,
+    saved_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS tenant_router_inventory (
     location_id    TEXT PRIMARY KEY REFERENCES locations(id),
     inventory_json TEXT NOT NULL,
@@ -1079,6 +1087,7 @@ const deleteRouterTopology = db.prepare(`DELETE FROM tenant_router_topologies WH
 // foreign key; they must go before the location row itself.
 const deleteRouterTelemetryForLocation = db.prepare(`DELETE FROM tenant_router_telemetry WHERE location_id=?`);
 const deleteRouterInventoryForLocation = db.prepare(`DELETE FROM tenant_router_inventory WHERE location_id=?`);
+const deleteRouterPlanForLocation = db.prepare(`DELETE FROM tenant_router_plans WHERE location_id=?`);
 const deleteRouterDevicesForLocation = db.prepare(`DELETE FROM tenant_router_devices WHERE location_id=?`);
 // A location may be discarded only while it is a genuinely unused setup
 // draft. Most tenant tables intentionally do not use cascading foreign keys:
@@ -3356,6 +3365,34 @@ function recordRouterInventory(locationId, inventory) {
   upsertRouterInventory.run(locationId, JSON.stringify(inventory));
   return inventory;
 }
+const upsertRouterPlan = db.prepare(`INSERT INTO tenant_router_plans (location_id, plan_json, saved_at) VALUES (?, ?, datetime('now'))
+  ON CONFLICT(location_id) DO UPDATE SET plan_json=excluded.plan_json, saved_at=excluded.saved_at`);
+const routerPlanRow = db.prepare(`SELECT plan_json, saved_at FROM tenant_router_plans WHERE location_id=?`);
+const clearRouterPlan = db.prepare(`DELETE FROM tenant_router_plans WHERE location_id=?`);
+/**
+ * Save the owner's network map after checking it against the router's latest
+ * layout report. Owner-scoped: another business's router is simply not found.
+ */
+function saveRouterPlan({ locationId, businessId, plan }) {
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  if (location.router_kit !== 'universal') throw remoteAccessError('Network mapping is available for routers paired with the universal kit.', 409);
+  const layout = routerInventoryForLocation(locationId);
+  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Wait for a fresh layout report from the router (it comes every 30 seconds) before saving the map.', 409);
+  const normalized = validateNetworkPlan(plan, layout);
+  upsertRouterPlan.run(locationId, JSON.stringify(normalized));
+  return routerPlanForLocation(locationId);
+}
+function routerPlanForLocation(locationId) {
+  const row = routerPlanRow.get(locationId);
+  if (!row) return null;
+  try { return { ...JSON.parse(row.plan_json), savedAt: row.saved_at }; } catch (_) { return null; }
+}
+function deleteRouterPlan({ locationId, businessId }) {
+  if (!locationForBusiness.get(locationId, businessId)) return null;
+  clearRouterPlan.run(locationId);
+  return true;
+}
 function routerInventoryForLocation(locationId) {
   const row = routerInventoryRow.get(locationId);
   if (!row) return null;
@@ -3672,6 +3709,7 @@ function deleteLocationForOwner({ locationId, businessId, confirm }) {
     deleteRouterTopology.run(locationId);
     deleteRouterTelemetryForLocation.run(locationId);
     deleteRouterInventoryForLocation.run(locationId);
+    deleteRouterPlanForLocation.run(locationId);
     deleteRouterDevicesForLocation.run(locationId);
     deleteVpnPeerForLocation.run(locationId);
     deleteRemoteSupportControlsForLocation.run(locationId);
@@ -3750,7 +3788,7 @@ function deleteOffboardedLocation(locationId, businessId, knownLocation) {
   db.exec('BEGIN IMMEDIATE');
   try {
     deleteMappedDeploymentsForLocation.run(locationId); deleteRouterMapping.run(locationId); deleteRouterTopology.run(locationId);
-    deleteRouterTelemetryForLocation.run(locationId); deleteRouterDevicesForLocation.run(locationId); deleteRouterInventoryForLocation.run(locationId);
+    deleteRouterTelemetryForLocation.run(locationId); deleteRouterDevicesForLocation.run(locationId); deleteRouterInventoryForLocation.run(locationId); deleteRouterPlanForLocation.run(locationId);
     deleteVpnPeerForLocation.run(locationId); deleteRemoteSupportControlsForLocation.run(locationId); deleteRemoteAccessEventsForLocation.run(locationId);
     deleteRemoteAccessForLocation.run(locationId); deleteProvisioningJobsForLocation.run(locationId); deleteDevicesForLocation.run(locationId);
     deletePortalDomainsForLocation.run(locationId); deleteLocationForBusiness.run(locationId, businessId); db.exec('COMMIT');
@@ -4355,7 +4393,7 @@ function deletePackageForOwner(packageId, businessId) {
 module.exports = {
   deletePackageForOwner, setPaymentDeviceIp, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
-  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
