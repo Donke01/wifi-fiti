@@ -73,6 +73,9 @@ function proxiedHeaders(request, env, host) {
     if (value) headers.set(name, value);
   }
   headers.set('X-WiFi-Fiti-Edge', env.EDGE_GATEWAY_SECRET || '');
+  // Cloudflare sets CF-Connecting-IP itself; a visitor cannot forge it.
+  const clientIp = request.headers.get('cf-connecting-ip');
+  if (clientIp) headers.set('X-WiFi-Fiti-Client-IP', clientIp);
   headers.set('X-WiFi-Fiti-Portal-Host', host);
   return headers;
 }

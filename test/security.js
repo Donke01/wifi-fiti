@@ -246,6 +246,29 @@ async function test(name, fn) {
     assert.equal(fromOwner.status, 200, JSON.stringify(fromOwner.body));
   });
 
+  console.log('\nRate limits');
+  await test('one package cannot be guessed at more than 20 times in 15 minutes', async () => {
+    let last;
+    for (let i = 0; i < 21; i += 1) {
+      last = await call('POST', '/api/tenant/loc/subscriptions/transfer', { phone: '0711000003', subscriptionId: 'sub-leak', password: `GUESS${i}`, mac: `AA:BB:CC:DD:${String(i).padStart(2, '0')}:01` });
+    }
+    assert.equal(last.status, 429);
+  });
+  const edge = (ip) => ({ 'X-WiFi-Fiti-Edge': process.env.EDGE_GATEWAY_SECRET, 'X-WiFi-Fiti-Client-IP': ip });
+  await test('claim-code guesses from many addresses still run out', async () => {
+    let status;
+    for (let i = 0; i < 101; i += 1) {
+      const response = await call('POST', '/api/tenant/loc/claim', { code: String(10000000 + i), mac: `AA:BB:CC:EE:${String(i % 100).padStart(2, '0')}:${i < 100 ? '01' : '02'}` }, edge(`198.51.100.${i % 250}`));
+      status = response.status;
+      if (i === 100) assert.match(response.body.error, /Wait a few minutes/);
+    }
+    assert.equal(status, 429);
+  });
+  await test('a forged client IP header without the edge secret is ignored', async () => {
+    const response = await call('POST', '/api/tenant/loc/claim', { code: '12345678', mac: 'AA:BB:CC:EE:00:02' }, { 'X-WiFi-Fiti-Client-IP': '203.0.113.9' });
+    assert.equal(response.status, 429, 'still inside the same location budget');
+  });
+
   // @@MORE@@
 
   console.log(`\n${passed} passed, ${failed} failed`);

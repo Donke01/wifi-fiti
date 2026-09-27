@@ -48,8 +48,16 @@ function allowed(key, maximum, windowMs) {
   const result = consume.get(digest(key), now + windowMs, now, now);
   return { allowed: result.count <= maximum, retryAfter: Math.max(1, Math.ceil((result.resets_at - now) / 1000)) };
 }
+const current = db.prepare('SELECT count, resets_at FROM request_limits WHERE key=?');
+// Read a budget without spending it.
+function peek(key, maximum) {
+  const now = Date.now();
+  const row = current.get(digest(key));
+  if (!row || row.resets_at <= now) return { allowed: true, retryAfter: 0 };
+  return { allowed: row.count < maximum, retryAfter: Math.max(1, Math.ceil((row.resets_at - now) / 1000)) };
+}
 function purge() {
   db.prepare(`DELETE FROM tenant_browser_sessions WHERE expires_at<=datetime('now')`).run();
   db.prepare(`DELETE FROM request_limits WHERE resets_at<?`).run(Date.now());
 }
-module.exports = { issue, authenticate, revoke, allowed, purge };
+module.exports = { issue, authenticate, revoke, allowed, peek, purge };

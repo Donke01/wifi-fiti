@@ -35,6 +35,16 @@ const { createDemo } = require('./lib/demo');
 
 const app = express();
 app.set('trust proxy', 1);
+// Portal traffic reaches us through the Cloudflare edge gateway, so every
+// request would otherwise share the Worker's address. Trust the client IP
+// it forwards only when the edge secret is valid.
+app.use((req, res, next) => {
+  const forwarded = String(req.get('X-WiFi-Fiti-Client-IP') || '').trim();
+  if (forwarded && forwarded.length <= 45 && /^[0-9a-fA-F:.]+$/.test(forwarded) && edgeGatewayAuthenticated(req)) {
+    Object.defineProperty(req, 'ip', { value: forwarded, configurable: true });
+  }
+  next();
+});
 app.use((req, res, next) => {
   // Captive portal links carry RouterOS values and one-time pairing URLs can
   // carry a router credential. Do not let browsers forward either to a
@@ -454,6 +464,10 @@ app.get('/vpn-gateway/wifi-fiti-vpn-agent.service', (req, res) =>
 
 // Limit credential guessing and payment-prompt abuse with a persisted
 // window. A service restart must not reset these limits.
+const LEGACY_CUSTOMER_POSTS = new Set(['/api/session/lookup', '/api/subscriptions/check', '/api/subscriptions/transfer',
+  '/api/device/add', '/api/device/list', '/api/device/remove', '/api/voucher/redeem', '/api/pay']);
+// Routes that check a secret (recovery code, receipt, claim code, voucher).
+const SECRET_CHECKING_POSTS = /\/(subscriptions\/transfer|devices\/(add|remove)|payment-recover|voucher\/redeem|claim)$/;
 app.use((req, res, next) => {
   const path = req.path;
   let key, maximum, windowMs;
@@ -474,11 +488,21 @@ app.use((req, res, next) => {
     key = path + ':' + req.ip;
     maximum = path.endsWith('/pay') ? 8 : 10;
     windowMs = 15 * 60_000;
-  } else if (req.method === 'POST' && path.startsWith('/api/tenant/')) {
+  } else if (req.method === 'POST' && (path.startsWith('/api/tenant/') || LEGACY_CUSTOMER_POSTS.has(path))) {
+    // Customers behind one hotspot share the router's public IP, so the key
+    // includes the phone/package being acted on. Two more budgets stop that
+    // being gamed: one per IP for the whole location whatever identity is
+    // sent, and one per phone/package across all IPs (a distributed guess
+    // at one customer's recovery code).
     const identity = String(req.body && (req.body.phone || req.body.subscriptionId || req.body.mac) || '').slice(0, 100);
-    key = path + ':' + req.ip + ':' + identity;
-    maximum = path.endsWith('/pay') ? 12 : 40;
-    windowMs = 5 * 60_000;
+    const scope = path.startsWith('/api/tenant/') ? path.split('/').slice(0, 4).join('/') : '/api/legacy';
+    const perIpIdentity = tenantAccess.allowed(path + ':' + req.ip + ':' + identity, path.endsWith('/pay') ? 12 : 40, 5 * 60_000);
+    const perIp = tenantAccess.allowed(scope + ':ip:' + req.ip, 600, 5 * 60_000);
+    const secretGuess = SECRET_CHECKING_POSTS.test(path) && identity
+      ? tenantAccess.allowed(path + ':id:' + identity, 20, 15 * 60_000) : { allowed: true };
+    const blocked = [perIpIdentity, perIp, secretGuess].find((limit) => !limit.allowed);
+    if (blocked) return res.status(429).set('Retry-After', String(blocked.retryAfter))
+      .json({ error: 'Too many attempts. Please wait a few minutes before trying again.' });
   }
   if (key) {
     const limit = tenantAccess.allowed(key, maximum, windowMs);
@@ -2467,7 +2491,13 @@ app.post('/api/tenant/:locationId/claim', async (req, res) => {
   if (++attempt.count > 8) return res.status(429).json({ error: 'Too many attempts. Wait a minute and try again.' });
   paymentClaimAttempts.set(attemptKey, attempt);
   if (!/^\d{8}$/.test(code) || !mac) return res.status(400).json({ error: 'Enter the 8-digit claim code after joining this Wi‑Fi.' });
+  // Wrong codes never match a claim row, so count them per location: a
+  // guesser rotating IPs or MACs still runs out of tries.
+  const failures = `claim-failures:${location.id}`;
+  const budget = tenantAccess.peek(failures, 100);
+  if (!budget.allowed) return res.status(429).set('Retry-After', String(budget.retryAfter)).json({ error: 'Too many attempts. Wait a few minutes and try again.' });
   const claimed = tenant.claimPaymentDevice({ locationId: location.id, code, mac });
+  if (claimed.error === 'invalid' || claimed.error === 'mac') tenantAccess.allowed(failures, 100, 10 * 60_000);
   if (claimed.error === 'pending') return res.json({ status: 'pending', awaitingPayment: true });
   if (claimed.error === 'expired') return res.status(410).json({ error: 'This claim code has expired. Start a new payment.' });
   if (claimed.error === 'locked') return res.status(429).json({ error: 'This claim code is locked. Start a new payment.' });
