@@ -149,13 +149,13 @@ const at = (offsetDays) => new Date(NOW + offsetDays * DAY).toISOString().replac
 
   await test('adding users costs the price difference for the days left only', () => {
     const q = sb.upgradeQuote(active, { hotspotConcurrent: 300, pppoeUsers: 50 }, NOW);
-    assert.deepEqual(q.items.map(i => [i.kind, i.fullDiffKes, i.amountKes, i.daysLeft]), [['hotspot', 100, 50, 15], ['pppoe', 150, 80, 15]], 'rounded up to the next KES 10');
-    assert.equal(q.totalKes, 130);
-    assert.equal(sb.upgradeQuote(active, { hotspotConcurrent: 300 }, Date.parse(active.hotspot_billing_expires_at.replace(' ', 'T') + 'Z') - 29.97 * 86400000).totalKes, 100, 'KES 1 per extra user, never KES 99');
+    assert.deepEqual(q.items.map(i => [i.kind, i.fullDiffKes, i.amountKes, i.daysLeft]), [['hotspot', 1000, 500, 15], ['pppoe', 150, 80, 15]], 'rounded up to the next KES 10');
+    assert.equal(q.totalKes, 580);
+    assert.equal(sb.upgradeQuote(active, { hotspotConcurrent: 300 }, Date.parse(active.hotspot_billing_expires_at.replace(' ', 'T') + 'Z') - 29.97 * 86400000).totalKes, 1000, 'KES 10 per extra user, never KES 999');
   });
 
-  await test('hotspot is KES 1,000 up to 100 users, then KES 1 per extra user', () => {
-    assert.deepEqual([1, 50, 100, 101, 150, 200, 500].map(sb.hotspotPrice), [1000, 1000, 1000, 1001, 1050, 1100, 1400]);
+  await test('hotspot is KES 1,000 up to 100 users, then KES 10 per extra user', () => {
+    assert.deepEqual([1, 50, 100, 101, 150, 200, 500].map(sb.hotspotPrice), [1000, 1000, 1000, 1010, 1500, 2000, 5000]);
     assert.equal(sb.hotspotPrice(0), 0);
     const q = sb.upgradeQuote({ ...active, hotspot_concurrent: 50 }, { hotspotConcurrent: 100 }, NOW);
     assert.equal(q.totalKes, 0, 'moving from 50 to 100 users costs nothing');

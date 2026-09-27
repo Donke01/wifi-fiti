@@ -637,8 +637,8 @@ const RETIRED_PLANS = new Set(['starter', 'growth']);
 // customer sales and never take a percentage of tenant revenue.
 const NETWORK_SERVICE_PRICING = Object.freeze({
   pppoe: { label: 'PPPoE + Static IP', floorUsers: 35, floorKes: 500, perUserKes: 15 },
-  // KES 1,000 covers up to 100 concurrent users; each user above 100 is KES 1.
-  hotspot: { label: 'Hotspot', floorConcurrent: 100, floorKes: 1000, perExtraUserKes: 1 },
+  // KES 1,000 covers up to 100 concurrent users; each user above 100 is KES 10.
+  hotspot: { label: 'Hotspot', floorConcurrent: 100, floorKes: 1000, perExtraUserKes: 10 },
 });
 
 function networkServiceQuote({ pppoeUsers = 0, hotspotConcurrent = 0 } = {}) {
