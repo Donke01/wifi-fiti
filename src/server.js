@@ -4382,8 +4382,10 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
       const requestedBaseId = String(req.query.vlan_id || '').trim();
       const baseId = requestedBaseId === '' ? undefined : Number(requestedBaseId);
       const trunk = String(req.query.trunk || '').trim();
+      const accessPorts = String(req.query.access || '').trim();
+      const nativePorts = String(req.query.native || '').trim();
       const subnet = String(req.query.subnet || '').trim() || undefined;
-      script = vlanOverlayRouterKit(script, { baseId, trunk, subnet, activate: String(req.query.activate || '') === '1' });
+      script = vlanOverlayRouterKit(script, { baseId, trunk, accessPorts, nativePorts, subnet, activate: String(req.query.activate || '') === '1' });
     }
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');

@@ -44,10 +44,12 @@ assert.ok(overlayPlan.startsWith(standard.trimEnd()), 'overlay kit must preserve
 assert.ok(overlayPlan.includes('VLAN overlay preflight passed'));
 assert.ok(overlayPlan.includes('Validation-only mode'));
 assert.ok(!overlayPlan.includes('vlan-filtering=yes'), 'validation-only overlay must not enable bridge filtering');
-const overlayApply = vlanOverlayRouterKit(standard, { baseId: 51, trunk: 'sfp-sfpplus1', activate: true, subnet: '10.250.52.0/24' });
+const overlayApply = vlanOverlayRouterKit(standard, { baseId: 51, trunk: 'sfp-sfpplus1', nativePorts: 'ether2', accessPorts: 'ether3,ether4', activate: true, subnet: '10.250.52.0/24' });
 assert.ok(overlayApply.includes('/interface bridge set $fitiOverlayBridge vlan-filtering=yes'));
 assert.ok(overlayApply.includes('Wi-Fi Fiti VLAN overlay tagged trunk 51'));
 assert.ok(overlayApply.includes('vlan-id=52') && overlayApply.includes('vlan-id=53'));
+assert.ok(overlayApply.includes('untagged=$fitiOverlayNative') && overlayApply.includes('pvid=1'));
 assert.ok(overlayApply.includes('Wi-Fi Fiti VLAN overlay stopped'), 'overlay must include a failure path');
+assert.throws(() => vlanOverlayRouterKit(standard, { baseId: 51, trunk: 'ether1', activate: true }), /explicit native ports/);
 assert.throws(() => vlanOverlayRouterKit(standard, { baseId: 51, trunk: 'ether1', subnet: '192.0.2.0/24' }), /private \/24/);
 console.log('VLAN overlay tests passed');
