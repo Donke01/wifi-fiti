@@ -214,7 +214,7 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSav
       const email = String(body.email || business.email || '').trim().toLowerCase();
       if (!EMAIL_RE.test(email)) throw httpError(400, 'Enter a valid email for the Tuma account.', 'email');
       const blocked = beforeCreate ? beforeCreate(business) : null;
-      if (blocked) throw httpError(403, blocked);
+      if (blocked) throw Object.assign(httpError(403, blocked), { needs: { action: 'verify_phone' } });
       if (creationsToday.get(business.id).n >= MAX_CREATIONS_PER_DAY) throw httpError(429, 'Too many Tuma accounts were set up for this workspace today. Please try again tomorrow or contact support.');
       recordCreation.run(business.id);
       const created = await tuma.createBusiness({ ...tumaFields, email });
@@ -286,7 +286,7 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSav
   function send(res, error) {
     const status = error.status || 500;
     if (status >= 500 && status !== 502 && status !== 503) log.error('[tuma tenants]', error);
-    res.status(status).json({ error: status === 500 ? 'Something went wrong saving your payout account.' : error.message, field: error.field || null });
+    res.status(status).json({ error: status === 500 ? 'Something went wrong saving your payout account.' : error.message, field: error.field || null, ...(error.needs ? { needs: error.needs } : {}) });
   }
 
   function attachRoutes(app, { businessAuth }) {

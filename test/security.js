@@ -348,7 +348,8 @@ async function test(name, fn) {
     database.prepare(`INSERT INTO locations (id, business_id, name, router_token) VALUES ('lloc', 'lapsed', 'One', 'rt3')`).run();
     const second = await call('POST', '/api/business/locations', { location: 'Two', routerName: 'R2' }, as('lapsed'));
     assert.equal(second.status, 402, JSON.stringify(second.body));
-    assert.match(second.body.error, /Choose a plan/);
+    assert.match(second.body.error, /Subscribe to hotspot or PPPoE users to add more routers/);
+    assert.deepEqual(second.body.needs, { action: 'subscribe', service: 'any', reason: 'router_limit' }, 'the dashboard can open the subscribe pop-up in place');
   });
 
   console.log('\nWi-Fi Fiti collection through Tuma');

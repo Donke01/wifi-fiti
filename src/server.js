@@ -41,7 +41,7 @@ const phoneVerification = createPhoneVerification({ db: db.db, normalizePhone: m
 // Tuma account (only enforced when SMS verification is available).
 function ownerPhoneBlock(business) {
   if (!phoneVerification.available() || !trialLimited(business) || phoneVerification.verified(business)) return null;
-  return 'Verify your phone number in Setup to start taking payments on your free trial.';
+  return 'Verify your phone number to start taking payments on your free trial.';
 }
 // Created early: sales checks and the reminder worker both read it.
 const tumaFee = createTumaFee({ db: db.db });
@@ -706,7 +706,11 @@ const TRIAL_DAYS = 7;
 // for free. They lift the moment the tenant chooses a plan.
 const TRIAL_LIMITS = Object.freeze({ maxPackagePriceKes: 3, maxPackages: 3, maxPackageHours: 24, maxVouchers: 5, maxPppoeUsers: 2, maxHotspotUsers: 10 });
 const TRIAL_PROMPTS_PER_DAY = 50;
-const TRIAL_LIMIT_NOTE = 'These limits lift as soon as you choose a plan in Billing & payments.';
+const TRIAL_LIMIT_NOTE = 'These limits lift as soon as you subscribe to hotspot or PPPoE users.';
+// Attached to a blocked owner request (`needs`) so the dashboard opens a pop-up
+// to do the missing step right there, then retries, instead of sending the
+// owner to another page.
+const SUBSCRIBE_TRIAL = Object.freeze({ action: 'subscribe', service: 'any', reason: 'trial_limit' });
 // Trial throttles apply only while on the free trial with no paid plan yet.
 function trialLimited(business) {
   if (!trialActive(business)) return false;
@@ -763,7 +767,7 @@ function onboardingState(business, locations = []) {
 
 function requireOrganisation(business, res) {
   if (organisationIsComplete(business)) return true;
-  res.status(409).json({ error: 'Create your organisation before adding a router.' });
+  res.status(409).json({ error: 'Add your organisation details before adding a router.', needs: { action: 'organisation' } });
   return false;
 }
 
@@ -793,8 +797,9 @@ function canAddLocation(business, res) {
   if (limit && existing.length >= limit) {
     res.status(402).json({
       error: trialActive(business)
-        ? 'Your free trial includes one router. As soon as you pay for hotspot or PPPoE users in Billing & payments, you can add as many routers as you need.'
-        : 'Choose a plan in Billing & payments to add more routers. Once you pay for hotspot or PPPoE users, you can add as many as you need.',
+        ? 'Your free trial includes one router. Subscribe to hotspot or PPPoE users and you can add as many routers as you need.'
+        : 'Subscribe to hotspot or PPPoE users to add more routers. Once you do, you can add as many as you need.',
+      needs: { action: 'subscribe', service: 'any', reason: 'router_limit' },
     });
     return false;
   }
@@ -1938,9 +1943,9 @@ app.post('/api/business/packages', (req, res) => {
     return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }
   if (trialLimited(business)) {
-    if (price > TRIAL_LIMITS.maxPackagePriceKes) return res.status(400).json({ error: `During your free trial, packages cost KES 1 to KES ${TRIAL_LIMITS.maxPackagePriceKes}. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'price' });
-    if (hours > TRIAL_LIMITS.maxPackageHours) return res.status(400).json({ error: `During your free trial, packages last up to ${TRIAL_LIMITS.maxPackageHours} hours. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'duration' });
-    if (db.packagesForBusiness.all(business.id).length >= TRIAL_LIMITS.maxPackages) return res.status(400).json({ error: `Your free trial includes up to ${TRIAL_LIMITS.maxPackages} packages. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'count' });
+    if (price > TRIAL_LIMITS.maxPackagePriceKes) return res.status(400).json({ error: `During your free trial, packages cost KES 1 to KES ${TRIAL_LIMITS.maxPackagePriceKes}. ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'price' });
+    if (hours > TRIAL_LIMITS.maxPackageHours) return res.status(400).json({ error: `During your free trial, packages last up to ${TRIAL_LIMITS.maxPackageHours} hours. ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'duration' });
+    if (db.packagesForBusiness.all(business.id).length >= TRIAL_LIMITS.maxPackages) return res.status(400).json({ error: `Your free trial includes up to ${TRIAL_LIMITS.maxPackages} packages. ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'count' });
   }
   db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
   res.status(201).json({ packages: db.packagesForBusiness.all(business.id) });
@@ -1959,10 +1964,10 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
     return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }
   if (trialLimited(business) && price > TRIAL_LIMITS.maxPackagePriceKes) {
-    return res.status(400).json({ error: `During your free trial, packages cost KES 1 to KES ${TRIAL_LIMITS.maxPackagePriceKes}. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'price' });
+    return res.status(400).json({ error: `During your free trial, packages cost KES 1 to KES ${TRIAL_LIMITS.maxPackagePriceKes}. ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'price' });
   }
   if (trialLimited(business) && hours > TRIAL_LIMITS.maxPackageHours) {
-    return res.status(400).json({ error: `During your free trial, packages last up to ${TRIAL_LIMITS.maxPackageHours} hours. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'duration' });
+    return res.status(400).json({ error: `During your free trial, packages last up to ${TRIAL_LIMITS.maxPackageHours} hours. ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'duration' });
   }
   tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
   res.json({ packages: db.packagesForBusiness.all(business.id) });
@@ -2095,7 +2100,7 @@ app.post('/api/business/vouchers', (req, res) => {
   if (trialLimited(business)) {
     const issued = db.db.prepare('SELECT COUNT(*) AS n FROM tenant_vouchers WHERE business_id=?').get(business.id).n;
     if (issued + count > TRIAL_LIMITS.maxVouchers) {
-      return res.status(400).json({ error: `Your free trial includes up to ${TRIAL_LIMITS.maxVouchers} vouchers (${Math.max(0, TRIAL_LIMITS.maxVouchers - issued)} left). ${TRIAL_LIMIT_NOTE}`, trialLimit: 'vouchers' });
+      return res.status(400).json({ error: `Your free trial includes up to ${TRIAL_LIMITS.maxVouchers} vouchers (${Math.max(0, TRIAL_LIMITS.maxVouchers - issued)} left). ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'vouchers' });
     }
   }
   try {
@@ -4997,9 +5002,11 @@ const whatsappWorkerTimer = setInterval(whatsappWorker, 5000);
 whatsappWorkerTimer.unref?.();
 require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth, subscriptionBlock: (business, usage) => {
   if (trialLimited(business) && usage.adding && usage.activeUsers >= TRIAL_LIMITS.maxPppoeUsers) {
-    return `Your free trial includes up to ${TRIAL_LIMITS.maxPppoeUsers} PPPoE users. ${TRIAL_LIMIT_NOTE}`;
+    return { message: `Your free trial includes up to ${TRIAL_LIMITS.maxPppoeUsers} PPPoE users. ${TRIAL_LIMIT_NOTE}`, needs: { action: 'subscribe', service: 'pppoe', reason: 'trial_limit' } };
   }
-  return serviceBilling.pppoeAddBlock(business, usage);
+  const block = serviceBilling.pppoeAddBlockDetail(business, usage);
+  if (!block) return null;
+  return { message: block.message, needs: block.reason ? { action: 'subscribe', service: 'pppoe', reason: block.reason } : null };
 } });
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.

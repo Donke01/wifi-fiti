@@ -19,7 +19,7 @@
     options.headers = Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {});
     return fetch(path, options).then(function (response) {
       return response.json().catch(function () { return {}; }).then(function (body) {
-        if (!response.ok) { var error = new Error(body.error || 'Something went wrong. Please try again.'); error.status = response.status; throw error; }
+        if (!response.ok) { var error = new Error(body.error || 'Something went wrong. Please try again.'); error.status = response.status; if (body.needs && window.FitiActions && !options.fitiRetried) { return window.FitiActions.open(body.needs, { message: error.message }).then(function (done) { if (!done) throw error; options.fitiRetried = true; return api(path, options); }); } throw error; }
         return body;
       });
     });

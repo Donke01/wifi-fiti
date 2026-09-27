@@ -89,21 +89,30 @@ function hotspotSaleBlock(business, { activeNow = 0, renewing = false } = {}, no
   return 'This WiFi service needs its subscription renewed before it can take a new payment.';
 }
 
-/** Reason the owner cannot add or re-provision a PPPoE user, or null. */
-function pppoeAddBlock(business, { activeUsers = 0, adding = true } = {}, now = Date.now()) {
-  if (!business) return 'Business not found.';
-  if (String(business.billing_status || '').toLowerCase() === 'suspended') return 'This workspace is suspended. Contact Wi‑Fi Fiti support.';
+/**
+ * Why the owner cannot add or re-provision a PPPoE user, or null.
+ * `reason` tells the dashboard which subscribe pop-up to open:
+ *   none (never subscribed), expired (renew), capacity (add users).
+ */
+function pppoeAddBlockDetail(business, { activeUsers = 0, adding = true } = {}, now = Date.now()) {
+  if (!business) return { message: 'Business not found.' };
+  if (String(business.billing_status || '').toLowerCase() === 'suspended') return { message: 'This workspace is suspended. Contact Wi‑Fi Fiti support.' };
   const s = summary(business, now);
   if (s.trial.active) return null;
   if (!usable(s.pppoe)) {
     return s.pppoe.status === 'none'
-      ? 'Subscribe to PPPoE + Static IP in Billing & payments before adding subscribers.'
-      : 'Your PPPoE + Static IP subscription has ended. Renew it in Billing & payments to manage subscribers.';
+      ? { message: 'Subscribe to PPPoE + Static IP to add subscribers.', reason: 'none' }
+      : { message: 'Your PPPoE + Static IP subscription has ended. Renew it to manage subscribers.', reason: 'expired' };
   }
   if (adding && s.pppoe.capacity > 0 && activeUsers >= s.pppoe.capacity) {
-    return `Your plan covers ${s.pppoe.capacity} PPPoE users. Add more users in Billing & payments; you pay only for the days left this month.`;
+    return { message: `Your plan covers ${s.pppoe.capacity} PPPoE users. Add more users to continue; you pay only for the days left this month.`, reason: 'capacity' };
   }
   return null;
+}
+/** Reason the owner cannot add or re-provision a PPPoE user, or null. */
+function pppoeAddBlock(business, usage, now = Date.now()) {
+  const block = pppoeAddBlockDetail(business, usage, now);
+  return block ? block.message : null;
 }
 
 /** Routers are unlimited while hotspot capacity is paid (even if bought during the trial). */
@@ -199,5 +208,5 @@ function upgradeQuote(business, { hotspotConcurrent, pppoeUsers } = {}, now = Da
 
 module.exports = {
   hotspotPrice, pppoePrice, capacityUsage, upgradeQuote,
-  GRACE_DAYS, parseTime, periodState, summary, hotspotSaleBlock, pppoeAddBlock, routerLimitLifted, dueReminders, reminderText,
+  GRACE_DAYS, parseTime, periodState, summary, hotspotSaleBlock, pppoeAddBlock, pppoeAddBlockDetail, routerLimitLifted, dueReminders, reminderText,
 };

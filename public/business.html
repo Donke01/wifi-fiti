@@ -539,7 +539,7 @@
         options.headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {}, token ? { Authorization: 'Bearer ' + token } : {});
         return fetch(path, options).then(function (response) {
           return response.json().catch(function () { return {}; }).then(function (body) {
-            if (!response.ok) { var error = new Error(body.error || 'Something went wrong. Please try again.'); error.status = response.status; throw error; }
+            if (!response.ok) { var error = new Error(body.error || 'Something went wrong. Please try again.'); error.status = response.status; if (body.needs && window.FitiActions && !options.fitiRetried) { return window.FitiActions.open(body.needs, { message: error.message }).then(function (done) { if (!done) throw error; options.fitiRetried = true; return api(path, options); }); } throw error; }
             return body;
           });
         });
@@ -1855,7 +1855,10 @@
         price.max = String(limits.maxPackagePriceKes); price.placeholder = '1 to ' + limits.maxPackagePriceKes;
         if (!note) { note = el('p', 'trial-limit-note'); note.id = 'package-trial-note'; form.insertBefore(note, form.firstChild); }
         var count = ((state.workspace && state.workspace.packages) || []).length;
-        note.textContent = 'Free trial: up to ' + limits.maxPackages + ' packages priced KES 1 to KES ' + limits.maxPackagePriceKes + ' and lasting up to ' + (limits.maxPackageHours || 24) + ' hours (' + Math.max(0, limits.maxPackages - count) + ' left), up to ' + limits.maxVouchers + ' vouchers, ' + limits.maxPppoeUsers + ' PPPoE users and ' + (limits.maxHotspotUsers || 10) + ' hotspot users online at once. Choose a plan in Billing & payments to set real prices.';
+        note.textContent = 'Free trial: up to ' + limits.maxPackages + ' packages priced KES 1 to KES ' + limits.maxPackagePriceKes + ' and lasting up to ' + (limits.maxPackageHours || 24) + ' hours (' + Math.max(0, limits.maxPackages - count) + ' left), up to ' + limits.maxVouchers + ' vouchers, ' + limits.maxPppoeUsers + ' PPPoE users and ' + (limits.maxHotspotUsers || 10) + ' hotspot users online at once.';
+        var lift = el('button', 'quiet trial-lift', 'Subscribe to lift these limits'); lift.type = 'button';
+        lift.addEventListener('click', function () { if (window.FitiActions) window.FitiActions.open({ action: 'subscribe', service: 'any', reason: 'trial_limit' }).then(function (done) { if (done) load(); }); });
+        note.appendChild(document.createTextNode(' ')); note.appendChild(lift);
       }
       function renderPackages() {
         renderPackageTrialLimits();
@@ -1869,6 +1872,12 @@
         if (!locations.length) { var noLocation = el('option', '', 'Add a location first'); noLocation.value = ''; locationSelect.appendChild(noLocation); } else locations.forEach(function (location) { var option = el('option', '', location.name); option.value = location.id; locationSelect.appendChild(option); });
         if (!packages.length) { var noPackage = el('option', '', 'Add an active package first'); noPackage.value = ''; packageSelect.appendChild(noPackage); } else packages.forEach(function (pkg) { var option = el('option', '', pkg.name + ' · ' + kes(pkg.price) + ' · ' + duration(pkg.seconds) + (pkg.rate_limit ? ' · ' + pkg.rate_limit : '')); option.value = pkg.id; packageSelect.appendChild(option); });
         if (Array.from(locationSelect.options).some(function (option) { return option.value === oldLocation; })) locationSelect.value = oldLocation; if (Array.from(packageSelect.options).some(function (option) { return option.value === oldPackage; })) packageSelect.value = oldPackage; button.disabled = !locations.length || !packages.length;
+        // Missing a router or a package? Offer to add it right here.
+        var missing = $('voucher-missing'); if (!missing) { missing = el('div', 'buttons voucher-missing'); missing.id = 'voucher-missing'; button.parentNode.parentNode.insertBefore(missing, button.parentNode.nextSibling); }
+        clear(missing);
+        if (!locations.length) { var addRouter = el('button', 'secondary', 'Add a router'); addRouter.type = 'button'; addRouter.addEventListener('click', function () { openRouterDraftModal(); }); missing.appendChild(addRouter); }
+        if (!packages.length && window.FitiActions) { var addPackage = el('button', 'secondary', 'Create a package'); addPackage.type = 'button'; addPackage.addEventListener('click', function () { window.FitiActions.open({ action: 'create_package' }, { onResult: function (result) { if (result && result.packages) updatePackages(result.packages); } }); }); missing.appendChild(addPackage); }
+        missing.hidden = !missing.children.length;
       }
       var voucherSelection = new Set();
       var VOUCHER_STATUS = { open: 'Unused', paused: 'Paused', active: 'In use', session_paused: 'Paused (in use)', used: 'Used up' };
@@ -2389,6 +2398,7 @@
       var observer = new MutationObserver(init); observer.observe(document.body, { childList:true, subtree:true }); init();
     }());
   </script>
+  <script src="/fiti-actions.js"></script>
   <script src="/tuma-payout.js" defer></script>
   <script src="/setup-flow.js" defer></script>
   <script src="/billing-hub.js" defer></script>

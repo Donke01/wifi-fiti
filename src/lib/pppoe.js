@@ -129,7 +129,7 @@ function routersFor(businessId) {
   return db.prepare(`SELECT l.id, l.name, l.customer_bridge, h.status AS health_status, h.active_sessions, h.last_seen_at
     FROM locations l LEFT JOIN pppoe_health h ON h.location_id=l.id AND h.business_id=l.business_id
     WHERE l.business_id=? ORDER BY l.name`).all(b).map((row) => ({ id: row.id, name: row.name,
-    ready: /^[A-Za-z0-9_-]{1,32}$/.test(String(row.customer_bridge || '')), customerBridge: row.customer_bridge || null,
+    ready: Boolean(customerBridgeFor(row.id)), customerBridge: customerBridgeFor(row.id) || null,
     subnet: pppoeSubnetForLocation(row.id).network,
     health: row.last_seen_at ? { status: row.health_status, activeSessions: row.active_sessions, lastSeenAt: row.last_seen_at } : null }));
 }
@@ -189,9 +189,16 @@ const lastHealthAsk = new Map();
 // RouterOS rate-limit is rx/tx seen from the router: rx is what the
 // subscriber uploads, tx is what they download. So upload comes first.
 function routerRate(downloadRate, uploadRate) { return `${String(uploadRate).trim()}/${String(downloadRate).trim()}`; }
+// The owner's confirmed router map decides the customer bridge; the bridge
+// recorded when the kit was generated is the fallback for older routers.
 function customerBridgeFor(locationId) {
+  let confirmed = '';
+  try {
+    const row = db.prepare('SELECT mapping_json FROM tenant_router_mappings WHERE location_id=?').get(locationId);
+    confirmed = row ? String(JSON.parse(row.mapping_json).customerBridge || '') : '';
+  } catch (_) { /* no confirmed map yet */ }
   const location = db.prepare('SELECT customer_bridge FROM locations WHERE id=?').get(locationId) || {};
-  const bridge = String(location.customer_bridge || '').trim();
+  const bridge = (confirmed || String(location.customer_bridge || '')).trim();
   return /^[A-Za-z0-9_-]{1,32}$/.test(bridge) ? bridge : '';
 }
 function hasSubscribers(locationId) {
@@ -319,14 +326,18 @@ function activeUserCount(businessId) {
 function attachPppoeRoutes(app, { businessAuth, subscriptionBlock = null }) {
   const operator = handler => (req, res) => {
     const current = businessAuth(req, res); if (!current) return;
-    try { return handler(req, res, current.id || current.business_id, current); } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+    try { return handler(req, res, current.id || current.business_id, current); } catch (error) { return res.status(error.status || 400).json({ error: error.message, ...(error.needs ? { needs: error.needs } : {}) }); }
   };
   // Prepaid PPPoE: adding or re-provisioning a subscriber needs an active
   // (or grace-period) subscription with room for one more active user.
   const guard = (current, adding) => {
     if (!subscriptionBlock) return;
     const blocked = subscriptionBlock(current, { activeUsers: activeUserCount(current.id || current.business_id), adding });
-    if (blocked) throw Object.assign(new Error(blocked), { status: 402 });
+    if (!blocked) return;
+    // A block may carry what to subscribe to, so the dashboard can open the
+    // subscribe pop-up right where the owner is instead of sending them away.
+    const message = typeof blocked === 'string' ? blocked : blocked.message;
+    throw Object.assign(new Error(message), { status: 402, needs: typeof blocked === 'object' && blocked.needs ? blocked.needs : null });
   };
   app.get('/api/business/pppoe', operator((req, res, b) => res.json({ profiles: profilesFor(b), users: usersFor(b, req.query.locationId || null), routers: routersFor(b) })));
   app.post('/api/business/pppoe/profiles', operator((req, res, b) => res.status(201).json({ profile: profileCreate({ businessId: b, name: req.body?.name, downloadRate: req.body?.downloadRate, uploadRate: req.body?.uploadRate, maxSessions: req.body?.maxSessions, sessionTimeoutSeconds: req.body?.sessionTimeoutSeconds, idleTimeoutSeconds: req.body?.idleTimeoutSeconds }) })));

@@ -82,4 +82,13 @@ assert.throws(() => vlanOverlayRouterKit(base, { baseId: 60, trunk: 'ether5', na
 const safeBase = octet > 100 ? 60 : 150;
 const kit = vlanOverlayRouterKit(base, { baseId: safeBase, trunk: 'ether5', nativePorts: 'ether2', pppoeSubnet });
 assert.match(kit, /\/ip pool find where name="fiti-pppoe-pool"/, 'the router also checks its live PPPoE pool');
+// A blocked add says which subscribe pop-up to open.
+const billing = require('../src/lib/service-billing');
+const future = new Date(Date.now() + 10 * 86400_000).toISOString().replace('T', ' ').slice(0, 19);
+const past = new Date(Date.now() - 40 * 86400_000).toISOString().replace('T', ' ').slice(0, 19);
+assert.strictEqual(billing.pppoeAddBlockDetail({ billing_status: 'active' }).reason, 'none');
+assert.strictEqual(billing.pppoeAddBlockDetail({ billing_status: 'active', pppoe_billing_expires_at: past, pppoe_users: 35 }).reason, 'expired');
+assert.strictEqual(billing.pppoeAddBlockDetail({ billing_status: 'active', pppoe_billing_expires_at: future, pppoe_users: 2 }, { activeUsers: 2 }).reason, 'capacity');
+assert.strictEqual(billing.pppoeAddBlockDetail({ billing_status: 'active', pppoe_billing_expires_at: future, pppoe_users: 2 }, { activeUsers: 1 }), null);
+assert.strictEqual(billing.pppoeAddBlock({ billing_status: 'active' }), 'Subscribe to PPPoE + Static IP to add subscribers.');
 console.log('PPPoE router: speed order, session cut on revoke, waits for router map, honest acks with reasons, health, overlay clash guard - passed');
