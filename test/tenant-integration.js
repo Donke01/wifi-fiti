@@ -167,7 +167,8 @@ async function operator(suffix, collectionMode = 'fiti', rateLimit = '2M/5M') {
     body: { name: `${suffix} Main`, routerName: 'RB951Ui' } });
   assert.equal(located.status, 201, JSON.stringify(located.body));
   const packaged = await api('/api/business/packages', { method: 'POST', token,
-    body: { name: `${suffix} Hour`, price: 20, hours: 1, rateLimit } });
+    // Operators are on the free trial, where packages cost KES 1-3.
+    body: { name: `${suffix} Hour`, price: 3, hours: 1, rateLimit } });
   assert.equal(packaged.status, 201, JSON.stringify(packaged.body));
   return { token, business: registered.body.business, location: located.body.location, portalUrl: located.body.portalUrl,
     package: packaged.body.packages[0] };
@@ -616,8 +617,8 @@ async function main() {
     database.prepare("UPDATE tenant_transactions SET portal_token_expires_at=datetime('now','-1 second') WHERE checkout_request_id=?").run(id);
     assert.equal((await api(statusPath, { portalToken: payment.portalToken })).status, 403, 'expired capability cannot recover credentials');
     const dashboard = await api('/api/business/dashboard', { token: alpha.token });
-    assert.equal(dashboard.body.gross, 20);
-    assert.equal(dashboard.body.platformFee, 1);
+    assert.equal(dashboard.body.gross, alpha.package.price);
+    assert.equal(dashboard.body.platformFee, alpha.package.price * 5 / 100, 'Wi-Fi Fiti collection keeps 5%');
     assert.equal((await api('/api/business/dashboard', { token: bravo.token })).body.gross, 0);
   });
 

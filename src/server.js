@@ -657,6 +657,17 @@ function networkServiceQuote({ pppoeUsers = 0, hotspotConcurrent = 0 } = {}) {
 // entitlement calculation in one place so onboarding, dashboards and sales
 // limits cannot drift apart.
 const TRIAL_DAYS = 7;
+// Free-trial throttles: enough to test real payments, not to run a business
+// for free. They lift the moment the tenant chooses a plan.
+const TRIAL_LIMITS = Object.freeze({ maxPackagePriceKes: 3, maxPackages: 3, maxVouchers: 10, maxPppoeUsers: 5 });
+const TRIAL_LIMIT_NOTE = 'These limits lift as soon as you choose a plan in Billing & payments.';
+// Trial throttles apply only while on the free trial with no paid plan yet.
+function trialLimited(business) {
+  if (!trialActive(business)) return false;
+  const s = serviceBilling.summary(business);
+  const paid = (x) => x.status === 'active' || x.status === 'grace';
+  return !(paid(s.hotspot) || paid(s.pppoe));
+}
 function trialActive(business) {
   if (!business || String(business.billing_status || '').toLowerCase() !== 'trial') return false;
   const raw = String(business.billing_expires_at || '').trim();
@@ -997,7 +1008,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), trialLimits: trialLimited(business) ? TRIAL_LIMITS : null, tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1796,6 +1807,10 @@ app.post('/api/business/packages', (req, res) => {
   if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31 || !rate.valid) {
     return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }
+  if (trialLimited(business)) {
+    if (price > TRIAL_LIMITS.maxPackagePriceKes) return res.status(400).json({ error: `During your free trial, packages cost KES 1 to KES ${TRIAL_LIMITS.maxPackagePriceKes}. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'price' });
+    if (db.packagesForBusiness.all(business.id).length >= TRIAL_LIMITS.maxPackages) return res.status(400).json({ error: `Your free trial includes up to ${TRIAL_LIMITS.maxPackages} packages. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'count' });
+  }
   db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
   res.status(201).json({ packages: db.packagesForBusiness.all(business.id) });
 });
@@ -1811,6 +1826,9 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
   const rate = normaliseRateLimit(req.body && req.body.rateLimit === undefined ? current.rate_limit : req.body.rateLimit);
   if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31 || !rate.valid) {
     return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
+  }
+  if (trialLimited(business) && price > TRIAL_LIMITS.maxPackagePriceKes) {
+    return res.status(400).json({ error: `During your free trial, packages cost KES 1 to KES ${TRIAL_LIMITS.maxPackagePriceKes}. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'price' });
   }
   tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
   res.json({ packages: db.packagesForBusiness.all(business.id) });
@@ -1921,6 +1939,12 @@ app.post('/api/business/vouchers', (req, res) => {
   const location = tenant.locationForBusiness.get(locationId, business.id);
   const pkg = tenant.businessPackageById.get(packageId, business.id);
   if (!location || !pkg || !pkg.active) return res.status(400).json({ error: 'Choose one of your active packages and locations.' });
+  if (trialLimited(business)) {
+    const issued = db.db.prepare('SELECT COUNT(*) AS n FROM tenant_vouchers WHERE business_id=?').get(business.id).n;
+    if (issued + count > TRIAL_LIMITS.maxVouchers) {
+      return res.status(400).json({ error: `Your free trial includes up to ${TRIAL_LIMITS.maxVouchers} vouchers (${Math.max(0, TRIAL_LIMITS.maxVouchers - issued)} left). ${TRIAL_LIMIT_NOTE}`, trialLimit: 'vouchers' });
+    }
+  }
   try {
     const codes = tenant.issueVouchers({ businessId: business.id, locationId, packageId: pkg.id,
       packageName: pkg.name, seconds: pkg.seconds, rateLimit: pkg.rate_limit, count,
@@ -2213,6 +2237,11 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   const salesBlocked = businessCanSell(location);
   if (salesBlocked) return res.status(402).json({ error: salesBlocked });
   const pkg = tenant.packageForLocation.get(Number(req.body && req.body.packageId), location.id);
+  // A package priced above the trial cap (e.g. created before the cap) is
+  // never sold while the operator is on the free trial.
+  if (pkg && trialLimited(location) && pkg.price > TRIAL_LIMITS.maxPackagePriceKes) {
+    return res.status(402).json({ error: 'This package is not available yet. Please choose another package or ask the operator.' });
+  }
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
   const deviceType = purchaseDeviceType(req.body && req.body.deviceType);
   let mac = deviceType === 'tv' ? normaliseTvMac(req.body && req.body.mac) : cleanMac(req.body && req.body.mac);
@@ -4516,7 +4545,12 @@ const whatsappWorker = () => whatsappNotifications.processQueue({ limit: 50 })
 whatsappWorker();
 const whatsappWorkerTimer = setInterval(whatsappWorker, 5000);
 whatsappWorkerTimer.unref?.();
-require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth, subscriptionBlock: (business, usage) => serviceBilling.pppoeAddBlock(business, usage) });
+require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth, subscriptionBlock: (business, usage) => {
+  if (trialLimited(business) && usage.adding && usage.activeUsers >= TRIAL_LIMITS.maxPppoeUsers) {
+    return `Your free trial includes up to ${TRIAL_LIMITS.maxPppoeUsers} PPPoE users. ${TRIAL_LIMIT_NOTE}`;
+  }
+  return serviceBilling.pppoeAddBlock(business, usage);
+} });
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.
 require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db });

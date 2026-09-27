@@ -161,6 +161,24 @@ async function test(name, fn) {
     for (let n = 1; n <= 6; n += 1) assert.equal((await addRouter(tok, n)).status, 201, `router ${n}`);
   });
 
+  console.log('\nFree-trial throttles');
+
+  await test('on the trial: vouchers are capped at 10 and a package above KES 3 is never sold', async () => {
+    const tok = `session-trialbiz`;
+    const loc = database.prepare(`SELECT id FROM locations WHERE business_id='trialbiz' LIMIT 1`).get().id;
+    const made = await call('POST', '/api/business/packages', { name: 'Two hours', price: 2, hours: 2 }, { Authorization: `Bearer ${tok}` });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    const pkgId = made.body.packages[0].id;
+    assert.equal((await call('POST', '/api/business/vouchers', { locationId: loc, packageId: pkgId, count: 10 }, { Authorization: `Bearer ${tok}` })).status, 201);
+    const extra = await call('POST', '/api/business/vouchers', { locationId: loc, packageId: pkgId, count: 1 }, { Authorization: `Bearer ${tok}` });
+    assert.equal(extra.status, 400); assert.equal(extra.body.trialLimit, 'vouchers');
+    // A package priced above the cap (e.g. created before it existed) is refused at checkout.
+    database.prepare(`INSERT INTO business_packages (business_id, name, price, seconds) VALUES ('trialbiz', 'Old day pass', 50, 86400)`).run();
+    const dear = database.prepare(`SELECT id FROM business_packages WHERE business_id='trialbiz' AND price=50`).get().id;
+    const pay = await call('POST', `/api/tenant/${loc}/pay`, { packageId: dear, phone: '0711222333', deviceType: 'phone', mac: 'AA:BB:CC:DD:EE:01' }, { Authorization: '' });
+    assert.equal(pay.status, 402); assert.match(pay.body.error, /not available yet/);
+  });
+
   console.log('\nOne free trial per person');
 
   const register = (email, phone) => call('POST', '/api/business/register', { name: 'Trial Test', ownerName: 'Owner', phone, email, password: 'test-password-123', plan: 'starter', collectionMode: 'own' }, { Authorization: '' });

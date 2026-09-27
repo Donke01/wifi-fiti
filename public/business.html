@@ -296,6 +296,7 @@
     #dashboard.sequential-onboarding #onboarding-section{display:block!important}
   .svc-state{display:grid;gap:8px;margin:0 0 16px}.svc-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 14px;padding:12px 14px;border:1px solid var(--line);border-radius:14px}.svc-row span{color:var(--muted)}.svc-active span{color:var(--good)}.svc-grace span{color:var(--warn)}.svc-expired span{color:var(--bad)}.svc-note{margin:2px 0 0;color:var(--muted);font-size:13px}.svc-trial{padding:10px 12px;border-radius:12px;background:rgba(22,140,98,.09);color:var(--good);font-weight:700}
   .svc-up{padding:12px 14px;border:1px solid var(--line);border-radius:14px}.svc-up-near{border-color:rgba(168,107,0,.4)}.svc-up-full{border-color:rgba(189,56,82,.5)}.svc-bar{height:7px;border-radius:999px;background:rgba(127,150,180,.18);overflow:hidden}.svc-bar i{display:block;height:100%;border-radius:999px;background:var(--good)}.svc-up-near .svc-bar i{background:var(--warn)}.svc-up-full .svc-bar i{background:var(--bad)}.svc-use{margin:8px 0 0;font-size:14px;color:var(--ink)}.svc-up-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}.svc-up-row input{max-width:140px}
+  .trial-limit-note{margin:0 0 12px;padding:10px 14px;border-radius:12px;background:rgba(168,107,0,.08);color:var(--warn);font-size:13px;font-weight:700;line-height:1.45}
   </style>
 </head>
 <body>
@@ -1750,7 +1751,19 @@
         delete button.dataset.armed; setBusy(button, true, 'Deleting…'); $('package-error').textContent = '';
         api('/api/business/packages/' + encodeURIComponent(pkg.id), { method: 'DELETE' }).then(function (result) { updatePackages(result.packages); $('package-error').textContent = result.result === 'archived' ? '“' + (pkg.name || 'Package') + '” was deleted. It has past sales, so it stays in your sales history.' : '“' + (pkg.name || 'Package') + '” was deleted.'; }).catch(function (error) { $('package-error').textContent = error.message; }).finally(function () { setBusy(button, false); button.textContent = 'Delete'; });
       }
+      // Free trial: packages are KES 1–3 and at most 3, so a trial proves real
+      // payments without running a business for free.
+      function renderPackageTrialLimits() {
+        var form = $('package-form'); if (!form) return; var limits = state.workspace && state.workspace.trialLimits;
+        var price = form.elements.price; var note = $('package-trial-note');
+        if (!limits) { if (note) note.remove(); price.removeAttribute('max'); price.placeholder = '20'; return; }
+        price.max = String(limits.maxPackagePriceKes); price.placeholder = '1 to ' + limits.maxPackagePriceKes;
+        if (!note) { note = el('p', 'trial-limit-note'); note.id = 'package-trial-note'; form.insertBefore(note, form.firstChild); }
+        var count = ((state.workspace && state.workspace.packages) || []).length;
+        note.textContent = 'Free trial: up to ' + limits.maxPackages + ' packages priced KES 1 to KES ' + limits.maxPackagePriceKes + ' (' + Math.max(0, limits.maxPackages - count) + ' left), up to ' + limits.maxVouchers + ' vouchers and ' + limits.maxPppoeUsers + ' PPPoE users. Choose a plan in Billing & payments to set real prices.';
+      }
       function renderPackages() {
+        renderPackageTrialLimits();
         var root = $('packages'); var packages = (state.workspace && state.workspace.packages) || []; clear(root);
         if (!packages.length) { var empty = el('div', 'empty'); add(empty, 'strong', '', 'No customer packages yet'); add(empty, 'span', '', 'Add a time and price to make a package available at your customer portal locations.'); root.appendChild(empty); return; }
         packages.forEach(function (pkg) { var active = isActive(pkg); var card = el('article', 'package-card'); var info = el('div'); var top = el('div', 'row-top'); var copy = el('div'); add(copy, 'h3', '', pkg.name || 'Unnamed package'); add(copy, 'div', 'location-meta', active ? 'Available at customer portals' : 'Paused — hidden from new purchases'); top.appendChild(copy); add(top, 'span', 'status ' + (active ? 'active' : 'paused'), active ? 'Active' : 'Paused'); info.appendChild(top); var actions = el('div', 'location-actions'); var edit = el('button', 'quiet', 'Edit'); edit.type = 'button'; edit.addEventListener('click', function () { renderPackageEditor(pkg, card); }); actions.appendChild(edit); var pause = el('button', active ? 'danger quiet' : 'quiet', active ? 'Pause package' : 'Resume package'); pause.type = 'button'; pause.addEventListener('click', function () { setPackageAvailability(pkg, pause); }); actions.appendChild(pause); var remove = el('button', 'danger quiet', 'Delete'); remove.type = 'button'; remove.addEventListener('click', function () { deletePackage(pkg, remove); }); actions.appendChild(remove); info.appendChild(actions); card.appendChild(info); var price = add(card, 'div', 'package-price', kes(pkg.price)); add(price, 'small', '', duration(pkg.seconds) + (pkg.rate_limit ? ' · ' + pkg.rate_limit : ' · router default speed')); root.appendChild(card); });

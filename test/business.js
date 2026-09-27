@@ -29,8 +29,17 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   const token = created.body.token;
   const location = await call('/api/business/locations',{name:'Kitale One',routerName:'RB951Ui'},token);
   assert.strictEqual(location.status,201); assert.ok(location.body.location.routerToken);
-  const pkg = await call('/api/business/packages',{name:'Three hours',price:20,hours:3},token);
+  // Free-trial throttles: packages cost KES 1-3, at most 3 of them.
+  const tooDear = await call('/api/business/packages',{name:'Day',price:20,hours:24},token);
+  assert.strictEqual(tooDear.status,400); assert.strictEqual(tooDear.body.trialLimit,'price');
+  const pkg = await call('/api/business/packages',{name:'Three hours',price:3,hours:3},token);
   assert.strictEqual(pkg.status,201); assert.strictEqual(pkg.body.packages.length,1);
+  assert.strictEqual((await call('/api/business/packages',{name:'One hour',price:1,hours:1},token)).status,201);
+  assert.strictEqual((await call('/api/business/packages',{name:'Two hours',price:2,hours:2},token)).status,201);
+  const fourth = await call('/api/business/packages',{name:'Four hours',price:3,hours:4},token);
+  assert.strictEqual(fourth.status,400); assert.strictEqual(fourth.body.trialLimit,'count');
+  const me = await fetch(`http://127.0.0.1:${PORT}/api/business/me`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+  assert.deepStrictEqual(me.trialLimits, { maxPackagePriceKes: 3, maxPackages: 3, maxVouchers: 10, maxPppoeUsers: 5 });
   const plan = await call('/api/business/billing-plan',{plan:'growth',collectionMode:'fiti'},token);
   assert.strictEqual(plan.status,200); assert.strictEqual(plan.body.checkoutRequired,false); assert.strictEqual(plan.body.trial,true);
   assert.strictEqual(plan.body.plan.routerLimit,1);
