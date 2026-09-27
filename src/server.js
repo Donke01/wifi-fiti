@@ -466,6 +466,16 @@ app.get('/tenant-router-install-universal.rsc', (req, res) => {
     res.status(404).type('text/plain').send('# universal installer unavailable\n');
   }
 });
+app.get('/tenant-router-install-universal-compat.rsc', (req, res) => {
+  try {
+    const source = fs.readFileSync(path.join(publicDirectory, 'tenant-router-install.rsc'), 'utf8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('text/plain').send(compatibilityRouterKit(universalInstaller(source)));
+  } catch (error) {
+    console.error('[router] universal compatibility installer unavailable:', error.message);
+    res.status(404).type('text/plain').send('# universal installer unavailable\n');
+  }
+});
 // Clean dashboard alias. Keep business.html available for existing bookmarks
 // and for older integrations that still use the filename.
 app.get('/business', (req, res) => res.sendFile(path.join(publicDirectory, 'business.html')));
@@ -4392,6 +4402,11 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     if (String(req.query.vlan || '') === '1' || String(req.query.mode || '') === 'universal') {
       script = buildUniversalRouterKit({ location, token: req.get('X-WiFi-Fiti-Router'),
         appUrl: config.domains.appUrl, portalUrl: portalUrlForLocation(location) });
+      // Same recovery option as the standard kit, for boards whose RouterOS
+      // trust store cannot validate the certificate yet.
+      if (String(req.query.compat || '') === '1') {
+        script = compatibilityRouterKit(script).replace(/tenant-router-install-universal\.rsc/g, 'tenant-router-install-universal-compat.rsc');
+      }
     }
     // Explicit core-router overlay kit. It is never returned by the existing
     // VLAN TEST button: callers must request mode=overlay, provide a bridge

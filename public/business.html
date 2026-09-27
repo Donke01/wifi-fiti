@@ -1480,6 +1480,7 @@
         var compatibilityScript = routerBootstrapCommand(saved, true);
         var telemetryTestScript = routerBootstrapCommand(saved, false, true);
         var vlanTestScript = routerBootstrapCommand(saved, false, false, true);
+        var universalCompatScript = routerBootstrapCommand(saved, true, false, true);
         add(box, 'h4', '', script ? 'Secure bootstrap command' : 'Secure bootstrap unavailable');
         if (script) {
           add(box, 'p', '', 'paste this complete kit once as one short command in a new WinBox terminal. It securely downloads the exact router kit over HTTPS, imports it locally, and removes the temporary file. Your administrator password is never requested.');
@@ -1500,6 +1501,10 @@
           if (!window.confirm('The universal kit pairs this router as it is. It does not create or change any interface, bridge, VLAN, address, DHCP, PPPoE or firewall setting. On a freshly reset router, run the DHCP preparation step first. Continue?')) return;
           copyText(vlanTestScript, vlanCopy);
         }); vlanCopy.disabled = !vlanTestScript;
+        var universalCompatCopy = setupAction(actions, 'Copy UNIVERSAL kit (CA compatibility)', 'secondary', function () {
+          if (!window.confirm('Use this only if the universal kit stops with "no trusted CA certificate found". It skips certificate checks for this router, like the standard CA compatibility kit. Continue?')) return;
+          copyText(universalCompatScript, universalCompatCopy);
+        }); universalCompatCopy.disabled = !universalCompatScript;
         add(box, 'small', 'form-note', 'TEST KIT only: reports guarded CPU, memory, traffic and active-user samples. It is isolated from the production kit and should be used on a test router/location.');
         add(box, 'small', 'form-note', 'UNIVERSAL KIT (test): pairs any router, freshly reset or already running VLANs, PPPoE or a TV network, without changing it. An existing Hotspot is used as it is; otherwise you map where customers connect after pairing. Use the standard kit if anything goes wrong.');
         add(box, 'small', 'form-note', 'CA compatibility is a recovery option only. It disables certificate verification for the initial download; all other routers must use the standard connection kit.');

@@ -149,6 +149,17 @@ async function createBusiness(email, name) {
   assert.match(standardKit.text, /automatic RouterOS 7 setup kit/, 'the standard kit is unchanged');
   assert.equal((await api(`/api/router/v1/bootstrap?site=${site}&vlan=1`)).status, 403, 'the router credential is required');
 
+  const compatKit = await api(`/api/router/v1/bootstrap?site=${site}&vlan=1&compat=1`, { routerToken: location.routerToken });
+  assert.equal(compatKit.status, 200, compatKit.text);
+  assert.match(compatKit.text, /UNIVERSAL KIT \(TEST\)/);
+  assert.match(compatKit.text, /tenant-router-install-universal-compat\.rsc/, 'the CA-compatibility universal kit pulls its own installer');
+  assert.doesNotMatch(compatKit.text, /check-certificate=yes/);
+  assert.doesNotMatch(compatKit.text, NETWORK_CHANGES);
+  const compatInstaller = await api('/tenant-router-install-universal-compat.rsc');
+  assert.equal(compatInstaller.status, 200);
+  assert.match(compatInstaller.text, /awaiting-map/);
+  assert.match(compatInstaller.text, /&kit=universal/);
+  assert.doesNotMatch(compatInstaller.text, /check-certificate=yes/, 'its poller syncs without certificate checks, like the standard compatibility installer');
   const served = await api('/tenant-router-install-universal.rsc');
   assert.equal(served.status, 200);
   assert.equal(served.text, installer);
