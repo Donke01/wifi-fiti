@@ -310,7 +310,7 @@ const context = vm.createContext({
   onboardingModel: () => ({}), onboardingFlowState: () => ({ active: false }),
   advanceOnboardingStage() {}, renderLocations() {}, downloadRouterScript() {},
 });
-for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands',
+for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerCaTrustLines',
   'routerBootstrapCommand', 'storedRouterKitHasScript', 'storedRouterKitIsCurrent', 'storedRouterKitIsStale',
   'appendRouterInstaller', 'appendSimpleRouterSetup', 'renderPairingKits', 'showRouterSetup']) {
   const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
@@ -335,6 +335,7 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
         screen + ' copies the authenticated short bootstrap rather than exposing full RouterOS source');
       assert.match(copiedCommand, /check-certificate=yes/,
         screen + ' keeps certificate verification enabled in the standard bootstrap');
+      assert.doesNotMatch(copiedCommand, /\/certificate import/, screen + ' leaves the standard kit command unchanged');
     }
     assert.equal(copiedCommand === '', !loaderReady,
       screen + ' does not expose a browser fallback when the encrypted kit is unavailable');
@@ -345,4 +346,28 @@ const stale = new TestElement('div');
 context.appendRouterInstaller(stale, { ...savedKits[uiLocation.id], kitRevision: 'old' });
 assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a stale kit');
 
+{
+  const setup = { ...savedKits[uiLocation.id], setup: { ...(savedKits[uiLocation.id].setup || {}), loader: true } };
+  const universal = context.routerBootstrapCommand(setup, false, false, true);
+  assert.match(universal, /&vlan=1/);
+  assert.match(universal, /\/certificate import file-name="fiti-ca-1\.pem"/, 'the universal command installs the signing roots, for boards without built-in CAs');
+  assert.ok(universal.indexOf('/certificate import') < universal.indexOf('/tool fetch'), 'the roots are installed before the first HTTPS download');
+  assert.match(universal, /check-certificate=yes/, 'and certificate checks stay on');
+  assert.doesNotMatch(context.routerBootstrapCommand(setup, true, false, true), /\/certificate import/, 'the CA-compatibility command is unchanged');
+}
+// The embedded roots are exactly Mozilla's (via Node's trust store), and
+// the RouterOS text decodes back to each certificate unchanged.
+{
+  const tls = require('node:tls'); const crypto = require('node:crypto');
+  const lines = context.routerCaTrustLines();
+  assert.equal(lines.length, 4);
+  for (const [cn, line] of [['ISRG Root X1', lines[0]], ['ISRG Root X2', lines[1]], ['GTS Root R1', lines[2]], ['GTS Root R4', lines[3]]]) {
+    assert.match(line, new RegExp('common-name="' + cn + '"'));
+    const encoded = line.match(/contents="([^"]*)"/)[1];
+    const decoded = encoded.replace(/\\n/g, '\n');
+    const official = tls.rootCertificates.find((pem) => new crypto.X509Certificate(pem).subject.includes('CN=' + cn));
+    assert.equal(decoded.trim(), official.trim(), cn + ' is the genuine root certificate');
+    assert.doesNotMatch(line, /\$/, 'no RouterOS variable expansion in the certificate text');
+  }
+}
 console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');
