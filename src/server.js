@@ -17,7 +17,7 @@ const { parseRouterTopology } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
-const { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit } = require('./lib/router-kit');
+const { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit, vlanOverlayRouterKit } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
@@ -2063,7 +2063,25 @@ app.get('/api/business/router-telemetry', (req, res) => {
 
 app.get('/api/business/vouchers', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  res.json({ vouchers: tenant.vouchersForBusiness.all(business.id, 100) });
+  res.json({ vouchers: tenant.vouchersForBusiness.all(business.id, 2000) });
+});
+
+// Bulk voucher actions from the voucher manager: pause, resume, extend, delete.
+app.post('/api/business/vouchers/manage', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const body = req.body || {};
+  const action = String(body.action || '');
+  const minutes = Math.floor(Number(body.minutes) || 0);
+  try {
+    const result = tenant.manageVouchers({ businessId: business.id, codes: body.codes, action, seconds: minutes * 60,
+      // On the free trial a voucher can't be stretched past the trial package length.
+      maxSeconds: trialLimited(business) ? TRIAL_LIMITS.maxPackageHours * 3600 : null });
+    console.log(`[business vouchers] ${business.id} ${action} changed=${result.changed} skipped=${result.skipped.length}`);
+    res.json({ ...result, vouchers: tenant.vouchersForBusiness.all(business.id, 2000) });
+  } catch (err) {
+    if (!err.status) console.error('[business vouchers] manage failed:', err.message);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Could not update the vouchers.' });
+  }
 });
 
 app.post('/api/business/vouchers', (req, res) => {
@@ -2806,7 +2824,7 @@ app.post('/api/tenant/:locationId/voucher/redeem', (req, res) => {
   if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
   try {
     const result = tenant.redeemVoucher({ locationId: location.id, code, phone, mac, ip });
-    if (!result) return res.status(409).json({ error: 'That voucher is not available at this location, or it has already been used.' });
+    if (!result) return res.status(409).json({ error: 'That voucher is not available at this location, has already been used, or is paused.' });
     res.json({ status: 'pending', provisioningJobId: result.provisioningJobId,
       ...tenantSessionPayload(tenant.subscriptionById.get(result.id, location.id), true) });
   } catch (err) {
@@ -4350,7 +4368,25 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
     }
     // Fourth, standalone kit: exact stable source plus disabled VLAN test
     // interfaces. It never changes the production kit or enables filtering.
-    if (String(req.query.vlan || '') === '1') script = vlanTestRouterKit(script);
+    // An optional base ID stages four consecutive IDs for a planned overlay;
+    // omitted IDs preserve the original 10/20/30/40 test layout.
+    if (String(req.query.vlan || '') === '1' || String(req.query.mode || '') === 'vlan') {
+      const requestedBaseId = String(req.query.vlan_id || '').trim();
+      const baseId = requestedBaseId === '' ? undefined : Number(requestedBaseId);
+      script = vlanTestRouterKit(script, { baseId });
+    }
+    // Explicit core-router overlay kit. It is never returned by the existing
+    // VLAN TEST button: callers must request mode=overlay, provide a bridge
+    // trunk, and opt into activation with activate=1.
+    if (String(req.query.mode || '') === 'overlay') {
+      const requestedBaseId = String(req.query.vlan_id || '').trim();
+      const baseId = requestedBaseId === '' ? undefined : Number(requestedBaseId);
+      const trunk = String(req.query.trunk || '').trim();
+      const accessPorts = String(req.query.access || '').trim();
+      const nativePorts = String(req.query.native || '').trim();
+      const subnet = String(req.query.subnet || '').trim() || undefined;
+      script = vlanOverlayRouterKit(script, { baseId, trunk, accessPorts, nativePorts, subnet, activate: String(req.query.activate || '') === '1' });
+    }
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Vary', 'X-WiFi-Fiti-Router');
     return res.type('text/plain').send(script);
