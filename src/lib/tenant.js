@@ -764,6 +764,7 @@ const locationById = db.prepare(`
          l.setup_mode, l.router_model, l.routeros_version, l.wifi_stack, l.customer_bridge, l.wan_interface, l.wifi_interface, l.wifi_ssid, l.customer_ports, l.hotspot_subnet,
          b.name AS business_name, b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message, b.collection_mode, b.plan AS business_plan,
          b.billing_status, b.billing_expires_at, b.hotspot_concurrent, b.hotspot_billing_expires_at,
+         b.pppoe_users, b.pppoe_billing_expires_at, b.owner_phone, b.owner_phone_verified,
          (SELECT d.hostname FROM tenant_portal_domains d WHERE d.location_id=l.id AND d.status='active' AND d.is_primary=1 ORDER BY d.created_at DESC LIMIT 1) AS portal_hostname
     FROM locations l JOIN businesses b ON b.id = l.business_id
    WHERE l.id = ?

@@ -98,7 +98,7 @@ function summary(businessId) {
   };
 }
 
-function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants }) {
+function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants, onPayoutSaved = null }) {
   app.get('/api/business/integrations', (req, res) => {
     const business = businessAuth(req, res); if (!business) return;
     const result = summary(business.id);
@@ -184,6 +184,7 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants
       saveC2b.run({ businessId: business.id, locationId, shortcode, accountPrefix,
         callbackToken: (existing && existing.callback_token) || newCallbackToken() });
       save.run(business.id, 'c2b');
+      if (onPayoutSaved) { try { onPayoutSaved(business.id, shortcode); } catch (error) { console.error('[c2b] trial check failed:', error.message); } }
       const urls = c2bCallbackUrls(c2bByBusiness.get(business.id));
       res.status(201).json({ configured: true, setting: { locationId, shortcode, accountPrefix, active: true },
         callbackUrl: urls.confirmation, validationUrl: urls.validation });

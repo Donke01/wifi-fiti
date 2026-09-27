@@ -29,6 +29,20 @@ const { createTumaFee, FEE_KES: TUMA_FEE_KES } = require('./lib/tuma-fee');
 // One free trial per owner phone, payout account and ID name.
 const trialGuard = require('./lib/trial-guard').createTrialGuard({ db: db.db, normalizePhone: mpesa.normalizePhone });
 trialGuard.backfillPhones();
+// Owner phones are verified by SMS before they count for the one-trial rule
+// and before a trial workspace can sell. Without an SMS provider the phone
+// is recorded at sign-up as before.
+const { createPhoneVerification } = require('./lib/phone-verify');
+const ownerSms = require('./lib/fiti-signal').createAfricaTalkingProviderFromEnv();
+const phoneVerification = createPhoneVerification({ db: db.db, normalizePhone: mpesa.normalizePhone, displayPhone: mpesa.displayPhone,
+  send: ownerSms ? (message) => ownerSms.send(message) : null,
+  onVerified: (businessId, phone) => trialGuard.check(businessId, { phone }) });
+// Trial workspaces must verify the owner phone before selling or creating a
+// Tuma account (only enforced when SMS verification is available).
+function ownerPhoneBlock(business) {
+  if (!phoneVerification.available() || !trialLimited(business) || phoneVerification.verified(business)) return null;
+  return 'Verify your phone number in Setup to start taking payments on your free trial.';
+}
 // Created early: sales checks and the reminder worker both read it.
 const tumaFee = createTumaFee({ db: db.db });
 const { createDemo } = require('./lib/demo');
@@ -475,6 +489,12 @@ app.use((req, res, next) => {
     key = path + ':' + req.ip;
     maximum = path.endsWith('register') ? 20 : 50;
     windowMs = 15 * 60_000;
+  } else if (req.method === 'POST' && ['/api/business/forgot-password', '/api/business/reset-password', '/api/business/verify-login',
+    '/api/business/verify-registration', '/api/business/resend-code', '/api/business/phone/verify/confirm'].includes(path)) {
+    // Code-checking and code-sending routes, per address.
+    key = path + ':' + req.ip;
+    maximum = 20;
+    windowMs = 15 * 60_000;
   } else if (path.startsWith('/api/admin/')) {
     // The platform desk is token-protected, but bound its guessing surface
     // as well. This leaves room for an operator to refresh the desk without
@@ -684,7 +704,8 @@ function networkServiceQuote({ pppoeUsers = 0, hotspotConcurrent = 0 } = {}) {
 const TRIAL_DAYS = 7;
 // Free-trial throttles: enough to test real payments, not to run a business
 // for free. They lift the moment the tenant chooses a plan.
-const TRIAL_LIMITS = Object.freeze({ maxPackagePriceKes: 3, maxPackages: 3, maxVouchers: 5, maxPppoeUsers: 2 });
+const TRIAL_LIMITS = Object.freeze({ maxPackagePriceKes: 3, maxPackages: 3, maxPackageHours: 24, maxVouchers: 5, maxPppoeUsers: 2, maxHotspotUsers: 10 });
+const TRIAL_PROMPTS_PER_DAY = 50;
 const TRIAL_LIMIT_NOTE = 'These limits lift as soon as you choose a plan in Billing & payments.';
 // Trial throttles apply only while on the free trial with no paid plan yet.
 function trialLimited(business) {
@@ -756,13 +777,24 @@ function locationDraftInput(body, { routerNameRequired = false } = {}) {
   return { location, routerName: routerName || null };
 }
 
+// Routers are unlimited for anyone paying for a service (priced per user, not
+// per router) or on a legacy paid plan. Everyone else, on the trial or with
+// a lapsed trial and no plan, gets one router (and so one VPN peer).
+function routersUnlimited(business) {
+  if (serviceBilling.routerLimitLifted(business)) return true;
+  const s = serviceBilling.summary(business);
+  if (s.pppoe && (s.pppoe.status === 'active' || s.pppoe.status === 'grace')) return true;
+  const raw = String(business.billing_expires_at || '');
+  const expires = Date.parse(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z');
+  return String(business.billing_status || '').toLowerCase() === 'active' && Number.isFinite(expires) && expires > Date.now();
+}
+
 function canAddLocation(business, res) {
   const plan = businessPlanEntitlements(business);
-  // Paid hotspot capacity is priced per concurrent customer, not per router.
-  if (serviceBilling.routerLimitLifted(business)) return true;
+  if (routersUnlimited(business)) return true;
   const existing = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
-  if (plan.routerLimit && existing.length >= plan.routerLimit) {
+  if (existing.length >= (plan.routerLimit || 1)) {
     res.status(402).json({
       error: 'Your free trial includes one router. After the trial, or as soon as you pay for hotspot capacity in Billing & payments, you can add as many routers as you need.',
     });
@@ -778,6 +810,7 @@ function createLocationDraft(business, body, res, { routerNameRequired = false }
   return { location, portalUrl: portalUrlForLocation(location), coreUrl: config.domains.appUrl };
 }
 
+const EMAIL_CODES_PER_DAY = 10;
 function emailVerificationEnabled() { return config.email.provider === 'resend'; }
 function verificationHash(code) { return crypto.createHash('sha256').update(String(code)).digest('hex'); }
 function verificationExpiry() { return new Date(Date.now() + 3 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''); }
@@ -786,6 +819,10 @@ async function beginEmailVerification({ email, purpose, businessId: businessIdVa
   if (last && Date.now() - Date.parse(String(last.last_sent_at).replace(' ', 'T') + 'Z') < 60_000) {
     throw Object.assign(new Error('A verification code was already sent. Wait one minute before requesting another.'), { status: 429 });
   }
+  // Each code allows 5 guesses; cap codes per email per day so the guesses
+  // cannot add up (and nobody can flood an inbox).
+  const sentToday = tenantAccess.allowed(`email-codes:${email}`, EMAIL_CODES_PER_DAY, 86400_000);
+  if (!sentToday.allowed) throw Object.assign(new Error('Too many codes were sent to this email today. Please try again tomorrow.'), { status: 429 });
   const code = String(crypto.randomInt(100000, 1000000));
   const id = businessId('verify');
   db.deleteEmailVerifications.run(email, purpose);
@@ -854,7 +891,7 @@ app.post('/api/business/register', async (req, res) => {
       hotspotName: rawHotspotName ? textField(rawHotspotName, 'hotspot name', 80, true) : null,
     });
     db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
-    if (registrationIsComplete) trialGuard.check(id, { phone: ownerPhone });
+    if (registrationIsComplete && !phoneVerification.available()) trialGuard.check(id, { phone: ownerPhone });
     const token = issueBusinessSession(id);
     const business = db.businessById.get(id);
     res.status(201).json({ token, business, onboarding: onboardingState(business), requestedCustom: plan === 'custom' });
@@ -871,7 +908,7 @@ app.post('/api/business/verify-registration', (req, res) => {
     const id = businessId('biz');
     db.addBusiness.run({ id, name: payload.registrationIsComplete ? payload.name : '', ownerName: payload.registrationIsComplete ? payload.ownerName : '', ownerPhone: payload.registrationIsComplete ? payload.ownerPhone : '', email: row.email, passwordHash: payload.passwordHash, plan: payload.plan, collectionMode: payload.collectionMode, onboardingState: payload.registrationIsComplete ? 'complete' : 'organisation', organisationCompletedAt: payload.registrationIsComplete ? new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : null, hotspotName: payload.hotspotName });
     db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
-    if (payload.registrationIsComplete) trialGuard.check(id, { phone: payload.ownerPhone });
+    if (payload.registrationIsComplete && !phoneVerification.available()) trialGuard.check(id, { phone: payload.ownerPhone });
     const account = db.businessById.get(id);
     res.status(201).json({ token: issueBusinessSession(id), business: account, onboarding: onboardingState(account), requestedCustom: payload.requestedCustom });
   } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not verify the account.' }); }
@@ -907,6 +944,9 @@ app.get('/api/business/google/start', (req, res) => {
   const mode = String(req.query.mode || 'login') === 'register' ? 'register' : 'login';
   const state = crypto.randomBytes(24).toString('base64url');
   googleOAuthStates.set(state, { mode, expiresAt: Date.now() + 10 * 60_000 });
+  // Bind the state to this browser so a sign-in started elsewhere cannot be
+  // completed here (login CSRF).
+  res.cookie('fiti_oauth_state', state, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 10 * 60_000, path: '/api/business/google' });
   const redirectUri = `${config.domains.appUrl}/api/business/google/callback`;
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: 'openid email profile', access_type: 'online', state, prompt: 'select_account' });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
@@ -915,7 +955,9 @@ app.get('/api/business/google/start', (req, res) => {
 app.get('/api/business/google/callback', async (req, res) => {
   const state = googleOAuthStates.get(String(req.query.state || ''));
   googleOAuthStates.delete(String(req.query.state || ''));
-  if (!state || state.expiresAt < Date.now() || !req.query.code) return res.status(400).send('Google sign-in expired. Return to Wi-Fi Fiti and try again.');
+  const cookieState = (String(req.headers.cookie || '').match(/(?:^|;\s*)fiti_oauth_state=([^;]+)/) || [])[1] || '';
+  res.clearCookie('fiti_oauth_state', { path: '/api/business/google' });
+  if (!state || state.expiresAt < Date.now() || !req.query.code || cookieState !== String(req.query.state || '')) return res.status(400).send('Google sign-in expired. Return to Wi-Fi Fiti and try again.');
   try {
     const oauth = googleOAuthConfig();
     if (!oauth) throw new Error('Google OAuth is not configured');
@@ -937,7 +979,8 @@ app.get('/api/business/google/callback', async (req, res) => {
       account = db.businessById.get(id);
     }
     const token = issueBusinessSession(account.id);
-    res.redirect(`${config.domains.appUrl}/business.html?google_token=${encodeURIComponent(token)}`);
+    // The fragment never reaches servers, proxies or access logs.
+    res.redirect(`${config.domains.appUrl}/business.html#google_token=${encodeURIComponent(token)}`);
   } catch (error) {
     console.error('[business] Google sign-in failed:', error.message);
     res.status(502).send('Google sign-in could not be completed. Return to Wi-Fi Fiti and use email sign-in.');
@@ -995,11 +1038,17 @@ app.post('/api/business/forgot-password', async (req, res) => {
   const generic = { message: 'If that email belongs to a Wi-Fi Fiti account, a password reset code has been sent.' };
   if (!/^\S+@\S+\.\S+$/.test(email) || !emailVerificationEnabled()) return res.json(generic);
   const business = db.businessByEmail.get(email);
-  if (!business) return res.json(generic);
+  // Answer the same way whether or not the email has an account, so this
+  // cannot be used to find out who uses Wi-Fi Fiti.
+  if (!business) return res.json({ ...generic, verificationRequired: true, verificationId: businessId('verify'), email });
   try {
     const verificationId = await beginEmailVerification({ email, purpose: 'reset', businessIdValue: business.id, businessId: business.id, recipientName: business.owner_name || email.split('@')[0] });
     res.json({ ...generic, verificationRequired: true, verificationId, email });
-  } catch (error) { res.status(error.status || 502).json({ error: error.message || 'The reset email could not be sent.' }); }
+  } catch (error) {
+    if (error.status === 429) return res.status(429).json({ error: error.message });
+    console.error('[business] reset email failed:', error.message);
+    res.json({ ...generic, verificationRequired: true, verificationId: businessId('verify'), email });
+  }
 });
 
 app.post('/api/business/reset-password', (req, res) => {
@@ -1009,6 +1058,8 @@ app.post('/api/business/reset-password', (req, res) => {
     const row = consumeEmailVerification(String(req.body && req.body.verificationId || ''), req.body && req.body.code, 'reset');
     if (!row.business_id) throw Object.assign(new Error('This reset request is invalid.'), { status: 400 });
     db.setBusinessPassword.run(hashPassword(password), row.business_id);
+    // Anyone signed in with the old password is signed out.
+    db.db.prepare('DELETE FROM business_sessions WHERE business_id=?').run(row.business_id);
     res.json({ message: 'Password updated. You can now sign in.' });
   } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not reset the password.' }); }
 });
@@ -1033,7 +1084,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), trialLimits: trialLimited(business) ? TRIAL_LIMITS : null, tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), trialLimits: trialLimited(business) ? TRIAL_LIMITS : null, phoneVerification: { available: phoneVerification.available(), verified: phoneVerification.verified(business), required: Boolean(ownerPhoneBlock(business)) }, tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1062,13 +1113,30 @@ function saveOrganisation(req, res) {
       'hotspot name', 80, true);
     if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan phone number.' });
     db.completeBusinessOrganisation.run({ id: business.id, name, ownerPhone: phone, hotspotName, portalName: name });
-    trialGuard.check(business.id, { phone });
+    if (!phoneVerification.available()) trialGuard.check(business.id, { phone });
     const updated = db.businessById.get(business.id);
     res.json({ business: updated, onboarding: onboardingState(updated) });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save your organisation.' });
   }
 }
+
+app.post('/api/business/phone/verify/start', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { res.json(await phoneVerification.start(business, req.body && req.body.phone)); }
+  catch (error) {
+    if (!error.status) console.error('[phone verify] SMS failed:', error.message);
+    res.status(error.status || 502).json({ error: error.status ? error.message : 'We could not send the SMS. Check the number and try again.' });
+  }
+});
+app.post('/api/business/phone/verify/confirm', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const result = await phoneVerification.confirm(business, req.body && req.body.code);
+    const updated = db.businessById.get(business.id);
+    res.json({ ...result, business: updated, onboarding: onboardingState(updated) });
+  } catch (error) { res.status(error.status || 400).json({ error: error.message }); }
+});
 
 app.post('/api/business/organisation', saveOrganisation);
 app.patch('/api/business/organisation', saveOrganisation);
@@ -1282,6 +1350,7 @@ app.post('/api/business/network-services/upgrade', async (req, res) => {
   const throttleKey = `network-upgrade:${business.id}:${phone}`;
   const previous = lastPush.get(throttleKey);
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
+  if (platformPushesToday(business.id) >= PLATFORM_PUSHES_PER_DAY) return res.status(429).json({ error: PLATFORM_PUSH_LIMIT_MESSAGE });
   try {
     lastPush.set(throttleKey, Date.now());
     const pushed = await platformStkPush({ phone, amount: quote.totalKes, accountReference: 'WF-ADDUSERS', description: 'Wi-Fi Fiti extra users' });
@@ -1308,6 +1377,7 @@ app.post('/api/business/network-services/checkout', async (req, res) => {
   const throttleKey = `network-services:${business.id}:${phone}`;
   const previous = lastPush.get(throttleKey);
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A service payment request is already on its way. Please wait a moment.' });
+  if (platformPushesToday(business.id) >= PLATFORM_PUSHES_PER_DAY) return res.status(429).json({ error: PLATFORM_PUSH_LIMIT_MESSAGE });
   try {
     lastPush.set(throttleKey, Date.now());
     const pushed = await platformStkPush({ phone, amount: quote.total, accountReference: 'WF-SERVICES', description: 'Wi-Fi Fiti network services' });
@@ -1347,6 +1417,7 @@ app.post('/api/business/billing/checkout', async (req, res) => {
   const throttleKey = `platform:${business.id}:${phone}`;
   const previous = lastPush.get(throttleKey);
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A plan payment request is already on its way. Please wait a moment.' });
+  if (platformPushesToday(business.id) >= PLATFORM_PUSHES_PER_DAY) return res.status(429).json({ error: PLATFORM_PUSH_LIMIT_MESSAGE });
   try {
     lastPush.set(throttleKey, Date.now());
     const pushed = await platformStkPush({ phone, amount: definition.monthlyKes,
@@ -1369,6 +1440,13 @@ app.post('/api/business/billing/checkout', async (req, res) => {
  * back to the platform Daraja shortcode otherwise or if Tuma is unreachable.
  * Set PLATFORM_COLLECTION=daraja to force Daraja.
  */
+// Each prompt lands on a real phone from Wi-Fi Fiti's shortcode. Cap how many
+// one workspace can send a day so sign-ups cannot spam strangers.
+const PLATFORM_PUSHES_PER_DAY = 10;
+const PLATFORM_PUSH_LIMIT_MESSAGE = 'Too many payment requests were sent from this workspace today. Please try again tomorrow or contact support.';
+const platformPushCount = db.db.prepare(`SELECT COUNT(*) AS n FROM business_billing_transactions WHERE business_id=? AND created_at>datetime('now','-1 day')`);
+function platformPushesToday(businessId) { return platformPushCount.get(businessId).n; }
+
 async function platformStkPush({ phone, amount, accountReference, description }) {
   const preferTuma = String(process.env.PLATFORM_COLLECTION || 'tuma').toLowerCase() !== 'daraja';
   if (preferTuma && tuma.configured()) {
@@ -1482,7 +1560,9 @@ app.post('/api/business/payment-collection', async (req, res) => {
   try {
     await tenantMpesa.verify(credentials);
     const connection = tenant.savePaymentConnection({ businessId: business.id, collectionName, ...credentials, verified: true });
-    res.status(201).json({ configured: true, connection: {
+    // An M-Pesa shortcode is a payout account for the one-trial rule too.
+    const trialEnded = trialGuard.check(business.id, { payout: `mpesa:${shortcode}` });
+    res.status(201).json({ configured: true, trialEnded, connection: {
       collectionName: connection.collection_name, shortcode: connection.shortcode,
       transactionType: connection.transaction_type, lastVerifiedAt: connection.last_verified_at,
     } });
@@ -1834,6 +1914,7 @@ app.post('/api/business/packages', (req, res) => {
   }
   if (trialLimited(business)) {
     if (price > TRIAL_LIMITS.maxPackagePriceKes) return res.status(400).json({ error: `During your free trial, packages cost KES 1 to KES ${TRIAL_LIMITS.maxPackagePriceKes}. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'price' });
+    if (hours > TRIAL_LIMITS.maxPackageHours) return res.status(400).json({ error: `During your free trial, packages last up to ${TRIAL_LIMITS.maxPackageHours} hours. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'duration' });
     if (db.packagesForBusiness.all(business.id).length >= TRIAL_LIMITS.maxPackages) return res.status(400).json({ error: `Your free trial includes up to ${TRIAL_LIMITS.maxPackages} packages. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'count' });
   }
   db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
@@ -1854,6 +1935,9 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
   }
   if (trialLimited(business) && price > TRIAL_LIMITS.maxPackagePriceKes) {
     return res.status(400).json({ error: `During your free trial, packages cost KES 1 to KES ${TRIAL_LIMITS.maxPackagePriceKes}. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'price' });
+  }
+  if (trialLimited(business) && hours > TRIAL_LIMITS.maxPackageHours) {
+    return res.status(400).json({ error: `During your free trial, packages last up to ${TRIAL_LIMITS.maxPackageHours} hours. ${TRIAL_LIMIT_NOTE}`, trialLimit: 'duration' });
   }
   tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
   res.json({ packages: db.packagesForBusiness.all(business.id) });
@@ -2061,7 +2145,9 @@ function provisionTenantPayment(checkoutRequestId) {
   if (unboundPayBillPayment(transaction)) return transaction;
   if (!transaction.provisioned) tenant.provisionPaidTransaction(checkoutRequestId);
   const provisioned = tenant.getTransaction.get(checkoutRequestId);
-  whatsappNotifications.enqueuePayment(provisioned, { eventIdPrefix: 'tenant-payment' });
+  // WhatsApp receipts cost money per message; a free-trial KES 1 sale does not send one.
+  const paidAt = tenant.locationById.get(provisioned.location_id);
+  if (!paidAt || !trialLimited(paidAt)) whatsappNotifications.enqueuePayment(provisioned, { eventIdPrefix: 'tenant-payment' });
   return provisioned;
 }
 
@@ -2113,7 +2199,8 @@ function publicLocation(id, res) {
 // Whether this location may take a new sale at all: trial, a paid hotspot
 // service or a legacy plan, each with a 3-day grace period after expiry.
 function businessCanSell(location) {
-  return serviceBilling.hotspotSaleBlock(location, { renewing: true }) || tumaFee.salesBlock(location.business_id);
+  return serviceBilling.hotspotSaleBlock(location, { renewing: true }) || tumaFee.salesBlock(location.business_id)
+    || (ownerPhoneBlock(location) ? 'This WiFi is not taking payments yet. Please ask the operator.' : null);
 }
 
 const hotspotOnlineNow = db.db.prepare(`SELECT COUNT(*) AS n FROM tenant_subscriptions
@@ -2122,7 +2209,14 @@ const hotspotOnlineNow = db.db.prepare(`SELECT COUNT(*) AS n FROM tenant_subscri
 // Capacity check for one new sale. Prepaid hotspot capacity counts customers
 // online right now; legacy Starter/Growth plans keep their monthly device cap.
 function hotspotCapacityBlock(location, renewing) {
-  if (renewing || trialActive(location)) return null;
+  if (renewing) return null;
+  if (trialActive(location)) {
+    // Enough customers to test with, not enough to run a building for free.
+    if (trialLimited(location) && hotspotOnlineNow.get(location.business_id).n >= TRIAL_LIMITS.maxHotspotUsers) {
+      return 'This WiFi is full right now. Please try again later.';
+    }
+    return null;
+  }
   const services = serviceBilling.summary(location);
   if (services.hotspot.status === 'active' || services.hotspot.status === 'grace') {
     const blocked = serviceBilling.hotspotSaleBlock(location, { activeNow: hotspotOnlineNow.get(location.business_id).n, renewing: false });
@@ -2284,7 +2378,7 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   const pkg = tenant.packageForLocation.get(Number(req.body && req.body.packageId), location.id);
   // A package priced above the trial cap (e.g. created before the cap) is
   // never sold while the operator is on the free trial.
-  if (pkg && trialLimited(location) && pkg.price > TRIAL_LIMITS.maxPackagePriceKes) {
+  if (pkg && trialLimited(location) && (pkg.price > TRIAL_LIMITS.maxPackagePriceKes || pkg.seconds > TRIAL_LIMITS.maxPackageHours * 3600)) {
     return res.status(402).json({ error: 'This package is not available yet. Please choose another package or ask the operator.' });
   }
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
@@ -2315,6 +2409,10 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   const previous = lastPush.get(throttleKey);
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) {
     return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
+  }
+  // A free-trial portal can prompt any number; keep that to a test volume.
+  if (trialLimited(location) && !tenantAccess.allowed(`trial-prompts:${location.business_id}`, TRIAL_PROMPTS_PER_DAY, 86400_000).allowed) {
+    return res.status(429).json({ error: 'This WiFi has reached its payment limit for today. Please try again tomorrow.' });
   }
   try {
     lastPush.set(throttleKey, Date.now());
@@ -4685,6 +4783,7 @@ fitiSignal.attachFitiSignalRoutes(app, { businessAuth, startPayment: async ({ bu
   const throttleKey = `sms-credits:${business.id}`;
   const previous = lastPush.get(throttleKey);
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) { const error = new Error('A payment request is already on its way. Please wait a moment.'); error.status = 429; throw error; }
+  if (platformPushesToday(business.id) >= PLATFORM_PUSHES_PER_DAY) { const error = new Error(PLATFORM_PUSH_LIMIT_MESSAGE); error.status = 429; throw error; }
   lastPush.set(throttleKey, Date.now());
   try {
     const pushed = await platformStkPush({ phone, amount: purchase.amount, accountReference: 'WF-SMS', description: 'Wi-Fi Fiti SMS credits' });
@@ -4739,6 +4838,7 @@ require('./lib/tenant-portal-templates').attachTenantPortalTemplateRoutes(app, {
 const tumaTenants = createTumaTenants({
   db: db.db, tuma, encrypt: tenant.encryptSecret, decrypt: tenant.decryptSecret,
   onPayoutSaved: (businessId, values) => trialGuard.check(businessId, values),
+  beforeCreate: (business) => ownerPhoneBlock(business),
   logoUrlFor: (business) => brandingPayload(business).logoUrl || `${config.domains.appUrl}/assets/wifi-fiti-logo.png`,
 });
 tumaTenants.attachRoutes(app, { businessAuth });
@@ -4780,6 +4880,7 @@ app.post('/api/business/tuma/fee/checkout', async (req, res) => {
   const throttleKey = `tuma-fee:${business.id}:${phone}`;
   const previous = lastPush.get(throttleKey);
   if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
+  if (platformPushesToday(business.id) >= PLATFORM_PUSHES_PER_DAY) return res.status(429).json({ error: PLATFORM_PUSH_LIMIT_MESSAGE });
   try {
     lastPush.set(throttleKey, Date.now());
     const pushed = await platformStkPush({ phone, amount: TUMA_FEE_KES, accountReference: 'WF-TUMAFEE', description: `Tuma fee ${due.month}` });
@@ -4792,7 +4893,7 @@ app.post('/api/business/tuma/fee/checkout', async (req, res) => {
     res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
   }
 });
-paymentIntegrations.attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants });
+paymentIntegrations.attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants, onPayoutSaved: (businessId, shortcode) => trialGuard.check(businessId, { payout: `mpesa:${shortcode}` }) });
 whatsapp.attachWhatsAppRoutes(app);
 // The admin module owns privileged dashboard routes and controls. It is
 // intentionally mounted separately from tenant, router, and portal modules.

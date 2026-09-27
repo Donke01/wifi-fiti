@@ -153,12 +153,17 @@
       var servicesDone = Boolean(workspace.servicePlan && workspace.servicePlan.chosen);
       var paymentsDone = (integrations.selected === 'tuma' && settlement.connected) || (integrations.selected && integrations.selected !== 'tuma' && integrations.status === 'ready');
       var packagesDone = packages.length > 0;
-      var steps = [
+      var phone = workspace.phoneVerification || {};
+      var steps = [];
+      if (phone.required || (phone.available && phone.verified && trial && trial.active)) {
+        steps.push({ done: Boolean(phone.verified), title: 'Verify your phone number', text: 'We send a 6-digit code by SMS. Needed before your free trial can take payments.', phone: true });
+      }
+      steps = steps.concat([
         { done: routerDone, title: 'Connect your router', text: 'Pair your MikroTik so customers can see your portal.', go: 'routers' },
         { done: servicesDone, title: 'Choose your services', text: trial && trial.active ? 'Hotspot and PPPoE capacity. KES 0 now; it renews when your trial ends.' : 'Hotspot and PPPoE capacity for the month.', go: 'payments', target: 'network-services-section' },
         { done: paymentsDone, title: 'Set up payments with Tuma', text: 'Choose where customer payments land: bank, Sacco, Till or PayBill.', go: 'payments', target: 'integrations-section', tuma: true },
         { done: packagesDone, title: 'Create your packages', text: 'Set the times and prices customers can buy.', go: 'packages' },
-      ];
+      ]);
       if (!listBox) { listBox = h('div', { class: 'gs-list', id: 'setup-checklist' }); hero.appendChild(listBox); }
       if (steps.every(function (s) { return s.done; })) { listBox.remove(); listBox = null; return; }
       listBox.replaceChildren();
@@ -173,6 +178,7 @@
         var isNext = !step.done && !nextMarked; if (isNext) nextMarked = true;
         var button = step.done ? null : h('button', { type: 'button', class: isNext ? '' : 'secondary', text: isNext ? 'Start' : 'Open' });
         if (button) button.addEventListener('click', function () {
+          if (step.phone) { openPhoneForm(button); return; }
           if (step.tuma) { goToPayments(); return; }
           if (step.target === 'network-services-section' && window.fitiBillingHub) { window.fitiBillingHub.open('plan'); return; }
           window.location.hash = '#' + step.go;
@@ -184,6 +190,32 @@
           button,
         ]));
       });
+    });
+  }
+
+  // Inline SMS verification for the owner phone.
+  function openPhoneForm(button) {
+    var item = button.parentNode; button.remove();
+    var owner = workspace.business && workspace.business.owner_phone || '';
+    var phoneIn = h('input', { type: 'tel', inputmode: 'numeric', autocomplete: 'tel', placeholder: '07XX XXX XXX', 'aria-label': 'Phone number' });
+    phoneIn.value = owner && owner.indexOf('254') === 0 ? '0' + owner.slice(3) : owner;
+    var codeIn = h('input', { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '6', placeholder: '6-digit code', 'aria-label': 'SMS code' });
+    var send = h('button', { type: 'button', text: 'Send code' });
+    var confirm = h('button', { type: 'button', class: 'secondary', text: 'Verify' });
+    var msg = h('p', { class: 'gs-msg', role: 'status' });
+    var form = h('div', { class: 'gs-actions', style: 'width:100%' }, [phoneIn, send, codeIn, confirm, msg]);
+    item.appendChild(form);
+    send.addEventListener('click', function () {
+      send.disabled = true; msg.textContent = 'Sending…';
+      api('/api/business/phone/verify/start', { method: 'POST', body: JSON.stringify({ phone: phoneIn.value }) })
+        .then(function (r) { msg.textContent = 'Code sent to ' + r.phoneDisplay + '. It expires in 10 minutes.'; codeIn.focus(); })
+        .catch(function (e) { msg.textContent = e.message; }).finally(function () { send.disabled = false; });
+    });
+    confirm.addEventListener('click', function () {
+      confirm.disabled = true;
+      api('/api/business/phone/verify/confirm', { method: 'POST', body: JSON.stringify({ code: codeIn.value }) })
+        .then(function (r) { msg.textContent = r.trialEnded ? r.trialEnded + ' Choose a plan to start taking payments.' : 'Phone verified.'; setTimeout(refresh, 600); })
+        .catch(function (e) { msg.textContent = e.message; }).finally(function () { confirm.disabled = false; });
     });
   }
 

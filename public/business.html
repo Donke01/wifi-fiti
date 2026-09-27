@@ -398,7 +398,7 @@
   <script>
     (function () {
       'use strict';
-      var googleToken = new URLSearchParams(window.location.search).get('google_token'); if (googleToken) { localStorage.setItem('fiti_business_token', googleToken); window.history.replaceState(null, '', window.location.pathname); }
+      var googleToken = new URLSearchParams(window.location.hash.slice(1)).get('google_token') || new URLSearchParams(window.location.search).get('google_token'); if (googleToken) { localStorage.setItem('fiti_business_token', googleToken); window.history.replaceState(null, '', window.location.pathname); }
       var token = localStorage.getItem('fiti_business_token');
       var googleError = new URLSearchParams(window.location.search).get('google_error');
       var setupStorePrefix = 'fiti_location_setup_secrets_v3:';
@@ -1760,7 +1760,7 @@
         price.max = String(limits.maxPackagePriceKes); price.placeholder = '1 to ' + limits.maxPackagePriceKes;
         if (!note) { note = el('p', 'trial-limit-note'); note.id = 'package-trial-note'; form.insertBefore(note, form.firstChild); }
         var count = ((state.workspace && state.workspace.packages) || []).length;
-        note.textContent = 'Free trial: up to ' + limits.maxPackages + ' packages priced KES 1 to KES ' + limits.maxPackagePriceKes + ' (' + Math.max(0, limits.maxPackages - count) + ' left), up to ' + limits.maxVouchers + ' vouchers and ' + limits.maxPppoeUsers + ' PPPoE users. Choose a plan in Billing & payments to set real prices.';
+        note.textContent = 'Free trial: up to ' + limits.maxPackages + ' packages priced KES 1 to KES ' + limits.maxPackagePriceKes + ' and lasting up to ' + (limits.maxPackageHours || 24) + ' hours (' + Math.max(0, limits.maxPackages - count) + ' left), up to ' + limits.maxVouchers + ' vouchers, ' + limits.maxPppoeUsers + ' PPPoE users and ' + (limits.maxHotspotUsers || 10) + ' hotspot users online at once. Choose a plan in Billing & payments to set real prices.';
       }
       function renderPackages() {
         renderPackageTrialLimits();

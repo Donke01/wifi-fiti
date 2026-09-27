@@ -36,7 +36,13 @@ function last4(value) {
   return text.length <= 4 ? text : text.slice(-4);
 }
 
-function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSaved = null, log = console }) {
+function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSaved = null, beforeCreate = null, log = console }) {
+  // Each new Tuma sub-business is a real account at Tuma; cap how many one
+  // workspace can create so sign-ups cannot be used to spam Tuma.
+  db.exec(`CREATE TABLE IF NOT EXISTS tuma_business_creations (business_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+  const creationsToday = db.prepare(`SELECT COUNT(*) AS n FROM tuma_business_creations WHERE business_id=? AND created_at>datetime('now','-1 day')`);
+  const recordCreation = db.prepare(`INSERT INTO tuma_business_creations (business_id) VALUES (?)`);
+  const MAX_CREATIONS_PER_DAY = 3;
   db.exec(`
     CREATE TABLE IF NOT EXISTS tenant_tuma_accounts (
       business_id       TEXT PRIMARY KEY,
@@ -198,7 +204,7 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSav
       if (existing && existing.mode === 'managed' && existing.tuma_business_id) {
         await tuma.updateBusiness(existing.tuma_business_id, tumaFields);
         updateDestination.run(destinationColumns(business.id, destination));
-        const trialEnded = reportPayout(business.id, { payout: `${destination.bank.id}:${destination.accountNumber}`, name: destination.settlementName });
+        const trialEnded = reportPayout(business.id, { payout: destination.type === 'bank' ? `${destination.bank.id}:${destination.accountNumber}` : `mpesa:${destination.accountNumber}`, name: destination.settlementName });
         return { ...publicView(byBusiness.get(business.id)), trialEnded };
       }
       if (existing && existing.mode === 'linked') {
@@ -207,6 +213,10 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSav
 
       const email = String(body.email || business.email || '').trim().toLowerCase();
       if (!EMAIL_RE.test(email)) throw httpError(400, 'Enter a valid email for the Tuma account.', 'email');
+      const blocked = beforeCreate ? beforeCreate(business) : null;
+      if (blocked) throw httpError(403, blocked);
+      if (creationsToday.get(business.id).n >= MAX_CREATIONS_PER_DAY) throw httpError(429, 'Too many Tuma accounts were set up for this workspace today. Please try again tomorrow or contact support.');
+      recordCreation.run(business.id);
       const created = await tuma.createBusiness({ ...tumaFields, email });
       const apiKeyCipher = encrypt(created.apiKey);
       let verifiedAt = null;
@@ -219,7 +229,7 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSav
         db.prepare('DELETE FROM tenant_tuma_accounts WHERE business_id=?').run(business.id);
       }
       insert.run(row);
-      const trialEnded = reportPayout(business.id, { payout: `${destination.bank.id}:${destination.accountNumber}`, name: destination.settlementName });
+      const trialEnded = reportPayout(business.id, { payout: destination.type === 'bank' ? `${destination.bank.id}:${destination.accountNumber}` : `mpesa:${destination.accountNumber}`, name: destination.settlementName });
       return { ...publicView(byBusiness.get(business.id)), trialEnded };
     } catch (error) {
       if (error.expose) throw error;

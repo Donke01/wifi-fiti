@@ -22,7 +22,9 @@ Object.assign(process.env, {
   ADMIN_TOKEN: 'admin', DATABASE_PATH: path.join(dir, 'hotspot.db'),
   TUMA_API_BASE_URL: 'https://api.tuma.test', TUMA_API_EMAIL: 'platform@wififiti.test',
   TUMA_API_KEY: 'tuma_platform_key_0123456789abcdef', TUMA_CALLBACK_SECRET: CALLBACK_SECRET,
+  AFRICASTALKING_API_KEY: 'at-test-key', AFRICASTALKING_USERNAME: 'sandbox',
 });
+const smsSent = [];
 
 const realFetch = global.fetch;
 let pushes = 0;
@@ -31,6 +33,11 @@ global.fetch = async (url, options = {}) => {
   if (target.hostname === '127.0.0.1') return realFetch(url, options);
   if (target.hostname === 'api.tuma.test' && target.pathname === '/auth/token') return Response.json({ success: true, token: 'jwt' });
   if (target.hostname === 'api.tuma.test' && target.pathname === '/payment/stk-push') return Response.json({ success: true, data: { checkout_request_id: `ws_CO_SEC_${++pushes}`, merchant_request_id: `m${pushes}` } });
+  if (target.hostname === 'api.sandbox.africastalking.com') {
+    const form = new URLSearchParams(String(options.body));
+    smsSent.push({ to: form.get('to'), message: form.get('message') });
+    return Response.json({ SMSMessageData: { Recipients: [{ statusCode: 100, status: 'Success', messageId: `at${smsSent.length}` }] } });
+  }
   if (target.hostname === 'api.safaricom.co.ke' && target.pathname === '/oauth/v1/generate') return Response.json({ access_token: 'daraja', expires_in: 3599 });
   if (target.hostname === 'api.safaricom.co.ke' && target.pathname === '/mpesa/stkpush/v1/processrequest') return Response.json({ ResponseCode: '0', CheckoutRequestID: `ws_CO_DAR_${++pushes}`, MerchantRequestID: `d${pushes}` });
   throw new Error(`unexpected request to ${target.href}`);
@@ -267,6 +274,94 @@ async function test(name, fn) {
   await test('a forged client IP header without the edge secret is ignored', async () => {
     const response = await call('POST', '/api/tenant/loc/claim', { code: '12345678', mac: 'AA:BB:CC:EE:00:02' }, { 'X-WiFi-Fiti-Client-IP': '203.0.113.9' });
     assert.equal(response.status, 429, 'still inside the same location budget');
+  });
+
+  console.log('\nOnboarding and trial');
+  const sessionFor = (id, token) => database.prepare(`INSERT INTO business_sessions (token_hash, business_id, expires_at) VALUES (?, ?, datetime('now','+1 day'))`)
+    .run(crypto.createHash('sha256').update(token).digest('hex'), id);
+  const trialBusiness = (id, phone) => {
+    database.prepare(`INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash, billing_status, billing_expires_at, onboarding_state, collection_mode)
+      VALUES (?, 'Trial Co', 'Owner', ?, ?, 'x', 'trial', datetime('now','+6 day'), 'complete', 'fiti')`).run(id, phone, `${id}@test.ke`);
+    sessionFor(id, `${id}-token`);
+  };
+  const as = (id) => ({ Authorization: `Bearer ${id}-token` });
+  trialBusiness('trial1', '254722111111');
+  database.prepare(`INSERT INTO locations (id, business_id, name, router_token) VALUES ('tloc', 'trial1', 'Trial', 'rt2')`).run();
+  database.prepare(`INSERT INTO business_packages (business_id, name, price, seconds) VALUES ('trial1', 'Trial hour', 2, 3600)`).run();
+  const trialPkg = database.prepare("SELECT id FROM business_packages WHERE business_id='trial1'").get().id;
+  const codeFromSms = () => (smsSent[smsSent.length - 1].message.match(/\b(\d{6})\b/) || [])[1];
+
+  await test('an unverified trial cannot sell', async () => {
+    const response = await call('POST', '/api/tenant/tloc/pay', { packageId: trialPkg, phone: '0711000020', mac: 'AA:BB:CC:20:00:01' });
+    assert.equal(response.status, 402, JSON.stringify(response.body));
+    const me = await call('GET', '/api/business/me', null, as('trial1'));
+    assert.equal(me.body.phoneVerification.required, true);
+  });
+  await test('typing someone else\'s number does not end their trial', async () => {
+    trialBusiness('squatter', '254722111111');
+    const victim = await call('GET', '/api/business/me', null, as('trial1'));
+    assert.equal(victim.body.business.trial_ended_reason, null);
+  });
+  await test('a wrong SMS code is refused and counted', async () => {
+    const sent = await call('POST', '/api/business/phone/verify/start', {}, as('trial1'));
+    assert.equal(sent.status, 200, JSON.stringify(sent.body));
+    assert.equal(smsSent[smsSent.length - 1].to, '+254722111111');
+    const wrong = await call('POST', '/api/business/phone/verify/confirm', { code: '000000' === codeFromSms() ? '111111' : '000000' }, as('trial1'));
+    assert.equal(wrong.status, 400);
+  });
+  await test('the right SMS code verifies the phone and unlocks sales', async () => {
+    const ok = await call('POST', '/api/business/phone/verify/confirm', { code: codeFromSms() }, as('trial1'));
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal(ok.body.trialEnded, null);
+    const response = await call('POST', '/api/tenant/tloc/pay', { packageId: trialPkg, phone: '0711000020', mac: 'AA:BB:CC:20:00:01' });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+  });
+  await test('verifying a number already used for a trial ends the second trial', async () => {
+    await call('POST', '/api/business/phone/verify/start', { phone: '0722111111' }, as('squatter'));
+    const confirmed = await call('POST', '/api/business/phone/verify/confirm', { code: codeFromSms() }, as('squatter'));
+    assert.equal(confirmed.status, 200);
+    assert.match(String(confirmed.body.trialEnded), /already used/);
+  });
+  await test('SMS codes are capped per workspace', async () => {
+    trialBusiness('spammer', '254722333333');
+    let last;
+    for (let i = 0; i < 4; i += 1) last = await call('POST', '/api/business/phone/verify/start', { phone: `07223333${String(30 + i)}` }, as('spammer'));
+    assert.equal(last.status, 429);
+  });
+  await test('trial packages last at most a day', async () => {
+    const long = await call('POST', '/api/business/packages', { name: 'Week', price: 3, hours: 168 }, as('trial1'));
+    assert.equal(long.status, 400);
+    assert.equal(long.body.trialLimit, 'duration');
+  });
+  await test('a trial hotspot serves at most 10 customers at once', async () => {
+    for (let i = 0; i < 10; i += 1) {
+      database.prepare(`INSERT INTO tenant_subscriptions (id,business_id,location_id,router_username,payer_phone,mac,password,total_seconds,expires_at)
+        VALUES (?, 'trial1', 'tloc', ?, '254711000030', ?, 'PW', 3600, datetime('now','+1 hour'))`).run(`tsub${i}`, `tu${i}`, `AA:BB:CC:30:00:${String(i).padStart(2, '0')}`);
+    }
+    const response = await call('POST', '/api/tenant/tloc/pay', { packageId: trialPkg, phone: '0711000031', mac: 'AA:BB:CC:31:00:01' });
+    assert.equal(response.status, 402, JSON.stringify(response.body));
+  });
+  await test('a lapsed trial with no plan keeps a one-router limit', async () => {
+    database.prepare(`INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash, billing_status, billing_expires_at, onboarding_state)
+      VALUES ('lapsed', 'Lapsed', 'Owner', '254722444444', 'lapsed@test.ke', 'x', 'trial', datetime('now','-10 day'), 'complete')`).run();
+    sessionFor('lapsed', 'lapsed-token');
+    database.prepare(`INSERT INTO locations (id, business_id, name, router_token) VALUES ('lloc', 'lapsed', 'One', 'rt3')`).run();
+    const second = await call('POST', '/api/business/locations', { location: 'Two', routerName: 'R2' }, as('lapsed'));
+    assert.equal(second.status, 402, JSON.stringify(second.body));
+  });
+
+  console.log('\nAccount recovery');
+  await test('forgot-password answers the same for unknown emails', async () => {
+    const response = await call('POST', '/api/business/forgot-password', { email: 'nobody@nowhere.test' });
+    assert.equal(response.status, 200);
+  });
+  await test('a password reset signs out every session', async () => {
+    database.prepare(`INSERT INTO business_email_verifications (id, email, purpose, business_id, code_hash, expires_at, last_sent_at)
+      VALUES ('verify_reset', 'don@test.ke', 'reset', 'biz', ?, datetime('now','+3 minutes'), datetime('now'))`).run(crypto.createHash('sha256').update('123456').digest('hex'));
+    const reset = await call('POST', '/api/business/reset-password', { verificationId: 'verify_reset', code: '123456', password: 'new-password-1' });
+    assert.equal(reset.status, 200, JSON.stringify(reset.body));
+    const me = await call('GET', '/api/business/me');
+    assert.equal(me.status, 401);
   });
 
   // @@MORE@@
