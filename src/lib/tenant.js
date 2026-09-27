@@ -1446,6 +1446,9 @@ const staleTransactions = db.prepare(`
 const paidUnprovisioned = db.prepare(`
   SELECT * FROM tenant_transactions WHERE status='paid' AND provisioned=0
     AND provision_error IS NULL AND created_at > datetime('now', '-24 hours')
+    -- Paid but deliberately waiting for a device (claim code or PayBill
+    -- recovery): nothing to retry until the customer binds one.
+    AND mac NOT LIKE 'CLAIM:%' AND mac NOT LIKE 'C2B:%'
 `);
 const setProvisionError = db.prepare(`UPDATE tenant_transactions SET provision_error=?, updated_at=datetime('now') WHERE checkout_request_id=?`);
 const clearProvisionError = db.prepare(`UPDATE tenant_transactions SET provision_error=NULL WHERE checkout_request_id=? AND provision_error IS NOT NULL`);

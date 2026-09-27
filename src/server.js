@@ -1479,7 +1479,7 @@ async function platformStkPush({ phone, amount, accountReference, description })
       const pushed = await tuma.stkPush({ phone, amount, publicUrl: config.publicUrl, description: `${description} (${accountReference})` });
       return { ...pushed, source: 'tuma' };
     } catch (err) {
-      console.warn(`[platform collection] Tuma prompt failed, using Daraja: ${err.message}`);
+      console.warn(`[platform collection] Tuma prompt failed, using Daraja: ${err.message} ${err.details || ''}`);
     }
   }
   const pushed = await mpesa.stkPush({ phone, amount, accountReference, description });
@@ -2506,11 +2506,10 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
       const preferTuma = String(process.env.PLATFORM_COLLECTION || 'tuma').toLowerCase() !== 'daraja';
       if (preferTuma && tuma.configured() && tuma.callbackConfigured()) {
         try {
-          pushed = await tuma.stkPush({ phone, amount: pkg.price, publicUrl: config.publicUrl,
-            description: `${pkg.name} (WF-${location.id.slice(-6)})` });
+          pushed = await tuma.stkPush({ phone, amount: pkg.price, publicUrl: config.publicUrl, description: pkg.name });
           paymentSource = 'tuma';
         } catch (err) {
-          console.warn(`[tenant collection] Wi-Fi Fiti Tuma prompt failed, using Daraja: ${err.message}`);
+          console.warn(`[tenant collection] Wi-Fi Fiti Tuma prompt failed for KES ${pkg.price}, using Daraja: ${err.message} ${err.details || ''}`);
         }
       }
       if (!pushed) {

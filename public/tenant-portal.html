@@ -521,6 +521,9 @@
       try {
         if (!bypassLookup && await checkExisting(true)) return;
         autoConnectStarted = false;
+        // Show the waiting screen at once: the M-Pesa prompt can reach the
+        // phone before the request returns, and the page must not look idle.
+        waiting('Sending M-Pesa prompt', 'We are sending a payment request to ' + phone() + '. Keep this page open.');
         checkout = await api('/pay', { packageId: selected, phone: phone(), mac: targetMac, ip: ip, deviceType: 'phone' });
         checkout.startedAt = Date.now(); checkout.payerPhone = phone(); checkout.targetMac = targetMac; checkout.offline = !mac; write('_checkout', checkout); bypassLookup = false; pollPayment();
       } catch (error) { show('buy'); message('error', error.message); }

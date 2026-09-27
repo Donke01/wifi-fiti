@@ -92,13 +92,20 @@ async function stkPush({ credentials, phone, amount, description, publicUrl }) {
     body: JSON.stringify({
       amount: Math.round(Number(amount)), phone: String(phone),
       callback_url: callbackUrl(publicUrl),
-      description: String(description || 'Wi-Fi Fiti payment').slice(0, 100),
+      // Plain words only: the description reaches the M-Pesa prompt, and
+      // symbols such as brackets are not accepted everywhere on that path.
+      description: String(description || 'Wi-Fi Fiti payment').replace(/[^A-Za-z0-9 .,'-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Wi-Fi Fiti payment',
     }),
   });
   const body = await response.json().catch(() => ({}));
   const data = body && body.data;
   if (!response.ok || !body.success || !data || !data.checkout_request_id) {
-    throw new Error((body && body.message) || `Tuma payment request failed (${response.status}).`);
+    const error = new Error((body && body.message) || `Tuma payment request failed (${response.status}).`);
+    error.status = response.status;
+    // Tuma's message is often generic ("Payment processing failed"); keep
+    // whatever detail it sent so the cause can be read from the logs.
+    error.details = JSON.stringify({ status: response.status, errors: body && (body.errors || body.error || body.details) || null, code: body && body.code || null }).slice(0, 400);
+    throw error;
   }
   return {
     checkoutRequestId: data.checkout_request_id,
