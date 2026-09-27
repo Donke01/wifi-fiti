@@ -595,6 +595,8 @@ for (const statement of [
   `ALTER TABLE tenant_router_telemetry ADD COLUMN uptime_seconds INTEGER`,
   `ALTER TABLE tenant_router_telemetry ADD COLUMN uptime_text TEXT`,
   `ALTER TABLE tenant_vouchers ADD COLUMN rate_limit TEXT`,
+  `ALTER TABLE tenant_vouchers ADD COLUMN paused_at TEXT`,
+  `ALTER TABLE tenant_vouchers ADD COLUMN paused_seconds INTEGER`,
   `ALTER TABLE businesses ADD COLUMN pppoe_users INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE businesses ADD COLUMN pppoe_billing_expires_at TEXT`,
   `ALTER TABLE businesses ADD COLUMN hotspot_concurrent INTEGER NOT NULL DEFAULT 0`,
@@ -1609,18 +1611,27 @@ const addVoucher = db.prepare(`
   INSERT INTO tenant_vouchers (code, business_id, location_id, package_id, package_name, seconds, rate_limit, batch)
   VALUES (@code, @businessId, @locationId, @packageId, @packageName, @seconds, @rateLimit, @batch)
 `);
+// status: open | paused (unused, held) | active (session running) |
+// session_paused (redeemed, remaining time held) | used (session ended).
 const vouchersForBusiness = db.prepare(`
   SELECT v.code, v.location_id, l.name AS location_name, v.package_name, v.seconds, v.rate_limit, v.batch,
-         v.created_at, v.redeemed_at, v.redeemed_by
+         v.created_at, v.redeemed_at, v.redeemed_by, v.paused_at, v.paused_seconds, s.expires_at AS session_expires_at,
+         CASE WHEN v.redeemed_at IS NULL AND v.paused_at IS NOT NULL THEN 'paused'
+              WHEN v.redeemed_at IS NULL THEN 'open'
+              WHEN v.paused_at IS NOT NULL THEN 'session_paused'
+              WHEN s.expires_at > datetime('now') AND s.mac NOT LIKE 'RELEASED:%' THEN 'active'
+              ELSE 'used' END AS status
     FROM tenant_vouchers v JOIN locations l ON l.id=v.location_id
+    LEFT JOIN tenant_subscriptions s ON s.id=v.redeemed_subscription_id AND s.location_id=v.location_id
    WHERE v.business_id=? ORDER BY v.created_at DESC LIMIT ?
 `);
+// A paused voucher cannot be redeemed until the owner resumes it.
 const openVoucher = db.prepare(`
-  SELECT * FROM tenant_vouchers WHERE code=? AND location_id=? AND redeemed_at IS NULL
+  SELECT * FROM tenant_vouchers WHERE code=? AND location_id=? AND redeemed_at IS NULL AND paused_at IS NULL
 `);
 const claimVoucher = db.prepare(`
   UPDATE tenant_vouchers SET redeemed_at=datetime('now'), redeemed_by=@phone, redeemed_mac=@mac
-   WHERE code=@code AND location_id=@locationId AND redeemed_at IS NULL
+   WHERE code=@code AND location_id=@locationId AND redeemed_at IS NULL AND paused_at IS NULL
 `);
 const markVoucherGranted = db.prepare(`
   UPDATE tenant_vouchers SET redeemed_subscription_id=? WHERE code=? AND location_id=?
@@ -3969,6 +3980,111 @@ function redeemVoucher({ locationId, code, phone, mac, ip, profile = 'standard' 
   }
 }
 
+const MAX_VOUCHER_BULK = 1000;
+const MAX_VOUCHER_EXTEND_SECONDS = 31 * 86400;
+/**
+ * Owner bulk actions on vouchers: pause, resume, extend, delete.
+ * Codes outside the business are ignored, so one owner can never touch
+ * another's vouchers. A redeemed voucher acts on the customer's session:
+ * pausing disconnects them and holds the time left, resuming gives it back,
+ * extending adds time. Redeemed vouchers are sales history and cannot be
+ * deleted. `maxSeconds` caps a voucher's value (free-trial package limit).
+ */
+function manageVouchers({ businessId, codes, action, seconds = 0, maxSeconds = null }) {
+  if (!['pause', 'resume', 'extend', 'delete'].includes(action)) throw Object.assign(new Error('Unknown voucher action.'), { status: 400 });
+  const list = [...new Set((Array.isArray(codes) ? codes : []).map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))];
+  if (!list.length) throw Object.assign(new Error('Select at least one voucher.'), { status: 400 });
+  if (list.length > MAX_VOUCHER_BULK) throw Object.assign(new Error(`Select up to ${MAX_VOUCHER_BULK} vouchers at a time.`), { status: 400 });
+  const add = Math.floor(Number(seconds) || 0);
+  if (action === 'extend' && (add < 60 || add > MAX_VOUCHER_EXTEND_SECONDS)) {
+    throw Object.assign(new Error('Extend by between 1 minute and 31 days.'), { status: 400 });
+  }
+  const getVoucher = db.prepare('SELECT * FROM tenant_vouchers WHERE code=? AND business_id=?');
+  const getSub = db.prepare('SELECT * FROM tenant_subscriptions WHERE id=? AND location_id=?');
+  const setSubTime = db.prepare(`UPDATE tenant_subscriptions SET expires_at=@expiresAt, total_seconds=@totalSeconds,
+    expiry_job_id=NULL, updated_at=datetime('now') WHERE id=@id AND location_id=@locationId`);
+  const remainingOf = (sub) => Math.max(0, Math.floor((Date.parse(String(sub.expires_at).replace(' ', 'T') + 'Z') - Date.now()) / 1000));
+  const released = (sub) => !sub || String(sub.mac).startsWith('RELEASED:');
+  const provision = (sub, totalSeconds) => {
+    insertJob.run({ locationId: sub.location_id, username: sub.router_username, password: sub.password, profile: 'standard',
+      totalSeconds, rateLimit: sub.rate_limit, mac: sub.mac, ip: null, action: sub.device_type === 'tv' ? 'tv-upsert' : 'upsert' });
+    for (const device of devicesForSubscription.all(sub.location_id, sub.id)) {
+      insertJob.run({ locationId: sub.location_id, username: `${sub.router_username}-tv`, password: sub.password, profile: 'standard',
+        totalSeconds, rateLimit: sub.rate_limit, mac: device.mac, ip: null, action: 'upsert' });
+    }
+  };
+  const disconnect = (sub) => {
+    const job = insertJob.run({ locationId: sub.location_id, username: sub.router_username, password: '2222', profile: 'standard',
+      totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
+    for (const device of devicesForSubscription.all(sub.location_id, sub.id)) {
+      insertJob.run({ locationId: sub.location_id, username: `${sub.router_username}-tv`, password: '2222', profile: 'standard',
+        totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
+    }
+    setExpiryJob.run(Number(job.lastInsertRowid), sub.id, sub.location_id);
+  };
+  // Give a session `held` seconds from now (or on top of time it still has).
+  const giveTime = (sub, held) => {
+    const expiry = Date.parse(String(sub.expires_at).replace(' ', 'T') + 'Z');
+    const base = Math.max(Date.now(), Number.isFinite(expiry) ? expiry : 0);
+    const totalSeconds = Math.max(Number(sub.total_seconds) || 0, 0) + held;
+    setSubTime.run({ id: sub.id, locationId: sub.location_id, expiresAt: nowSql(base + held * 1000), totalSeconds });
+    provision(sub, totalSeconds);
+  };
+  const skip = (code, reason) => skipped.push({ code, reason });
+  const skipped = [];
+  let changed = 0;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const code of list) {
+      const v = getVoucher.get(code, businessId);
+      if (!v) { skip(code, 'not found'); continue; }
+      const sub = v.redeemed_at && v.redeemed_subscription_id ? getSub.get(v.redeemed_subscription_id, v.location_id) : null;
+      if (action === 'delete') {
+        if (v.redeemed_at) { skip(code, 'already used - kept as sales history'); continue; }
+        db.prepare('DELETE FROM tenant_vouchers WHERE code=? AND business_id=? AND redeemed_at IS NULL').run(code, businessId);
+      } else if (action === 'pause') {
+        if (v.paused_at) { skip(code, 'already paused'); continue; }
+        if (!v.redeemed_at) {
+          db.prepare(`UPDATE tenant_vouchers SET paused_at=datetime('now') WHERE code=? AND redeemed_at IS NULL`).run(code);
+        } else {
+          const left = sub && !released(sub) ? remainingOf(sub) : 0;
+          if (!left) { skip(code, 'session already ended'); continue; }
+          db.prepare(`UPDATE tenant_vouchers SET paused_at=datetime('now'), paused_seconds=? WHERE code=?`).run(left, code);
+          setSubTime.run({ id: sub.id, locationId: sub.location_id, expiresAt: nowSql(Date.now() - 1000), totalSeconds: sub.total_seconds });
+          disconnect(sub);
+        }
+      } else if (action === 'resume') {
+        if (!v.paused_at) { skip(code, 'not paused'); continue; }
+        if (v.redeemed_at) {
+          if (released(sub)) { skip(code, 'the device is now used by another customer'); continue; }
+          giveTime(sub, Math.max(0, Number(v.paused_seconds) || 0));
+        }
+        db.prepare('UPDATE tenant_vouchers SET paused_at=NULL, paused_seconds=NULL WHERE code=?').run(code);
+      } else if (action === 'extend') {
+        if (!v.redeemed_at) {
+          const next = Number(v.seconds) + add;
+          if (maxSeconds && next > maxSeconds) { skip(code, `longer than the ${Math.round(maxSeconds / 3600)}-hour trial limit`); continue; }
+          db.prepare('UPDATE tenant_vouchers SET seconds=? WHERE code=?').run(next, code);
+        } else if (v.paused_at) {
+          const next = (Number(v.paused_seconds) || 0) + add;
+          if (maxSeconds && next > maxSeconds) { skip(code, `longer than the ${Math.round(maxSeconds / 3600)}-hour trial limit`); continue; }
+          db.prepare('UPDATE tenant_vouchers SET paused_seconds=? WHERE code=?').run(next, code);
+        } else {
+          if (released(sub)) { skip(code, 'the device is now used by another customer'); continue; }
+          if (maxSeconds && remainingOf(sub) + add > maxSeconds) { skip(code, `longer than the ${Math.round(maxSeconds / 3600)}-hour trial limit`); continue; }
+          giveTime(sub, add);
+        }
+      }
+      changed += 1;
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch { /* already closed */ }
+    throw err;
+  }
+  return { action, changed, skipped };
+}
+
 function queueExpiredSubscriptions(locationId) {
   const expired = expiredSubscriptionsNeedingJob.all(locationId);
   for (const subscription of expired) {
@@ -4220,7 +4336,7 @@ module.exports = {
   insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
   transferSubscription, addTvDevice, removeTvDevice, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,
-  issueVouchers, redeemVoucher, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions,
+  issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions,
   paymentConnectionSummary, savePaymentConnection, paymentCredentials,
   insertBusinessBilling, businessBillingTransaction, setBusinessBillingResult, staleBusinessBilling,
   paidBusinessBilling, duplicateBusinessBillingReceipt, activateBusinessBilling,
