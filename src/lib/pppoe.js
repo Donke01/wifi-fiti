@@ -197,8 +197,10 @@ function customerBridgeFor(locationId) {
     const row = db.prepare('SELECT mapping_json FROM tenant_router_mappings WHERE location_id=?').get(locationId);
     confirmed = row ? String(JSON.parse(row.mapping_json).customerBridge || '') : '';
   } catch (_) { /* no confirmed map yet */ }
-  const location = db.prepare('SELECT customer_bridge FROM locations WHERE id=?').get(locationId) || {};
-  const bridge = (confirmed || String(location.customer_bridge || '')).trim();
+  const location = db.prepare('SELECT customer_bridge, router_kit FROM locations WHERE id=?').get(locationId) || {};
+  // A universal-kit router only runs PPPoE where the owner mapped it.
+  const fallback = location.router_kit === 'universal' ? '' : String(location.customer_bridge || '');
+  const bridge = (confirmed || fallback).trim();
   return /^[A-Za-z0-9_-]{1,32}$/.test(bridge) ? bridge : '';
 }
 function hasSubscribers(locationId) {

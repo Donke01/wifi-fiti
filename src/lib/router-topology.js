@@ -271,6 +271,147 @@ function topologyFingerprint(topology) {
   return crypto.createHash('sha256').update(JSON.stringify(stable)).digest('hex');
 }
 
+/*
+ * Inventory v2: the fuller layout report sent only by the universal kit.
+ * It lists every configured interface and what it is already used for, so
+ * the dashboard can show a true map and lock anything the owner's existing
+ * network depends on. Like v1 it never carries addresses, MACs, secrets,
+ * users or routes: only interface names, types and roles.
+ *
+ *   fiti-inventory-v2
+ *   inv|system|routeros|7.24.2
+ *   inv|board|hAP_lite
+ *   inv|if|ether1|ether|up
+ *   inv|vlan|vlan100|100|ether1
+ *   inv|bport|bridge-tv|ether5
+ *   inv|pppoe-client|pppoe-out1|vlan100
+ *   inv|pppoe-server|pppoe|bridge-home|enabled
+ *   inv|addr|bridge-home
+ *   inv|dhcp-server|bridge-home|enabled
+ *   inv|dhcp-client|ether1|bound
+ *   inv|hotspot|hotspot1|bridge-hs
+ *   inv|wan|pppoe-out1|pppoe
+ *   inv|skipped|2
+ *   fiti-inventory-end
+ */
+const INVENTORY_BEGIN = 'fiti-inventory-v2';
+const INVENTORY_END = 'fiti-inventory-end';
+const INVENTORY_LIMITS = Object.freeze({ lines: 200, interfaces: 64 });
+const INVENTORY_STATES = new Set(['up', 'down', 'disabled']);
+const WAN_KINDS = new Set(['pppoe', 'dhcp', 'static']);
+const PHYSICAL_TYPES = new Set(['ether', 'wlan', 'wifi', 'wireless']);
+
+function parseRouterInventory(rawBody) {
+  if (typeof rawBody !== 'string') return null;
+  const lines = rawBody.split(/\r?\n/);
+  const start = lines.indexOf(INVENTORY_BEGIN);
+  if (start < 0) return null;
+  if (lines.indexOf(INVENTORY_BEGIN, start + 1) >= 0) throw topologyError('Duplicate router inventory report.');
+  const end = lines.indexOf(INVENTORY_END, start + 1);
+  if (end < 0 || end - start - 1 > INVENTORY_LIMITS.lines) throw topologyError('Incomplete router inventory report.');
+  const inv = { version: 2, routerosVersion: null, board: null, wan: null, skipped: 0,
+    interfaces: new Map(), vlans: [], bridgePorts: [], pppoeClients: [], pppoeServers: [],
+    addressed: new Set(), dhcpServers: [], dhcpClients: [], hotspots: [] };
+  const tok = (value, label) => safeToken(value, label);
+  for (const line of lines.slice(start + 1, end)) {
+    if (!line) continue;
+    if (line.length > 200) throw topologyError('Invalid router inventory record.');
+    const f = line.split('|');
+    if (f[0] !== 'inv') throw topologyError('Invalid router inventory record.');
+    switch (f[1]) {
+      case 'system': if (f[2] === 'routeros' && ROUTEROS_VERSION.test(f[3] || '')) inv.routerosVersion = f[3]; break;
+      case 'board': inv.board = tok(f[2], 'board name'); break;
+      case 'if': {
+        if (f.length !== 5 || !INVENTORY_STATES.has(f[4])) throw topologyError('Invalid router inventory interface.');
+        const name = tok(f[2], 'interface name');
+        if (inv.interfaces.size >= INVENTORY_LIMITS.interfaces) throw topologyError('Too many router inventory interfaces.');
+        if (!inv.interfaces.has(name)) inv.interfaces.set(name, { name, type: tok(f[3], 'interface type'), state: f[4] });
+        break;
+      }
+      case 'vlan': {
+        const id = Number(f[3]);
+        if (!Number.isInteger(id) || id < 1 || id > 4094) throw topologyError('Invalid router inventory VLAN.');
+        inv.vlans.push({ name: tok(f[2], 'VLAN name'), vlanId: id, parent: tok(f[4], 'VLAN parent') });
+        break;
+      }
+      case 'bport': inv.bridgePorts.push({ bridge: tok(f[2], 'bridge'), interface: tok(f[3], 'bridge port') }); break;
+      case 'pppoe-client': inv.pppoeClients.push({ name: tok(f[2], 'PPPoE client'), interface: tok(f[3], 'PPPoE client interface') }); break;
+      case 'pppoe-server': inv.pppoeServers.push({ service: tok(f[2], 'PPPoE service'), interface: tok(f[3], 'PPPoE server interface'), enabled: f[4] !== 'disabled' }); break;
+      case 'addr': inv.addressed.add(tok(f[2], 'address interface')); break;
+      case 'dhcp-server': inv.dhcpServers.push({ interface: tok(f[2], 'DHCP server interface'), enabled: f[3] !== 'disabled' }); break;
+      case 'dhcp-client': inv.dhcpClients.push({ interface: tok(f[2], 'DHCP client interface'), status: TOKEN.test(f[3] || '') ? f[3] : 'unknown' }); break;
+      case 'hotspot': inv.hotspots.push({ name: tok(f[2], 'Hotspot name'), interface: tok(f[3], 'Hotspot interface') }); break;
+      case 'wan': inv.wan = { interface: tok(f[2], 'WAN interface'), kind: WAN_KINDS.has(f[3]) ? f[3] : 'static' }; break;
+      case 'skipped': inv.skipped = Math.max(0, Math.min(999, Math.floor(Number(f[2]) || 0))); break;
+      default: break; // newer agents may add records; ignore what this server does not know
+    }
+  }
+  if (!inv.interfaces.size) throw topologyError('Router inventory contains no interfaces.');
+  return describeInventory(inv);
+}
+
+/**
+ * Work out what each interface is already used for. Anything the owner's
+ * existing network depends on is locked; the internet path (the WAN and
+ * every interface under it, e.g. pppoe-out1 -> vlan100 -> ether1) always is.
+ */
+function describeInventory(inv) {
+  const uses = new Map([...inv.interfaces.keys()].map((name) => [name, []]));
+  const use = (name, label) => { if (!uses.has(name)) return; if (!uses.get(name).includes(label)) uses.get(name).push(label); };
+  const internet = new Set();
+  const parentOf = new Map();
+  inv.vlans.forEach((v) => parentOf.set(v.name, v.parent));
+  inv.pppoeClients.forEach((c) => parentOf.set(c.name, c.interface));
+  if (inv.wan) {
+    let cursor = inv.wan.interface; const seen = new Set();
+    while (cursor && !seen.has(cursor)) { seen.add(cursor); internet.add(cursor); cursor = parentOf.get(cursor); }
+  }
+  internet.forEach((name) => use(name, name === (inv.wan && inv.wan.interface) ? 'Internet connection' : 'Carries the internet connection'));
+  inv.vlans.forEach((v) => use(v.parent, `Carries VLAN ${v.vlanId} (${v.name})`));
+  inv.pppoeClients.forEach((c) => use(c.interface, `Runs PPPoE client ${c.name}`));
+  inv.bridgePorts.forEach((p) => use(p.interface, `In bridge ${p.bridge}`));
+  inv.pppoeServers.forEach((s) => use(s.interface, `PPPoE server${s.enabled ? '' : ' (disabled)'}`));
+  inv.addressed.forEach((name) => use(name, 'Has an IP address'));
+  inv.dhcpServers.forEach((d) => use(d.interface, `DHCP server${d.enabled ? '' : ' (disabled)'}`));
+  inv.dhcpClients.forEach((d) => use(d.interface, 'DHCP client'));
+  inv.hotspots.forEach((h) => use(h.interface, `Hotspot ${h.name}`));
+  const members = new Map();
+  inv.bridgePorts.forEach((p) => { if (!members.has(p.bridge)) members.set(p.bridge, []); members.get(p.bridge).push(p.interface); });
+  const interfaces = [...inv.interfaces.values()].map((item) => {
+    const usage = uses.get(item.name) || [];
+    const physical = PHYSICAL_TYPES.has(item.type);
+    const vlan = inv.vlans.find((v) => v.name === item.name);
+    return {
+      ...item,
+      physical,
+      vlanId: vlan ? vlan.vlanId : null,
+      parent: parentOf.get(item.name) || null,
+      members: item.type === 'bridge' ? (members.get(item.name) || []).sort() : undefined,
+      usage,
+      internet: internet.has(item.name),
+      // Free: a port or radio nothing depends on. Everything else is kept as it is.
+      free: physical && !usage.length && item.state !== 'disabled',
+      locked: internet.has(item.name) || Boolean(usage.length) || !physical,
+    };
+  }).sort((a, b) => Number(b.physical) - Number(a.physical) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return {
+    version: 2,
+    routerosVersion: inv.routerosVersion,
+    board: inv.board,
+    wan: inv.wan,
+    skipped: inv.skipped,
+    interfaces,
+    vlans: inv.vlans,
+    bridgePorts: inv.bridgePorts,
+    pppoeClients: inv.pppoeClients,
+    pppoeServers: inv.pppoeServers,
+    dhcpServers: inv.dhcpServers,
+    dhcpClients: inv.dhcpClients,
+    hotspots: inv.hotspots,
+    freeInterfaces: interfaces.filter((i) => i.free).map((i) => i.name),
+  };
+}
+
 module.exports = {
   BEGIN,
   END,
@@ -280,4 +421,8 @@ module.exports = {
   topologyFingerprint,
   validateRouterMapping,
   mappingFingerprint,
+  INVENTORY_BEGIN,
+  INVENTORY_END,
+  parseRouterInventory,
+  describeInventory,
 };

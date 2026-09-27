@@ -388,6 +388,22 @@
 <style>.voucher-manager{margin-top:18px}.vm-select,.vm-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px}.vm-check{display:inline-flex;align-items:center;gap:8px;margin:0;cursor:pointer}.vm-check input,.vm-box{width:18px;height:18px;min-height:0;margin:0;flex:0 0 auto;accent-color:#1769d8}.vm-first,.vm-extend{display:inline-flex;align-items:center;gap:6px}.vm-first input,.vm-extend input{width:78px}.vm-extend select{width:auto}.vm-row{cursor:pointer;justify-content:flex-start}.vm-row .vm-info{flex:1;min-width:0}.vm-row.selected{border-color:#1769d8;box-shadow:0 0 0 2px #1769d833}.vm-help{margin:0 0 10px}.vm-empty .vm-filters,.vm-empty .vm-select,.vm-empty .vm-actions,.vm-empty .vm-help{display:none}@media(max-width:650px){.vm-select{display:grid;grid-template-columns:1fr auto;gap:10px}.vm-select>*{flex:none!important}.vm-first{grid-column:1/-1;display:flex;min-width:0}.vm-first>span{white-space:nowrap}.vm-first input{flex:1;width:auto;min-width:0}.vm-first button{flex:none}.vm-select .export-note{margin:0;text-align:right}.vm-row{flex-direction:row!important;flex-wrap:wrap;align-items:flex-start!important;gap:10px 12px}.vm-row .vm-info{flex:1 1 calc(100% - 34px)}.vm-row .amount{flex:1 1 100%;padding-left:30px;text-align:left!important}.vm-actions>*{flex:1 1 auto}.vm-extend{flex:1 1 100%}.vm-extend input,.vm-extend select{flex:1}}</style>
 <link rel="stylesheet" href="/assets/fiti-motion.css">
 <script src="/assets/fiti-motion.js" defer></script>
+<style>
+.router-inventory{margin-top:16px;padding:18px;border:1px solid rgba(170,200,232,.75);border-radius:20px;background:linear-gradient(150deg,rgba(255,255,255,.9),rgba(236,245,255,.7));box-shadow:0 18px 40px -24px rgba(26,72,128,.35)}
+.router-inventory-head strong{display:block;color:var(--ink);font-size:15px}.router-inventory-head small{display:block;margin-top:3px;color:var(--muted);font-size:11px}
+.router-inventory-note{margin:12px 0 0;color:#536b85;font-size:12px;line-height:1.5}
+.router-inventory-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:12px}
+.router-inventory-item{position:relative;display:grid;gap:4px;padding:12px;border:1px solid #d7e4f1;border-radius:14px;background:#fff}
+.router-inventory-item.free{border-color:#9edfc9;background:linear-gradient(165deg,#fff,#effcf6)}
+.router-inventory-item.internet{border-color:#91bee9;background:linear-gradient(165deg,#fff,#eef6ff)}
+.router-inventory-item.used{background:linear-gradient(165deg,#fff,#f6f8fb)}
+.router-inventory-top{display:flex;align-items:center;gap:7px}.router-inventory-top b{color:var(--ink);font-size:14px}
+.router-inventory-type{margin-left:auto;color:#7a8da4;font:700 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}
+.router-inventory-led{width:7px;height:7px;border-radius:50%;background:#b7c4d3}.router-inventory-led.up{background:#2fd98f;box-shadow:0 0 6px #2fd98f}.router-inventory-led.off{background:#e3a21a}
+.router-inventory-badge{justify-self:start;padding:3px 7px;border-radius:99px;background:#eef3f8;color:#536b85;font-size:10px;font-weight:850;letter-spacing:.04em;text-transform:uppercase}
+.free .router-inventory-badge{background:#dff7ec;color:#08785b}.internet .router-inventory-badge{background:#e1eeff;color:#115aa9}
+.router-inventory-item small{color:#60768e;font-size:11px;line-height:1.4}
+</style>
 </head>
 <body>
   <main class="app">
@@ -876,7 +892,7 @@
       }
       function openRouterDraftModal() { if (!state.workspace || !state.workspace.business) return; routerDraftModalOpen = true; $('router-draft-error').textContent = ''; $('router-draft-modal').classList.remove('hidden'); setTimeout(function () { $('router-draft-form').elements.routerName.focus(); }, 0); }
         function planName(plan) { return plan === 'growth' ? 'Workspace Plus' : plan === 'custom' ? 'Workspace' : 'Workspace'; }
-      function routerHealthLabel(location) { var health = String(location && location.router_setup_health || '').toLowerCase(); return ({ 'bridge-missing': 'Customer bridge missing', 'hotspot-missing': 'Hotspot missing', 'poller-missing': 'Poller missing', 'portal-missing': 'Portal update pending', 'device-mode-blocked': 'Device mode blocked' })[health] || ''; }
+      function routerHealthLabel(location) { var health = String(location && location.router_setup_health || '').toLowerCase(); return ({ 'bridge-missing': 'Customer bridge missing', 'hotspot-missing': 'Hotspot missing', 'poller-missing': 'Poller missing', 'portal-missing': 'Portal update pending', 'device-mode-blocked': 'Device mode blocked', 'awaiting-map': 'Paired · map its network next' })[health] || ''; }
       function routerState(location) { var raw = String(location.router_status || 'waiting').toLowerCase(); if (routerPairingPending(location)) return ['waiting', 'Verifying replacement']; var issue = routerHealthLabel(location); if (issue) return ['waiting', issue]; if (!routerSyncHealthy(location) && location && location.last_router_contact_at) return ['waiting', 'Verifying setup']; return raw === 'online' ? ['online', 'Online'] : raw === 'waiting' ? ['waiting', 'Awaiting router'] : ['unknown', raw.charAt(0).toUpperCase() + raw.slice(1)]; }
       function statusClass(status) { var raw = String(status || '').toLowerCase(); return raw === 'paid' ? 'paid' : raw === 'pending' ? 'pending' : raw === 'active' ? 'active' : raw === 'paused' ? 'paused' : raw === 'failed' ? 'failed' : 'unknown'; }
       function remoteAccessStatus(remoteAccess) {
@@ -1480,12 +1496,12 @@
         var telemetryCopy = setupAction(actions, 'Copy telemetry TEST kit', 'secondary', function () {
           copyText(telemetryTestScript, telemetryCopy);
         }); telemetryCopy.disabled = !telemetryTestScript;
-        var vlanCopy = setupAction(actions, 'Copy VLAN TEST kit', 'secondary', function () {
-          if (!window.confirm('This fourth kit stages VLAN interfaces disabled on the customer bridge. It does not enable VLAN filtering. Continue?')) return;
+        var vlanCopy = setupAction(actions, 'Copy UNIVERSAL kit (test)', 'secondary', function () {
+          if (!window.confirm('The universal kit pairs this router as it is. It does not create or change any interface, bridge, VLAN, address, DHCP, PPPoE or firewall setting. On a freshly reset router, run the DHCP preparation step first. Continue?')) return;
           copyText(vlanTestScript, vlanCopy);
         }); vlanCopy.disabled = !vlanTestScript;
         add(box, 'small', 'form-note', 'TEST KIT only: reports guarded CPU, memory, traffic and active-user samples. It is isolated from the production kit and should be used on a test router/location.');
-        add(box, 'small', 'form-note', 'VLAN KIT only: copies the stable kit, then stages VLAN 10 management, 20 hotspot, 30 PPPoE and 40 TV interfaces disabled for safe hardware testing.');
+        add(box, 'small', 'form-note', 'UNIVERSAL KIT (test): pairs any router, freshly reset or already running VLANs, PPPoE or a TV network, without changing it. An existing Hotspot is used as it is; otherwise you map where customers connect after pairing. Use the standard kit if anything goes wrong.');
         add(box, 'small', 'form-note', 'CA compatibility is a recovery option only. It disables certificate verification for the initial download; all other routers must use the standard connection kit.');
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);
@@ -1637,6 +1653,27 @@
           var kind = isBridge ? 'Bridge' : isWifi ? 'Wi-Fi' : item.type === 'ether' ? 'Ethernet' : item.type; add(port, 'span', 'port-type', kind); add(port, 'b', '', item.name); add(port, 'small', '', isWan ? 'WAN · ' + item.state : item.name === defaults.customerBridge ? 'Customer bridge' : isCustomer ? 'Customer network · ' + item.state : item.state); grid.appendChild(port);
         }); board.appendChild(grid); var bus = add(board, 'div', 'rb-bus'); bus.setAttribute('aria-hidden', 'true'); add(bus, 'i'); add(bus, 'i'); parent.appendChild(board);
       }
+      function appendRouterInventory(parent, inventory) {
+        var panel = el('section', 'router-inventory');
+        var head = el('div', 'router-inventory-head'); add(head, 'strong', '', 'Everything on this router');
+        add(head, 'small', '', inventory ? ((inventory.board ? inventory.board.replace(/_/g, ' ') + ' · ' : '') + (inventory.routerosVersion ? 'RouterOS ' + inventory.routerosVersion + ' · ' : '') + 'reported ' + when(inventory.reportedAt)) : 'Waiting for the router’s first layout report (about 30 seconds after pairing).');
+        panel.appendChild(head);
+        if (!inventory) { parent.appendChild(panel); return; }
+        if (inventory.wan) add(panel, 'p', 'router-inventory-note', 'Internet comes in through ' + inventory.wan.interface + ' (' + ({ pppoe: 'PPPoE', dhcp: 'DHCP', static: 'static/route' })[inventory.wan.kind] + '). It and everything it runs on stay exactly as they are.');
+        var grid = el('div', 'router-inventory-grid');
+        (inventory.interfaces || []).forEach(function (item) {
+          var card = el('div', 'router-inventory-item ' + (item.internet ? 'internet' : item.free ? 'free' : 'used'));
+          var top = el('div', 'router-inventory-top'); add(top, 'i', 'router-inventory-led ' + (item.state === 'up' ? 'up' : item.state === 'disabled' ? 'off' : 'down')); add(top, 'b', '', item.name); add(top, 'span', 'router-inventory-type', item.type + (item.vlanId ? ' ' + item.vlanId : ''));
+          card.appendChild(top);
+          add(card, 'span', 'router-inventory-badge', item.internet ? 'Internet' : item.free ? 'Free' : 'In use');
+          add(card, 'small', '', item.usage && item.usage.length ? item.usage.join(' · ') : (item.physical ? 'Not used by anything yet' : ''));
+          if (item.members && item.members.length) add(card, 'small', '', 'Ports: ' + item.members.join(', '));
+          grid.appendChild(card);
+        });
+        panel.appendChild(grid);
+        add(panel, 'p', 'router-inventory-note', (inventory.freeInterfaces && inventory.freeInterfaces.length ? 'Free for customers: ' + inventory.freeInterfaces.join(', ') + '. ' : 'No free ports or Wi-Fi were found. ') + 'Interfaces in use are locked, so your existing network keeps working. Mapping where hotspot and PPPoE customers connect is the next step.' + (inventory.skipped ? ' ' + inventory.skipped + ' interface(s) have names with spaces or symbols and are not shown.' : ''));
+        parent.appendChild(panel);
+      }
       function appendMapCheckGroup(parent, title, name, items, checkedNames) {
         var group = el('div', 'map-check-group'); add(group, 'strong', '', title); var choices = el('div', 'map-checks');
         if (!items.length) add(choices, 'span', 'form-note', 'None detected in the selected bridge.');
@@ -1656,6 +1693,9 @@
         }
         var detectedEthernet = (topology.interfaces || []).filter(function (item) { return item.type === 'ether'; }); var detectedBridges = (topology.interfaces || []).filter(function (item) { return item.type === 'bridge'; });
         appendRouterPortMap(box, topology, mapping.mapping || null);
+        // Universal-kit routers: show everything on the router and what each
+        // part already does. Mapping where customers connect comes next.
+        if (location.router_kit === 'universal') { appendRouterInventory(box, snapshot.layout); body.appendChild(box); return; }
         if (status === 'confirmed') {
           var confirmed = el('div', 'router-map-status'); add(confirmed, 'span', 'map-status-mark', '✓'); var confirmedCopy = el('div'); add(confirmedCopy, 'strong', '', 'Router map confirmed'); add(confirmedCopy, 'p', '', 'The current WAN and customer network layout has been recorded. You can now use the full workspace.'); confirmed.appendChild(confirmedCopy); box.appendChild(confirmed); var finishActions = el('div', 'buttons'); setupAction(finishActions, 'Finish setup', '', function () { completeOnboarding(onboardingModel()); }); box.appendChild(finishActions); body.appendChild(box); return;
         }

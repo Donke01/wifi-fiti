@@ -330,6 +330,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tenant_router_topologies_reported
     ON tenant_router_topologies(last_reported_at);
 
+  -- Inventory v2 from the universal kit: every configured interface and what
+  -- it is already used for (names, types and roles only; no addresses, MACs,
+  -- secrets or routes). It drives the owner's network map.
+  CREATE TABLE IF NOT EXISTS tenant_router_inventory (
+    location_id    TEXT PRIMARY KEY REFERENCES locations(id),
+    inventory_json TEXT NOT NULL,
+    reported_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   -- Test-kit router telemetry is append-only, bounded and independent from
   -- the stable pairing/topology path. It may be promoted only after the
   -- isolated kit has been validated across RouterOS versions.
@@ -544,6 +553,7 @@ db.exec(`
 
 for (const statement of [
   `ALTER TABLE locations ADD COLUMN router_token_hash TEXT`,
+  `ALTER TABLE locations ADD COLUMN router_kit TEXT`,
   `ALTER TABLE locations ADD COLUMN router_pending_token_hash TEXT`,
   `ALTER TABLE locations ADD COLUMN router_pending_token_expires_at TEXT`,
   // Existing paired locations used a URL token. New pairings use an HTTP
@@ -765,7 +775,7 @@ const createLocationRow = db.prepare(`
      @wanInterface, @wifiInterface, @wifiSsid, @customerPorts, @hotspotSubnet)
 `);
 const locationById = db.prepare(`
-  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_pending_setup_json, l.router_setup_script_cipher, l.router_pending_setup_script_cipher, l.router_auth_mode, l.router_status, l.last_seen_at, l.last_router_contact_at, l.last_successful_sync_at, l.router_setup_nonce, l.router_pending_setup_nonce, l.router_setup_verified_at, l.router_setup_health, l.router_setup_checked_at, l.portal_setup_completed_at, l.router_portal_update_sent_host, l.router_portal_applied_host,
+  SELECT l.id, l.business_id, l.name, l.router_name, l.hotspot_server, l.router_token_hash, l.router_pending_token_hash, l.router_pending_token_expires_at, l.router_pending_setup_json, l.router_setup_script_cipher, l.router_pending_setup_script_cipher, l.router_auth_mode, l.router_status, l.last_seen_at, l.last_router_contact_at, l.last_successful_sync_at, l.router_setup_nonce, l.router_pending_setup_nonce, l.router_setup_verified_at, l.router_setup_health, l.router_kit, l.router_setup_checked_at, l.portal_setup_completed_at, l.router_portal_update_sent_host, l.router_portal_applied_host,
          l.setup_mode, l.router_model, l.routeros_version, l.wifi_stack, l.customer_bridge, l.wan_interface, l.wifi_interface, l.wifi_ssid, l.customer_ports, l.hotspot_subnet,
          b.name AS business_name, b.portal_name, b.support_phone, b.brand_primary_color, b.brand_logo_path, b.portal_message, b.collection_mode, b.plan AS business_plan,
          b.billing_status, b.billing_expires_at, b.hotspot_concurrent, b.hotspot_billing_expires_at,
@@ -780,7 +790,7 @@ const locationsForBusinessQuery = db.prepare(`
          CASE WHEN router_status='online' AND (last_seen_at IS NULL OR last_seen_at <= datetime('now','-90 seconds'))
               THEN 'offline' ELSE router_status END AS router_status,
          last_seen_at, last_router_contact_at, last_successful_sync_at,
-         router_setup_verified_at, router_setup_health, router_setup_checked_at,
+         router_setup_verified_at, router_setup_health, router_setup_checked_at, router_kit,
          portal_setup_completed_at, router_portal_update_sent_host, router_portal_applied_host, created_at,
          CASE WHEN router_pending_token_hash IS NOT NULL
                     AND router_pending_token_expires_at > datetime('now')
@@ -901,7 +911,7 @@ const completeTenantBusinessPortalSetup = db.prepare(`
 `);
 const locationForBusiness = db.prepare(`
   SELECT id, business_id, name, router_name, router_status, last_seen_at, last_router_contact_at, last_successful_sync_at,
-         router_setup_verified_at, router_setup_health, router_setup_checked_at,
+         router_setup_verified_at, router_setup_health, router_setup_checked_at, router_kit,
          portal_setup_completed_at, router_portal_update_sent_host, router_portal_applied_host, hotspot_server,
          setup_mode, router_model, routeros_version, wifi_stack, customer_bridge, wan_interface,
          wifi_interface, wifi_ssid, customer_ports, hotspot_subnet,
@@ -1068,6 +1078,7 @@ const deleteRouterTopology = db.prepare(`DELETE FROM tenant_router_topologies WH
 // Router health samples and the nearby-device list reference the location by
 // foreign key; they must go before the location row itself.
 const deleteRouterTelemetryForLocation = db.prepare(`DELETE FROM tenant_router_telemetry WHERE location_id=?`);
+const deleteRouterInventoryForLocation = db.prepare(`DELETE FROM tenant_router_inventory WHERE location_id=?`);
 const deleteRouterDevicesForLocation = db.prepare(`DELETE FROM tenant_router_devices WHERE location_id=?`);
 // A location may be discarded only while it is a genuinely unused setup
 // draft. Most tenant tables intentionally do not use cascading foreign keys:
@@ -3246,7 +3257,7 @@ function recordRouterPortalApplied(locationId, hostname) {
 
 const ROUTER_SETUP_HEALTH = new Set([
   'ready', 'bridge-missing', 'hotspot-missing', 'poller-missing',
-  'portal-missing', 'device-mode-blocked', 'unknown',
+  'portal-missing', 'device-mode-blocked', 'awaiting-map', 'unknown',
 ]);
 
 function setupHealth(value) {
@@ -3330,7 +3341,28 @@ function issueSetupChallenge(location, pairing, health) {
  * That proves the response was parsed and executed; a request that was
  * dropped before RouterOS saw its body cannot accidentally unlock service.
  */
-function processRouterSetupReceipt(location, { protocol, ack, health } = {}) {
+const setRouterKitStatement = db.prepare(`UPDATE locations SET router_kit=? WHERE id=? AND (router_kit IS NULL OR router_kit<>?)`);
+/** Remember which kit paired this router ('universal' or null for the stable kit). */
+function setRouterKit(locationId, kit) {
+  const value = kit === 'universal' ? 'universal' : null;
+  if (value) setRouterKitStatement.run(value, locationId, value);
+  return value;
+}
+const upsertRouterInventory = db.prepare(`INSERT INTO tenant_router_inventory (location_id, inventory_json, reported_at)
+  VALUES (?, ?, datetime('now')) ON CONFLICT(location_id) DO UPDATE SET inventory_json=excluded.inventory_json, reported_at=excluded.reported_at`);
+const routerInventoryRow = db.prepare(`SELECT inventory_json, reported_at FROM tenant_router_inventory WHERE location_id=?`);
+function recordRouterInventory(locationId, inventory) {
+  if (!inventory || typeof inventory !== 'object') return null;
+  upsertRouterInventory.run(locationId, JSON.stringify(inventory));
+  return inventory;
+}
+function routerInventoryForLocation(locationId) {
+  const row = routerInventoryRow.get(locationId);
+  if (!row) return null;
+  try { return { ...JSON.parse(row.inventory_json), reportedAt: row.reported_at }; } catch (_) { return null; }
+}
+
+function processRouterSetupReceipt(location, { protocol, ack, health, kit } = {}) {
   if (!location) return { verified: false, challenge: null, location: null };
   const pairing = location.router_pairing_auth === 'pending' ? 'pending' : 'active';
   const reportedHealth = setupHealth(health);
@@ -3375,7 +3407,10 @@ function processRouterSetupReceipt(location, { protocol, ack, health } = {}) {
   // asking for another receipt because its page is still missing.  The other
   // control-plane checks are already present in the poller, so this state is
   // safe to accept only after the nonce is echoed back.
-  const receiptHealthOk = reportedHealth === 'ready' || reportedHealth === 'portal-missing';
+  // The universal kit pairs a router before it has a Hotspot: it reports
+  // `awaiting-map` until the owner maps it. Only that kit may pair that way.
+  const receiptHealthOk = reportedHealth === 'ready' || reportedHealth === 'portal-missing'
+    || (reportedHealth === 'awaiting-map' && kit === 'universal');
   if (!receiptHealthOk || !currentNonce || String(ack || '') !== currentNonce) {
     return { verified: false, challenge: issueSetupChallenge(location, pairing, reportedHealth), location: locationById.get(location.id) };
   }
@@ -3636,6 +3671,7 @@ function deleteLocationForOwner({ locationId, businessId, confirm }) {
     deleteRouterMapping.run(locationId);
     deleteRouterTopology.run(locationId);
     deleteRouterTelemetryForLocation.run(locationId);
+    deleteRouterInventoryForLocation.run(locationId);
     deleteRouterDevicesForLocation.run(locationId);
     deleteVpnPeerForLocation.run(locationId);
     deleteRemoteSupportControlsForLocation.run(locationId);
@@ -3714,7 +3750,7 @@ function deleteOffboardedLocation(locationId, businessId, knownLocation) {
   db.exec('BEGIN IMMEDIATE');
   try {
     deleteMappedDeploymentsForLocation.run(locationId); deleteRouterMapping.run(locationId); deleteRouterTopology.run(locationId);
-    deleteRouterTelemetryForLocation.run(locationId); deleteRouterDevicesForLocation.run(locationId);
+    deleteRouterTelemetryForLocation.run(locationId); deleteRouterDevicesForLocation.run(locationId); deleteRouterInventoryForLocation.run(locationId);
     deleteVpnPeerForLocation.run(locationId); deleteRemoteSupportControlsForLocation.run(locationId); deleteRemoteAccessEventsForLocation.run(locationId);
     deleteRemoteAccessForLocation.run(locationId); deleteProvisioningJobsForLocation.run(locationId); deleteDevicesForLocation.run(locationId);
     deletePortalDomainsForLocation.run(locationId); deleteLocationForBusiness.run(locationId, businessId); db.exec('COMMIT');
@@ -4319,7 +4355,7 @@ function deletePackageForOwner(packageId, businessId) {
 module.exports = {
   deletePackageForOwner, setPaymentDeviceIp, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
-  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,

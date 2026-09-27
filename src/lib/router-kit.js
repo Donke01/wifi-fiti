@@ -197,4 +197,129 @@ function vlanOverlayRouterKit(source, options = {}) {
   return input + '\n' + block;
 }
 
-module.exports = { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit, vlanOverlayRouterKit };
+/*
+ * Universal kit installer (test slot). Derived from the stable installer at
+ * request time, so every stable fix carries over, with three differences:
+ *   - it pairs a router that has no Hotspot yet instead of refusing, never
+ *     defaults to a `hotspot1`/`bridge-hs` that may not exist, and reports
+ *     `awaiting-map` until the owner maps the router in the dashboard;
+ *   - it tells the cloud it is the universal kit (`kit=universal`), so the
+ *     cloud holds Hotspot/PPPoE work and never opens a Wi-Fi it did not map;
+ *   - it adds a read-only layout report (inventory v2) every 30 seconds.
+ * It changes no interface, bridge, VLAN, address, DHCP, PPPoE or firewall.
+ */
+const UNIVERSAL_INSTALLER = 'tenant-router-install-universal.rsc';
+
+// RouterOS source for the layout report. Read-only: every command is a
+// find/get, and the result is only stored in the fitiInventory global that
+// the poller sends with its next authenticated sync.
+function inventoryScriptLines() {
+  const safe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-';
+  const add = (expr) => `:if ($fitiInvLines < 190) do={ :set fitiInvOut ($fitiInvOut . ${expr} . "\\n"); :set fitiInvLines ($fitiInvLines + 1) }`;
+  return [
+    ':global fitiInventory',
+    ':local fitiInvOut "fiti-inventory-v2\\n"',
+    ':local fitiInvLines 0',
+    ':local fitiInvSkipped 0',
+    `:local fitiInvSafe do={ :local v [:tostr $1]; :if ([:len $v] = 0 || [:len $v] > 64) do={ :return false }; :local i 0; :while ($i < [:len $v]) do={ :if ([:typeof [:find "${safe}" [:pick $v $i ($i + 1)]]] = "nil") do={ :return false }; :set i ($i + 1) }; :return true }`,
+    `:local fitiInvClean do={ :local v [:tostr $1]; :local o ""; :local i 0; :while ($i < [:len $v] && $i < 48) do={ :local c [:pick $v $i ($i + 1)]; :if ([:typeof [:find "${safe}" $c]] = "nil") do={ :set o ($o . "_") } else={ :set o ($o . $c) }; :set i ($i + 1) }; :return $o }`,
+    `:do { :local v [/system resource get version]; :local sp [:find $v " "]; :if ([:typeof $sp] != "nil") do={ :set v [:pick $v 0 $sp] }; :if ([$fitiInvSafe $v]) do={ ${add('("inv|system|routeros|" . $v)')} } } on-error={}`,
+    `:do { :local b [$fitiInvClean [/system resource get board-name]]; :if ([$fitiInvSafe $b]) do={ ${add('("inv|board|" . $b)')} } } on-error={}`,
+    `:do { :foreach i in=[/interface find where dynamic=no] do={ :local nm [/interface get $i name]; :local tp [/interface get $i type]; :local st "down"; :do { :if ([/interface get $i running] = true) do={ :set st "up" } } on-error={}; :do { :if ([/interface get $i disabled] = true) do={ :set st "disabled" } } on-error={}; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $tp]) do={ ${add('("inv|if|" . $nm . "|" . $tp . "|" . $st)')} } else={ :set fitiInvSkipped ($fitiInvSkipped + 1) } } } on-error={}`,
+    `:do { :foreach v in=[/interface vlan find] do={ :local nm [/interface vlan get $v name]; :local id [/interface vlan get $v vlan-id]; :local pr [/interface vlan get $v interface]; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $pr]) do={ ${add('("inv|vlan|" . $nm . "|" . $id . "|" . $pr)')} } } } on-error={}`,
+    `:do { :foreach p in=[/interface bridge port find] do={ :local br [/interface bridge port get $p bridge]; :local ifc [/interface bridge port get $p interface]; :if ([$fitiInvSafe $br] && [$fitiInvSafe $ifc]) do={ ${add('("inv|bport|" . $br . "|" . $ifc)')} } } } on-error={}`,
+    `:do { :foreach c in=[/interface pppoe-client find] do={ :local nm [/interface pppoe-client get $c name]; :local ifc [/interface pppoe-client get $c interface]; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $ifc]) do={ ${add('("inv|pppoe-client|" . $nm . "|" . $ifc)')} } } } on-error={}`,
+    `:do { :foreach c in=[/interface pppoe-server server find] do={ :local sv [$fitiInvClean [/interface pppoe-server server get $c service-name]]; :local ifc [/interface pppoe-server server get $c interface]; :local en "enabled"; :if ([/interface pppoe-server server get $c disabled] = true) do={ :set en "disabled" }; :if ([$fitiInvSafe $sv] && [$fitiInvSafe $ifc]) do={ ${add('("inv|pppoe-server|" . $sv . "|" . $ifc . "|" . $en)')} } } } on-error={}`,
+    `:do { :foreach a in=[/ip address find where disabled=no] do={ :local ifc [/ip address get $a interface]; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|addr|" . $ifc)')} } } } on-error={}`,
+    `:do { :foreach d in=[/ip dhcp-server find] do={ :local ifc [/ip dhcp-server get $d interface]; :local en "enabled"; :if ([/ip dhcp-server get $d disabled] = true) do={ :set en "disabled" }; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|dhcp-server|" . $ifc . "|" . $en)')} } } } on-error={}`,
+    `:do { :foreach d in=[/ip dhcp-client find] do={ :local ifc [/ip dhcp-client get $d interface]; :local stt [$fitiInvClean [/ip dhcp-client get $d status]]; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|dhcp-client|" . $ifc . "|" . $stt)')} } } } on-error={}`,
+    `:do { :foreach h in=[/ip hotspot find] do={ :local nm [/ip hotspot get $h name]; :local ifc [/ip hotspot get $h interface]; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $ifc]) do={ ${add('("inv|hotspot|" . $nm . "|" . $ifc)')} } } } on-error={}`,
+    // Which interface actually carries the internet, in the same order the
+    // stable kits use: a running PPPoE client, a bound DHCP client, then the
+    // active default route (covers static WAN and LTE).
+    ':local fitiInvWan ""',
+    ':local fitiInvWanKind ""',
+    ':do { :foreach p in=[/interface pppoe-client find where running=yes] do={ :if ($fitiInvWan = "") do={ :set fitiInvWan [/interface pppoe-client get $p name]; :set fitiInvWanKind "pppoe" } } } on-error={}',
+    ':if ($fitiInvWan = "") do={ :do { :foreach c in=[/ip dhcp-client find where status=bound] do={ :if ($fitiInvWan = "") do={ :set fitiInvWan [/ip dhcp-client get $c interface]; :set fitiInvWanKind "dhcp" } } } on-error={} }',
+    ':if ($fitiInvWan = "") do={ :do { :foreach r in=[/ip route find where dst-address=0.0.0.0/0 and active=yes] do={ :if ($fitiInvWan = "") do={ :local g [:tostr [/ip route get $r immediate-gw]]; :local pc [:find $g "%"]; :if ([:typeof $pc] != "nil") do={ :set fitiInvWan [:pick $g ($pc + 1) [:len $g]]; :set fitiInvWanKind "static" } } } } on-error={} }',
+    `:if ([$fitiInvSafe $fitiInvWan]) do={ ${add('("inv|wan|" . $fitiInvWan . "|" . $fitiInvWanKind)')} }`,
+    `:if ($fitiInvSkipped > 0) do={ ${add('("inv|skipped|" . $fitiInvSkipped)')} }`,
+    ':set fitiInventory ($fitiInvOut . "fiti-inventory-end\\n")',
+  ];
+}
+
+// Embed RouterOS source as a script `source=` value in the same continuation
+// format the stable installer uses.
+function routerScriptSource(lines) {
+  const esc = (line) => line.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$');
+  return 'source="\\\n' + lines.map(esc).join('\\r\\\n\\n') + '\\r\\\n\\n"';
+}
+
+function replaceOnce(text, find, replacement, label) {
+  const index = text.indexOf(find);
+  if (index < 0 || text.indexOf(find, index + find.length) >= 0) throw new Error(`Universal installer: stable installer changed near ${label}.`);
+  return text.slice(0, index) + replacement + text.slice(index + find.length);
+}
+
+function universalInstaller(source) {
+  let out = String(source || '');
+  out = replaceOnce(out, '# =====================================================================\n#  Wi-Fi Fiti for Business',
+    '# UNIVERSAL KIT INSTALLER (TEST): pairs any router without changing its network.\n# =====================================================================\n#  Wi-Fi Fiti for Business', 'header');
+  // Never invent a bridge name on a router the owner has not mapped yet.
+  out = replaceOnce(out, ':if ([:len $fitiBridge] = 0) do={ :set fitiBridge "bridge-hs" }\n',
+    ':if ([:typeof $fitiBridge] != "str") do={ :set fitiBridge "" }\n', 'bridge default');
+  const hotspotStart = ':global fitiHotspotServer\n:if ([:len $fitiHotspotServer] = 0) do={ :set fitiHotspotServer "hotspot1" }\n';
+  const hotspotEnd = '\n:global fitiAck ""\n';
+  const a = out.indexOf(hotspotStart); const b = out.indexOf(hotspotEnd, a);
+  if (a < 0 || b < 0) throw new Error('Universal installer: stable installer changed near the Hotspot block.');
+  const block = out.slice(a + hotspotStart.length, b);
+  out = out.slice(0, a) + [
+    ':global fitiHotspotServer',
+    ':if ([:typeof $fitiHotspotServer] != "str") do={ :set fitiHotspotServer "" }',
+    '# A router with a Hotspot keeps the stable behaviour. A router without one is',
+    '# paired as it is and waits for the owner to map it in the dashboard.',
+    ':if ([:len $fitiHotspotServer] > 0 && [:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={',
+    block,
+    '} else={',
+    '  :set fitiHotspotServer ""',
+    '  :set fitiBridge ""',
+    '  :log info "fiti: paired without a Hotspot; map this router in the Wi-Fi Fiti dashboard"',
+    '}',
+  ].join('\n') + out.slice(b);
+  // Poller: report awaiting-map instead of a missing Hotspot/bridge, and do not
+  // ask for a portal page there is no Hotspot to hold yet.
+  out = replaceOnce(out,
+    '\\n  :if ([:len [/ip hotspot find where name=\\$fitiHotspotServer]] != 1) do={ :set fitiHealth \\"hotspot-missing\\" }\\r\\\n\\n  :if ([:len [/interface bridge find where name=\\$fitiBridge]] != 1) do={ :set fitiHealth \\"bridge-missing\\" }\\r\\\n',
+    '\\n  :if ([:len \\$fitiHotspotServer] = 0) do={ :set fitiHealth \\"awaiting-map\\" } else={ :if ([:len [/ip hotspot find where name=\\$fitiHotspotServer]] != 1) do={ :set fitiHealth \\"hotspot-missing\\" }; :if ([:len [/interface bridge find where name=\\$fitiBridge]] != 1) do={ :set fitiHealth \\"bridge-missing\\" } }\\r\\\n',
+    'poller health');
+  out = replaceOnce(out,
+    ':if ([:len \\$fitiPortalHost] > 0 && \\$fitiPortalAppliedHost != \\$fitiPortalHost) do={ :set fitiHealth \\"portal-missing\\" }',
+    ':if ([:len \\$fitiHotspotServer] > 0 && [:len \\$fitiPortalHost] > 0 && \\$fitiPortalAppliedHost != \\$fitiPortalHost) do={ :set fitiHealth \\"portal-missing\\" }',
+    'portal health');
+  out = replaceOnce(out, '\\"&bridge=\\" . \\$fitiBridge)', '\\"&bridge=\\" . \\$fitiBridge . \\"&kit=universal\\")', 'sync URL');
+  // Poller: send the latest layout report with the next sync.
+  out = replaceOnce(out, '\\n:global fitiTopologyTick\\r\\\n', '\\n:global fitiTopologyTick\\r\\\n\\n:global fitiInventory\\r\\\n', 'poller globals');
+  out = replaceOnce(out, '\\n  :local fitiHealth \\"ready\\"\\r\\\n',
+    '\\n  :if ([:len \\$fitiInventory] > 0) do={ :set report (\\$report . \\$fitiInventory); :set fitiInventory \\"\\" }\\r\\\n\\n  :local fitiHealth \\"ready\\"\\r\\\n', 'poller inventory');
+  out = replaceOnce(out, '\n:put ""\n:put "Business router paired. Polling is active (2s)."\n', [
+    '',
+    '# --- Router layout report (read-only) --------------------------------',
+    '/system script remove [find name="fiti-inventory"]',
+    '/system script add name=fiti-inventory policy=read,test ' + routerScriptSource(inventoryScriptLines()),
+    '/system scheduler remove [find name="fiti-inventory"]',
+    ':local fitiInventoryStartDate [/system clock get date]',
+    ':local fitiInventoryStartTime [/system clock get time]',
+    '/system scheduler add name=fiti-inventory start-date=$fitiInventoryStartDate start-time=$fitiInventoryStartTime interval=30s disabled=no \\',
+    '  policy=read,test on-event="/system script run fiti-inventory" \\',
+    '  comment="Wi-Fi Fiti: report router layout (read-only)"',
+    ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }',
+    '',
+    ':put ""',
+    ':if ([:len $fitiHotspotServer] = 0) do={ :put "Router paired with the universal kit. Nothing on your network was changed. Map it in the Wi-Fi Fiti dashboard." }',
+    ':put "Business router paired. Polling is active (2s)."',
+    '',
+  ].join('\n'), 'closing');
+  return out;
+}
+
+module.exports = { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptLines, UNIVERSAL_INSTALLER };

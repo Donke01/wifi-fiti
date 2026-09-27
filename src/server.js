@@ -12,12 +12,12 @@ const tuma = require('./lib/tuma');
 const mpesa = require('./lib/mpesa');
 const mikrotik = require('./lib/mikrotik');
 const { fulfil } = require('./lib/fulfil');
-const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup } = require('./lib/router-setup');
-const { parseRouterTopology } = require('./lib/router-topology');
+const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup, buildUniversalRouterKit } = require('./lib/router-setup');
+const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topology');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
-const { compatibilityRouterKit, telemetryTestRouterKit, vlanTestRouterKit, vlanOverlayRouterKit } = require('./lib/router-kit');
+const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
@@ -453,6 +453,18 @@ app.get('/tenant-router-install-telemetry-test.rsc', (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.type('text/plain').send(telemetryTestRouterKit(source));
   } catch (_) { res.status(404).type('text/plain').send('# telemetry test installer unavailable\n'); }
+});
+// Universal kit installer (test slot): the stable installer, transformed to
+// pair a router without changing its network. Only the universal kit uses it.
+app.get('/tenant-router-install-universal.rsc', (req, res) => {
+  try {
+    const source = fs.readFileSync(path.join(publicDirectory, 'tenant-router-install.rsc'), 'utf8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('text/plain').send(universalInstaller(source));
+  } catch (error) {
+    console.error('[router] universal installer unavailable:', error.message);
+    res.status(404).type('text/plain').send('# universal installer unavailable\n');
+  }
 });
 // Clean dashboard alias. Keep business.html available for existing bookmarks
 // and for older integrations that still use the filename.
@@ -1703,7 +1715,9 @@ app.get('/api/business/locations/:locationId/router-topology', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const result = tenant.routerTopologyForBusiness({ locationId: String(req.params.locationId), businessId: business.id });
   if (!result) return res.status(404).json({ error: 'Location not found.' });
-  res.json(result);
+  // The universal kit's fuller layout report (every interface and what it is
+  // used for) rides alongside the stable map data.
+  res.json({ ...result, layout: tenant.routerInventoryForLocation(String(req.params.locationId)) });
 });
 
 // Confirmation stores descriptive dashboard metadata only. The tenant layer
@@ -4371,14 +4385,13 @@ app.get('/api/router/v1/bootstrap', (req, res) => {
       // telemetry endpoint, which transforms the same stable source.
       script = script.replace(/tenant-router-install\.rsc/g, 'tenant-router-install-telemetry-test.rsc');
     }
-    // Fourth, standalone kit: exact stable source plus disabled VLAN test
-    // interfaces. It never changes the production kit or enables filtering.
-    // An optional base ID stages four consecutive IDs for a planned overlay;
-    // omitted IDs preserve the original 10/20/30/40 test layout.
-    if (String(req.query.vlan || '') === '1' || String(req.query.mode || '') === 'vlan') {
-      const requestedBaseId = String(req.query.vlan_id || '').trim();
-      const baseId = requestedBaseId === '' ? undefined : Number(requestedBaseId);
-      script = vlanTestRouterKit(script, { baseId });
+    // Fourth kit slot: the universal kit (test). It pairs a router in any
+    // state without changing its network, so an owner's VLANs, PPPoE and
+    // other interfaces keep working; the owner then maps where customers
+    // connect. It is only issued while a fresh one-time kit exists.
+    if (String(req.query.vlan || '') === '1' || String(req.query.mode || '') === 'universal') {
+      script = buildUniversalRouterKit({ location, token: req.get('X-WiFi-Fiti-Router'),
+        appUrl: config.domains.appUrl, portalUrl: portalUrlForLocation(location) });
     }
     // Explicit core-router overlay kit. It is never returned by the existing
     // VLAN TEST button: callers must request mode=overlay, provide a bridge
@@ -4558,24 +4571,32 @@ function tenantRouterScript(location, { reportedPortalAppliedHost, reportedPorta
     return { script: '', emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
   tenant.queueExpiredSubscriptions(location.id);
-  const jobs = tenant.pendingJobs.all(location.id);
+  // A universal-kit router paired before it had a Hotspot is "awaiting map":
+  // Hotspot users, the portal page, mapped deployments and PPPoE all wait
+  // until the owner maps where customers connect. Nothing is sent that
+  // assumes a Hotspot or bridge the router does not have.
+  const awaitingMap = location.router_kit === 'universal' && String(location.router_setup_health || '') === 'awaiting-map';
+  const jobs = awaitingMap ? [] : tenant.pendingJobs.all(location.id);
   const controls = tenant.pendingRemoteSupportControls.all(location.id);
   // A mapped deployment deliberately waits behind any WireGuard lifecycle
   // work. Both use the existing support-ack global, and remote cleanup or
   // re-enrollment must never race a map-bound service selector update.
-  const deployment = controls.length ? null : tenant.pendingMappedDeploymentForRouter(location);
-  const portal = routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost });
+  const deployment = controls.length || awaitingMap ? null : tenant.pendingMappedDeploymentForRouter(location);
+  const portal = awaitingMap ? '' : routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost });
   // PPPoE provisioning rides the same authenticated outbound poll as hotspot
   // work. This keeps one durable router channel, with the PPPoE module
   // marking jobs delivered only when the script is actually emitted.
-  const pppoeScript = pppoe.scriptForLocation(location.id);
+  const pppoeScript = awaitingMap ? '' : pppoe.scriptForLocation(location.id);
   // Keep remote-support responses narrowly scoped: the cleanup/activation
   // tests (and, more importantly, operators) must be able to see that a
   // support control cannot touch the customer poller. The tuning command is
   // retried on the next ordinary sync once the control is acknowledged.
   const fastPoll = Boolean(jobs.length || deployment || portal);
   const pollTuning = controls.length ? '' : tenantPollTuningScript(fastPoll ? 1 : 5);
-  const openWifi = controls.length ? '' : tenantOpenWifiScript(location);
+  // Opening a Wi-Fi (removing its password) is only for the stable kit, which
+  // built that Wi-Fi for customers. A universal-kit router's Wi-Fi may be the
+  // owner's private network, so it is never touched here.
+  const openWifi = controls.length || location.router_kit === 'universal' ? '' : tenantOpenWifiScript(location);
   if (!jobs.length && !controls.length && !deployment) {
     return { script: [pollTuning, openWifi, portal, pppoeScript].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
@@ -4670,6 +4691,16 @@ function ingestTenantUsage(location, rawBody) {
  * succeeding. The parser accepts only the narrow non-secret grammar in
  * router-topology.js and tenant storage hashes its canonical result.
  */
+function ingestTenantInventory(location, rawBody) {
+  try {
+    const inventory = parseRouterInventory(typeof rawBody === 'string' ? rawBody : '');
+    return inventory ? tenant.recordRouterInventory(location.id, inventory) : null;
+  } catch (_) {
+    // Same rule as the topology report: never echo router input; ignore a bad report.
+    return null;
+  }
+}
+
 function ingestTenantTopology(location, rawBody) {
   try {
     const report = parseRouterTopology(typeof rawBody === 'string' ? rawBody : '');
@@ -4763,10 +4794,15 @@ app.post('/api/router/sync', (req, res) => {
   const location = tenantRouterForRequest(req, res);
   if (location === false) return;
   if (location) {
+    // The universal kit announces itself so its router is paired without a
+    // Hotspot and never receives work that assumes one.
+    const kit = String(req.query.kit || '') === 'universal' ? 'universal' : null;
+    if (kit) { tenant.setRouterKit(location.id, kit); location.router_kit = kit; }
     const receipt = tenant.processRouterSetupReceipt(location, {
       protocol: req.query.protocol,
       ack: req.query.setupAck,
       health: req.query.health,
+      kit,
     });
     if (!receipt.verified) {
       // The response is deliberately receipt-only. Do not accept usage,
@@ -4805,6 +4841,7 @@ app.post('/api/router/sync', (req, res) => {
     // receipt. A router that changed ports since the action was issued is
     // therefore marked stale instead of being recorded as deployed.
     ingestTenantTopology(readyLocation, req.body);
+    ingestTenantInventory(readyLocation, req.body);
     ingestTenantTelemetry(readyLocation, req.query);
     ingestTenantDevices(readyLocation, req.query);
     acknowledgeTenantRouterJobs(readyLocation, req.query.ack);

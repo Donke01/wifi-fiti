@@ -938,8 +938,58 @@ function buildRouterSetup({ location, token, appUrl, portalUrl, input }) {
   return { config, script, summary: setupSummary(config), warnings };
 }
 
+/*
+ * Universal kit (test slot). One kit for a router in any state: a freshly
+ * reset router that only has internet from the DHCP preparation step, or a
+ * router already running VLANs, PPPoE (including PPPoE internet over a VLAN),
+ * a TV network or its own Hotspot. It PAIRS ONLY: it changes no interface,
+ * bridge, VLAN, address, DHCP, PPPoE or firewall setting. A router that
+ * already has exactly one Hotspot is adopted as it is (like the existing-
+ * router kit); otherwise the router waits for the owner to map it.
+ *
+ * It reuses the stable kit's pairing, receipt and trust-store steps, and
+ * pulls the universal installer instead of the stable one.
+ */
+function universalPreviewLines() {
+  return [
+    // Read-only summary for the person pasting the kit. Nothing is changed.
+    ':local fitiUWan ""',
+    ':local fitiUWanKind "not detected"',
+    ':do { :foreach p in=[/interface pppoe-client find where running=yes] do={ :if ($fitiUWan = "") do={ :set fitiUWan [/interface pppoe-client get $p name]; :set fitiUWanKind "PPPoE" } } } on-error={}',
+    ':if ($fitiUWan = "") do={ :do { :foreach c in=[/ip dhcp-client find where status=bound] do={ :if ($fitiUWan = "") do={ :set fitiUWan [/ip dhcp-client get $c interface]; :set fitiUWanKind "DHCP" } } } on-error={} }',
+    ':if ($fitiUWan = "") do={ :do { :foreach r in=[/ip route find where dst-address=0.0.0.0/0 and active=yes] do={ :if ($fitiUWan = "") do={ :local g [:tostr [/ip route get $r immediate-gw]]; :local pc [:find $g "%"]; :if ([:typeof $pc] != "nil") do={ :set fitiUWan [:pick $g ($pc + 1) [:len $g]]; :set fitiUWanKind "static route" } } } } on-error={} }',
+    ':local fitiUVlans 0; :do { :set fitiUVlans [:len [/interface vlan find]] } on-error={}',
+    ':local fitiUBridges 0; :do { :set fitiUBridges [:len [/interface bridge find]] } on-error={}',
+    ':local fitiUHotspots 0; :do { :set fitiUHotspots [:len [/ip hotspot find]] } on-error={}',
+    ':local fitiUPppoe 0; :do { :set fitiUPppoe [:len [/interface pppoe-server server find]] } on-error={}',
+    ':put "Wi-Fi Fiti universal kit: pairing only. Your interfaces, VLANs, PPPoE, DHCP and firewall are not changed."',
+    ':if ($fitiUWan = "") do={ :put "No internet connection detected yet. On a reset router, run the DHCP preparation step first. Pairing will keep retrying every 15 seconds." } else={ :put ("Internet: " . $fitiUWan . " (" . $fitiUWanKind . ")") }',
+    ':put ("Found: " . $fitiUVlans . " VLAN(s), " . $fitiUBridges . " bridge(s), " . $fitiUPppoe . " PPPoE server(s), " . $fitiUHotspots . " Hotspot(s)")',
+    ':if ($fitiUHotspots = 1) do={ :put "Your existing Hotspot will be used as it is." }',
+    ':if ($fitiUHotspots != 1) do={ :put "After pairing, open the Wi-Fi Fiti dashboard to map where customers connect." }',
+  ];
+}
+
+function buildUniversalRouterKit({ location, token, appUrl, portalUrl }) {
+  const safeLocation = { ...location, id: identifier(location && location.id, 'location ID') };
+  const safeToken = identifier(token, 'router pairing token');
+  // Empty names: the router is not assumed to have `hotspot1` or `bridge-hs`.
+  const config = { customerBridge: '', hotspotServer: '' };
+  const script = wrapRouterScript([
+    '# Wi-Fi Fiti — UNIVERSAL KIT (TEST)',
+    '# Pairs this router as it is. It never creates or changes interfaces, bridges,',
+    '# VLANs, addresses, DHCP, PPPoE or firewall rules.',
+    ...deviceModePreflightLines(),
+    ...universalPreviewLines(),
+    ...setupPrefix({ location: safeLocation, token: safeToken, appUrl, portalUrl, config }),
+    ...pairingSuffix({ appUrl, portalUrl, location: safeLocation, token: safeToken, config, preserveDetected: true }),
+  ]);
+  return script.replace(/\/tenant-router-install\.rsc/g, '/tenant-router-install-universal.rsc');
+}
+
 module.exports = {
   MODEL_PROFILES,
+  buildUniversalRouterKit,
   validateRouterSetup,
   buildExistingRouterBootstrap,
   buildExistingRouterKit,
