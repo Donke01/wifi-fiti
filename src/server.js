@@ -777,24 +777,15 @@ function locationDraftInput(body, { routerNameRequired = false } = {}) {
   return { location, routerName: routerName || null };
 }
 
-// Routers are unlimited for anyone paying for a service (priced per user, not
-// per router) or on a legacy paid plan. Everyone else, on the trial or with
-// a lapsed trial and no plan, gets one router (and so one VPN peer).
-function routersUnlimited(business) {
-  if (serviceBilling.routerLimitLifted(business)) return true;
-  const s = serviceBilling.summary(business);
-  if (s.pppoe && (s.pppoe.status === 'active' || s.pppoe.status === 'grace')) return true;
-  const raw = String(business.billing_expires_at || '');
-  const expires = Date.parse(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z');
-  return String(business.billing_status || '').toLowerCase() === 'active' && Number.isFinite(expires) && expires > Date.now();
-}
-
 function canAddLocation(business, res) {
   const plan = businessPlanEntitlements(business);
-  if (routersUnlimited(business)) return true;
+  // Paid hotspot capacity is priced per concurrent customer, not per router.
+  // Only the free trial is limited to one router (Don's rule); a lapsed trial
+  // with no plan cannot sell, so its extra routers earn it nothing.
+  if (serviceBilling.routerLimitLifted(business)) return true;
   const existing = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
-  if (existing.length >= (plan.routerLimit || 1)) {
+  if (plan.routerLimit && existing.length >= plan.routerLimit) {
     res.status(402).json({
       error: 'Your free trial includes one router. After the trial, or as soon as you pay for hotspot capacity in Billing & payments, you can add as many routers as you need.',
     });

@@ -39,7 +39,7 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   const fourth = await call('/api/business/packages',{name:'Four hours',price:3,hours:4},token);
   assert.strictEqual(fourth.status,400); assert.strictEqual(fourth.body.trialLimit,'count');
   const me = await fetch(`http://127.0.0.1:${PORT}/api/business/me`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
-  assert.deepStrictEqual(me.trialLimits, { maxPackagePriceKes: 3, maxPackages: 3, maxVouchers: 5, maxPppoeUsers: 2 });
+  assert.deepStrictEqual(me.trialLimits, { maxPackagePriceKes: 3, maxPackages: 3, maxPackageHours: 24, maxVouchers: 5, maxPppoeUsers: 2, maxHotspotUsers: 10 });
   const plan = await call('/api/business/billing-plan',{plan:'growth',collectionMode:'fiti'},token);
   assert.strictEqual(plan.status,200); assert.strictEqual(plan.body.checkoutRequired,false); assert.strictEqual(plan.body.trial,true);
   assert.strictEqual(plan.body.plan.routerLimit,1);
