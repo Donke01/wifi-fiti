@@ -578,6 +578,9 @@ for (const statement of [
   `ALTER TABLE tenant_transactions ADD COLUMN provisioning_job_id INTEGER`,
   `ALTER TABLE tenant_transactions ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'fiti'`,
   `ALTER TABLE tenant_transactions ADD COLUMN platform_fee INTEGER NOT NULL DEFAULT 0`,
+  // Why a paid payment could not be switched on (e.g. the device already has
+  // another number's live package). Set once so reconcile stops retrying.
+  `ALTER TABLE tenant_transactions ADD COLUMN provision_error TEXT`,
   `ALTER TABLE tenant_transactions ADD COLUMN platform_fee_minor INTEGER`,
   `ALTER TABLE tenant_transactions ADD COLUMN portal_token_hash TEXT`,
   `ALTER TABLE tenant_transactions ADD COLUMN portal_token_expires_at TEXT`,
@@ -1442,8 +1445,10 @@ const staleTransactions = db.prepare(`
 `);
 const paidUnprovisioned = db.prepare(`
   SELECT * FROM tenant_transactions WHERE status='paid' AND provisioned=0
-    AND created_at > datetime('now', '-24 hours')
+    AND provision_error IS NULL AND created_at > datetime('now', '-24 hours')
 `);
+const setProvisionError = db.prepare(`UPDATE tenant_transactions SET provision_error=?, updated_at=datetime('now') WHERE checkout_request_id=?`);
+const clearProvisionError = db.prepare(`UPDATE tenant_transactions SET provision_error=NULL WHERE checkout_request_id=? AND provision_error IS NOT NULL`);
 
 const subscriptionByMac = db.prepare(`SELECT * FROM tenant_subscriptions WHERE location_id=? AND mac=?`);
 const subscriptionsForPayer = db.prepare(`
@@ -3755,13 +3760,40 @@ function usernameFor({ locationId, payerPhone, mac }) {
   return `${payerPhone}-${crypto.createHash('sha256').update(locationId + mac).digest('hex').slice(0, 8).toUpperCase()}`;
 }
 
+function subscriptionLive(subscription) {
+  const expiry = Date.parse(String(subscription.expires_at || '').replace(' ', 'T') + 'Z');
+  return Number.isFinite(expiry) && expiry > Date.now();
+}
+function deviceTakenError() {
+  const error = new Error('This MAC address is already assigned to another device package.');
+  error.code = 'device_taken';
+  return error;
+}
+// Keep the ended package's history (receipts, grants) but free the device:
+// its MAC becomes a placeholder and its browser sessions and linked TVs go.
+function releaseEndedSubscription(subscription) {
+  // The router username is renamed too: the same payer switching the device
+  // between phone and TV packages would otherwise reuse it.
+  db.prepare(`UPDATE tenant_subscriptions SET mac=?, router_username=?, is_active=0, updated_at=datetime('now') WHERE id=? AND location_id=?`)
+    .run(`RELEASED:${subscription.id}`.slice(0, 64), `${subscription.router_username}~${subscription.id.slice(-6)}`,
+      subscription.id, subscription.location_id);
+  if (db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenant_browser_sessions'`).get()) {
+    db.prepare('DELETE FROM tenant_browser_sessions WHERE subscription_id=?').run(subscription.id);
+  }
+}
+
 function grantSubscription({ transaction, profile = 'standard' }) {
   const deviceType = purchaseDeviceType(transaction.device_type);
   const targetMac = deviceType === 'tv' ? normaliseTvMac(transaction.mac) : transaction.mac;
   if (!deviceType || (deviceType === 'tv' && !targetMac)) throw new Error('TV access requires a valid TV MAC address.');
   const existingBinding = subscriptionByMac.get(transaction.location_id, targetMac);
   if (existingBinding && ((existingBinding.device_type || 'phone') !== deviceType || existingBinding.payer_phone !== transaction.phone)) {
-    throw new Error('This MAC address is already assigned to another device package.');
+    // The device last had a package from another number (a shared or
+    // second-hand phone) or of another kind. Once that package has ended it
+    // no longer owns the device: release it and start a fresh package.
+    // While it is still running the device genuinely belongs to it.
+    if (subscriptionLive(existingBinding)) throw deviceTakenError();
+    releaseEndedSubscription(existingBinding);
   }
   if (deviceByMac.get(transaction.location_id, targetMac)) throw new Error('Remove the existing linked TV before buying a separate package.');
   const existing = subscriptionByMac.get(transaction.location_id, transaction.mac);
@@ -4121,7 +4153,7 @@ function deletePackageForOwner(packageId, businessId) {
 }
 
 module.exports = {
-  deletePackageForOwner, bindPayBillPayment,
+  deletePackageForOwner, bindPayBillPayment, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,

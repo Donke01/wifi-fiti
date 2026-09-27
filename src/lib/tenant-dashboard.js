@@ -9,6 +9,7 @@ function attachTenantDashboardRoutes(app, { businessAuth, db }) {
     `SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1`
   ).get(name));
   const number = value => Number(value || 0);
+  const hasProvisionError = db.prepare(`PRAGMA table_info(tenant_transactions)`).all().some(column => column.name === 'provision_error');
   const sqlDate = ms => new Date(ms).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
 
   app.get('/api/business/tenant-dashboard', (req, res) => {
@@ -40,7 +41,7 @@ function attachTenantDashboardRoutes(app, { businessAuth, db }) {
     const transactionRows = db.prepare(`
       SELECT t.checkout_request_id, t.location_id, l.name AS location_name, t.phone,
              t.mac, t.package_name, t.amount, t.status, t.payment_source,
-             t.mpesa_receipt, t.result_desc, t.created_at, t.updated_at
+             t.mpesa_receipt, t.result_desc, t.created_at, t.updated_at${hasProvisionError ? ', t.provisioned, t.provision_error' : ''}
         FROM tenant_transactions t JOIN locations l ON l.id=t.location_id
        WHERE t.business_id=? AND t.created_at>=? AND t.location_id IN (${placeholders})
        ORDER BY t.created_at DESC LIMIT 2000

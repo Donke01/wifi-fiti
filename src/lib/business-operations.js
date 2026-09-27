@@ -184,7 +184,15 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
       WHERE checkout_request_id=? AND business_id=? AND status='paid'`).get(req.params.checkoutRequestId, business.id);
     if (!transaction) throw fail('Confirmed customer payment not found.', 404);
     if (typeof provisionTenantPayment !== 'function') throw fail('Payment recovery is temporarily unavailable.', 503);
-    const provisioned = provisionTenantPayment(transaction.checkout_request_id) || transaction;
+    // The owner is retrying on purpose, e.g. after the other package ended.
+    db.prepare('UPDATE tenant_transactions SET provision_error=NULL WHERE checkout_request_id=?').run(transaction.checkout_request_id);
+    let provisioned;
+    try { provisioned = provisionTenantPayment(transaction.checkout_request_id) || transaction; }
+    catch (error) {
+      if (error.code !== 'device_taken') throw error;
+      db.prepare('UPDATE tenant_transactions SET provision_error=? WHERE checkout_request_id=?').run(error.message, transaction.checkout_request_id);
+      throw fail('This device still has a live package bought with another number, so this payment cannot be switched on yet. Refund the customer, or retry when that package ends.', 409);
+    }
     const current = db.prepare('SELECT * FROM tenant_transactions WHERE checkout_request_id=?').get(transaction.checkout_request_id);
     const subscription = current && current.subscription_id
       ? db.prepare('SELECT * FROM tenant_subscriptions WHERE id=? AND business_id=?').get(current.subscription_id, business.id)

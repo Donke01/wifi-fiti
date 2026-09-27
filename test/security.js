@@ -351,6 +351,36 @@ async function test(name, fn) {
     assert.match(second.body.error, /Choose a plan/);
   });
 
+  console.log('\nDevice already used by another number');
+  const paidTx = (id, phone, mac) => {
+    tenantLib.insertTransaction.run({ checkoutRequestId: id, merchantRequestId: `m-${id}`, businessId: 'biz', locationId: 'loc', phone,
+      packageId: 1, packageName: 'Day pass', amount: 20, seconds: 86400, rateLimit: null, mac, ip: null });
+    tenantLib.setTransactionResult.run({ checkoutRequestId: id, status: 'paid', resultCode: 0, resultDesc: 'ok', receipt: `R${id}`.slice(0, 20) });
+  };
+  await test('an ended package from another number no longer blocks a new purchase', async () => {
+    database.prepare(`INSERT INTO tenant_subscriptions (id,business_id,location_id,router_username,payer_phone,mac,password,total_seconds,expires_at)
+      VALUES ('sub-old','biz','loc','254700000001-OLD','254700000001','AA:BB:CC:99:00:01','OLDPW1',3600,datetime('now','-1 day'))`).run();
+    paidTx('ws_CO_TAKEOVER', '254700000002', 'AA:BB:CC:99:00:01');
+    const granted = tenantLib.provisionPaidTransaction('ws_CO_TAKEOVER');
+    assert.notEqual(granted.id, 'sub-old');
+    assert.notEqual(granted.password, 'OLDPW1', 'the new owner never gets the old password');
+    const old = database.prepare("SELECT mac FROM tenant_subscriptions WHERE id='sub-old'").get();
+    assert.match(old.mac, /^RELEASED:/);
+  });
+  await test('a live package from another number is refused before any charge', async () => {
+    database.prepare(`INSERT INTO tenant_subscriptions (id,business_id,location_id,router_username,payer_phone,mac,password,total_seconds,expires_at)
+      VALUES ('sub-live','biz','loc','254700000003-LIVE','254700000003','AA:BB:CC:99:00:02','LIVEPW',3600,datetime('now','+1 day'))`).run();
+    const response = await call('POST', '/api/tenant/loc/pay', { packageId: 1, phone: '0700000004', mac: 'AA:BB:CC:99:00:02' });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.code, 'device_taken');
+  });
+  await test('a paid payment for a taken device is recorded once, not retried forever', async () => {
+    paidTx('ws_CO_TAKEN', '254700000005', 'AA:BB:CC:99:00:02');
+    assert.throws(() => tenantLib.provisionPaidTransaction('ws_CO_TAKEN'), (error) => error.code === 'device_taken');
+    tenantLib.setProvisionError.run('taken', 'ws_CO_TAKEN');
+    assert.ok(!tenantLib.paidUnprovisioned.all().some((row) => row.checkout_request_id === 'ws_CO_TAKEN'));
+  });
+
   console.log('\nLegacy portal');
   await test('legacy credentials by MAC only reach the site\'s own connection', async () => {
     database.prepare(`INSERT INTO accounts (phone, total_seconds, password) VALUES ('254733000077', 3600, 'LEG123')`).run();

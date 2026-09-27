@@ -2368,7 +2368,15 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
     transaction = tenant.getTransaction.get(transaction.checkout_request_id);
   }
   try {
-    if (!transaction.provisioned) provisionTenantPayment(transaction.checkout_request_id);
+    if (!transaction.provisioned) {
+      tenant.clearProvisionError.run(transaction.checkout_request_id);
+      try { provisionTenantPayment(transaction.checkout_request_id); }
+      catch (error) {
+        if (error.code !== 'device_taken') throw error;
+        tenant.setProvisionError.run(error.message, transaction.checkout_request_id);
+        return res.status(409).json({ code: 'device_taken', error: 'Your payment is safe, but this device still has a package bought with another number. Ask the WiFi operator to move your payment, or try again when that package ends.' });
+      }
+    }
     transaction = tenant.getTransaction.get(transaction.checkout_request_id);
     const subscription = tenant.subscriptionById.get(transaction.subscription_id, location.id);
     if (!subscription) return res.status(409).json({ error: 'The payment is confirmed but its package grant is incomplete. Try again shortly.' });
@@ -2424,6 +2432,14 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   const offlineClaim = !mac && deviceType === 'phone';
   if (offlineClaim) mac = `CLAIM:${crypto.randomBytes(12).toString('hex')}`;
   const existingSubscription = offlineClaim ? null : tenant.subscriptionByMac.get(location.id, mac);
+  // Never take money for a device that another number's live package owns:
+  // the payment could not be switched on.
+  if (existingSubscription && tenant.subscriptionLive(existingSubscription)
+      && (existingSubscription.payer_phone !== phone || (existingSubscription.device_type || 'phone') !== deviceType)) {
+    return res.status(409).json({ code: 'device_taken', error: deviceType === 'tv'
+      ? 'This TV already has a package bought with another number. Use that package until it ends.'
+      : 'This device already has a package bought with another number. Use that package, or check its time with that number.' });
+  }
   const capacityBlocked = hotspotCapacityBlock(location, Boolean(existingSubscription));
   if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
   const pendingPayment = tenant.pendingPaymentForPhone.get(location.id, phone);
@@ -3429,7 +3445,15 @@ async function reconcile() {
       provisionTenantPayment(tx.checkout_request_id);
       console.log(`[tenant reconcile] provisioned backlog for ${tx.phone}`);
     } catch (err) {
-      console.warn(`[tenant reconcile] provisioning still failing for ${tx.phone}:`, err.message);
+      // A device another number's live package owns will not free itself in
+      // 8 seconds. Record it once and stop retrying; the customer's "Already
+      // paid?" recovery tries again, and the owner sees it in the dashboard.
+      if (err.code === 'device_taken') {
+        tenant.setProvisionError.run(err.message, tx.checkout_request_id);
+        console.warn(`[tenant reconcile] ${tx.checkout_request_id} (${tx.phone}) paid but the device has another number's live package; needs the operator`);
+      } else {
+        console.warn(`[tenant reconcile] provisioning still failing for ${tx.phone}:`, err.message);
+      }
     }
   }
 
