@@ -4606,11 +4606,30 @@ function tenantRouterScript(location, options = {}) {
   const result = tenantRouterScriptCore(location, options);
   if (location.router_kit !== 'universal' || (result.supportEmitted && result.supportEmitted.length)) return result;
   const layout = tenant.routerInventoryForLocation(location.id);
-  if (!layout || (Number(layout.agent) || 1) >= INVENTORY_AGENT) return result;
-  const last = inventoryUpdateSentAt.get(location.id) || 0;
-  if (Date.now() - last < 10 * 60_000) return result;
-  inventoryUpdateSentAt.set(location.id, Date.now());
-  return { ...result, script: [result.script, inventoryScriptUpdate()].filter(Boolean).join('\n') };
+  if (!layout) return result;
+  if ((Number(layout.agent) || 1) < INVENTORY_AGENT) {
+    const last = inventoryUpdateSentAt.get(location.id) || 0;
+    if (Date.now() - last < 10 * 60_000) return result;
+    inventoryUpdateSentAt.set(location.id, Date.now());
+    return { ...result, script: [result.script, inventoryScriptUpdate()].filter(Boolean).join('\n') };
+  }
+  // The router's own 30-second timer should keep the layout report fresh,
+  // but on some routers it does not arrive. A report run from the poll reply
+  // always does, so ask for one whenever the stored report is getting old.
+  // The owner can only save a map against a report under 5 minutes old.
+  if (!inventoryAgeOver(layout.reportedAt, 90_000)) return result;
+  const lastAsk = inventoryRefreshAskedAt.get(location.id) || 0;
+  if (Date.now() - lastAsk < 60_000) return result;
+  inventoryRefreshAskedAt.set(location.id, Date.now());
+  return { ...result, script: [result.script, INVENTORY_REFRESH_LINE].filter(Boolean).join('\n') };
+}
+const inventoryRefreshAskedAt = new Map();
+const INVENTORY_REFRESH_LINE = ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }';
+function inventoryAgeOver(reportedAt, ageMs) {
+  let text = String(reportedAt || '').trim().replace(' ', 'T');
+  if (text && !/(?:Z|[+-]\d\d:\d\d)$/i.test(text)) text += 'Z';
+  const at = Date.parse(text);
+  return !Number.isFinite(at) || Date.now() - at > ageMs;
 }
 
 function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {

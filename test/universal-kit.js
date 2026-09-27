@@ -248,6 +248,17 @@ async function createBusiness(email, name) {
   assert.doesNotMatch(again.text, /name="fiti-inventory"\] source=/, 'the update is not resent on every poll');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM tenant_jobs WHERE location_id=? AND delivered_at IS NULL').get(location.id).n, 1, 'the held job is still queued');
 
+  // A current router whose own timer's reports stop arriving is asked for one.
+  const current = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|3']), contentType: 'text/plain' });
+  assert.doesNotMatch(current.text, /system script run fiti-inventory/, 'a fresh report needs no refresh');
+  db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now','-3 minutes') WHERE location_id=?`).run(location.id);
+  const stale = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
+  assert.match(stale.text, /:do \{ \/system script run fiti-inventory \} on-error=/, 'an old report is refreshed from the poll reply');
+  assert.doesNotMatch(stale.text, /name="fiti-inventory"\] source=/, 'without resending the script');
+  const soon = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
+  assert.doesNotMatch(soon.text, /system script run fiti-inventory/, 'at most once a minute');
+  await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|3']), contentType: 'text/plain' });
+
   // The owner sees the layout; another business cannot.
   const topologyEndpoint = `/api/business/locations/${site}/router-topology`;
   const view = await api(topologyEndpoint, { token: alpha });
