@@ -2265,7 +2265,16 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   }
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
   const deviceType = purchaseDeviceType(req.body && req.body.deviceType);
-  let mac = deviceType === 'tv' ? normaliseTvMac(req.body && req.body.mac) : cleanMac(req.body && req.body.mac);
+  let mac;
+  if (deviceType === 'tv' && String(req.body && req.body.mac || '').startsWith('dev:')) {
+    // A device picked from discovery: check the token and the typed suffix.
+    mac = macFromDeviceToken(location.id, req.body.mac);
+    if (!mac) return res.status(400).json({ error: 'That device list has expired. Tap Refresh and choose the device again.' });
+    const confirm = String(req.body && req.body.deviceConfirm || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+    if (confirm !== mac.replace(/:/g, '').slice(-4)) return res.status(400).json({ error: 'The last four MAC characters do not match the selected device.' });
+  } else {
+    mac = deviceType === 'tv' ? normaliseTvMac(req.body && req.body.mac) : cleanMac(req.body && req.body.mac);
+  }
   const deviceLabel = normaliseDeviceLabel(req.body && req.body.deviceLabel, deviceType);
   const ip = cleanIp(req.body && req.body.ip);
   if (!pkg || !phone || !deviceType || (deviceType === 'tv' && !mac)) return res.status(400).json({ error: 'Choose a package, enter a valid number, and select the device.' });
@@ -2384,14 +2393,19 @@ function publicTenantSubscription(locationId, subscription) {
   const device = tenant.deviceForSubscription.get(locationId, subscription.id);
   return {
     id: subscription.id,
-    mac: subscription.mac,
+    // Looked up by phone number alone, so never the full MAC.
+    mac: maskMac(subscription.mac),
     remainingSeconds,
     rateLimit: subscription.rate_limit || null,
     expiresAt: subscription.expires_at.replace(' ', 'T') + 'Z',
     deviceType: subscription.device_type || 'phone',
     deviceLabel: subscription.device_label || '',
-    device: device ? { mac: device.mac, label: device.label } : null,
+    device: device ? { mac: maskMac(device.mac), label: device.label } : null,
   };
+}
+function maskMac(value) {
+  const parts = String(value || '').split(':');
+  return parts.length === 6 ? `${parts[0]}:••:••:••:${parts[4]}:${parts[5]}` : (value ? 'Saved device' : null);
 }
 
 app.post('/api/tenant/:locationId/subscriptions/check', (req, res) => {
@@ -2478,21 +2492,30 @@ function deviceMac(value) {
 // receives masked identifiers and a short-lived confirmation token, never a
 // device's full MAC in the UI. Manual MAC entry remains the fallback for TVs
 // that use static addressing or do not advertise a lease.
+// Discovery hands out an encrypted, short-lived device token instead of the
+// MAC, and only the vendor part of the MAC. The customer proves the choice by
+// typing the MAC's last four characters, which the server checks at /pay.
+const DEVICE_TOKEN_TTL_MS = 15 * 60_000;
+function deviceTokenFor(locationId, mac) {
+  return 'dev:' + tenant.encryptSecret(JSON.stringify({ l: locationId, m: mac, e: Date.now() + DEVICE_TOKEN_TTL_MS }));
+}
+function macFromDeviceToken(locationId, token) {
+  try {
+    const value = JSON.parse(tenant.decryptSecret(String(token).slice(4)));
+    return value && value.l === locationId && value.e > Date.now() ? deviceMac(value.m) : null;
+  } catch (_) { return null; }
+}
 app.get('/api/tenant/:locationId/device-discovery', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const excluded = deviceMac(req.query.excludeMac);
   const devices = tenant.routerDevicesForLocation(location.id)
     .filter((device) => !excluded || device.mac !== excluded)
-    .map((device) => {
-      const parts = device.mac.split(':');
-      return {
-        id: device.mac,
-        label: device.hostname || 'Wi‑Fi device',
-        maskedMac: parts.slice(0, 3).join(':') + ':••:••:••',
-        suffix: parts.slice(-2).join('').toUpperCase(),
-        lastSeenAt: device.last_seen_at,
-      };
-    });
+    .map((device) => ({
+      id: deviceTokenFor(location.id, device.mac),
+      label: device.hostname || 'Wi‑Fi device',
+      maskedMac: device.mac.split(':').slice(0, 3).join(':') + ':••:••:••',
+      lastSeenAt: device.last_seen_at,
+    }));
   res.set('Cache-Control', 'no-store').json({ devices, refreshedAt: new Date().toISOString(), maxAgeSeconds: 300 });
 });
 
@@ -3337,14 +3360,17 @@ app.post('/api/session/lookup', (req, res) => {
 
   // `accountMac` is an explicit choice from the multi-device picker.
   // `mac` is the device currently viewing the captive portal.
+  const viewingMac = cleanMac(req.body && req.body.mac);
   const requestedMac = cleanMac(req.body && (req.body.accountMac || req.body.mac));
   let accountId = phone;
-  if (requestedMac) {
+  const active = db.activeAccountsForPayer.all(phone);
+  const picked = String(req.body && req.body.accountId || '');
+  if (picked && active.some((account) => account.phone === picked)) accountId = picked;
+  else if (requestedMac) {
     const bound = db.accountByMac.get(requestedMac);
     if (bound && (bound.payer_phone || bound.phone) === phone) accountId = bound.phone;
   }
   if (accountId === phone) {
-    const active = db.activeAccountsForPayer.all(phone);
     if (active.length === 1) accountId = active[0].phone;
     else if (active.length > 1) {
       return res.json({
@@ -3353,7 +3379,8 @@ app.post('/api/session/lookup', (req, res) => {
         devices: active
           .filter((account) => account.last_mac)
           .map((account) => ({
-            mac: account.last_mac,
+            id: account.phone,
+            mac: maskMac(account.last_mac),
             remainingSeconds: remainingFor(account.phone).remainingSeconds,
           })),
       });
@@ -3365,14 +3392,22 @@ app.post('/api/session/lookup', (req, res) => {
     return res.json({ found: false });
   }
 
+  // A phone number is not proof of ownership. Balance is fine to show, but
+  // the WiFi password goes only to the device the time belongs to, or to the
+  // first device that picks up a PayBill payment that has no device yet.
+  const account = db.getAccount.get(accountId);
+  let ownDevice = Boolean(viewingMac && account && account.last_mac === viewingMac);
+  if (!ownDevice && viewingMac && account && !account.last_mac && !db.accountByMac.get(viewingMac)) {
+    db.rememberMac.run({ phone: account.phone, mac: viewingMac });
+    ownDevice = true;
+  }
   res.json({
     found: true,
     phoneDisplay: mpesa.displayPhone(phone),
-    username: info.phone,
-    password: info.password,
     remainingSeconds: info.remainingSeconds,
     expiresAt: info.expiresAt,
     online: info.online,
+    ...(ownDevice ? { username: info.phone, password: info.password } : { otherDevice: true }),
   });
 });
 
@@ -3383,7 +3418,7 @@ app.post('/api/subscriptions/check', (req, res) => {
   const subscriptions = db.activeAccountsForPayer.all(phone)
     .map((account) => ({
       username: account.phone,
-      mac: account.last_mac,
+      mac: maskMac(account.last_mac),
       remainingSeconds: remainingFor(account.phone).remainingSeconds,
     }))
     .filter((account) => account.remainingSeconds > 0);
@@ -3430,18 +3465,14 @@ app.post('/api/subscriptions/transfer', (req, res) => {
 // one purchase can't quietly put a whole building online.
 const MAX_DEVICES_PER_ACCOUNT = 1; // paying phone + 1 added device = 2 total
 
+// Managing TVs needs the paying device itself: the portal's MAC must be
+// bound to an account paid for by this number. A phone number alone is not
+// proof of ownership.
 function deviceOwner(phone, ownerMac) {
   const mac = cleanMac(ownerMac);
-  if (mac) {
-    const account = db.accountByMac.get(mac);
-    if (account && (account.payer_phone || account.phone) === phone) return account.phone;
-  }
-  const active = db.activeAccountsForPayer.all(phone);
-  if (active.length === 1) return active[0].phone;
-  if (active.length > 1) return null;
-  const all = db.accountsForPayer.all(phone);
-  if (all.length === 1) return all[0].phone;
-  return all.length === 0 ? phone : null;
+  if (!mac) return null;
+  const account = db.accountByMac.get(mac);
+  return account && (account.payer_phone || account.phone) === phone ? account.phone : null;
 }
 
 app.post('/api/device/add', async (req, res) => {
@@ -3468,7 +3499,7 @@ app.post('/api/device/add', async (req, res) => {
   const owner = deviceOwner(phone, req.body && req.body.ownerMac);
   if (!owner) {
     return res.status(409).json({
-      error: 'This number has several devices. Open this page from the purchasing device.',
+      error: 'Open this page on the phone that paid, while it is connected to this WiFi.',
     });
   }
   const info = remainingFor(owner);

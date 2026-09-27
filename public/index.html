@@ -1118,20 +1118,20 @@
     checkDeviceBalance(phone, null);
   });
 
-  function checkDeviceBalance(phone, accountMac) {
+  function checkDeviceBalance(phone, accountId) {
     fetch('/api/session/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: phone, mac: MAC, accountMac: accountMac }) }).then(function (r) { return r.json(); })
+      body: JSON.stringify({ phone: phone, mac: MAC, accountId: accountId }) }).then(function (r) { return r.json(); })
       .then(function (s) {
         if (s.multiple && s.devices && s.devices.length) {
           $('k-devices').innerHTML = s.devices.map(function (d, i) {
-            return '<button class="drow" data-account-mac="' + esc(d.mac) + '">' +
+            return '<button class="drow" data-account-id="' + esc(d.id) + '">' +
               '<span><span class="dname">Device ' + (i + 1) + '</span><br>' +
               '<span class="dmac">' + esc(d.mac) + '</span></span>' +
               '<span class="dmac">' + humanTime(d.remainingSeconds) + '</span></button>';
           }).join('');
           $('k-device-wrap').hidden = false;
-          Array.prototype.forEach.call($('k-devices').querySelectorAll('[data-account-mac]'), function (btn) {
-            btn.onclick = function () { checkDeviceBalance(phone, btn.getAttribute('data-account-mac')); };
+          Array.prototype.forEach.call($('k-devices').querySelectorAll('[data-account-id]'), function (btn) {
+            btn.onclick = function () { checkDeviceBalance(phone, btn.getAttribute('data-account-id')); };
           });
           return;
         }
@@ -1139,7 +1139,11 @@
         $('k-device-wrap').hidden = true;
         $('active-line').textContent = 'Number ' + s.phoneDisplay + '. Tap to continue.';
         startCountdown(s.remainingSeconds, $('clock'), s.online, s.username, s.expiresAt);
-        $('reconnect').onclick = function () { signIn(s.username, s.password); };
+        $('reconnect').onclick = function () {
+          if (s.password) return signIn(s.username, s.password);
+          warn($('k-err'), 'This time belongs to another device. To use it here, choose Buy and move it with the WiFi password from your receipt.');
+          show('s-check');
+        };
         show('s-active');
       }).catch(function () { warn($('k-err'), 'Network problem.'); });
   }
@@ -1221,8 +1225,10 @@
       body: JSON.stringify({ phone: phone, mac: MAC }) }).then(function (r) { return r.json(); })
       .then(function (s) {
         $('pb-check').disabled = false; $('pb-check').textContent = "I've paid, check now";
-        if (s.found && s.remainingSeconds > 0) {
+        if (s.found && s.remainingSeconds > 0 && s.password) {
           succeed({ username: s.username, password: s.password, remainingSeconds: s.remainingSeconds });
+        } else if (s.found && s.remainingSeconds > 0) {
+          warn($('err'), 'This payment is already in use on another device. Use the WiFi password from your M-Pesa receipt to move it here.');
         } else {
           warn($('err'), 'No payment received yet. Wait a few seconds and try again.');
         }

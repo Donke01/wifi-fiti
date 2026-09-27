@@ -18,8 +18,11 @@ db.exec(`
   );
 `);
 const digest = (token) => crypto.createHash('sha256').update(String(token || '')).digest('hex');
+// A browser session lives only as long as the package it opens (plus a day
+// for a late receipt download), never longer than 35 days.
 const save = db.prepare(`INSERT INTO tenant_browser_sessions
-  (token_hash, location_id, subscription_id, mac, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+35 days'))`);
+  (token_hash, location_id, subscription_id, mac, expires_at)
+  VALUES (?, ?, ?, ?, MIN(datetime('now', '+35 days'), datetime(COALESCE(?, datetime('now')), '+1 day')))`);
 const lookup = db.prepare(`SELECT s.* FROM tenant_browser_sessions b
   JOIN tenant_subscriptions s ON s.id=b.subscription_id AND s.location_id=b.location_id AND s.mac=b.mac
   WHERE b.token_hash=? AND b.location_id=? AND b.expires_at>datetime('now')`);
@@ -32,7 +35,7 @@ const consume = db.prepare(`INSERT INTO request_limits (key, count, resets_at) V
 
 function issue(subscription) {
   const token = crypto.randomBytes(32).toString('base64url');
-  save.run(digest(token), subscription.location_id, subscription.id, subscription.mac);
+  save.run(digest(token), subscription.location_id, subscription.id, subscription.mac, subscription.expires_at || null);
   return token;
 }
 function authenticate(locationId, token, mac) {

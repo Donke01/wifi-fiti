@@ -14,6 +14,7 @@ process.env.SITE_ID = 'kitale-1';
 process.env.SITE_TOKEN = 'tok-features-123';
 process.env.ADMIN_TOKEN = 'admin-secret-xyz';
 process.env.DATABASE_PATH = '/tmp/feat-test.db';
+process.env.MPESA_C2B_CALLBACK_TOKEN = 'features-c2b-token-0123456789';
 
 for (const s of ['', '-wal', '-shm']) {
   try { fs.unlinkSync('/tmp/feat-test.db' + s); } catch {}
@@ -150,10 +151,14 @@ async function t(name, fn) {
     }
     const choices = await post('/api/session/lookup', { phone: '0744000001' });
     assert.strictEqual(choices.b.multiple, true);
-    assert.deepStrictEqual(choices.b.devices.map((d) => d.mac).sort(),
-      ['AA:BB:CC:00:00:01', 'AA:BB:CC:00:00:02']);
+    assert.deepStrictEqual(choices.b.devices.map((d) => d.id).sort(),
+      ['254744000001', '254744000001-A1B2C3D4']);
+    assert.ok(!JSON.stringify(choices.b).includes('AA:BB:CC:00:00:02'), 'full MACs are never listed by phone');
+    const picked = await post('/api/session/lookup', { phone: '0744000001', accountId: '254744000001-A1B2C3D4' });
+    assert.strictEqual(picked.b.found, true);
+    assert.strictEqual(picked.b.password, undefined, 'another device sees the balance, not the password');
     const selected = await post('/api/session/lookup', {
-      phone: '0744000001', accountMac: 'AA:BB:CC:00:00:02',
+      phone: '0744000001', mac: 'AA:BB:CC:00:00:02',
     });
     assert.strictEqual(selected.b.found, true);
     assert.strictEqual(selected.b.username, '254744000001-A1B2C3D4');
@@ -252,8 +257,8 @@ async function t(name, fn) {
   console.log('\nPaybill fallback');
 
   await t('credits a C2B payment to the account in BillRefNumber', async () => {
-    await post('/api/mpesa/c2b/confirmation', {
-      TransID: 'RGH12345', TransAmount: '50', BillRefNumber: '0766000005', MSISDN: '254766000005',
+    await post('/api/c2b/site/features-c2b-token-0123456789/confirm', {
+      BusinessShortCode: '174379', TransID: 'RGH12345', TransAmount: '50', BillRefNumber: '0766000005', MSISDN: '254766000005',
     });
     await new Promise((r) => setTimeout(r, 400));
     const s = await post('/api/session/lookup', { phone: '0766000005' });
@@ -263,8 +268,8 @@ async function t(name, fn) {
   });
 
   await t('picks the best package the amount covers, not the first', async () => {
-    await post('/api/mpesa/c2b/confirmation', {
-      TransID: 'RGH99999', TransAmount: '130', BillRefNumber: '0777000006',
+    await post('/api/c2b/site/features-c2b-token-0123456789/confirm', {
+      BusinessShortCode: '174379', TransID: 'RGH99999', TransAmount: '130', BillRefNumber: '0777000006',
     });
     await new Promise((r) => setTimeout(r, 400));
     const s = await post('/api/session/lookup', { phone: '0777000006' });
@@ -274,8 +279,8 @@ async function t(name, fn) {
   });
 
   await t('grants nothing when the amount is below every package', async () => {
-    await post('/api/mpesa/c2b/confirmation', {
-      TransID: 'RGH00001', TransAmount: '5', BillRefNumber: '0788000007',
+    await post('/api/c2b/site/features-c2b-token-0123456789/confirm', {
+      BusinessShortCode: '174379', TransID: 'RGH00001', TransAmount: '5', BillRefNumber: '0788000007',
     });
     await new Promise((r) => setTimeout(r, 300));
     const s = await post('/api/session/lookup', { phone: '0788000007' });

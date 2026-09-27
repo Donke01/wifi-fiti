@@ -32,6 +32,7 @@ global.fetch = async (url, options = {}) => {
   if (target.hostname === 'api.tuma.test' && target.pathname === '/auth/token') return Response.json({ success: true, token: 'jwt' });
   if (target.hostname === 'api.tuma.test' && target.pathname === '/payment/stk-push') return Response.json({ success: true, data: { checkout_request_id: `ws_CO_SEC_${++pushes}`, merchant_request_id: `m${pushes}` } });
   if (target.hostname === 'api.safaricom.co.ke' && target.pathname === '/oauth/v1/generate') return Response.json({ access_token: 'daraja', expires_in: 3599 });
+  if (target.hostname === 'api.safaricom.co.ke' && target.pathname === '/mpesa/stkpush/v1/processrequest') return Response.json({ ResponseCode: '0', CheckoutRequestID: `ws_CO_DAR_${++pushes}`, MerchantRequestID: `d${pushes}` });
   throw new Error(`unexpected request to ${target.href}`);
 };
 
@@ -178,6 +179,71 @@ async function test(name, fn) {
     await tuma({ checkout_request_id: 'ws_CO_TUMA_OK', merchant_request_id: 'm-ws_CO_TUMA_OK', status: 'completed', result_code: 0, amount: 20, mpesa_receipt_number: 'TUMARC003' });
     await settle();
     assert.equal(status('ws_CO_TUMA_OK'), 'paid');
+  });
+
+  console.log('\nMAC and password leaks');
+  await test('device discovery hides MACs behind short-lived tokens', async () => {
+    tenantLib.recordRouterDevices({ locationId: 'loc', encoded: 'AA:BB:CC:11:22:33~10.5.50.9~LivingRoomTV' });
+    const found = await call('GET', '/api/tenant/loc/device-discovery');
+    assert.equal(found.status, 200);
+    const text = JSON.stringify(found.body);
+    assert.doesNotMatch(text, /11:22:33|112233/, text);
+    const device = found.body.devices.find((item) => item.label === 'LivingRoomTV');
+    assert.match(device.id, /^dev:/);
+    database.prepare("UPDATE business_payment_integrations SET provider='fiti' WHERE business_id='biz'").run();
+    database.prepare("UPDATE businesses SET collection_mode='fiti' WHERE id='biz'").run();
+    const wrong = await call('POST', '/api/tenant/loc/pay', { packageId: 1, phone: '0711000009', deviceType: 'tv', mac: device.id, deviceConfirm: '0000' });
+    assert.equal(wrong.status, 400);
+    const right = await call('POST', '/api/tenant/loc/pay', { packageId: 1, phone: '0711000009', deviceType: 'tv', mac: device.id, deviceConfirm: '2233' });
+    assert.equal(right.status, 200, JSON.stringify(right.body));
+    const row = database.prepare("SELECT mac FROM tenant_transactions WHERE phone='254711000009' ORDER BY rowid DESC").get();
+    assert.equal(row.mac, 'AA:BB:CC:11:22:33');
+    const other = await call('POST', '/api/tenant/other-location/pay', { packageId: 1, phone: '0711000009', deviceType: 'tv', mac: device.id, deviceConfirm: '2233' });
+    assert.equal(other.status, 404);
+  });
+  await test('looking up a phone number never returns full MACs', async () => {
+    database.prepare(`INSERT INTO tenant_subscriptions (id,business_id,location_id,router_username,payer_phone,mac,password,total_seconds,expires_at)
+      VALUES ('sub-leak','biz','loc','u-leak','254711000003','AA:BB:CC:44:55:66','PW1234',3600,datetime('now','+1 hour'))`).run();
+    for (const route of ['/api/tenant/loc/subscriptions/check', '/api/tenant/loc/devices/list']) {
+      const response = await call('POST', route, { phone: '0711000003' });
+      assert.equal(response.status, 200);
+      const text = JSON.stringify(response.body);
+      assert.ok(text.includes('sub-leak'), route);
+      assert.doesNotMatch(text, /AA:BB:CC:44|PW1234/, `${route}: ${text}`);
+    }
+  });
+  await test('a PayBill payment binds to the first device that recovers it', async () => {
+    const first = await call('POST', '/api/tenant/loc/payment-recover', { phone: '0711000001', receipt: 'REAL0002', mac: 'AA:BB:CC:77:77:77' });
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    assert.ok(first.body.password, 'the recovering device gets its credentials');
+    assert.equal(tx('REAL0002').mac, 'AA:BB:CC:77:77:77');
+  });
+  await test('phone + receipt from another device re-sends but reveals nothing', async () => {
+    const other = await call('POST', '/api/tenant/loc/payment-recover', { phone: '0711000001', receipt: 'REAL0002', mac: 'AA:BB:CC:88:88:88' });
+    assert.equal(other.status, 409);
+    assert.equal(other.body.code, 'other_device');
+    assert.equal(other.body.password, undefined);
+    assert.equal(other.body.sessionToken, undefined);
+  });
+  await test('legacy lookup by phone gives the password only to the device that owns the time', async () => {
+    await call('POST', `/api/c2b/site/${SITE_C2B_TOKEN}/confirm`, { TransID: 'SITE003', TransAmount: '50', BusinessShortCode: '174379', BillRefNumber: '0722000010' });
+    await settle(); await settle();
+    const bare = await call('POST', '/api/session/lookup', { phone: '0722000010' });
+    assert.equal(bare.body.found, true);
+    assert.equal(bare.body.password, undefined, 'no device, no password');
+    const mine = await call('POST', '/api/session/lookup', { phone: '0722000010', mac: 'AA:BB:CC:00:10:01' });
+    assert.ok(mine.body.password, 'first device picks up the PayBill time');
+    const theirs = await call('POST', '/api/session/lookup', { phone: '0722000010', mac: 'AA:BB:CC:00:10:02' });
+    assert.equal(theirs.body.found, true);
+    assert.equal(theirs.body.password, undefined);
+    const check = await call('POST', '/api/subscriptions/check', { phone: '0722000010' });
+    assert.doesNotMatch(JSON.stringify(check.body), /AA:BB:CC:00:10:01/);
+  });
+  await test('legacy TV add needs the paying device, not just the number', async () => {
+    const byPhone = await call('POST', '/api/device/add', { phone: '0722000010', mac: 'AA:BB:CC:00:10:09' });
+    assert.equal(byPhone.status, 409);
+    const fromOwner = await call('POST', '/api/device/add', { phone: '0722000010', mac: 'AA:BB:CC:00:10:09', ownerMac: 'AA:BB:CC:00:10:01' });
+    assert.equal(fromOwner.status, 200, JSON.stringify(fromOwner.body));
   });
 
   // @@MORE@@

@@ -45,21 +45,28 @@ async function t(name, fn) {
 
   // give an owner some time
   db.upsertAccount.run({ phone: '254712000001', totalSeconds: 86400, password: 'ABC234' });
+  // Managing TVs needs the paying phone itself, identified by its portal MAC.
+  db.rememberMac.run({ phone: '254712000001', mac: '11:22:33:44:55:01' });
 
   console.log('\nConnect your TV');
 
+  await t('refuses a TV from a phone number alone', async () => {
+    const r = await post('/api/device/add', { phone: '0712000001', mac: 'AABBCCDDEE77' });
+    assert.strictEqual(r.s, 409);
+  });
+
   await t('refuses a device when the number has no time', async () => {
     const r = await post('/api/device/add', { phone: '0799000000', mac: 'AABBCCDDEEFF' });
-    assert.strictEqual(r.s, 402);
+    assert.strictEqual(r.s, 409, 'a number with no paying device here cannot add a TV');
   });
 
   await t('rejects an incomplete MAC', async () => {
-    const r = await post('/api/device/add', { phone: '0712000001', mac: 'AABBCC' });
+    const r = await post('/api/device/add', { phone: '0712000001', ownerMac: '11:22:33:44:55:01', mac: 'AABBCC' });
     assert.strictEqual(r.s, 400);
   });
 
   await t('accepts a MAC with no separators', async () => {
-    const r = await post('/api/device/add', { phone: '0712000001', mac: 'AABBCCDDEE01', label: 'Samsung TV' });
+    const r = await post('/api/device/add', { phone: '0712000001', ownerMac: '11:22:33:44:55:01', mac: 'AABBCCDDEE01', label: 'Samsung TV' });
     assert.strictEqual(r.s, 200);
     assert.strictEqual(r.b.mac, 'AA:BB:CC:DD:EE:01');
   });
@@ -67,20 +74,20 @@ async function t(name, fn) {
   await t('rejects a second extra device but accepts hyphen format', async () => {
     // The first device already used the one extra slot, so this must fail
     // on the cap, not on formatting.
-    const r = await post('/api/device/add', { phone: '0712000001', mac: 'AA-BB-CC-DD-EE-02', label: 'Decoder' });
+    const r = await post('/api/device/add', { phone: '0712000001', ownerMac: '11:22:33:44:55:01', mac: 'AA-BB-CC-DD-EE-02', label: 'Decoder' });
     assert.strictEqual(r.s, 409, 'should hit the cap');
   });
 
   await t('re-adding the same device updates it rather than duplicating', async () => {
-    const r0 = await post('/api/device/add', { phone: '0712000001', mac: 'AABBCCDDEE01', label: 'Living room TV' });
+    const r0 = await post('/api/device/add', { phone: '0712000001', ownerMac: '11:22:33:44:55:01', mac: 'AABBCCDDEE01', label: 'Living room TV' });
     assert.strictEqual(r0.s, 200, 'updating an existing device must not hit the cap');
-    const r = await post('/api/device/list', { phone: '0712000001' });
+    const r = await post('/api/device/list', { phone: '0712000001', ownerMac: '11:22:33:44:55:01' });
     assert.strictEqual(r.b.devices.length, 1);
     assert.strictEqual(r.b.devices[0].label, 'Living room TV');
   });
 
   await t('allows only one extra device (phone counts as the second)', async () => {
-    const r = await post('/api/device/add', { phone: '0712000001', mac: 'AABBCCDDEE03' });
+    const r = await post('/api/device/add', { phone: '0712000001', ownerMac: '11:22:33:44:55:01', mac: 'AABBCCDDEE03' });
     assert.strictEqual(r.s, 409, 'second extra device should be rejected');
     assert.ok(/phone and one TV/.test(r.b.error), 'error should explain the limit: ' + r.b.error);
     assert.ok(r.b.atLimit, 'should flag atLimit so the portal can react');
@@ -88,7 +95,8 @@ async function t(name, fn) {
 
   await t('refuses to steal a device owned by another number', async () => {
     db.upsertAccount.run({ phone: '254733000009', totalSeconds: 3600, password: 'XYZ345' });
-    const r = await post('/api/device/add', { phone: '0733000009', mac: 'AABBCCDDEE01' });
+    db.rememberMac.run({ phone: '254733000009', mac: '11:22:33:44:55:09' });
+    const r = await post('/api/device/add', { phone: '0733000009', ownerMac: '11:22:33:44:55:09', mac: 'AABBCCDDEE01' });
     assert.strictEqual(r.s, 409);
   });
 
@@ -103,19 +111,19 @@ async function t(name, fn) {
   });
 
   await t('lists a customer devices', async () => {
-    const r = await post('/api/device/list', { phone: '0712000001' });
+    const r = await post('/api/device/list', { phone: '0712000001', ownerMac: '11:22:33:44:55:01' });
     assert.strictEqual(r.b.devices.length, 1);
     assert.strictEqual(r.b.max, 1);
   });
 
   await t('removing a device frees the slot again', async () => {
-    await post('/api/device/remove', { phone: '0712000001', mac: 'AA:BB:CC:DD:EE:01' });
+    await post('/api/device/remove', { phone: '0712000001', ownerMac: '11:22:33:44:55:01', mac: 'AA:BB:CC:DD:EE:01' });
     const revoke = db.pendingJobs.all('kitale-1')
       .find((j) => j.username === '254712000001-tv' && j.action === 'revoke');
     assert.ok(revoke, 'old TV access must be revoked on the router');
-    const list = await post('/api/device/list', { phone: '0712000001' });
+    const list = await post('/api/device/list', { phone: '0712000001', ownerMac: '11:22:33:44:55:01' });
     assert.strictEqual(list.b.devices.length, 0);
-    const r = await post('/api/device/add', { phone: '0712000001', mac: 'AABBCCDDEE09', label: 'Laptop' });
+    const r = await post('/api/device/add', { phone: '0712000001', ownerMac: '11:22:33:44:55:01', mac: 'AABBCCDDEE09', label: 'Laptop' });
     assert.strictEqual(r.s, 200, 'slot should be free after removal');
   });
 

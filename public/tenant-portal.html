@@ -593,7 +593,8 @@
     function continueNearby() {
       if (!selectedTvDevice) return;
       var entered = String($('tv-confirm').value || '').replace(/[^0-9A-F]/ig, '').toUpperCase();
-      if (entered !== selectedTvDevice.suffix) { message('tv-error', 'Enter the last four MAC characters shown for the selected device.'); return; }
+      if (entered.length !== 4) { message('tv-error', 'Enter the last four characters of the device MAC address.'); return; }
+      selectedTvDevice.confirm = entered;
       $('tv-discovery').classList.add('hidden'); $('tv-payment-form').classList.remove('hidden'); $('tv-phone-payment').value = current && current.payerPhone ? current.payerPhone : ($('phone').value || ''); $('tv-selected').textContent = selectedTvDevice.label + ' · ' + selectedTvDevice.maskedMac; message('tv-error', '');
     }
     async function refreshSession() {
@@ -601,11 +602,11 @@
       if (!result.authenticated) throw new Error('Use your recovery code to manage this package.');
       remember(result); return result;
     }
-    async function payForTv(targetMac, payerPhone, label, button) {
+    async function payForTv(targetMac, payerPhone, label, button, deviceConfirm) {
       if (!selected) throw new Error('Choose a package for the TV first.');
       if (!payerPhone) throw new Error('Enter the M-Pesa number that will pay for the TV package.');
       button.disabled = true; message('tv-error', ''); autoConnectStarted = false;
-      checkout = await api('/pay', { packageId: selected, phone: payerPhone, mac: targetMac, deviceType: 'tv', deviceLabel: label || 'TV' });
+      checkout = await api('/pay', { packageId: selected, phone: payerPhone, mac: targetMac, deviceConfirm: deviceConfirm || '', deviceType: 'tv', deviceLabel: label || 'TV' });
       checkout.startedAt = Date.now(); checkout.payerPhone = payerPhone; write('_checkout', checkout); pollPayment();
     }
     async function addTv() {
@@ -622,7 +623,7 @@
       var button = $('add-tv-selected');
       try {
         if (!selectedTvDevice) throw new Error('Choose a nearby device first.');
-        await payForTv(selectedTvDevice.id, $('tv-phone-payment').value.trim(), $('tv-name-payment').value.trim() || selectedTvDevice.label || 'TV', button);
+        await payForTv(selectedTvDevice.id, $('tv-phone-payment').value.trim(), $('tv-name-payment').value.trim() || selectedTvDevice.label || 'TV', button, selectedTvDevice.confirm);
       } catch (error) { message('tv-error', error.message); }
       finally { button.disabled = false; }
     }
