@@ -716,9 +716,10 @@
     // the customer started, or, if they only checked their time, take them
     // back to the packages.
     $('buy-anyway').onclick = function () {
-      bypassLookup = true; show('buy');
-      if (existingFromPay && selected && phone()) { existingFromPay = false; pay(); return; }
-      message('error', 'Choose a package, then press Lipa na M‑Pesa.');
+      bypassLookup = true; existingFromPay = false; show('buy');
+      // Go straight to payment with the selected package and number.
+      if (selected && phone()) { pay(); return; }
+      message('error', phone() ? 'Choose a package to continue.' : 'Enter your M‑Pesa number to continue.');
       var plans = $('plans'); if (plans && plans.scrollIntoView) plans.scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
     $('close-existing').onclick = function () { existingFromPay = false; show('buy'); };
