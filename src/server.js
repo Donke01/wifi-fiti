@@ -4876,7 +4876,7 @@ require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth, subscriptionBlock:
 } });
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.
-require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db });
+require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db: db.db });
 require('./lib/tenant-portal-templates').attachTenantPortalTemplateRoutes(app, { businessAuth, db: db.db });
 // Per-tenant Tuma settlement: each tenant gets its own Tuma business so
 // customer payments settle straight to that tenant's Till, PayBill or bank.
