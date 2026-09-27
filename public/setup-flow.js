@@ -195,7 +195,7 @@
 
   // Inline SMS verification for the owner phone.
   function openPhoneForm(button) {
-    var item = button.parentNode; button.remove();
+    var item = button.parentNode; button.remove(); item.style.flexWrap = 'wrap';
     var owner = workspace.business && workspace.business.owner_phone || '';
     var phoneIn = h('input', { type: 'tel', inputmode: 'numeric', autocomplete: 'tel', placeholder: '07XX XXX XXX', 'aria-label': 'Phone number' });
     phoneIn.value = owner && owner.indexOf('254') === 0 ? '0' + owner.slice(3) : owner;
@@ -203,7 +203,9 @@
     var send = h('button', { type: 'button', text: 'Send code' });
     var confirm = h('button', { type: 'button', class: 'secondary', text: 'Verify' });
     var msg = h('p', { class: 'gs-msg', role: 'status' });
-    var form = h('div', { class: 'gs-actions', style: 'width:100%' }, [phoneIn, send, codeIn, confirm, msg]);
+    [phoneIn, codeIn].forEach(function (input) { input.style.maxWidth = '200px'; });
+    msg.style.flexBasis = '100%';
+    var form = h('div', { class: 'gs-actions', style: 'flex-basis:100%;padding-left:40px' }, [phoneIn, send, codeIn, confirm, msg]);
     item.appendChild(form);
     send.addEventListener('click', function () {
       send.disabled = true; msg.textContent = 'Sending…';
