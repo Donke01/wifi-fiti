@@ -22,7 +22,7 @@ Object.assign(process.env, {
 
 const { buildUniversalRouterKit } = require('../src/lib/router-setup');
 const { universalInstaller, inventoryScriptLines } = require('../src/lib/router-kit');
-const { parseRouterInventory } = require('../src/lib/router-topology');
+const { parseRouterInventory, validateNetworkPlan } = require('../src/lib/router-topology');
 
 // Commands that would change a router's network. The universal kit and its
 // layout report must contain none of them.
@@ -107,6 +107,32 @@ assert.throws(() => parseRouterInventory('fiti-inventory-v2\ninv|vlan|v|9999|eth
 assert.throws(() => parseRouterInventory('fiti-inventory-v2\ninv|if|ether1|ether|up\n'), 'an unterminated report is refused');
 const serialized = JSON.stringify(parsed);
 for (const forbidden of ['"address"', '"mac"', '"password"', '"secret"', '"token"', '"route"']) assert.ok(!serialized.includes(forbidden), `no ${forbidden} field`);
+
+// ---- The network map (stage 2: saved plan only) ---------------------------
+const plan = validateNetworkPlan({ bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['wlan1', 'ether3'] }],
+  existing: [{ interface: 'bridge-tv', job: 'pppoe' }] }, parsed);
+assert.deepEqual(plan, { version: 1, bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether3', 'wlan1'] }],
+  existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }] });
+const refuses = (input, pattern, why) => assert.throws(() => validateNetworkPlan(input, parsed), (e) => e.status === 400 && pattern.test(e.message), why);
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether4'] }] }, /already in use/, 'a port in use stays as it is');
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether1'] }] }, /already in use/, 'the internet port cannot be moved');
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }, { name: 'b2', job: 'pppoe', ports: ['ether2'] }] }, /one bridge/);
+refuses({ bridges: [{ name: 'bridge-tv', job: 'hotspot', ports: ['ether2'] }] }, /already exists/);
+refuses({ bridges: [{ name: 'bad name', job: 'hotspot', ports: ['ether2'] }] }, /short name/);
+refuses({ bridges: [{ name: 'b1', job: 'dns', ports: ['ether2'] }] }, /Hotspot or PPPoE/);
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: [] }] }, /at least one/);
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether9'] }] }, /latest report/);
+refuses({ existing: [{ interface: 'vlan100', job: 'hotspot' }] }, /internet/, 'the internet VLAN is locked');
+refuses({ existing: [{ interface: 'ether2', job: 'hotspot' }] }, /bridge or VLAN/);
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], existing: [{ interface: 'bridge-tv', job: 'hotspot' }] }, /one place for hotspot/);
+refuses({}, /first/);
+assert.throws(() => validateNetworkPlan({ existing: [] }, null), (e) => e.status === 409);
+const withHotspot = parseRouterInventory(layout(['inv|hotspot|hotspot1|bridge-tv']));
+assert.equal(withHotspot.hotspots.length, 1);
+{
+  assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }] }, withHotspot), /already runs a hotspot on bridge-tv/, 'no second hotspot');
+  assert.equal(validateNetworkPlan({ existing: [{ interface: 'bridge-tv', job: 'hotspot' }] }, withHotspot).existing[0].alreadyRunning, true);
+}
 
 // ---- The cloud: pairing, held work, no open Wi-Fi, layout for the owner --
 let server;
@@ -216,11 +242,34 @@ async function createBusiness(email, name) {
   assert.equal(workspace.body.locations[0].router_kit, 'universal');
   assert.equal(workspace.body.locations[0].router_setup_health, 'awaiting-map');
 
+  // The owner saves a map; it is checked against the router's report.
+  const planEndpoint = `/api/business/locations/${site}/network-plan`;
+  const goodPlan = { bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether2', 'wlan1'] }], existing: [] };
+  const savedPlan = await api(planEndpoint, { method: 'PUT', token: alpha, body: { plan: goodPlan } });
+  assert.equal(savedPlan.status, 200, JSON.stringify(savedPlan.body));
+  assert.deepEqual(savedPlan.body.plan.bridges, goodPlan.bridges);
+  assert.equal((await api(planEndpoint, { method: 'PUT', token: alpha, body: { plan: { bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether4'] }] } } })).status, 400, 'a port in use is refused');
+  assert.equal((await api(planEndpoint, { method: 'PUT', token: bravo, body: { plan: goodPlan } })).status, 404, 'another business cannot map this router');
+  assert.deepEqual((await api(topologyEndpoint, { token: alpha })).body.plan.bridges, goodPlan.bridges, 'the saved map comes back with the layout');
+  assert.doesNotMatch((await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' })).text,
+    NETWORK_CHANGES, 'saving a map changes nothing on the router yet');
+  db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now','-2 days') WHERE location_id=?`).run(location.id);
+  assert.equal((await api(planEndpoint, { method: 'PUT', token: alpha, body: { plan: goodPlan } })).status, 409, 'an old report must be refreshed first');
+  db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now') WHERE location_id=?`).run(location.id);
+  const cleared = await api(planEndpoint, { method: 'DELETE', token: alpha });
+  assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+  assert.equal((await api(topologyEndpoint, { token: alpha })).body.plan, null);
+  assert.equal((await api(planEndpoint, { method: 'PUT', token: alpha, body: { plan: goodPlan } })).status, 200);
+  db.prepare(`UPDATE locations SET router_kit=NULL WHERE id=?`).run(location.id);
+  assert.equal((await api(planEndpoint, { method: 'PUT', token: alpha, body: { plan: goodPlan } })).status, 409, 'only universal-kit routers are mapped');
+  db.prepare(`UPDATE locations SET router_kit='universal' WHERE id=?`).run(location.id);
+
   // Deleting the router also removes its layout report.
   const removed = await api(`/api/business/locations/${site}`, { method: 'DELETE', token: alpha, body: { confirm: 'DELETE' } });
   assert.equal(removed.status, 200, JSON.stringify(removed.body));
   assert.equal(db.prepare('SELECT COUNT(*) n FROM tenant_router_inventory WHERE location_id=?').get(location.id).n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM tenant_router_plans WHERE location_id=?').get(location.id).n, 0, 'and its saved map');
 
-  console.log('Universal kit: pairs without changing the network, read-only layout report, awaiting-map pairing only for this kit, held work, no open Wi-Fi, owner-only layout - passed');
+  console.log('Universal kit: pairs without changing the network, read-only layout report, awaiting-map pairing only for this kit, held work, no open Wi-Fi, owner-only layout, checked network map - passed');
   server.close(); process.exit(0);
 })().catch((error) => { console.error(error); process.exit(1); });

@@ -439,6 +439,38 @@
 @keyframes rbTube{0%{left:-12px}100%{left:calc(100% + 2px)}}
 @keyframes rbGlow{0%,100%{box-shadow:0 10px 24px -12px rgba(23,105,216,.45),0 0 0 1px rgba(93,184,255,.25),inset 0 1px #fff}50%{box-shadow:0 10px 26px -10px rgba(23,105,216,.6),0 0 0 3px rgba(93,184,255,.3),inset 0 1px #fff}}
 </style>
+<style>
+/* Stage 2: network map on the routerboard */
+.rb-planner{position:relative;z-index:1;margin-top:4px;padding:16px;border:1px solid rgba(170,200,232,.8);border-radius:18px;background:linear-gradient(160deg,rgba(255,255,255,.92),rgba(238,246,255,.78));box-shadow:inset 0 1px #fff}
+.rb-planner-head strong{display:block;color:var(--ink);font-size:15px}.rb-planner-head small{display:block;margin-top:3px;color:#60768e;font-size:12px;line-height:1.45}
+.rb-planner-tools{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.rb-planner-tools select{width:auto;min-width:220px;min-height:40px}
+.rb-networks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.rb-net{position:relative;display:grid;gap:10px;padding:12px;border:1.5px solid #cbdced;border-radius:16px;background:#fff;box-shadow:0 10px 24px -16px rgba(26,72,128,.4);transition:box-shadow .25s,border-color .25s,translate .25s}
+.rb-net.job-hotspot{border-color:#9edfc9;background:linear-gradient(165deg,#fff,#effcf6)}.rb-net.job-pppoe{border-color:#c8b9ef;background:linear-gradient(165deg,#fff,#f6f2ff)}
+.rb-net.rb-drop-hover{translate:0 -3px;border-color:#1769d8;box-shadow:0 0 0 3px rgba(23,105,216,.2),0 16px 30px -14px rgba(23,105,216,.5)}
+.rb-net-top{display:flex;align-items:center;gap:8px}.rb-net-name{flex:1;min-width:0;min-height:34px;padding:6px 9px;border:1px solid #d7e4f1;border-radius:10px;font:700 14px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);background:#fff}
+.rb-net-fixed{flex:1;font:700 14px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink)}
+.rb-chip.mini{width:22px;height:22px;flex:0 0 22px;margin:0;border-radius:4px}.rb-chip.mini::before,.rb-chip.mini::after{display:none}
+.rb-tag.mini{min-width:34px;height:22px;margin:0;padding:0 6px 0 11px;color:#fff;font:800 10px/22px ui-monospace,SFMono-Regular,Menlo,monospace}
+.rb-x{display:grid;place-items:center;width:28px;height:28px;min-height:0;padding:0;border:1px solid #d7e4f1;border-radius:50%;background:#fff;color:#536b85;font-size:16px;line-height:1;box-shadow:none}.rb-x.small{width:18px;height:18px;margin-left:4px;font-size:12px;border:0;background:transparent}
+.rb-jobs{display:flex;gap:6px}.rb-job{flex:1;min-height:32px;padding:5px 8px;border:1px solid #d7e4f1;border-radius:10px;background:#fff;color:#536b85;font-size:12px;font-weight:800;box-shadow:none}
+.job-hotspot .rb-job.on{border-color:#19b88a;background:#19b88a;color:#fff}.job-pppoe .rb-job.on{border-color:#7b5cff;background:#7b5cff;color:#fff}
+.rb-drop{display:flex;flex-wrap:wrap;gap:6px;min-height:46px;padding:8px;border:1.5px dashed #b9cde2;border-radius:12px;background:rgba(245,249,255,.8)}
+.rb-drop-hint{align-self:center;color:#8aa0b8;font-size:12px}
+.rb-add-here{border:1px dashed #22c58b;background:rgba(34,197,139,.1);color:#0f7a57;border-radius:999px;padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;line-height:1;cursor:pointer;min-height:32px}
+.rb-chip-quiet .rb-x{opacity:.25;pointer-events:none}
+.rb-port-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 9px;border-radius:9px;background:#0f2742;color:#e8f1ff;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 4px 10px -4px rgba(15,39,66,.5)}
+.rb-port-chip .rb-led{width:6px;height:6px}.rb-port-chip .rb-x{color:#9fb6cf}
+.rb-net-note{color:#60768e;font-size:11px;line-height:1.45}
+.rb-net-empty{padding:14px;border:1.5px dashed #c9d7e6;border-radius:14px;color:#60768e;font-size:13px}
+.rb-planner-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}.rb-planner-foot .error{flex-basis:100%}
+.rb-draggable{cursor:grab}.rb-draggable:active{cursor:grabbing}
+.rb .router-port.rb-selected{border-color:#1769d8;box-shadow:0 0 0 3px rgba(23,105,216,.25),0 14px 28px -12px rgba(23,105,216,.5)}
+.rb .router-port.rb-assigned{opacity:.72}
+.rb-goes{display:block;margin-top:6px;color:#115aa9;font:700 10px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace}
+@media(max-width:650px){.rb-networks{grid-template-columns:1fr}.rb-planner-tools select{min-width:0;flex:1 1 100%}}
+@media (prefers-reduced-motion:no-preference){.rb-net{animation:rbPortIn .45s cubic-bezier(.2,.8,.2,1) both}.rb .router-port.rb-selected{animation:rbGlow 1.6s ease-in-out infinite}}
+</style>
 </head>
 <body>
   <main class="app">
@@ -568,6 +600,8 @@
       // Full router inventory is fetched only from the owner-scoped endpoint.
       // The workspace summary deliberately carries only safe mapping status.
       var routerTopologyCache = {};
+      // Unsaved network maps survive the dashboard's periodic redraws.
+      var networkPlanDrafts = {};
       var routerTopologyRequests = {};
       // A mapped deployment is a short-lived, owner-visible task. Keep its
       // status polling scoped to an open location card so a background tab
@@ -1663,6 +1697,7 @@
         if (cached.result.mapping && cached.result.mapping.status !== model.mappingStatus) return true;
         return Boolean(model.needsRouterMapping && Date.now() - Number(cached.fetchedAt || 0) > 8000);
       }
+      function plannerInUse() { var active = document.activeElement; return Boolean(active && active.closest && active.closest('.rb-planner') && active.tagName === 'INPUT'); }
       function requestRouterTopology(location, model) {
         if (!location || !token) return Promise.resolve(null);
         var key = String(location.id);
@@ -1671,12 +1706,12 @@
           routerTopologyCache[key] = { result: result, error: '', fetchedAt: Date.now() };
           if (result && result.mapping) mergeLocation(Object.assign({}, location, { routerMapping: result.mapping }));
           var current = onboardingModel(); var flow = onboardingFlowState(current);
-          if (current.location && String(current.location.id) === key && flow.active && flow.stage === 3) renderOnboarding();
+          if (current.location && String(current.location.id) === key && flow.active && flow.stage === 3 && !plannerInUse()) renderOnboarding();
           return result;
         }).catch(function (error) {
           routerTopologyCache[key] = { result: null, error: error.message || 'Could not read the router inventory.', fetchedAt: Date.now() };
           var current = onboardingModel(); var flow = onboardingFlowState(current);
-          if (current.location && String(current.location.id) === key && flow.active && flow.stage === 3) renderOnboarding();
+          if (current.location && String(current.location.id) === key && flow.active && flow.stage === 3 && !plannerInUse()) renderOnboarding();
           return null;
         }).finally(function () { delete routerTopologyRequests[key]; });
         return routerTopologyRequests[key];
@@ -1726,7 +1761,7 @@
         var kind = type === 'ether' ? 'ether' : /^(wlan|wifi|wireless)$/.test(type) ? 'wifi' : type === 'bridge' ? 'bridge' : type === 'vlan' ? 'vlan' : /^pppoe/.test(type) ? 'tunnel' : type === 'lte' ? 'lte' : type === 'wg' ? 'secure' : 'logical';
         var state = item.internet ? 'internet' : item.free ? 'free' : 'used';
         var port = el('div', 'router-port rb-part is-' + (kind === 'wifi' || kind === 'lte' ? 'wifi' : kind === 'ether' ? 'ether' : kind === 'bridge' ? 'bridge' : 'logic') + ' kind-' + kind + ' state-' + state + (item.state === 'up' ? ' up' : ' down') + (item.state === 'disabled' ? ' disabled' : '') + (state === 'internet' ? ' wan' : state === 'free' ? ' customer' : ''));
-        port.style.setProperty('--i', index);
+        port.style.setProperty('--i', index); port.setAttribute('data-part', item.name);
         var part = add(port, 'span', 'port-part'); part.setAttribute('aria-hidden', 'true');
         if (kind === 'ether') { var jack = add(part, 'span', 'rb-jack'); add(jack, 'i', 'rb-pins'); var leds = add(part, 'span', 'rb-port-leds'); add(leds, 'i', 'rb-led link'); add(leds, 'i', 'rb-led act'); }
         else if (kind === 'wifi' || kind === 'lte') { add(part, 'span', 'rb-antenna'); var waves = add(part, 'span', 'rb-waves'); add(waves, 'i'); add(waves, 'i'); add(waves, 'i'); }
@@ -1745,7 +1780,7 @@
         if (item.members && item.members.length) add(port, 'small', 'rb-on', 'ports ' + item.members.join(', '));
         return port;
       }
-      function appendRouterLayoutBoard(parent, layout) {
+      function appendRouterLayoutBoard(parent, layout, location, savedPlan) {
         var items = layout.interfaces || [];
         var physical = items.filter(function (item) { return item.physical; });
         var logical = items.filter(function (item) { return !item.physical; });
@@ -1775,9 +1810,115 @@
           add(board, 'div', 'rb-row-label', 'On the router');
           var logic = el('div', 'router-port-grid rb-logic'); logical.forEach(function (item, index) { logic.appendChild(routerLayoutPart(item, physical.length + index)); }); board.appendChild(logic);
         }
+        if (location && location.id) appendNetworkPlanner(board, layout, location, savedPlan);
         var bus = add(board, 'div', 'rb-bus'); bus.setAttribute('aria-hidden', 'true'); add(bus, 'i'); add(bus, 'i');
-        add(board, 'p', 'rb-note', (freeCount ? 'Free for customers: ' + (layout.freeInterfaces || []).join(', ') + '. ' : 'No free ports or Wi-Fi were found. ') + 'Parts in use are locked, so your existing network keeps working. Next you will map where hotspot and PPPoE customers connect.' + (layout.skipped ? ' ' + layout.skipped + ' interface(s) with spaces or symbols in their names are not shown.' : ''));
+        add(board, 'p', 'rb-note', (freeCount ? 'Free for customers: ' + (layout.freeInterfaces || []).join(', ') + '. ' : 'No free ports or Wi-Fi were found. ') + 'Parts in use are locked, so your existing network keeps working.' + (layout.skipped ? ' ' + layout.skipped + ' interface(s) with spaces or symbols in their names are not shown.' : ''));
         parent.appendChild(board);
+      }
+      // Stage 2: map where customers connect, on the routerboard itself.
+      // Free parts are dragged (or tapped, then a bridge tapped) into new
+      // bridges; an existing bridge or VLAN can be given a job. Saving checks
+      // the map against the router's latest report. Nothing reaches the
+      // router until the owner applies the map in the next step.
+      function appendNetworkPlanner(board, layout, location, savedPlan) {
+        var items = layout.interfaces || [];
+        var byName = {}; items.forEach(function (item) { byName[item.name] = item; });
+        var taken = {}; items.forEach(function (item) { taken[item.name] = true; });
+        var running = (layout.hotspots || [])[0] || null;
+        var eligible = items.filter(function (item) { return (item.type === 'bridge' || item.type === 'vlan') && !item.internet; });
+        var draftKey = String(location.id); var kept = networkPlanDrafts[draftKey];
+        var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice() }; }), existing: (savedPlan.existing || []).map(function (e) { return { interface: e.interface, job: e.job }; }) }
+          : { bridges: [], existing: running ? [{ interface: running.interface, job: 'hotspot' }] : [] };
+        var selected = kept ? kept.selected : null; var dirty = kept ? kept.dirty : !savedPlan && Boolean(running); var saveButton = null;
+        if (kept) { draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return byName[p] && byName[p].free; }); }); draft.existing = draft.existing.filter(function (e) { return byName[e.interface]; }); if (selected && !(byName[selected] && byName[selected].free)) selected = null; }
+        var panel = el('section', 'rb-planner');
+        board.insertBefore(el('div', 'rb-row-label'), null).textContent = 'Map your network';
+        board.appendChild(panel);
+        function jobLabel(job) { return job === 'pppoe' ? 'PPPoE' : 'Hotspot'; }
+        function freshName(job) { var base = job === 'pppoe' ? 'fiti-pppoe' : 'fiti-hotspot'; var name = base; var n = 2; while (taken[name] || draft.bridges.some(function (b) { return b.name === name; })) { name = base + '-' + n; n += 1; } return name; }
+        function home(port) { var found = null; draft.bridges.forEach(function (b) { if (b.ports.indexOf(port) >= 0) found = b; }); return found; }
+        function assign(port, bridge) { var item = byName[port]; if (!item || !item.free) return; draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return p !== port; }); }); bridge.ports.push(port); selected = null; dirty = true; render(); }
+        function syncParts() {
+          board.querySelectorAll('[data-part]').forEach(function (node) {
+            var name = node.getAttribute('data-part'); var item = byName[name]; if (!item) return;
+            var target = home(name); node.classList.toggle('rb-assigned', Boolean(target)); node.classList.toggle('rb-selected', selected === name);
+            var goes = node.querySelector('.rb-goes'); if (target) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = '→ ' + target.name + ' · ' + jobLabel(target.job); } else if (goes) goes.remove();
+            if (item.free && !node.dataset.plannable) {
+              node.dataset.plannable = '1'; node.classList.add('rb-draggable'); node.setAttribute('draggable', 'true'); node.setAttribute('tabindex', '0'); node.setAttribute('role', 'button');
+              node.setAttribute('aria-label', name + ': free. Drag into a bridge, or select it and then choose a bridge.');
+              node.addEventListener('dragstart', function (event) { selected = name; try { event.dataTransfer.setData('text/plain', name); event.dataTransfer.effectAllowed = 'move'; } catch (_) {} syncParts(); });
+              node.addEventListener('dragend', function () { board.querySelectorAll('.rb-drop-hover').forEach(function (z) { z.classList.remove('rb-drop-hover'); }); });
+              var pick = function () { selected = selected === name ? null : name; render(); };
+              node.addEventListener('click', pick);
+              node.addEventListener('keydown', function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pick(); } });
+            }
+          });
+        }
+        function render() {
+          clear(panel);
+          var head = el('div', 'rb-planner-head');
+          add(head, 'strong', '', 'Where do customers connect?');
+          add(head, 'small', '', 'Add a bridge, then drag free parts into it. On a phone, tap a free part, then tap the bridge. Parts in use stay locked.');
+          panel.appendChild(head);
+          var tools = el('div', 'rb-planner-tools');
+          var addHotspot = add(tools, 'button', 'secondary', '+ Hotspot bridge'); addHotspot.type = 'button';
+          addHotspot.addEventListener('click', function () { draft.bridges.push({ name: freshName('hotspot'), job: 'hotspot', ports: selected ? [selected] : [] }); selected = null; dirty = true; render(); });
+          var addPppoe = add(tools, 'button', 'secondary', '+ PPPoE bridge'); addPppoe.type = 'button';
+          addPppoe.addEventListener('click', function () { draft.bridges.push({ name: freshName('pppoe'), job: 'pppoe', ports: selected ? [selected] : [] }); selected = null; dirty = true; render(); });
+          var available = eligible.filter(function (item) { return !draft.existing.some(function (e) { return e.interface === item.name; }); });
+          if (available.length) {
+            var pickExisting = el('select', 'rb-existing-pick'); pickExisting.setAttribute('aria-label', 'Existing bridge or VLAN');
+            var blank = el('option', '', 'Use an existing bridge or VLAN…'); blank.value = ''; pickExisting.appendChild(blank);
+            available.forEach(function (item) { var o = el('option', '', item.name + (item.vlanId ? ' (VLAN ' + item.vlanId + ')' : '')); o.value = item.name; pickExisting.appendChild(o); });
+            pickExisting.addEventListener('change', function () { if (!pickExisting.value) return; var hasHotspot = (layout.hotspots || []).some(function (h) { return h.interface === pickExisting.value; }); draft.existing.push({ interface: pickExisting.value, job: hasHotspot ? 'hotspot' : 'pppoe' }); dirty = true; render(); });
+            tools.appendChild(pickExisting);
+          }
+          panel.appendChild(tools);
+          var nets = el('div', 'rb-networks');
+          draft.bridges.forEach(function (bridge, index) {
+            var card = el('div', 'rb-net job-' + bridge.job); card.setAttribute('role', 'group'); card.setAttribute('aria-label', 'New bridge ' + bridge.name);
+            var top = el('div', 'rb-net-top'); add(top, 'span', 'rb-chip mini', ''); var nameInput = el('input', 'rb-net-name'); nameInput.value = bridge.name; nameInput.maxLength = 24; nameInput.setAttribute('aria-label', 'Bridge name'); nameInput.addEventListener('input', function () { bridge.name = nameInput.value.trim(); dirty = true; syncParts(); saveState(); if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Save map'; } }); top.appendChild(nameInput);
+            var removeBridge = add(top, 'button', 'rb-x', '×'); removeBridge.type = 'button'; removeBridge.setAttribute('aria-label', 'Remove ' + bridge.name); removeBridge.addEventListener('click', function (event) { event.stopPropagation(); draft.bridges.splice(index, 1); dirty = true; render(); });
+            card.appendChild(top);
+            var jobs = el('div', 'rb-jobs'); ['hotspot', 'pppoe'].forEach(function (job) { var b = add(jobs, 'button', 'rb-job' + (bridge.job === job ? ' on' : ''), jobLabel(job)); b.type = 'button'; b.setAttribute('aria-pressed', String(bridge.job === job)); b.addEventListener('click', function (event) { event.stopPropagation(); bridge.job = job; dirty = true; render(); }); }); card.appendChild(jobs);
+            var zone = el('div', 'rb-drop'); zone.setAttribute('aria-label', 'Parts in ' + bridge.name);
+            if (!bridge.ports.length) add(zone, 'span', 'rb-drop-hint', selected ? 'Tap here to add ' + selected : 'Drop free parts here');
+            bridge.ports.forEach(function (port) { var chip = add(zone, 'span', 'rb-port-chip'); add(chip, 'i', 'rb-led ' + ((byName[port] || {}).state === 'up' ? 'on' : 'off')); chip.appendChild(document.createTextNode(port)); var x = add(chip, 'button', 'rb-x small', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Take ' + port + ' out of ' + bridge.name); x.addEventListener('click', function (event) { event.stopPropagation(); if (selected) { assign(selected, bridge); return; } bridge.ports = bridge.ports.filter(function (p) { return p !== port; }); dirty = true; render(); }); if (selected) { x.tabIndex = -1; x.setAttribute('aria-hidden', 'true'); chip.classList.add('rb-chip-quiet'); } });
+            if (selected && bridge.ports.length) { var addHere = add(zone, 'button', 'rb-drop-hint rb-add-here', '+ Add ' + selected); addHere.type = 'button'; }
+            card.appendChild(zone);
+            card.addEventListener('click', function () { if (selected) assign(selected, bridge); });
+            card.addEventListener('dragover', function (event) { event.preventDefault(); card.classList.add('rb-drop-hover'); });
+            card.addEventListener('dragleave', function () { card.classList.remove('rb-drop-hover'); });
+            card.addEventListener('drop', function (event) { event.preventDefault(); card.classList.remove('rb-drop-hover'); var port = ''; try { port = event.dataTransfer.getData('text/plain'); } catch (_) {} assign(port || selected, bridge); });
+            nets.appendChild(card);
+          });
+          draft.existing.forEach(function (entry, index) {
+            var item = byName[entry.interface] || {}; var runningHere = (layout.hotspots || []).some(function (h) { return h.interface === entry.interface; }) && entry.job === 'hotspot';
+            var card = el('div', 'rb-net existing job-' + entry.job);
+            var top = el('div', 'rb-net-top'); add(top, 'span', item.type === 'vlan' ? 'rb-tag mini' : 'rb-chip mini', item.vlanId ? String(item.vlanId) : ''); add(top, 'b', 'rb-net-fixed', entry.interface);
+            var removeEntry = add(top, 'button', 'rb-x', '×'); removeEntry.type = 'button'; removeEntry.setAttribute('aria-label', 'Stop using ' + entry.interface); removeEntry.addEventListener('click', function () { draft.existing.splice(index, 1); dirty = true; render(); });
+            card.appendChild(top);
+            var jobs = el('div', 'rb-jobs'); ['hotspot', 'pppoe'].forEach(function (job) { var b = add(jobs, 'button', 'rb-job' + (entry.job === job ? ' on' : ''), jobLabel(job)); b.type = 'button'; b.setAttribute('aria-pressed', String(entry.job === job)); b.addEventListener('click', function () { entry.job = job; dirty = true; render(); }); }); card.appendChild(jobs);
+            add(card, 'small', 'rb-net-note', runningHere ? 'Already runs a hotspot. Wi-Fi Fiti will use it as it is.' : 'Existing ' + (item.type === 'vlan' ? 'VLAN' : 'bridge') + '. Its ports and settings stay as they are; Wi-Fi Fiti adds the ' + jobLabel(entry.job) + ' service on it.');
+            nets.appendChild(card);
+          });
+          if (!draft.bridges.length && !draft.existing.length) add(nets, 'div', 'rb-net-empty', 'Nothing mapped yet. Add a hotspot or PPPoE bridge above.');
+          panel.appendChild(nets);
+          var foot = el('div', 'rb-planner-foot');
+          var save = add(foot, 'button', '', dirty || !savedPlan ? 'Save map' : 'Map saved'); save.type = 'button'; save.disabled = !dirty && Boolean(savedPlan); saveButton = save;
+          var note = add(foot, 'span', 'form-note', savedPlan && !dirty ? 'Saved ' + when(savedPlan.savedAt) + '. Applying it to the router is the next step; nothing has changed on the router.' : 'Saving only records the map. Nothing on the router changes yet.');
+          var err = add(foot, 'div', 'error'); err.setAttribute('aria-live', 'polite');
+          save.addEventListener('click', function () {
+            err.textContent = ''; setBusy(save, true, 'Saving…');
+            api('/api/business/locations/' + encodeURIComponent(location.id) + '/network-plan', { method: 'PUT', body: JSON.stringify({ plan: draft }) }).then(function (result) {
+              savedPlan = result.plan; dirty = false; delete networkPlanDrafts[draftKey]; var cached = routerTopologyCache[String(location.id)]; if (cached && cached.result) cached.result.plan = result.plan; render();
+            }).catch(function (error) { setBusy(save, false); err.textContent = error.message; });
+          });
+          panel.appendChild(foot);
+          syncParts(); saveState();
+        }
+        function saveState() { panel.dataset.dirty = dirty ? '1' : ''; if (dirty) networkPlanDrafts[draftKey] = { draft: draft, dirty: true, selected: selected }; else delete networkPlanDrafts[draftKey]; }
+        render();
       }
       function appendRouterInventory(parent, inventory) {
         var panel = el('section', 'router-inventory');
@@ -1821,7 +1962,7 @@
         // Universal-kit routers: the routerboard shows everything on the router
         // and what each part already does. Mapping where customers connect is next.
         if (location.router_kit === 'universal') {
-          if (snapshot.layout) appendRouterLayoutBoard(box, snapshot.layout);
+          if (snapshot.layout) appendRouterLayoutBoard(box, snapshot.layout, location, snapshot.plan || null);
           else { appendRouterPortMap(box, topology, mapping.mapping || null); appendRouterInventory(box, null); }
           body.appendChild(box); return;
         }

@@ -370,9 +370,11 @@ assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a
     assert.doesNotMatch(line, /\$/, 'no RouterOS variable expansion in the certificate text');
   }
 }
-assert.match(html, /if \(snapshot\.layout\) appendRouterLayoutBoard\(box, snapshot\.layout\);/,
+assert.match(html, /if \(snapshot\.layout\) appendRouterLayoutBoard\(box, snapshot\.layout, location, snapshot\.plan \|\| null\);/,
   'a universal-kit router shows its full layout on the routerboard itself');
-assert.match(html, /function appendRouterLayoutBoard\(parent, layout\)/);
+assert.match(html, /function appendRouterLayoutBoard\(parent, layout, location, savedPlan\)/);
+assert.match(html, /function appendNetworkPlanner\(/, 'the routerboard carries the network map planner');
+assert.match(html, /\/network-plan'/, 'the planner saves the map to the network-plan endpoint');
 assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : state === 'free' \? 'Free' : 'In use'/,
   'every part says whether it is free, in use or carrying the internet');
 console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');

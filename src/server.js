@@ -1727,7 +1727,27 @@ app.get('/api/business/locations/:locationId/router-topology', (req, res) => {
   if (!result) return res.status(404).json({ error: 'Location not found.' });
   // The universal kit's fuller layout report (every interface and what it is
   // used for) rides alongside the stable map data.
-  res.json({ ...result, layout: tenant.routerInventoryForLocation(String(req.params.locationId)) });
+  const locationId = String(req.params.locationId);
+  res.json({ ...result, layout: tenant.routerInventoryForLocation(locationId), plan: tenant.routerPlanForLocation(locationId) });
+});
+
+// The owner's network map for a universal-kit router: new bridges from free
+// ports and/or a job for an existing bridge or VLAN. Checked against the
+// router's latest layout report and saved; nothing is sent to the router yet.
+app.put('/api/business/locations/:locationId/network-plan', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const plan = tenant.saveRouterPlan({ locationId: String(req.params.locationId), businessId: business.id, plan: req.body && req.body.plan });
+    if (!plan) return res.status(404).json({ error: 'Location not found.' });
+    res.json({ plan });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not save this network map.' });
+  }
+});
+app.delete('/api/business/locations/:locationId/network-plan', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  if (!tenant.deleteRouterPlan({ locationId: String(req.params.locationId), businessId: business.id })) return res.status(404).json({ error: 'Location not found.' });
+  res.json({ plan: null });
 });
 
 // Confirmation stores descriptive dashboard metadata only. The tenant layer
