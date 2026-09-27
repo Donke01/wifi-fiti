@@ -411,6 +411,9 @@
 .rb-part .rb-badge{align-self:flex-start;display:inline-flex;align-items:center;gap:5px;margin:0 0 8px;padding:3px 7px 3px 6px;border-radius:99px;font-size:9px;font-weight:850;letter-spacing:.06em;text-transform:uppercase}
 .rb-badge.free{color:#08785b;background:#dff7ec}.rb-badge.free::before{content:"";width:6px;height:6px;border-radius:50%;background:#2fd98f;box-shadow:0 0 6px #2fd98f}
 .rb-badge.used{color:#536b85;background:#eef3f8}.rb-badge.used::before{content:"";width:7px;height:6px;margin-top:2px;border-radius:1.5px;background:#7a8da4;box-shadow:0 -3px 0 -1px #eef3f8,0 -4px 0 0 #7a8da4}
+.rb-badge.movable{color:#8a5a00;background:#fff3d6}.rb-badge.movable::before{content:"⇄";font-size:10px;line-height:1;color:#c98500}
+.rb-part.state-movable{border-color:#f1d596}
+.rb-key-movable{color:#8a5a00;background:#fff3d6!important}
 .rb-badge.internet{color:#115aa9;background:#e1eeff}.rb-badge.internet::before{content:"";width:7px;height:7px;border-radius:50%;border:1.5px solid #1769d8;box-sizing:border-box;background:linear-gradient(90deg,transparent 45%,#1769d8 45% 55%,transparent 55%)}
 .rb-part.state-used{filter:saturate(.8)}
 .rb-part.state-used .port-part{opacity:.78}
@@ -457,6 +460,7 @@
 .job-hotspot .rb-job.on{border-color:#19b88a;background:#19b88a;color:#fff}.job-pppoe .rb-job.on{border-color:#7b5cff;background:#7b5cff;color:#fff}
 .rb-drop{display:flex;flex-wrap:wrap;gap:6px;min-height:46px;padding:8px;border:1.5px dashed #b9cde2;border-radius:12px;background:rgba(245,249,255,.8)}
 .rb-drop-hint{align-self:center;color:#8aa0b8;font-size:12px}
+.rb-moves{margin:10px 0 0;padding:8px 11px;border-radius:10px;background:#fff7e3;color:#7a5200;font-size:12.5px;border:1px solid #f3dca4}
 .rb-add-here{border:1px dashed #22c58b;background:rgba(34,197,139,.1);color:#0f7a57;border-radius:999px;padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;line-height:1;cursor:pointer;min-height:32px}
 .rb-chip-quiet .rb-x{opacity:.25;pointer-events:none}
 .rb-port-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 9px;border-radius:9px;background:#0f2742;color:#e8f1ff;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 4px 10px -4px rgba(15,39,66,.5)}
@@ -1759,7 +1763,7 @@
       function routerLayoutPart(item, index) {
         var type = String(item.type || '');
         var kind = type === 'ether' ? 'ether' : /^(wlan|wifi|wireless)$/.test(type) ? 'wifi' : type === 'bridge' ? 'bridge' : type === 'vlan' ? 'vlan' : /^pppoe/.test(type) ? 'tunnel' : type === 'lte' ? 'lte' : type === 'wg' ? 'secure' : 'logical';
-        var state = item.internet ? 'internet' : item.free ? 'free' : 'used';
+        var state = item.internet ? 'internet' : item.free ? 'free' : item.movableFrom ? 'movable' : 'used';
         var port = el('div', 'router-port rb-part is-' + (kind === 'wifi' || kind === 'lte' ? 'wifi' : kind === 'ether' ? 'ether' : kind === 'bridge' ? 'bridge' : 'logic') + ' kind-' + kind + ' state-' + state + (item.state === 'up' ? ' up' : ' down') + (item.state === 'disabled' ? ' disabled' : '') + (state === 'internet' ? ' wan' : state === 'free' ? ' customer' : ''));
         port.style.setProperty('--i', index); port.setAttribute('data-part', item.name);
         var part = add(port, 'span', 'port-part'); part.setAttribute('aria-hidden', 'true');
@@ -1769,8 +1773,8 @@
         else if (kind === 'vlan') { var tag = add(part, 'span', 'rb-tag'); add(tag, 'b', '', item.vlanId ? String(item.vlanId) : 'VLAN'); }
         else if (kind === 'tunnel') { var tube = add(part, 'span', 'rb-tube'); add(tube, 'i'); add(tube, 'i'); }
         else { var box = add(part, 'span', 'rb-chip small'); add(box, 'i', 'rb-chip-core'); }
-        var badge = add(port, 'span', 'rb-badge ' + state, state === 'internet' ? 'Internet' : state === 'free' ? 'Free' : 'In use');
-        badge.setAttribute('title', state === 'free' ? 'Nothing uses this yet' : 'Locked: your existing network uses this');
+        var badge = add(port, 'span', 'rb-badge ' + state, state === 'internet' ? 'Internet' : state === 'free' ? 'Free' : state === 'movable' ? 'Movable' : 'In use');
+        badge.setAttribute('title', state === 'free' ? 'Nothing uses this yet' : state === 'movable' ? 'In ' + item.movableFrom + ', a bridge Wi-Fi Fiti built. You can move it to another bridge.' : 'Locked: your existing network uses this');
         var label = kind === 'ether' ? 'Ethernet' : kind === 'wifi' ? 'Wi-Fi' : kind === 'lte' ? 'LTE' : kind === 'bridge' ? 'Bridge' : kind === 'vlan' ? 'VLAN ' + (item.vlanId || '') : kind === 'tunnel' ? 'PPPoE' : kind === 'secure' ? 'WireGuard' : type;
         add(port, 'span', 'port-type', label);
         add(port, 'b', '', item.name);
@@ -1778,6 +1782,7 @@
         add(port, 'small', '', usage || (item.free ? 'Free for customers' : item.state));
         if (item.parent) add(port, 'small', 'rb-on', 'on ' + item.parent);
         if (item.members && item.members.length) add(port, 'small', 'rb-on', 'ports ' + item.members.join(', '));
+        if (item.fitiBuilt) add(port, 'small', 'rb-on', 'built by Wi-Fi Fiti');
         return port;
       }
       function appendRouterLayoutBoard(parent, layout, location, savedPlan) {
@@ -1785,13 +1790,14 @@
         var physical = items.filter(function (item) { return item.physical; });
         var logical = items.filter(function (item) { return !item.physical; });
         var freeCount = items.filter(function (item) { return item.free; }).length;
+        var movableCount = items.filter(function (item) { return item.movableFrom; }).length;
         var board = el('section', 'router-map-board rb rb-layout'); ['tl', 'tr', 'bl', 'br'].forEach(function (corner) { add(board, 'i', 'rb-screw ' + corner); }); add(board, 'i', 'rb-sheen');
         var head = el('div', 'router-map-board-head'); var title = el('div'); var brand = add(title, 'span', 'rb-silk', 'Wi-Fi Fiti · Routerboard'); brand.setAttribute('aria-hidden', 'true');
         add(title, 'strong', '', 'Everything on this router');
         add(title, 'small', '', (layout.board ? layout.board.replace(/_/g, ' ') + ' · ' : '') + (layout.routerosVersion ? 'RouterOS ' + layout.routerosVersion + ' · ' : '') + 'reported ' + when(layout.reportedAt));
         head.appendChild(title);
         var status = el('div', 'rb-status'); status.setAttribute('aria-hidden', 'true'); [['PWR', 'on'], ['SYS', 'beat'], ['NET', layout.wan ? 'on' : 'off']].forEach(function (led) { var wrap = add(status, 'span', 'rb-led-label'); add(wrap, 'i', 'rb-led ' + led[1]); wrap.appendChild(document.createTextNode(led[0])); }); head.appendChild(status);
-        var key = el('div', 'router-map-key'); add(key, 'span', 'customer', 'Free · ' + freeCount); add(key, 'span', '', 'In use · locked'); add(key, 'span', 'wan', 'Internet'); head.appendChild(key);
+        var key = el('div', 'router-map-key'); add(key, 'span', 'customer', 'Free · ' + freeCount); if (movableCount) add(key, 'span', 'rb-key-movable', 'Movable · ' + movableCount); add(key, 'span', '', 'In use · locked'); add(key, 'span', 'wan', 'Internet'); head.appendChild(key);
         board.appendChild(head);
         if (layout.wan) {
           var chain = []; var seen = {}; var cursor = layout.wan.interface;
@@ -1812,7 +1818,7 @@
         }
         if (location && location.id) appendNetworkPlanner(board, layout, location, savedPlan);
         var bus = add(board, 'div', 'rb-bus'); bus.setAttribute('aria-hidden', 'true'); add(bus, 'i'); add(bus, 'i');
-        add(board, 'p', 'rb-note', (freeCount ? 'Free for customers: ' + (layout.freeInterfaces || []).join(', ') + '. ' : 'No free ports or Wi-Fi were found. ') + 'Parts in use are locked, so your existing network keeps working.' + (layout.skipped ? ' ' + layout.skipped + ' interface(s) with spaces or symbols in their names are not shown.' : ''));
+        add(board, 'p', 'rb-note', (freeCount ? 'Free for customers: ' + (layout.freeInterfaces || []).join(', ') + '. ' : movableCount ? '' : 'No free ports or Wi-Fi were found. ') + (movableCount ? 'Can be moved from a Wi-Fi Fiti bridge: ' + (layout.movableInterfaces || []).join(', ') + '. ' : '') + 'Parts in use are locked, so your existing network keeps working.' + (layout.skipped ? ' ' + layout.skipped + ' interface(s) with spaces or symbols in their names are not shown.' : ''));
         parent.appendChild(board);
       }
       // Stage 2: map where customers connect, on the routerboard itself.
@@ -1830,22 +1836,23 @@
         var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice() }; }), existing: (savedPlan.existing || []).map(function (e) { return { interface: e.interface, job: e.job }; }) }
           : { bridges: [], existing: running ? [{ interface: running.interface, job: 'hotspot' }] : [] };
         var selected = kept ? kept.selected : null; var dirty = kept ? kept.dirty : !savedPlan && Boolean(running); var saveButton = null;
-        if (kept) { draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return byName[p] && byName[p].free; }); }); draft.existing = draft.existing.filter(function (e) { return byName[e.interface]; }); if (selected && !(byName[selected] && byName[selected].free)) selected = null; }
+        if (kept) { draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return plannable(byName[p]); }); }); draft.existing = draft.existing.filter(function (e) { return byName[e.interface]; }); if (selected && !plannable(byName[selected])) selected = null; }
         var panel = el('section', 'rb-planner');
         board.insertBefore(el('div', 'rb-row-label'), null).textContent = 'Map your network';
         board.appendChild(panel);
         function jobLabel(job) { return job === 'pppoe' ? 'PPPoE' : 'Hotspot'; }
         function freshName(job) { var base = job === 'pppoe' ? 'fiti-pppoe' : 'fiti-hotspot'; var name = base; var n = 2; while (taken[name] || draft.bridges.some(function (b) { return b.name === name; })) { name = base + '-' + n; n += 1; } return name; }
         function home(port) { var found = null; draft.bridges.forEach(function (b) { if (b.ports.indexOf(port) >= 0) found = b; }); return found; }
-        function assign(port, bridge) { var item = byName[port]; if (!item || !item.free) return; draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return p !== port; }); }); bridge.ports.push(port); selected = null; dirty = true; render(); }
+        function plannable(item) { return Boolean(item && (item.free || item.movableFrom)); }
+        function assign(port, bridge) { var item = byName[port]; if (!plannable(item)) return; draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return p !== port; }); }); bridge.ports.push(port); selected = null; dirty = true; render(); }
         function syncParts() {
           board.querySelectorAll('[data-part]').forEach(function (node) {
             var name = node.getAttribute('data-part'); var item = byName[name]; if (!item) return;
             var target = home(name); node.classList.toggle('rb-assigned', Boolean(target)); node.classList.toggle('rb-selected', selected === name);
-            var goes = node.querySelector('.rb-goes'); if (target) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = '→ ' + target.name + ' · ' + jobLabel(target.job); } else if (goes) goes.remove();
-            if (item.free && !node.dataset.plannable) {
+            var goes = node.querySelector('.rb-goes'); if (target) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = '→ ' + target.name + ' · ' + jobLabel(target.job) + (item.movableFrom ? ' (leaves ' + item.movableFrom + ')' : ''); } else if (goes) goes.remove();
+            if (plannable(item) && !node.dataset.plannable) {
               node.dataset.plannable = '1'; node.classList.add('rb-draggable'); node.setAttribute('draggable', 'true'); node.setAttribute('tabindex', '0'); node.setAttribute('role', 'button');
-              node.setAttribute('aria-label', name + ': free. Drag into a bridge, or select it and then choose a bridge.');
+              node.setAttribute('aria-label', name + (item.movableFrom ? ': in ' + item.movableFrom + ', can be moved.' : ': free.') + ' Drag into a bridge, or select it and then choose a bridge.');
               node.addEventListener('dragstart', function (event) { selected = name; try { event.dataTransfer.setData('text/plain', name); event.dataTransfer.effectAllowed = 'move'; } catch (_) {} syncParts(); });
               node.addEventListener('dragend', function () { board.querySelectorAll('.rb-drop-hover').forEach(function (z) { z.classList.remove('rb-drop-hover'); }); });
               var pick = function () { selected = selected === name ? null : name; render(); };
@@ -1858,7 +1865,8 @@
           clear(panel);
           var head = el('div', 'rb-planner-head');
           add(head, 'strong', '', 'Where do customers connect?');
-          add(head, 'small', '', 'Add a bridge, then drag free parts into it. On a phone, tap a free part, then tap the bridge. Parts in use stay locked.');
+          var movableNames = items.filter(function (item) { return item.movableFrom; }).map(function (item) { return item.name; });
+          add(head, 'small', '', 'Add a bridge, then drag free parts into it. On a phone, tap a free part, then tap the bridge. ' + (movableNames.length ? 'Movable parts are in a bridge Wi-Fi Fiti built, so they can be moved too. ' : '') + 'Parts in use stay locked.');
           panel.appendChild(head);
           var tools = el('div', 'rb-planner-tools');
           var addHotspot = add(tools, 'button', 'secondary', '+ Hotspot bridge'); addHotspot.type = 'button';
@@ -1904,6 +1912,8 @@
           });
           if (!draft.bridges.length && !draft.existing.length) add(nets, 'div', 'rb-net-empty', 'Nothing mapped yet. Add a hotspot or PPPoE bridge above.');
           panel.appendChild(nets);
+          var leaving = []; draft.bridges.forEach(function (b) { b.ports.forEach(function (p) { var it = byName[p]; if (it && it.movableFrom) leaving.push(p + ' leaves ' + it.movableFrom); }); });
+          if (leaving.length) add(panel, 'p', 'rb-moves', 'Moving: ' + leaving.join(', ') + '. Devices plugged in there will join the new bridge instead.');
           var foot = el('div', 'rb-planner-foot');
           var save = add(foot, 'button', '', dirty || !savedPlan ? 'Save map' : 'Map saved'); save.type = 'button'; save.disabled = !dirty && Boolean(savedPlan); saveButton = save;
           var note = add(foot, 'span', 'form-note', savedPlan && !dirty ? 'Saved ' + when(savedPlan.savedAt) + '. Applying it to the router is the next step; nothing has changed on the router.' : 'Saving only records the map. Nothing on the router changes yet.');

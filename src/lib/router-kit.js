@@ -214,7 +214,7 @@ const UNIVERSAL_INSTALLER = 'tenant-router-install-universal.rsc';
 // find/get, and the result is only stored in the fitiInventory global that
 // the poller sends with its next authenticated sync.
 // Bump when the layout report changes; paired routers are updated in place.
-const INVENTORY_AGENT = 2;
+const INVENTORY_AGENT = 3;
 function inventoryScriptLines() {
   const safe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-';
   const add = (expr) => `:if ($fitiInvLines < 190) do={ :set fitiInvOut ($fitiInvOut . ${expr} . "\\n"); :set fitiInvLines ($fitiInvLines + 1) }`;
@@ -237,6 +237,8 @@ function inventoryScriptLines() {
     ].map(([menu, type]) => `:do { :local fitiInvList ""; :do { :set fitiInvList [${menu} find] } on-error={}; :foreach x in=$fitiInvList do={ :local nm [${menu} get $x name]; :local st "down"; :do { :if ([${menu} get $x running] = true) do={ :set st "up" } } on-error={}; :do { :if ([${menu} get $x disabled] = true) do={ :set st "disabled" } } on-error={}; :if ([$fitiInvSafe $nm]) do={ ${add(`("inv|if|" . $nm . "|${type}|" . $st)`)} } else={ :set fitiInvSkipped ($fitiInvSkipped + 1) } } } on-error={}`),
     `:do { :foreach v in=[/interface vlan find] do={ :local nm [/interface vlan get $v name]; :local id [/interface vlan get $v vlan-id]; :local pr [/interface vlan get $v interface]; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $pr]) do={ ${add('("inv|vlan|" . $nm . "|" . $id . "|" . $pr)')} } } } on-error={}`,
     `:do { :foreach p in=[/interface bridge port find] do={ :local br [/interface bridge port get $p bridge]; :local ifc [/interface bridge port get $p interface]; :if ([$fitiInvSafe $br] && [$fitiInvSafe $ifc]) do={ ${add('("inv|bport|" . $br . "|" . $ifc)')} } } } on-error={}`,
+    // Bridges the Wi-Fi Fiti kits built themselves: their ports may be moved.
+    `:do { :foreach b in=[/interface bridge find where comment~"Wi-Fi Fiti"] do={ :local nm [/interface bridge get $b name]; :if ([$fitiInvSafe $nm]) do={ ${add('("inv|fiti-bridge|" . $nm)')} } } } on-error={}`,
     `:do { :foreach c in=[/interface pppoe-client find] do={ :local nm [/interface pppoe-client get $c name]; :local ifc [/interface pppoe-client get $c interface]; :if ([$fitiInvSafe $nm] && [$fitiInvSafe $ifc]) do={ ${add('("inv|pppoe-client|" . $nm . "|" . $ifc)')} } } } on-error={}`,
     `:do { :foreach c in=[/interface pppoe-server server find] do={ :local sv [$fitiInvClean [/interface pppoe-server server get $c service-name]]; :local ifc [/interface pppoe-server server get $c interface]; :local en "enabled"; :if ([/interface pppoe-server server get $c disabled] = true) do={ :set en "disabled" }; :if ([$fitiInvSafe $sv] && [$fitiInvSafe $ifc]) do={ ${add('("inv|pppoe-server|" . $sv . "|" . $ifc . "|" . $en)')} } } } on-error={}`,
     `:do { :foreach a in=[/ip address find where disabled=no] do={ :local ifc [/ip address get $a interface]; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|addr|" . $ifc)')} } } } on-error={}`,

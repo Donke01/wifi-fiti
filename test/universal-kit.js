@@ -71,12 +71,13 @@ assert.ok(braces(installer.split('/system script add name=fiti-poll')[0]), 'inst
 const inventorySource = decodeScriptSource(installer, 'name=fiti-inventory policy=read,test source="');
 assert.equal(inventorySource, inventoryScriptLines().join('\r\n') + '\r\n', 'the layout report is embedded exactly');
 assert.doesNotMatch(inventorySource, NETWORK_CHANGES, 'the layout report is read-only');
+assert.match(inventorySource, /\/interface bridge find where comment~"Wi-Fi Fiti"\]/, 'the report names the bridges Wi-Fi Fiti built');
 assert.ok(braces(inventorySource));
 assert.doesNotMatch(inventorySource, /dynamic=no/, 'the generic interface find (returns only bridges on RouterOS 7.24) is not used');
 for (const menu of ['ethernet', 'wireless', 'wifi', 'bridge', 'vlan', 'pppoe-client', 'lte', 'wireguard']) {
   assert.match(inventorySource, new RegExp(`\\[/interface ${menu} find\\]`), `interfaces are listed from the ${menu} menu`);
 }
-assert.match(inventorySource, /inv\|agent\|2/);
+assert.match(inventorySource, /inv\|agent\|3/);
 const pollerSource = decodeScriptSource(installer, 'name=fiti-poll policy=read,write,ftp,test,policy source="');
 assert.match(pollerSource, /:global fitiInventory/);
 assert.match(pollerSource, /:set report \(\$report \. \$fitiInventory\)/, 'the poller sends the layout report with its sync');
@@ -112,7 +113,7 @@ for (const forbidden of ['"address"', '"mac"', '"password"', '"secret"', '"token
 const plan = validateNetworkPlan({ bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['wlan1', 'ether3'] }],
   existing: [{ interface: 'bridge-tv', job: 'pppoe' }] }, parsed);
 assert.deepEqual(plan, { version: 1, bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether3', 'wlan1'] }],
-  existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }] });
+  existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }], moves: [] });
 const refuses = (input, pattern, why) => assert.throws(() => validateNetworkPlan(input, parsed), (e) => e.status === 400 && pattern.test(e.message), why);
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether4'] }] }, /already in use/, 'a port in use stays as it is');
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether1'] }] }, /already in use/, 'the internet port cannot be moved');
@@ -127,6 +128,22 @@ refuses({ existing: [{ interface: 'ether2', job: 'hotspot' }] }, /bridge or VLAN
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], existing: [{ interface: 'bridge-tv', job: 'hotspot' }] }, /one place for hotspot/);
 refuses({}, /first/);
 assert.throws(() => validateNetworkPlan({ existing: [] }, null), (e) => e.status === 409);
+// Ports in a bridge Wi-Fi Fiti built may move; ports in the owner's bridges may not.
+const fitiLayout = parseRouterInventory(['fiti-inventory-v2', 'inv|agent|3', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|ether4|ether|up',
+  'inv|if|ether5|ether|up', 'inv|if|wlan1|wlan|up', 'inv|if|bridge-hs|bridge|up', 'inv|if|bridge-own|bridge|up', 'inv|fiti-bridge|bridge-hs',
+  'inv|bport|bridge-hs|ether2', 'inv|bport|bridge-hs|ether3', 'inv|bport|bridge-hs|wlan1', 'inv|bport|bridge-own|ether4', 'inv|bport|bridge-own|ether5',
+  'inv|vlan|vlan9|9|ether3', 'inv|if|vlan9|vlan|up', 'inv|hotspot|hotspot1|bridge-hs', 'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
+assert.deepEqual(fitiLayout.fitiBridges, ['bridge-hs']);
+assert.deepEqual(fitiLayout.movableInterfaces.sort(), ['ether2', 'wlan1'], 'only ports whose one job is the Wi-Fi Fiti bridge can move (ether3 also carries a VLAN)');
+assert.deepEqual(fitiLayout.freeInterfaces, [], 'nothing is free on this router');
+const moved = validateNetworkPlan({ bridges: [{ name: 'fiti-pppoe', job: 'pppoe', ports: ['ether2'] }] }, fitiLayout);
+assert.deepEqual(moved.moves, [{ interface: 'ether2', from: 'bridge-hs' }], 'the plan records which port leaves which bridge');
+assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'b1', job: 'pppoe', ports: ['ether4'] }] }, fitiLayout), /already in use/, "the owner's own bridge stays locked");
+assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'b1', job: 'pppoe', ports: ['ether3'] }] }, fitiLayout), /already in use/);
+const oneLeft = parseRouterInventory(['fiti-inventory-v2', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|bridge-hs|bridge|up', 'inv|fiti-bridge|bridge-hs',
+  'inv|bport|bridge-hs|ether2', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
+assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'b1', job: 'pppoe', ports: ['ether2'] }] }, oneLeft), /at least one port in bridge-hs/, 'a Wi-Fi Fiti bridge is never emptied');
+assert.deepEqual(plan.moves, [], 'a plan of free ports moves nothing');
 const withHotspot = parseRouterInventory(layout(['inv|hotspot|hotspot1|bridge-tv']));
 assert.equal(withHotspot.hotspots.length, 1);
 {
