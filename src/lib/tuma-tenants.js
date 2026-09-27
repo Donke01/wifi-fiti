@@ -36,7 +36,7 @@ function last4(value) {
   return text.length <= 4 ? text : text.slice(-4);
 }
 
-function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = console }) {
+function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSaved = null, log = console }) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tenant_tuma_accounts (
       business_id       TEXT PRIMARY KEY,
@@ -78,6 +78,18 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = conso
     updated_at=datetime('now') WHERE business_id=?`);
   const markError = db.prepare(`UPDATE tenant_tuma_accounts SET last_error=?, updated_at=datetime('now') WHERE business_id=?`);
   const deactivate = db.prepare(`UPDATE tenant_tuma_accounts SET active=0, updated_at=datetime('now') WHERE business_id=?`);
+  // Trial tenants who never subscribe have their Tuma business switched off
+  // after TRIAL_DORMANT_DAYS; it is switched back on as soon as they pay.
+  try { db.exec(`ALTER TABLE tenant_tuma_accounts ADD COLUMN suspended_reason TEXT`); } catch (_) { /* present */ }
+  const suspend = db.prepare(`UPDATE tenant_tuma_accounts SET active=0, suspended_reason=?, updated_at=datetime('now') WHERE business_id=? AND active=1`);
+  const resume = db.prepare(`UPDATE tenant_tuma_accounts SET active=1, suspended_reason=NULL, updated_at=datetime('now') WHERE business_id=?`);
+
+  // Report the payout account and ID name to the one-trial-per-person guard.
+  // Returns the reason the trial ended, if it did.
+  function reportPayout(businessId, row) {
+    if (!onPayoutSaved) return null;
+    try { return onPayoutSaved(businessId, row); } catch (error) { log.error('[tuma tenants] trial check failed:', error.message); return null; }
+  }
 
   // Guards against a double-click creating two Tuma businesses for one tenant.
   const inFlight = new Set();
@@ -98,6 +110,7 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = conso
         active: Boolean(row.active),
         verifiedAt: row.verified_at || null,
         lastError: row.last_error || null,
+        suspendedReason: row.suspended_reason || null,
         updatedAt: row.updated_at,
       },
     };
@@ -185,7 +198,8 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = conso
       if (existing && existing.mode === 'managed' && existing.tuma_business_id) {
         await tuma.updateBusiness(existing.tuma_business_id, tumaFields);
         updateDestination.run(destinationColumns(business.id, destination));
-        return publicView(byBusiness.get(business.id));
+        const trialEnded = reportPayout(business.id, { payout: `${destination.bank.id}:${destination.accountNumber}`, name: destination.settlementName });
+        return { ...publicView(byBusiness.get(business.id)), trialEnded };
       }
       if (existing && existing.mode === 'linked') {
         throw httpError(409, 'This workspace uses your own Tuma account. Change the payout destination inside your Tuma dashboard, or disconnect it here first.');
@@ -205,7 +219,8 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = conso
         db.prepare('DELETE FROM tenant_tuma_accounts WHERE business_id=?').run(business.id);
       }
       insert.run(row);
-      return publicView(byBusiness.get(business.id));
+      const trialEnded = reportPayout(business.id, { payout: `${destination.bank.id}:${destination.accountNumber}`, name: destination.settlementName });
+      return { ...publicView(byBusiness.get(business.id)), trialEnded };
     } catch (error) {
       if (error.expose) throw error;
       // A Tuma-side HTTP status (e.g. 401 on the platform token) must never
@@ -234,7 +249,8 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = conso
       destinationType: 'own', bankId: null, bankName: 'Your Tuma account', bankCode: null, accountCipher: null,
       accountLast4: null, settlementName: cleanText(business.portal_name || business.name, 120), mobile: null,
       verifiedAt: new Date().toISOString().replace('T', ' ').slice(0, 19), lastError: null });
-    return publicView(byBusiness.get(business.id));
+    const trialEnded = reportPayout(business.id, { payout: `tuma:${email}` });
+    return { ...publicView(byBusiness.get(business.id)), trialEnded };
   }
 
   function connected(businessId) {
@@ -297,7 +313,41 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, log = conso
     });
   }
 
-  return { attachRoutes, connected, credentialsFor, saveSettlement, linkExisting, destinations, test, view: (id) => publicView(byBusiness.get(id)) };
+  /**
+   * Switch off managed Tuma businesses of trial tenants who never subscribed
+   * (isDormant), and back on for anyone suspended who now has an active
+   * trial or paid service (isEntitled). Local credentials stop being used
+   * either way; Tuma is told too where it allows it.
+   */
+  async function sweep({ isDormant, isEntitled }) {
+    const rows = db.prepare(`SELECT * FROM tenant_tuma_accounts WHERE mode='managed' AND tuma_business_id IS NOT NULL`).all();
+    const result = { suspended: 0, resumed: 0 };
+    for (const row of rows) {
+      if (row.active && isDormant(row.business_id)) {
+        try { await tuma.updateBusiness(row.tuma_business_id, { active: false }); }
+        catch (error) { log.error(`[tuma tenants] Tuma did not accept switching off ${row.business_id}:`, error.message); }
+        if (suspend.run('trial-ended', row.business_id).changes) result.suspended += 1;
+      } else if (!row.active && row.suspended_reason === 'trial-ended' && isEntitled(row.business_id)) {
+        if (await resumeAccount(row)) result.resumed += 1;
+      }
+    }
+    return result;
+  }
+
+  async function resumeAccount(row) {
+    try { await tuma.updateBusiness(row.tuma_business_id, { active: true }); }
+    catch (error) { log.error(`[tuma tenants] Tuma did not accept switching on ${row.business_id}:`, error.message); }
+    return resume.run(row.business_id).changes > 0;
+  }
+
+  /** Switch a suspended account back on immediately (e.g. at checkout). */
+  async function resumeIfSuspended(businessId, isEntitled) {
+    const row = byBusiness.get(businessId);
+    if (!row || row.active || row.suspended_reason !== 'trial-ended' || !isEntitled(businessId)) return false;
+    return resumeAccount(row);
+  }
+
+  return { attachRoutes, connected, credentialsFor, sweep, resumeIfSuspended, saveSettlement, linkExisting, destinations, test, view: (id) => publicView(byBusiness.get(id)) };
 }
 
 module.exports = { createTumaTenants, normaliseMobile };

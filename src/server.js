@@ -25,6 +25,9 @@ const paymentIntegrations = require('./lib/payment-integrations');
 const serviceBilling = require('./lib/service-billing');
 const { createTumaTenants } = require('./lib/tuma-tenants');
 const { createTumaFee, FEE_KES: TUMA_FEE_KES } = require('./lib/tuma-fee');
+// One free trial per owner phone, payout account and ID name.
+const trialGuard = require('./lib/trial-guard').createTrialGuard({ db: db.db, normalizePhone: mpesa.normalizePhone });
+trialGuard.backfillPhones();
 // Created early: sales checks and the reminder worker both read it.
 const tumaFee = createTumaFee({ db: db.db });
 const { createDemo } = require('./lib/demo');
@@ -815,6 +818,7 @@ app.post('/api/business/register', async (req, res) => {
       hotspotName: rawHotspotName ? textField(rawHotspotName, 'hotspot name', 80, true) : null,
     });
     db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+    if (registrationIsComplete) trialGuard.check(id, { phone: ownerPhone });
     const token = issueBusinessSession(id);
     const business = db.businessById.get(id);
     res.status(201).json({ token, business, onboarding: onboardingState(business), requestedCustom: plan === 'custom' });
@@ -831,6 +835,7 @@ app.post('/api/business/verify-registration', (req, res) => {
     const id = businessId('biz');
     db.addBusiness.run({ id, name: payload.registrationIsComplete ? payload.name : '', ownerName: payload.registrationIsComplete ? payload.ownerName : '', ownerPhone: payload.registrationIsComplete ? payload.ownerPhone : '', email: row.email, passwordHash: payload.passwordHash, plan: payload.plan, collectionMode: payload.collectionMode, onboardingState: payload.registrationIsComplete ? 'complete' : 'organisation', organisationCompletedAt: payload.registrationIsComplete ? new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : null, hotspotName: payload.hotspotName });
     db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
+    if (payload.registrationIsComplete) trialGuard.check(id, { phone: payload.ownerPhone });
     const account = db.businessById.get(id);
     res.status(201).json({ token: issueBusinessSession(id), business: account, onboarding: onboardingState(account), requestedCustom: payload.requestedCustom });
   } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not verify the account.' }); }
@@ -1021,6 +1026,7 @@ function saveOrganisation(req, res) {
       'hotspot name', 80, true);
     if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan phone number.' });
     db.completeBusinessOrganisation.run({ id: business.id, name, ownerPhone: phone, hotspotName, portalName: name });
+    trialGuard.check(business.id, { phone });
     const updated = db.businessById.get(business.id);
     res.json({ business: updated, onboarding: onboardingState(updated) });
   } catch (error) {
@@ -2238,6 +2244,9 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
       // the Till / PayBill / bank they chose. Without one, the platform Tuma
       // account collects and the sale is owed to the tenant ('tuma').
       let tenantTuma = null;
+      // A tenant who subscribed after their Tuma business was switched off
+      // gets it back before this payment, so the money still goes to them.
+      await tumaTenants.resumeIfSuspended(location.business_id, tumaAccountEntitled).catch(() => false);
       try { tenantTuma = tumaTenants.credentialsFor(location.business_id); }
       catch (err) {
         lastPush.delete(throttleKey);
@@ -4516,9 +4525,31 @@ require('./lib/tenant-portal-templates').attachTenantPortalTemplateRoutes(app, {
 // customer payments settle straight to that tenant's Till, PayBill or bank.
 const tumaTenants = createTumaTenants({
   db: db.db, tuma, encrypt: tenant.encryptSecret, decrypt: tenant.decryptSecret,
+  onPayoutSaved: (businessId, values) => trialGuard.check(businessId, values),
   logoUrlFor: (business) => brandingPayload(business).logoUrl || `${config.domains.appUrl}/assets/wifi-fiti-logo.png`,
 });
 tumaTenants.attachRoutes(app, { businessAuth });
+
+// Trial tenants who never subscribe: switch their Tuma business off after
+// TRIAL_DORMANT_DAYS, and back on as soon as they have a trial or paid service.
+const TRIAL_DORMANT_DAYS = 30;
+function tumaAccountEntitled(businessId) {
+  const business = db.businessById.get(businessId); if (!business) return false;
+  const s = serviceBilling.summary(business);
+  const usable = (x) => x.status === 'active' || x.status === 'grace';
+  return s.trial.active || usable(s.hotspot) || usable(s.pppoe) || usable(s.legacy);
+}
+function tumaAccountDormant(businessId) {
+  const business = db.businessById.get(businessId); if (!business) return false;
+  if (String(business.billing_status || '').toLowerCase() !== 'trial' || tumaAccountEntitled(businessId)) return false;
+  const ended = serviceBilling.parseTime(business.billing_expires_at);
+  return ended != null && Date.now() - ended > TRIAL_DORMANT_DAYS * 86400_000;
+}
+const runTumaSweep = () => tumaTenants.sweep({ isDormant: tumaAccountDormant, isEntitled: tumaAccountEntitled })
+  .then((r) => { if (r.suspended || r.resumed) console.log(`[tuma tenants] switched off ${r.suspended}, back on ${r.resumed}`); })
+  .catch((err) => console.error('[tuma tenants] sweep failed:', err.message));
+setTimeout(runTumaSweep, 90_000).unref();
+setInterval(runTumaSweep, 60 * 60_000).unref();
 
 // Tuma bills KES 2,500 a month once a tenant's Tuma sales reach KES 100,000.
 // Wi‑Fi Fiti charges the tenant KES 3,000 for it; the tenant pays here by M‑Pesa.

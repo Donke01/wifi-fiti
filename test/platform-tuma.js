@@ -161,6 +161,23 @@ async function test(name, fn) {
     for (let n = 1; n <= 6; n += 1) assert.equal((await addRouter(tok, n)).status, 201, `router ${n}`);
   });
 
+  console.log('\nOne free trial per person');
+
+  const register = (email, phone) => call('POST', '/api/business/register', { name: 'Trial Test', ownerName: 'Owner', phone, email, password: 'test-password-123', plan: 'starter', collectionMode: 'own' }, { Authorization: '' });
+  await test('a second workspace with the same phone number starts without a free trial', async () => {
+    const first = await register('first-trial@test.ke', '0733000111');
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    const second = await register('second-trial@test.ke', '254733000111');
+    assert.equal(second.status, 201, JSON.stringify(second.body));
+    const row = (email) => database.prepare(`SELECT billing_expires_at > datetime('now') AS trial, trial_ended_reason FROM businesses WHERE email=?`).get(email);
+    assert.equal(row('first-trial@test.ke').trial, 1, 'the first keeps its 7 days');
+    assert.equal(row('second-trial@test.ke').trial, 0);
+    assert.match(row('second-trial@test.ke').trial_ended_reason, /phone number/);
+    const me = await call('GET', '/api/business/me', null, { Authorization: `Bearer ${second.body.token}` });
+    assert.equal(me.body.services.trial.active, false);
+    assert.match(me.body.business.trial_ended_reason, /already used/);
+  });
+
   server.close();
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

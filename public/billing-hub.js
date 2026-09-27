@@ -140,6 +140,7 @@
         var where = acct.destinationType === 'own' ? 'your own Tuma account' : (acct.destinationType === 'till' ? 'M‑Pesa Till' : acct.destinationType === 'paybill' ? 'M‑Pesa PayBill' : acct.destinationName) + (acct.accountLast4 ? ' ending ' + acct.accountLast4 : '');
         return { title: 'Tuma → ' + where, text: 'Customer payments settle to you in real time.', state: acct.lastError ? ['bad', 'Needs attention'] : ['ok', 'Ready'] };
       }
+      if (acct && acct.suspendedReason === 'trial-ended') return { title: 'Tuma (paused)', text: 'Paused because the free trial ended. It switches back on as soon as you choose a plan.', state: ['warn', 'Paused'] };
       return { title: 'Tuma', text: 'Add where Tuma should send your money to finish.', state: ['warn', 'Finish setup'] };
     }
     var name = ((integ.providers || []).find(function (p) { return p.id === integ.selected; }) || {}).name || 'Not chosen yet';

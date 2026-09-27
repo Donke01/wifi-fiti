@@ -241,6 +241,52 @@ function harness() {
     h.close();
   });
 
+  console.log('\nTrial tenants who never subscribe');
+
+  await test('a dormant trial tenant\'s Tuma business is switched off, then back on when they pay', async () => {
+    const h = harness(); h.addBusiness('t9');
+    await h.call('POST', '/api/business/tuma/settlement', 't9', { destinationType: 'till', accountNumber: '5123456', settlementName: 'Juma Otieno', mobile: '0712345678' });
+    const id = h.db.prepare('SELECT tuma_business_id FROM tenant_tuma_accounts WHERE business_id=?').get('t9').tuma_business_id;
+    calls.length = 0;
+    let dormant = true; let entitled = false;
+    const off = await h.tenants.sweep({ isDormant: () => dormant, isEntitled: () => entitled });
+    assert.deepEqual(off, { suspended: 1, resumed: 0 });
+    assert.equal(h.tenants.credentialsFor('t9'), null, 'its credentials are no longer used');
+    const put = calls.find((c) => c.method === 'PUT');
+    assert.equal(put.path, `/businesses/${id}`); assert.equal(put.body.is_active, false, 'Tuma is asked to switch it off');
+    assert.equal(h.tenants.view('t9').account.suspendedReason, 'trial-ended');
+    dormant = false; entitled = true;
+    assert.deepEqual(await h.tenants.sweep({ isDormant: () => dormant, isEntitled: () => entitled }), { suspended: 0, resumed: 1 });
+    assert.ok(h.tenants.credentialsFor('t9'), 'switched back on');
+    assert.equal(calls.filter((c) => c.method === 'PUT').pop().body.is_active, true);
+    h.close();
+  });
+
+  await test('a paying tenant is switched back on at checkout, and linked accounts are never switched off', async () => {
+    const h = harness(); h.addBusiness('t10'); h.addBusiness('t11');
+    await h.call('POST', '/api/business/tuma/settlement', 't10', { destinationType: 'till', accountNumber: '5123456', settlementName: 'Juma Otieno', mobile: '0712345678' });
+    validKeys.set('own@t11.test', 'tuma_t11_own_key_000000000000000');
+    await h.call('POST', '/api/business/tuma/link', 't11', { email: 'own@t11.test', apiKey: 'tuma_t11_own_key_000000000000000' });
+    await h.tenants.sweep({ isDormant: () => true, isEntitled: () => false });
+    assert.equal(h.tenants.credentialsFor('t10'), null);
+    assert.ok(h.tenants.credentialsFor('t11'), 'a tenant\'s own linked Tuma account is left alone');
+    assert.equal(await h.tenants.resumeIfSuspended('t10', () => false), false, 'not while still unpaid');
+    assert.equal(await h.tenants.resumeIfSuspended('t10', () => true), true);
+    assert.ok(h.tenants.credentialsFor('t10'));
+    h.close();
+  });
+
+  await test('saving a payout account reports it to the one-trial rule', async () => {
+    const seen = [];
+    const db2 = new DatabaseSync(':memory:');
+    const tenants = createTumaTenants({ db: db2, tuma, encrypt, decrypt, logoUrlFor: () => 'https://cloud.test/logo', log: { error() {} },
+      onPayoutSaved: (id, values) => { seen.push([id, values]); return 'A free trial was already used with this payout account.'; } });
+    const result = await tenants.saveSettlement({ id: 't12', name: 'B', email: 't12@tenant.test', owner_phone: '0712345678' },
+      { destinationType: 'bank', bankId: 'b-kcb', accountNumber: '1122334455', settlementName: 'Amina Wairimu', mobile: '0712345678' });
+    assert.deepEqual(seen, [['t12', { payout: 'b-kcb:1122334455', name: 'Amina Wairimu' }]]);
+    assert.match(result.trialEnded, /already used/);
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) process.exit(1);
 })();

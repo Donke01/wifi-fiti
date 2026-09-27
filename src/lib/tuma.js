@@ -157,6 +157,7 @@ function businessPayload(fields) {
   if (fields.accountNumber !== undefined) out.account_number = String(fields.accountNumber);
   if (fields.logo !== undefined) out.logo = String(fields.logo);
   if (fields.description) out.description = String(fields.description).slice(0, 1000);
+  if (fields.active !== undefined) out.is_active = Boolean(fields.active);
   return out;
 }
 

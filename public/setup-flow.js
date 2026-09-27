@@ -164,7 +164,10 @@
       listBox.replaceChildren();
       var doneCount = steps.filter(function (s) { return s.done; }).length;
       listBox.appendChild(h('h3', { text: 'Finish setting up · ' + doneCount + ' of ' + steps.length + ' done' }));
-      listBox.appendChild(h('p', { text: trial && trial.active ? 'Everything is free until ' + day(trial.endsAt) + '. Pay now: KES 0.' : 'Complete these steps to start taking payments.' }));
+      var endedReason = workspace.business && workspace.business.trial_ended_reason;
+      listBox.appendChild(h('p', { text: trial && trial.active ? 'Everything is free until ' + day(trial.endsAt) + '. Pay now: KES 0.'
+        : endedReason ? endedReason + ' Choose your plan to start taking payments; everything else works as normal.'
+        : 'Complete these steps to start taking payments.' }));
       var nextMarked = false;
       steps.forEach(function (step, index) {
         var isNext = !step.done && !nextMarked; if (isNext) nextMarked = true;

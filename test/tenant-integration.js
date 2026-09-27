@@ -153,9 +153,11 @@ function endpoint(location, suffix) {
   return `/api/tenant/${location.id}/${suffix}`;
 }
 
+// Each test operator is a different person: one free trial per phone number.
+let operatorPhoneSeq = 0;
 async function operator(suffix, collectionMode = 'fiti', rateLimit = '2M/5M') {
   const registered = await api('/api/business/register', { method: 'POST', body: {
-    name: `${suffix} Internet`, ownerName: `${suffix} Owner`, phone: '0712000000',
+    name: `${suffix} Internet`, ownerName: `${suffix} Owner`, phone: `0713${String(++operatorPhoneSeq).padStart(6, '0')}`,
     email: `${suffix.toLowerCase()}@example.test`, password: 'integration-password',
     plan: 'starter', collectionMode,
   } });

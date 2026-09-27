@@ -65,6 +65,8 @@
     var s = state.settlement || {};
     var a = s.account;
     if (s.platformReady === false) return h('p', { class: 'tp-state warn', text: 'Wi‑Fi Fiti is finishing its Tuma connection. You can set this up as soon as it is ready.' });
+    if (a && !a.active && a.suspendedReason === 'trial-ended') return h('p', { class: 'tp-state warn' }, [h('span', { text: '!' }), h('span', { text: 'Your Tuma payout account is paused because your free trial ended without a plan. It switches back on automatically as soon as you choose a plan in Billing & payments.' })]);
+    if (state.trialNotice) return h('p', { class: 'tp-state warn' }, [h('span', { text: '!' }), h('span', { text: 'Payout account saved. ' + state.trialNotice + ' Your free trial has ended, so choose a plan in Billing & payments to start selling.' })]);
     if (a && a.active) {
       var where = a.destinationType === 'own' ? 'your own Tuma account (' + a.email + ')'
         : kindLabel(a.destinationType) + (a.destinationType === 'bank' ? ' · ' + a.destinationName : '') + (a.accountLast4 ? ' ending ' + a.accountLast4 : '');
@@ -149,7 +151,7 @@
       var body = { destinationType: state.type, bankId: bank ? bank.value : undefined, accountNumber: number.value,
         settlementName: name.value, mobile: mobile.value, email: email ? email.value : undefined };
       api('/api/business/tuma/settlement', { method: 'POST', body: JSON.stringify(body) }).then(function (result) {
-        state.settlement = Object.assign({}, state.settlement, result);
+        state.settlement = Object.assign({}, state.settlement, result); state.trialNotice = result.trialEnded || null;
         render();
         var test = document.getElementById('test-integration'); if (test) test.click();
       }).catch(function (error) {
