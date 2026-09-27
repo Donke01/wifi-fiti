@@ -126,7 +126,24 @@
     body[data-portal-package-style="pill"] .plan-detail{display:none}
     @media(max-width:480px){body[data-portal-package-style="tiles"] .plans{grid-template-columns:1fr}}
     .tv-picker{display:grid;gap:10px;margin:16px 0}.tv-choice{display:grid;grid-template-columns:48px 1fr 18px;align-items:center;gap:10px;width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:16px;color:var(--ink);background:#fff;text-align:left;cursor:pointer;box-shadow:0 4px 12px rgba(32,57,86,.035)}.tv-choice:hover{border-color:#8fb7e8;background:#f8fbff}.tv-choice b,.tv-choice small{display:block}.tv-choice b{font-size:16px}.tv-choice small{margin-top:3px;color:var(--muted);font-size:13px;line-height:1.35}.tv-choice-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;color:var(--aqua);background:#e8fbfb;font-size:26px;font-weight:800}.tv-back-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}.tv-devices{display:grid;gap:9px;max-height:320px;overflow:auto;margin:12px 0}.tv-device{display:grid;grid-template-columns:42px 1fr;align-items:center;gap:10px;padding:13px;border:1px solid var(--line);border-radius:16px;background:#fff;text-align:left;cursor:pointer}.tv-device:hover,.tv-device.selected{border-color:var(--aqua);background:#f0fcfc;box-shadow:inset 0 0 0 1px #078d9b2a}.tv-device-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;color:var(--aqua);background:#e4fafa;font-size:20px}.tv-device b,.tv-device small{display:block}.tv-device b{font-size:16px}.tv-device small{margin-top:3px;color:var(--muted);font-size:13px;letter-spacing:.04em}.tv-manual-link{width:100%;margin-top:9px}.offline-device{margin:16px 0;padding:14px 16px;border:1px solid #b7d8f5;border-radius:16px;background:linear-gradient(135deg,#f1f8ff,#f8fcff)}.offline-device h3{margin:0 0 5px;font-size:16px}.offline-device p{margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45}.offline-device input{margin:0}.offline-device small{display:block;margin-top:7px;color:var(--muted);line-height:1.4}.claim-device{margin:16px 0;padding:14px 16px;border:1px solid #b7d8f5;border-radius:16px;background:linear-gradient(135deg,#f1f8ff,#f8fcff)}.claim-device h3{margin:0 0 5px;font-size:16px}.claim-device p{margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45}.claim-device input{margin:0}.claim-device button{width:100%;margin-top:10px}.claim-device .error{margin-top:8px}.tv-picker~.hidden{display:none!important}
-  </style>
+  
+/* Routerboard motion for the payment tiles: each symbol does what it means.
+   CSS only, transform/opacity, and off for reduced-motion users. */
+@media (prefers-reduced-motion:no-preference){
+  #buy-tv-start .utility-icon svg rect{animation:fitiScreen 3.4s ease-in-out infinite}
+  #check-time .utility-icon svg path{transform-box:view-box;transform-origin:12px 12px;animation:fitiTick 6s steps(12,end) infinite}
+  #open-voucher .utility-icon svg path:last-child{animation:fitiMarch 1.4s linear infinite}
+  #open-paybill .utility-icon svg path{animation:fitiType 2.8s ease-in-out infinite}
+  .utility-icon{box-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 4px 10px -4px rgba(20,60,120,.35);transition:translate .3s ease}
+  .utility:hover .utility-icon,.utility:focus-visible .utility-icon{translate:0 -2px}
+  .mpesa-logo{animation:fitiBob 3.6s ease-in-out infinite}
+}
+@keyframes fitiScreen{0%,100%{fill:currentColor;fill-opacity:0}50%{fill:currentColor;fill-opacity:.25}}
+@keyframes fitiTick{from{rotate:0deg}to{rotate:360deg}}
+@keyframes fitiMarch{to{stroke-dashoffset:-8}}
+@keyframes fitiType{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes fitiBob{0%,100%{translate:0 0}50%{translate:0 -3px}}
+</style>
 </head>
 <body>
   <main class="shell">

@@ -1,0 +1,130 @@
+/*
+ * Wi-Fi Fiti motion: the "routerboard" language used across pages.
+ * Glass that catches light, status lights that glow like router LEDs,
+ * symbols that sit like parts on a board, and calm floating motion.
+ *
+ * Only transform/opacity/filter are animated (cheap on budget phones), and
+ * individual `translate`/`scale` properties are used so a page's own hover
+ * `transform` still works. Everything is off for reduced-motion users, and
+ * nothing here applies until fiti-motion.js marks the page ready (.fm-on),
+ * so a failed script never hides content.
+ */
+.fm-on{--fm-ease:cubic-bezier(.2,.8,.2,1);--fm-green:#2fd98f;--fm-amber:#ffb938;--fm-red:#ff5c77;--fm-blue:#4aa8ff}
+
+/* Status lights: the dot on a status pill glows like a port LED. */
+.fm-on .fm-led{position:relative}
+.fm-on .fm-led::before,.fm-on .fm-led>.fm-dot{box-shadow:0 0 0 0 currentColor,0 0 7px currentColor}
+.fm-on .fm-led>.fm-dot{display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:currentColor;vertical-align:1px}
+
+/* Symbols as board parts: small glass key-caps with an inner light. */
+.fm-on .fm-chip{position:relative;display:inline-grid;place-items:center;isolation:isolate;border-radius:8px;
+  background:linear-gradient(160deg,rgba(255,255,255,.95),rgba(222,236,252,.8));
+  box-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 -1px 2px rgba(23,105,216,.12) inset,0 3px 8px -3px rgba(20,60,120,.35);
+  transition:translate .35s var(--fm-ease),box-shadow .35s var(--fm-ease),color .35s}
+.fm-on .fm-chip::after{content:"";position:absolute;inset:3px;z-index:-1;border-radius:6px;background:radial-gradient(circle at 50% 60%,rgba(74,168,255,.28),transparent 70%);opacity:.5;transition:opacity .35s}
+.fm-on .nav .fm-chip{width:24px;height:24px;flex:0 0 24px;font-size:12px}
+.fm-on :hover>.fm-chip,.fm-on .fm-chip:hover{translate:0 -2px;box-shadow:0 1px 0 #fff inset,0 8px 14px -6px rgba(20,60,120,.45)}
+.fm-on :hover>.fm-chip::after{opacity:1}
+.fm-on .fm-chip.fm-lit{color:#fff;background:linear-gradient(150deg,#3b8cff,#1157ba);box-shadow:0 0 0 1px rgba(255,255,255,.35) inset,0 6px 16px -4px rgba(23,105,216,.65)}
+.fm-on .fm-chip.fm-lit::after{background:radial-gradient(circle at 50% 30%,rgba(255,255,255,.55),transparent 65%);opacity:1}
+
+/* Glass cards: a light sheen crosses them now and then. */
+.fm-on .fm-glass{position:relative}
+.fm-sheen{position:absolute;inset:0;z-index:0;overflow:hidden;border-radius:inherit;pointer-events:none}
+.fm-sheen::before{content:"";position:absolute;top:0;bottom:0;left:-60%;width:45%;background:linear-gradient(105deg,transparent,rgba(255,255,255,.55),transparent);translate:-100% 0;opacity:0}
+.fm-on .fm-kpi .fm-kpi-led{position:absolute;top:12px;right:12px;width:6px;height:6px;border-radius:50%;background:var(--fm-green);box-shadow:0 0 6px var(--fm-green)}
+
+/* PPPoE tunnel: a router and a home linked by a pipe carrying packets. */
+.fm-tunnel{position:absolute;right:30px;top:14px;width:250px;height:112px;pointer-events:none;opacity:.95}
+.fm-tunnel .fm-node{position:absolute;top:34px;width:52px;height:52px;border-radius:14px;background:linear-gradient(160deg,rgba(255,255,255,.3),rgba(255,255,255,.08));border:1px solid rgba(255,255,255,.35);box-shadow:0 10px 24px rgba(0,20,60,.3),inset 0 1px rgba(255,255,255,.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.fm-tunnel .fm-node.a{left:0}.fm-tunnel .fm-node.b{right:0}
+.fm-tunnel .fm-node i{position:absolute;bottom:9px;width:5px;height:5px;border-radius:2px;background:#6dffc0;box-shadow:0 0 6px #6dffc0}
+.fm-tunnel .fm-node.a i:nth-child(1){left:10px}.fm-tunnel .fm-node.a i:nth-child(2){left:19px;background:#ffd36b;box-shadow:0 0 6px #ffd36b}.fm-tunnel .fm-node.a i:nth-child(3){left:28px}
+.fm-tunnel .fm-node.a::before{content:"";position:absolute;left:9px;right:9px;top:11px;height:14px;border-radius:3px;background:rgba(0,20,50,.45);box-shadow:inset 0 2px 4px rgba(0,0,0,.4)}
+.fm-tunnel .fm-node.b::before{content:"";position:absolute;left:13px;top:12px;width:26px;height:26px;background:rgba(255,255,255,.85);clip-path:polygon(50% 0,100% 45%,86% 45%,86% 100%,14% 100%,14% 45%,0 45%)}
+.fm-tunnel .fm-pipe{position:absolute;left:58px;right:58px;top:54px;height:12px;border-radius:12px;background:linear-gradient(90deg,rgba(255,255,255,.18),rgba(255,255,255,.32),rgba(255,255,255,.18));box-shadow:inset 0 1px 3px rgba(0,20,60,.35);overflow:hidden}
+.fm-tunnel .fm-pipe b{position:absolute;top:3px;left:0;width:14px;height:6px;border-radius:6px;background:#fff;box-shadow:0 0 8px #9fe7ff;opacity:0}
+.fm-tunnel .fm-pipe b.up{background:#6dffc0;box-shadow:0 0 8px #6dffc0}
+.fm-tunnel small{position:absolute;top:94px;color:rgba(255,255,255,.75);font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase}
+.fm-tunnel small.a{left:0;width:52px;text-align:center}.fm-tunnel small.b{right:0;width:52px;text-align:center}
+.fm-tunnel .fm-lock{position:absolute;left:50%;top:22px;width:22px;height:18px;margin-left:-11px;border-radius:4px;background:rgba(255,255,255,.85)}
+.fm-tunnel .fm-lock::before{content:"";position:absolute;left:5px;top:-8px;width:12px;height:10px;border:2.5px solid rgba(255,255,255,.85);border-bottom:0;border-radius:7px 7px 0 0}
+.fm-on .fm-tunnel-host::after{display:none!important}
+@media(max-width:1020px){.fm-tunnel{display:none}}
+
+@media (prefers-reduced-motion:no-preference){
+  /* Entry: cards rise into place one after another. */
+  .fm-on .fm-reveal{opacity:0;translate:0 18px;scale:.985}
+  .fm-on .fm-reveal.fm-in{opacity:1;translate:0 0;scale:1;transition:opacity .6s var(--fm-ease),translate .7s var(--fm-ease),scale .7s var(--fm-ease);transition-delay:calc(var(--fm-i,0) * 70ms)}
+
+  .fm-on .fm-float{animation:fmFloat var(--fm-dur,7s) ease-in-out var(--fm-delay,0s) infinite}
+  .fm-on .fm-bob{animation:fmBob 3.6s ease-in-out var(--fm-delay,0s) infinite}
+
+  .fm-on .fm-led.fm-good::before,.fm-on .fm-led.fm-good>.fm-dot{animation:fmBreathe 2.6s ease-in-out infinite}
+  .fm-on .fm-led.fm-warn::before,.fm-on .fm-led.fm-warn>.fm-dot{animation:fmBlink 1.2s steps(2,end) infinite}
+  .fm-on .fm-led.fm-bad::before,.fm-on .fm-led.fm-bad>.fm-dot{animation:fmAlarm 2s ease-in-out infinite}
+
+  .fm-on .fm-chip.fm-lit{animation:fmChipGlow 3s ease-in-out infinite}
+  .fm-on .fm-chip{animation:fmChipIn .6s var(--fm-ease) both;animation-delay:calc(var(--fm-i,0) * 45ms)}
+  .fm-on .fm-chip.fm-lit{animation:fmChipIn .6s var(--fm-ease) both,fmChipGlow 3s ease-in-out .6s infinite}
+
+  .fm-on .fm-glass .fm-sheen::before{animation:fmSheen 9s ease-in-out var(--fm-delay,1.5s) infinite}
+  .fm-on .fm-kpi .fm-kpi-led{animation:fmBreathe 2.8s ease-in-out infinite}
+
+  .fm-on .fm-bar{transform-origin:50% 100%;animation:fmGrow .8s var(--fm-ease) both;animation-delay:calc(var(--fm-i,0) * 35ms + .2s)}
+  .fm-on .fm-hbar{transform-origin:0 50%;animation:fmGrowX .9s var(--fm-ease) both;animation-delay:calc(var(--fm-i,0) * 80ms + .2s)}
+
+  .fm-on .fm-check{animation:fmPop .5s var(--fm-ease) both;animation-delay:calc(var(--fm-i,0) * 90ms + .2s)}
+  .fm-on .fm-now{animation:fmRing 2.2s ease-out infinite}
+
+  .fm-tunnel{animation:fmFloat 8s ease-in-out infinite}
+  .fm-tunnel .fm-pipe b{animation:fmPacket 2.6s linear infinite}
+  .fm-tunnel .fm-pipe b:nth-child(2){animation-delay:.9s}
+  .fm-tunnel .fm-pipe b.up{animation-name:fmPacketBack;animation-delay:.45s}
+  .fm-tunnel .fm-node.a i:nth-child(2){animation:fmBlink .9s steps(2,end) infinite}
+  .fm-tunnel .fm-lock{animation:fmBob 3.2s ease-in-out infinite}
+
+  .fm-on .fm-icon-tv svg rect{animation:fmScreen 3.4s ease-in-out infinite}
+  .fm-on .fm-icon-clock svg path{transform-box:view-box;transform-origin:12px 12px;animation:fmTick 6s steps(12,end) infinite}
+  .fm-on .fm-icon-ticket svg path:last-child{stroke-dashoffset:0;animation:fmMarch 1.4s linear infinite}
+  .fm-on .fm-icon-wave{animation:fmWave 2.4s ease-out infinite}
+}
+
+/* Symbol motions: always on for marketing/demo icons, on hover or when
+   active for the dashboard's navigation so it stays calm. */
+.fm-glyph{display:inline-block}
+@media (prefers-reduced-motion:no-preference){
+  .fm-on .fm-g-spin{animation:fmSpin 6s linear infinite}
+  .fm-on .fm-g-rise{animation:fmRise 2.8s ease-in-out infinite}
+  .fm-on .fm-g-bob{animation:fmBob 3s ease-in-out infinite}
+  .fm-on .fm-g-twinkle{animation:fmTwinkle 2.6s ease-in-out infinite}
+  .fm-on .fm-g-ring{animation:fmRingGlyph 2.4s ease-in-out infinite}
+  .fm-on .fm-g-coin{animation:fmCoin 4s ease-in-out infinite}
+  .fm-on .fm-g-swap{animation:fmSwap 2.4s ease-in-out infinite}
+  .fm-on .nav .fm-glyph{animation-play-state:paused}
+  .fm-on .nav :hover>.fm-chip .fm-glyph,.fm-on .nav .fm-chip.fm-lit .fm-glyph{animation-play-state:running}
+}
+@keyframes fmSpin{to{rotate:360deg}}
+@keyframes fmRise{0%,100%{translate:0 0}50%{translate:2px -3px}}
+@keyframes fmTwinkle{0%,100%{scale:1;opacity:1}50%{scale:.72;opacity:.6}}
+@keyframes fmRingGlyph{0%,100%{scale:1}50%{scale:1.3}}
+@keyframes fmCoin{0%,70%,100%{scale:1 1}80%{scale:-1 1}90%{scale:1 1}}
+@keyframes fmSwap{0%,100%{translate:-2px 0}50%{translate:2px 0}}
+@keyframes fmFloat{0%,100%{translate:0 0}50%{translate:0 -7px}}
+@keyframes fmBob{0%,100%{translate:0 0}50%{translate:0 -3px}}
+@keyframes fmBreathe{0%,100%{opacity:1;filter:brightness(1)}50%{opacity:.55;filter:brightness(1.25)}}
+@keyframes fmBlink{0%{opacity:1}100%{opacity:.25}}
+@keyframes fmAlarm{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes fmChipGlow{0%,100%{box-shadow:0 0 0 1px rgba(255,255,255,.35) inset,0 6px 16px -4px rgba(23,105,216,.55)}50%{box-shadow:0 0 0 1px rgba(255,255,255,.45) inset,0 6px 22px -2px rgba(23,105,216,.85)}}
+@keyframes fmChipIn{from{opacity:0;scale:.6}to{opacity:1;scale:1}}
+@keyframes fmSheen{0%,70%{translate:-100% 0;opacity:0}75%{opacity:1}100%{translate:420% 0;opacity:0}}
+@keyframes fmGrow{from{scale:1 0;opacity:.2}to{scale:1 1;opacity:1}}
+@keyframes fmGrowX{from{scale:0 1}to{scale:1 1}}
+@keyframes fmPop{0%{scale:.4;opacity:0}70%{scale:1.15;opacity:1}100%{scale:1}}
+@keyframes fmRing{0%{box-shadow:0 0 0 0 rgba(23,105,216,.45)}70%,100%{box-shadow:0 0 0 10px rgba(23,105,216,0)}}
+@keyframes fmPacket{0%{left:-14px;opacity:0}10%{opacity:1}90%{opacity:1}100%{left:100%;opacity:0}}
+@keyframes fmPacketBack{0%{left:100%;opacity:0}10%{opacity:1}90%{opacity:1}100%{left:-14px;opacity:0}}
+@keyframes fmScreen{0%,100%{fill:currentColor;fill-opacity:0}50%{fill:currentColor;fill-opacity:.22}}
+@keyframes fmTick{from{rotate:0deg}to{rotate:360deg}}
+@keyframes fmMarch{to{stroke-dashoffset:-8}}
+@keyframes fmWave{0%{opacity:0;scale:.7}35%{opacity:1}100%{opacity:0;scale:1.25}}
