@@ -809,6 +809,14 @@ function createLocationDraft(business, body, res, { routerNameRequired = false }
 }
 
 const EMAIL_CODES_PER_DAY = 10;
+function existingAccountEmail() {
+  const link = `${config.domains.appUrl}/business?mode=login`;
+  return {
+    subject: 'Someone tried to create a Wi-Fi Fiti account with your email',
+    text: `Your email already has a Wi-Fi Fiti account, so no new account was created.\n\nSign in here: ${link}\nForgot your password? Use "Forgot password" on that page.\n\nIf this wasn't you, you can ignore this email.`,
+    html: `<p>Your email already has a Wi-Fi Fiti account, so no new account was created.</p><p><a href="${link}">Sign in</a>. Forgot your password? Use "Forgot password" on that page.</p><p>If this wasn't you, you can ignore this email.</p>`,
+  };
+}
 function emailVerificationEnabled() { return config.email.provider === 'resend'; }
 function verificationHash(code) { return crypto.createHash('sha256').update(String(code)).digest('hex'); }
 function verificationExpiry() { return new Date(Date.now() + 3 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''); }
@@ -860,7 +868,26 @@ app.post('/api/business/register', async (req, res) => {
     return res.status(400).json({ error: 'Enter business details, a valid email and an 8-character password.' });
   }
   if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid Wi-Fi Fiti plan.' });
-  if (db.businessByEmail.get(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
+  if (db.businessByEmail.get(email)) {
+    // With email codes on, answer exactly as for a new sign-up so the form
+    // cannot be used to find out who has an account. The owner gets an email
+    // telling them to sign in instead.
+    if (emailVerificationEnabled()) {
+      if (tenantAccess.allowed(`email-codes:${email}`, EMAIL_CODES_PER_DAY, 86400_000).allowed) {
+        Promise.resolve().then(() => sendEmail({ to: email, ...existingAccountEmail() }))
+          .catch((error) => console.error('[business] existing-account notice failed:', error.message));
+      }
+      return res.status(202).json({ verificationRequired: true, verificationId: businessId('verify'), email, message: 'Enter the verification code sent to your email.' });
+    }
+    return res.status(409).json({ error: 'An account with this email already exists.' });
+  }
+  if (!emailVerificationEnabled() && !phoneVerification.available() && config.mpesa.env === 'production'
+      && String(process.env.ALLOW_UNVERIFIED_SIGNUPS || '').toLowerCase() !== 'true') {
+    // Neither the email nor the phone can be checked, so nothing would stop
+    // throwaway sign-ups. Refuse until one verification channel is set up.
+    console.error('[business] sign-up refused: configure RESEND (email codes) or AFRICASTALKING (SMS codes)');
+    return res.status(503).json({ error: 'New sign-ups are paused for a moment. Please try again later or contact Wi-Fi Fiti support.' });
+  }
   if (emailVerificationEnabled()) {
     try {
       const verificationId = await beginEmailVerification({ email, purpose: 'register', recipientName: ownerName || email.split('@')[0], payload: { name, ownerName, ownerPhone, passwordHash: hashPassword(password), plan: plan === 'custom' ? 'starter' : plan, collectionMode, registrationIsComplete: hasOrganisationFields, hotspotName: rawHotspotName ? textField(rawHotspotName, 'hotspot name', 80, true) : null, requestedCustom: plan === 'custom' } });
@@ -2976,7 +3003,7 @@ app.get('/api/status/:checkoutRequestId', async (req, res) => {
  * by the MAC RouterOS placed in the portal URL. */
 app.get('/api/payment/recover', (req, res) => {
   const mac = cleanMac(req.query.mac);
-  if (!mac) return res.json({ found: false });
+  if (!mac || !fromLegacySite(req)) return res.json({ found: false });
   const tx = db.latestPaymentForMac.get(mac);
   if (!tx) return res.json({ found: false });
   res.json({
@@ -3454,9 +3481,23 @@ const { findPackage: pkgById, PACKAGES: ALL_PACKAGES } = require('./packages');
  * must never be shown a payment screen - that is how people end up paying
  * twice for internet they already own.
  */
+// The legacy portal identifies a device by the MAC its router puts in the
+// redirect. A MAC typed in from anywhere else on the internet proves nothing,
+// so credentials and payment details go only to requests arriving from the
+// site's own connection: the address the router last polled from. Until the
+// router has polled (e.g. just after a restart) the check stays open.
+let legacySiteSeen = null;
+function fromLegacySite(req) {
+  // Escape hatch for a site whose router polls over a different connection
+  // (e.g. a VPN) from its customers.
+  if (String(process.env.LEGACY_SITE_IP_CHECK || '').toLowerCase() === 'off') return true;
+  if (!legacySiteSeen || Date.now() - legacySiteSeen.at > 15 * 60_000) return true;
+  return String(req.ip || '') === legacySiteSeen.ip;
+}
+
 app.get('/api/session', (req, res) => {
   const mac = cleanMac(req.query.mac);
-  if (!mac) return res.json({ found: false });
+  if (!mac || !fromLegacySite(req)) return res.json({ found: false });
 
   const account = db.accountByMac.get(mac);
   if (!account) return res.json({ found: false });
@@ -3522,8 +3563,9 @@ app.post('/api/session/lookup', (req, res) => {
   // the WiFi password goes only to the device the time belongs to, or to the
   // first device that picks up a PayBill payment that has no device yet.
   const account = db.getAccount.get(accountId);
-  let ownDevice = Boolean(viewingMac && account && account.last_mac === viewingMac);
-  if (!ownDevice && viewingMac && account && !account.last_mac && !db.accountByMac.get(viewingMac)) {
+  const onSite = fromLegacySite(req);
+  let ownDevice = Boolean(onSite && viewingMac && account && account.last_mac === viewingMac);
+  if (!ownDevice && onSite && viewingMac && account && !account.last_mac && !db.accountByMac.get(viewingMac)) {
     db.rememberMac.run({ phone: account.phone, mac: viewingMac });
     ownDevice = true;
   }
@@ -3594,9 +3636,9 @@ const MAX_DEVICES_PER_ACCOUNT = 1; // paying phone + 1 added device = 2 total
 // Managing TVs needs the paying device itself: the portal's MAC must be
 // bound to an account paid for by this number. A phone number alone is not
 // proof of ownership.
-function deviceOwner(phone, ownerMac) {
+function deviceOwner(phone, ownerMac, req) {
   const mac = cleanMac(ownerMac);
-  if (!mac) return null;
+  if (!mac || (req && !fromLegacySite(req))) return null;
   const account = db.accountByMac.get(mac);
   return account && (account.payer_phone || account.phone) === phone ? account.phone : null;
 }
@@ -3622,7 +3664,7 @@ app.post('/api/device/add', async (req, res) => {
     .replace(/[^\w \-]/g, '')
     .slice(0, 24) || 'TV';
 
-  const owner = deviceOwner(phone, req.body && req.body.ownerMac);
+  const owner = deviceOwner(phone, req.body && req.body.ownerMac, req);
   if (!owner) {
     return res.status(409).json({
       error: 'Open this page on the phone that paid, while it is connected to this WiFi.',
@@ -3689,7 +3731,7 @@ app.post('/api/device/list', (req, res) => {
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
   if (!phone) return res.status(400).json({ error: 'Enter a valid number.' });
 
-  const owner = deviceOwner(phone, req.body && req.body.ownerMac);
+  const owner = deviceOwner(phone, req.body && req.body.ownerMac, req);
   if (!owner) return res.json({ devices: [], max: MAX_DEVICES_PER_ACCOUNT });
 
   const devices = db.devicesFor.all(owner).map((d) => ({
@@ -3704,7 +3746,7 @@ app.post('/api/device/remove', (req, res) => {
   if (!phone || !/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) {
     return res.status(400).json({ error: 'Bad request.' });
   }
-  const owner = deviceOwner(phone, req.body && req.body.ownerMac);
+  const owner = deviceOwner(phone, req.body && req.body.ownerMac, req);
   if (!owner) return res.status(409).json({ error: 'Open this page from the purchasing device.' });
   const removed = db.removeDevice.run({ mac, phone: owner });
   if (removed.changes && config.provisionMode === 'poll') {
@@ -4137,6 +4179,7 @@ function authSite(req, res) {
     res.status(403).type('text/plain').send('# forbidden\n');
     return null;
   }
+  legacySiteSeen = { ip: String(req.ip || ''), at: Date.now() };
   return site;
 }
 

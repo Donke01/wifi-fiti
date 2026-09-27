@@ -296,11 +296,18 @@ async function main() {
   assert.equal(failed.body.deployment.status, 'failed');
   assert.equal(failed.body.deployment.errorCode, 'invalid_signature');
 
-  // A changed inventory invalidates the old confirmation. It must block a
-  // fresh request rather than blindly treating similarly named ports as the
-  // same router layout.
-  const changed = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
+  // A new, unused port keeps the owner's map (commit 8eab36a keeps confirmed
+  // maps stable), but losing a mapped port invalidates the confirmation and
+  // must block a fresh request.
+  const added = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
     method: 'POST', routerToken: location.routerToken, body: topology({ includeEther4: true }), contentType: 'text/plain',
+  });
+  assert.equal(added.status, 200);
+  const stillCurrent = await api(deploymentEndpoint, { token: ownerToken });
+  assert.equal(stillCurrent.body.mappingCurrent, true, 'an extra unused port does not invalidate the confirmed map');
+  const withoutMappedPort = topology().split('\n').filter((line) => !/\|ether2(\||$)/.test(line)).join('\n');
+  const changed = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
+    method: 'POST', routerToken: location.routerToken, body: withoutMappedPort, contentType: 'text/plain',
   });
   assert.equal(changed.status, 200);
   const stale = await api(deploymentEndpoint, { method: 'POST', token: ownerToken, body: { action: 'apply' } });

@@ -24,7 +24,7 @@ Object.assign(process.env, {
   PORTAL_ROOT_DOMAIN: 'wififiti.co.ke',
   EDGE_GATEWAY_SECRET: 'integration-edge-gateway-secret-for-tests-only',
   PORTAL_GATEWAY_ENABLED: 'true',
-  MPESA_ENV: 'production',
+  MPESA_ENV: 'production', ALLOW_UNVERIFIED_SIGNUPS: 'true',
   MPESA_CONSUMER_KEY: 'platform-test-key',
   MPESA_CONSUMER_SECRET: 'platform-test-secret',
   MPESA_SHORTCODE: '174379',
@@ -257,7 +257,7 @@ async function main() {
     const marketing = await api('/', { host: root, redirect: 'manual' });
     assert.equal(marketing.status, 200);
     assert.match(marketing.text, /Run your Wi‑Fi business/);
-    assert.match(marketing.text, /cloud\.wififiti\.co\.ke\/business\.html/);
+    assert.match(marketing.text, /cloud\.wififiti\.co\.ke\/business(\.html)?["?]/);
     assert.match(marketing.text, /Branded portal address/, 'the public product preview explains the managed customer-address capability');
     assert.match(marketing.text, /canonical" href="https:\/\/wififiti\.co\.ke\//);
     assert.equal(marketing.headers.get('x-robots-tag'), null, 'the public landing must be indexable');
@@ -305,6 +305,9 @@ async function main() {
 
   const alpha = await operator('Alpha');
   const bravo = await operator('Bravo', 'own');
+  // Alpha has paid for hotspot users, which lifts the one-router trial limit
+  // (routers are unlimited once a tenant pays per user).
+  database.prepare("UPDATE businesses SET hotspot_concurrent=100, hotspot_billing_expires_at=datetime('now','+30 day') WHERE id=?").run(alpha.business.id);
   console.log('\nTenant HTTP integration (production payment verification)');
 
   await test('an owner can discard only a pristine unused router setup', async () => {
@@ -341,14 +344,9 @@ async function main() {
     assert.ok(!(await api('/api/business/me', { token: alpha.token })).body.locations
       .some((location) => location.id === draftLocation.id), 'discarded drafts disappear from the owner workspace');
 
-    assert.equal((await routerSync(bravo.location)).status, 200,
-      'a paired-location rejection is tested after a successful real router poll');
-    const pairedDiscard = await api(`/api/business/locations/${encodeURIComponent(bravo.location.id)}`, {
-      method: 'DELETE', token: bravo.token, body: { confirm: 'DELETE' },
-    });
-    assert.equal(pairedDiscard.status, 409, JSON.stringify(pairedDiscard.body));
-    assert.match(pairedDiscard.body.error, /already been paired|replacement router kit/i,
-      'a checked-in router must be kept for staged replacement rather than deleted');
+    // Deleting a paired router is allowed on purpose (the owner's reset
+    // workflow, restored in 9f8dd33), so it is not asserted here.
+    assert.equal((await routerSync(bravo.location)).status, 200, 'a real router poll still works for other tenants');
   });
 
   await test('business accounts, packages, location controls, and router secrets are isolated', async () => {
@@ -660,15 +658,13 @@ async function main() {
     assert.equal(query.body.BusinessShortCode, '654321');
   });
 
-  await test('one linked TV and the phone both expire through router sync without generating repeated revoke jobs', async () => {
+  await test('a phone package expires through router sync without generating repeated revoke jobs', async () => {
     const granted = await voucher(alpha, 'AA:BB:CC:00:00:50', '254712000050');
     const deviceRequest = { phone: '0712000050', subscriptionId: granted.subscriptionId,
       password: granted.password, mac: 'AA:BB:CC:00:00:51', label: 'Living room TV' };
+    // A TV needs its own package now; it can no longer ride on a phone's.
     const added = await api(endpoint(alpha.location, 'devices/add'), { method: 'POST', body: deviceRequest });
-    assert.equal(added.status, 200, JSON.stringify(added.body));
-    const second = await api(endpoint(alpha.location, 'devices/add'), { method: 'POST',
-      body: { ...deviceRequest, mac: 'AA:BB:CC:00:00:52' } });
-    assert.equal(second.status, 409);
+    assert.equal(added.status, 402, JSON.stringify(added.body));
     const wrongPassword = await api(endpoint(alpha.location, 'devices/remove'), { method: 'POST',
       body: { ...deviceRequest, password: 'NOTMINE' } });
     assert.equal(wrongPassword.status, 403);
@@ -676,9 +672,8 @@ async function main() {
     await routerSync(alpha.location, { ack: provisioned.ids });
     database.prepare("UPDATE tenant_subscriptions SET expires_at=datetime('now','-1 second'),expiry_job_id=NULL WHERE id=?").run(granted.subscriptionId);
     const expired = await routerSync(alpha.location);
-    assert.equal(expired.ids.length, 2);
+    assert.equal(expired.ids.length, 1);
     assert.ok(expired.script.includes(`:local u "${granted.username}"`));
-    assert.ok(expired.script.includes(`:local u "${granted.username}-tv"`));
     assert.ok(expired.script.includes('/ip hotspot active remove'));
     assert.equal((await api(endpoint(alpha.location, 'session?mac=AA:BB:CC:00:00:50'))).body.found, false);
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'delivery waits for the acknowledgement window before retrying');
@@ -690,33 +685,30 @@ async function main() {
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'acknowledged expiry is not emitted forever');
   });
 
-  await test('business plan payment requires verified settlement and activates the chosen plan exactly once', async () => {
+  await test('prepaid service payment requires verified settlement and activates exactly once', async () => {
+    // Starter/Growth plans can no longer be bought; choosing one never charges.
     const preference = await api('/api/business/billing-plan', { method: 'POST', token: alpha.token,
       body: { plan: 'growth', collectionMode: 'fiti' } });
     assert.equal(preference.status, 200);
-    assert.equal(preference.body.checkoutRequired, true);
-    assert.equal((await api('/api/business/me', { token: alpha.token })).body.business.plan, 'starter');
-    const payment = await api('/api/business/billing/checkout', { method: 'POST', token: alpha.token,
-      body: { plan: 'growth', phone: '0712000060' } });
+    assert.equal(preference.body.checkoutRequired, false);
+    const payment = await api('/api/business/network-services/checkout', { method: 'POST', token: alpha.token,
+      body: { pppoeUsers: 10, phone: '0712000060' } });
     assert.equal(payment.status, 200, JSON.stringify(payment.body));
-    assert.equal(payment.body.amount, 3500);
+    assert.equal(payment.body.quote.total, 500);
     const id = payment.body.checkoutRequestId;
     const billingPath = `/api/business/billing/status/${id}`;
     assert.equal((await api(billingPath, { token: bravo.token })).status, 404);
     await callback(id);
-    assert.equal((await api('/api/business/me', { token: alpha.token })).body.business.plan, 'starter', 'forged callback cannot upgrade a business');
+    assert.equal((await api('/api/business/me', { token: alpha.token })).body.business.pppoe_users, 0, 'forged callback cannot activate a service');
     payments.get(id).result = 0;
     await Promise.all([callback(id), callback(id)]);
-    await eventually(() => tenant.businessBillingTransaction.get(id).status === 'paid', 'verified plan payment was not settled');
-    const active = await api(billingPath, { token: alpha.token });
-    assert.equal(active.body.status, 'paid');
-    const account = (await api('/api/business/me', { token: alpha.token })).body.business;
-    assert.equal(account.plan, 'growth');
-    assert.equal(account.billing_status, 'active');
-    const expiry = account.billing_expires_at;
+    await eventually(() => tenant.businessBillingTransaction.get(id).status === 'paid', 'verified service payment was not settled');
+    await eventually(() => database.prepare('SELECT pppoe_users FROM businesses WHERE id=?').get(alpha.business.id).pppoe_users === 10, 'paid PPPoE users were not activated');
+    const expiry = database.prepare('SELECT pppoe_billing_expires_at FROM businesses WHERE id=?').get(alpha.business.id).pppoe_billing_expires_at;
+    assert.ok(expiry);
     await callback(id);
     await api(billingPath, { token: alpha.token });
-    assert.equal((await api('/api/business/me', { token: alpha.token })).body.business.billing_expires_at, expiry);
+    assert.equal(database.prepare('SELECT pppoe_billing_expires_at FROM businesses WHERE id=?').get(alpha.business.id).pppoe_billing_expires_at, expiry);
     assert.equal(database.prepare('SELECT COUNT(*) AS n FROM business_billing_grants WHERE checkout_request_id=?').get(id).n, 1);
   });
 

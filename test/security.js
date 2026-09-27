@@ -351,6 +351,19 @@ async function test(name, fn) {
     assert.match(second.body.error, /Choose a plan/);
   });
 
+  console.log('\nLegacy portal');
+  await test('legacy credentials by MAC only reach the site\'s own connection', async () => {
+    database.prepare(`INSERT INTO accounts (phone, total_seconds, password) VALUES ('254733000077', 3600, 'LEG123')`).run();
+    database.prepare(`UPDATE accounts SET last_mac='AA:BB:CC:77:00:01', payer_phone='254733000077', expires_at=datetime('now','+1 hour') WHERE phone='254733000077'`).run();
+    const poll = await fetch(`${origin}/api/router/jobs?site=site&token=site-token`, { headers: { Host: 'cloud.wififiti.co.ke' } });
+    assert.equal(poll.status, 200);
+    const outsider = await call('GET', '/api/session?mac=AA:BB:CC:77:00:01', null, edge('203.0.113.50'));
+    assert.equal(outsider.body.found, false, 'a MAC typed in from elsewhere gets nothing');
+    const onSite = await call('GET', '/api/session?mac=AA:BB:CC:77:00:01');
+    assert.equal(onSite.body.found, true);
+    assert.equal(onSite.body.password, 'LEG123');
+  });
+
   console.log('\nAccount recovery');
   await test('forgot-password answers the same for unknown emails', async () => {
     const response = await call('POST', '/api/business/forgot-password', { email: 'nobody@nowhere.test' });

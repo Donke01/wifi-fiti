@@ -194,7 +194,7 @@ async function main() {
   // as the replacement's map or repopulate it after the new kit is generated.
   const oldRouterToken = location.routerToken;
   const staged = await api(`/api/business/locations/${encodeURIComponent(location.id)}/router-token`, {
-    method: 'POST', token: alphaToken, body: {},
+    method: 'POST', token: alphaToken, body: { confirm: 'ROTATE ROUTER TOKEN' },
   });
   assert.equal(staged.status, 200, JSON.stringify(staged.body));
   const replacementToken = staged.body.location.routerToken;
@@ -202,8 +202,10 @@ async function main() {
   const retiredOutgoingTopology = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=&protocol=2&health=ready`, {
     method: 'POST', routerToken: oldRouterToken, body: topology(), contentType: 'text/plain',
   });
-  assert.equal(retiredOutgoingTopology.status, 403,
-    'a previous router cannot keep polling after a fresh kit is generated');
+  // The router already serving customers keeps polling until the replacement
+  // pairs (see rotateLocationToken), but its inventory no longer counts.
+  assert.equal(retiredOutgoingTopology.status, 200,
+    'the outgoing router keeps serving customers until the replacement pairs');
   const waitingWorkspace = await api('/api/business/me', { token: alphaToken });
   assert.equal(waitingWorkspace.body.locations[0].routerMapping.status, 'waiting_for_inventory');
   const waitingTopology = await api(topologyEndpoint, { token: alphaToken });
@@ -219,7 +221,7 @@ async function main() {
   const outgoingTopology = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=&protocol=2&health=ready`, {
     method: 'POST', routerToken: oldRouterToken, body: topology(), contentType: 'text/plain',
   });
-  assert.equal(outgoingTopology.status, 403);
+  assert.equal(outgoingTopology.status, 200);
   const stillWaiting = await api(topologyEndpoint, { token: alphaToken });
   assert.equal(stillWaiting.body.mapping.status, 'waiting_for_inventory',
     'an outgoing router poll cannot refill cleared replacement metadata');
@@ -227,6 +229,10 @@ async function main() {
   const replacementLocation = { ...location, routerToken: replacementToken };
   const replacementTopology = await reportTopologyAfterPairing(replacementLocation, topology({ includeEther4: true }));
   assert.equal(replacementTopology.status, 200);
+  const retiredAfterPairing = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=&protocol=2&health=ready`, {
+    method: 'POST', routerToken: oldRouterToken, body: topology(), contentType: 'text/plain',
+  });
+  assert.equal(retiredAfterPairing.status, 403, 'once the replacement pairs, the old router credential stops working');
   const replacementInventory = await api(topologyEndpoint, { token: alphaToken });
   assert.equal(replacementInventory.body.mapping.status, 'needs_confirmation');
   assert.equal(replacementInventory.body.topology.interfaces.some((item) => item.name === 'ether4'), true);
