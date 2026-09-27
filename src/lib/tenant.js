@@ -3928,7 +3928,29 @@ function paymentCredentials(businessId) {
   };
 }
 
+// SMS credits bought from Wi-Fi Fiti. The purchase is credited only here,
+// from a settled platform payment, never on the tenant's say-so.
+function activateSmsPurchase(transaction) {
+  if (transaction.status !== 'paid') throw new Error('Platform billing payment is not settled.');
+  const granted = businessBillingGrant.get(transaction.checkout_request_id);
+  if (granted) return { expiresAt: null, alreadyActivated: true };
+  const purchaseId = String(transaction.plan || '').replace(/^sms-/, '');
+  const purchase = require('./fiti-signal').completePurchase({ purchaseId,
+    paymentRef: transaction.mpesa_receipt || transaction.checkout_request_id });
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (!businessBillingGrant.get(transaction.checkout_request_id)) {
+      addBusinessBillingGrant.run(transaction.checkout_request_id, transaction.business_id, nowSql(Date.now()));
+      setBusinessBillingActivated.run(transaction.checkout_request_id);
+    }
+    db.exec('COMMIT');
+  } catch (error) { try { db.exec('ROLLBACK'); } catch (_) {} throw error; }
+  return { expiresAt: null, smsPurchase: purchase.id, credits: purchase.credits };
+}
+
 function activateBusinessBilling(checkoutRequestId, { periodDays = 30 } = {}) {
+  const sms = businessBillingTransaction.get(checkoutRequestId);
+  if (sms && sms.service_kind === 'sms') return activateSmsPurchase(sms);
   db.exec('BEGIN IMMEDIATE');
   try {
     const transaction = businessBillingTransaction.get(checkoutRequestId);

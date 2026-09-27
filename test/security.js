@@ -25,10 +25,12 @@ Object.assign(process.env, {
 });
 
 const realFetch = global.fetch;
+let pushes = 0;
 global.fetch = async (url, options = {}) => {
   const target = new URL(String(url));
   if (target.hostname === '127.0.0.1') return realFetch(url, options);
   if (target.hostname === 'api.tuma.test' && target.pathname === '/auth/token') return Response.json({ success: true, token: 'jwt' });
+  if (target.hostname === 'api.tuma.test' && target.pathname === '/payment/stk-push') return Response.json({ success: true, data: { checkout_request_id: `ws_CO_SEC_${++pushes}`, merchant_request_id: `m${pushes}` } });
   if (target.hostname === 'api.safaricom.co.ke' && target.pathname === '/oauth/v1/generate') return Response.json({ access_token: 'daraja', expires_in: 3599 });
   throw new Error(`unexpected request to ${target.href}`);
 };
@@ -128,6 +130,54 @@ async function test(name, fn) {
     await settle();
     const lookup = await call('POST', '/api/session/lookup', { phone: '0722000009' });
     assert.equal(lookup.body.found, false, 'a forged site confirmation grants no time');
+  });
+
+  console.log('\nSMS credits and Tuma callbacks');
+  const tuma = (body) => call('POST', `/api/tuma/callback?key=${encodeURIComponent(CALLBACK_SECRET)}`, body);
+  const credits = () => (database.prepare("SELECT credits_available FROM fiti_signal_accounts WHERE business_id='biz'").get() || { credits_available: 0 }).credits_available;
+  await test('a tenant can no longer mark SMS credits paid', async () => {
+    const created = database.prepare(`INSERT INTO fiti_signal_purchases (id,business_id,package_id,amount,credits) VALUES ('smspay_x','biz','sms-500',500,500) RETURNING id`).get();
+    const response = await call('POST', `/api/business/sms/packages/${created.id}/confirm`, { paymentRef: 'MADEUP' });
+    assert.equal(response.status, 404);
+    assert.equal(credits(), 0);
+  });
+  await test('only catalogue SMS amounts can be bought', async () => {
+    const response = await call('POST', '/api/business/sms/packages', { amount: 1 });
+    assert.equal(response.status, 400);
+  });
+  await test('SMS credits arrive only after the payment callback', async () => {
+    const started = await call('POST', '/api/business/sms/packages', { amount: 500 });
+    assert.equal(started.status, 201, JSON.stringify(started.body));
+    assert.equal(credits(), 0, 'no credits before payment');
+    await tuma({ checkout_request_id: started.body.checkoutRequestId, status: 'completed', result_code: 0, amount: 500, mpesa_receipt_number: 'SMSRCPT01' });
+    await settle();
+    assert.equal(credits(), 500);
+  });
+
+  const tenantLib = require('../src/lib/tenant');
+  const tumaTx = (id, amount) => {
+    tenantLib.insertTransaction.run({ checkoutRequestId: id, merchantRequestId: `m-${id}`, businessId: 'biz', locationId: 'loc', phone: '254711000002',
+      packageId: 1, packageName: 'Day pass', amount, seconds: 86400, rateLimit: null, mac: 'AA:BB:CC:00:00:02', ip: null });
+    tenantLib.setTransactionTerms.run({ checkoutRequestId: id, paymentSource: 'tuma_direct', platformFee: 0 });
+  };
+  const status = (id) => database.prepare('SELECT status FROM tenant_transactions WHERE checkout_request_id=?').get(id).status;
+  await test('a Tuma success without an amount grants nothing', async () => {
+    tumaTx('ws_CO_TUMA_NOAMT', 20);
+    await tuma({ checkout_request_id: 'ws_CO_TUMA_NOAMT', merchant_request_id: 'm-ws_CO_TUMA_NOAMT', status: 'completed', result_code: 0, mpesa_receipt_number: 'TUMARC001' });
+    await settle();
+    assert.equal(status('ws_CO_TUMA_NOAMT'), 'pending');
+  });
+  await test('a Tuma success for the wrong amount grants nothing', async () => {
+    tumaTx('ws_CO_TUMA_LOW', 20);
+    await tuma({ checkout_request_id: 'ws_CO_TUMA_LOW', merchant_request_id: 'm-ws_CO_TUMA_LOW', status: 'completed', result_code: 0, amount: 1, mpesa_receipt_number: 'TUMARC002' });
+    await settle();
+    assert.equal(status('ws_CO_TUMA_LOW'), 'pending');
+  });
+  await test('a Tuma success with the right amount is paid', async () => {
+    tumaTx('ws_CO_TUMA_OK', 20);
+    await tuma({ checkout_request_id: 'ws_CO_TUMA_OK', merchant_request_id: 'm-ws_CO_TUMA_OK', status: 'completed', result_code: 0, amount: 20, mpesa_receipt_number: 'TUMARC003' });
+    await settle();
+    assert.equal(status('ws_CO_TUMA_OK'), 'paid');
   });
 
   // @@MORE@@

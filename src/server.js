@@ -1409,7 +1409,7 @@ app.get('/api/business/billing/status/:checkoutRequestId', async (req, res) => {
 app.get('/api/business/billing/recover', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const transaction = db.db.prepare(`SELECT * FROM business_billing_transactions
-    WHERE business_id=? AND COALESCE(service_kind,'platform')!='tuma_fee'
+    WHERE business_id=? AND COALESCE(service_kind,'platform') NOT IN ('tuma_fee','sms')
       AND ((status='pending' AND created_at>datetime('now','-2 hours'))
       OR (status!='pending' AND updated_at>datetime('now','-30 minutes')))
     ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(business.id);
@@ -3105,6 +3105,13 @@ async function handleTumaCallback(body) {
     receipt: body && body.mpesa_receipt_number,
   };
   if (!callbackNeedsVerification(callback, tx)) return;
+  // The shared callback key is the only thing authenticating a Tuma callback,
+  // so a success must also state the amount, and it must match the checkout.
+  if (settledCode === 0 && completed && (callback.amount === undefined || callback.amount === null || callback.amount === '' ||
+      Math.round(Number(callback.amount)) !== Number(tx.amount))) {
+    console.warn(`[tuma callback] ${checkoutRequestId} success without the expected amount; not granting`);
+    return;
+  }
   if (!callbackMatchesTransaction(callback, tx)) return;
   if (settledCode !== 0 || !completed) {
     tenant.setTransactionResult.run({ checkoutRequestId, status: 'failed', resultCode: settledCode,
@@ -4611,7 +4618,20 @@ app.get('/api/health', async (req, res) => {
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk, provisionTenantPayment });
 const fitiSignal = require('./lib/fiti-signal');
-fitiSignal.attachFitiSignalRoutes(app, { businessAuth });
+fitiSignal.attachFitiSignalRoutes(app, { businessAuth, startPayment: async ({ business, purchase, phone: supplied }) => {
+  const phone = mpesa.normalizePhone(supplied || business.owner_phone);
+  if (!phone) { const error = new Error('Enter the M-Pesa number that should pay for the SMS credits.'); error.status = 400; throw error; }
+  const throttleKey = `sms-credits:${business.id}`;
+  const previous = lastPush.get(throttleKey);
+  if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) { const error = new Error('A payment request is already on its way. Please wait a moment.'); error.status = 429; throw error; }
+  lastPush.set(throttleKey, Date.now());
+  try {
+    const pushed = await platformStkPush({ phone, amount: purchase.amount, accountReference: 'WF-SMS', description: 'Wi-Fi Fiti SMS credits' });
+    recordPlatformBilling(pushed, { checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+      businessId: business.id, plan: `sms-${purchase.id}`, phone, amount: purchase.amount, serviceKind: 'sms', pppoeUsers: 0, hotspotConcurrent: 0 });
+    return { checkoutRequestId: pushed.checkoutRequestId, phoneDisplay: mpesa.displayPhone(phone) };
+  } catch (error) { lastPush.delete(throttleKey); throw error; }
+} });
 // Start the notification worker only when a provider key is configured. This
 // keeps local/test deployments inert while allowing Railway to deliver queued
 // transactional SMS automatically in sandbox or production.

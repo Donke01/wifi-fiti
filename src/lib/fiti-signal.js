@@ -376,7 +376,7 @@ function usage(business, { limit = 100 } = {}) {
 
 // Tenant API boundary. Payment collection can complete a purchase later via
 // completePurchase; the SMS ledger itself remains independent of routers.
-function attachFitiSignalRoutes(app, { businessAuth }) {
+function attachFitiSignalRoutes(app, { businessAuth, startPayment } = {}) {
   const operator = handler => (req, res) => {
     const business = businessAuth(req, res);
     if (!business) return;
@@ -403,18 +403,24 @@ function attachFitiSignalRoutes(app, { businessAuth }) {
       packages: packages(), catalogue: SERVICE_CATALOGUE,
     });
   }));
-  app.post('/api/business/sms/packages', operator((req, res, business) => {
-    const body = req.body || {};
-    const amount = Number(body.amount);
+  // Buying credits starts a real M-Pesa payment to Wi-Fi Fiti. Credits are
+  // added by the payment callback (tenant.activateBusinessBilling), never by
+  // a tenant-supplied reference, and only catalogue amounts can be bought.
+  app.post('/api/business/sms/packages', async (req, res) => {
+    const business = businessAuth(req, res); if (!business) return;
+    const amount = Number(req.body && req.body.amount);
     const selected = packages().find(item => item.amount === amount);
-    const purchase = createPurchase({ businessId: businessKey(business), packageId: selected?.id, amount });
-    res.status(201).json({ purchase, message: 'SMS package created. Complete payment to activate credits.' });
-  }));
-  app.post('/api/business/sms/packages/:purchaseId/confirm', operator((req, res, business) => {
-    const purchase = db.prepare('SELECT business_id FROM fiti_signal_purchases WHERE id=?').get(req.params.purchaseId);
-    if (!purchase || purchase.business_id !== businessKey(business)) return res.status(404).json({ error: 'SMS purchase was not found.' });
-    res.json({ purchase: completePurchase({ purchaseId: req.params.purchaseId, paymentRef: req.body?.paymentRef }) });
-  }));
+    if (!selected) return res.status(400).json({ error: 'Choose one of the SMS packages.' });
+    if (!startPayment) return res.status(503).json({ error: 'SMS purchases are not available right now.' });
+    try {
+      const purchase = createPurchase({ businessId: businessKey(business), packageId: selected.id });
+      const payment = await startPayment({ business, purchase, phone: req.body && req.body.phone });
+      res.status(201).json({ purchase: { id: purchase.id, amount: purchase.amount, credits: purchase.credits, status: purchase.status },
+        ...payment, message: 'M-Pesa prompt sent. Credits activate after payment is confirmed.' });
+    } catch (error) {
+      res.status(error.status || 502).json({ error: error.status ? error.message : 'Could not reach M-Pesa. Please try again.' });
+    }
+  });
   app.put('/api/business/sms/settings', operator((req, res, business) => {
     const body = req.body || {};
     const controls = body.controls || body;
