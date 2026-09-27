@@ -311,7 +311,7 @@ function parseRouterInventory(rawBody) {
   if (end < 0 || end - start - 1 > INVENTORY_LIMITS.lines) throw topologyError('Incomplete router inventory report.');
   const inv = { version: 2, agent: 1, routerosVersion: null, board: null, wan: null, skipped: 0,
     interfaces: new Map(), vlans: [], bridgePorts: [], pppoeClients: [], pppoeServers: [],
-    addressed: new Set(), dhcpServers: [], dhcpClients: [], hotspots: [] };
+    addressed: new Set(), dhcpServers: [], dhcpClients: [], hotspots: [], fitiBridges: new Set() };
   const tok = (value, label) => safeToken(value, label);
   for (const line of lines.slice(start + 1, end)) {
     if (!line) continue;
@@ -339,6 +339,7 @@ function parseRouterInventory(rawBody) {
       case 'pppoe-client': inv.pppoeClients.push({ name: tok(f[2], 'PPPoE client'), interface: tok(f[3], 'PPPoE client interface') }); break;
       case 'pppoe-server': inv.pppoeServers.push({ service: tok(f[2], 'PPPoE service'), interface: tok(f[3], 'PPPoE server interface'), enabled: f[4] !== 'disabled' }); break;
       case 'addr': inv.addressed.add(tok(f[2], 'address interface')); break;
+      case 'fiti-bridge': inv.fitiBridges.add(tok(f[2], 'Wi-Fi Fiti bridge')); break;
       case 'dhcp-server': inv.dhcpServers.push({ interface: tok(f[2], 'DHCP server interface'), enabled: f[3] !== 'disabled' }); break;
       case 'dhcp-client': inv.dhcpClients.push({ interface: tok(f[2], 'DHCP client interface'), status: TOKEN.test(f[3] || '') ? f[3] : 'unknown' }); break;
       case 'hotspot': inv.hotspots.push({ name: tok(f[2], 'Hotspot name'), interface: tok(f[3], 'Hotspot interface') }); break;
@@ -386,12 +387,20 @@ function describeInventory(inv) {
     const usage = (uses.get(item.name) || []).slice().sort((a, b) => rank(a) - rank(b));
     const physical = PHYSICAL_TYPES.has(item.type);
     const vlan = inv.vlans.find((v) => v.name === item.name);
+    // A port whose only job is membership of a bridge Wi-Fi Fiti built itself
+    // may be moved to another bridge. Ports in the owner's own bridges, or
+    // with any other job, stay locked.
+    const ports = inv.bridgePorts.filter((p) => p.interface === item.name);
+    const movableFrom = physical && !internet.has(item.name) && item.state !== 'disabled' && ports.length === 1
+      && inv.fitiBridges.has(ports[0].bridge) && usage.length === 1 && usage[0] === `In bridge ${ports[0].bridge}` ? ports[0].bridge : null;
     return {
       ...item,
       physical,
       vlanId: vlan ? vlan.vlanId : null,
       parent: parentOf.get(item.name) || null,
       members: item.type === 'bridge' ? (members.get(item.name) || []).sort() : undefined,
+      fitiBuilt: item.type === 'bridge' ? inv.fitiBridges.has(item.name) : undefined,
+      movableFrom,
       usage,
       internet: internet.has(item.name),
       // Free: a port or radio nothing depends on. Everything else is kept as it is.
@@ -415,6 +424,8 @@ function describeInventory(inv) {
     dhcpClients: inv.dhcpClients,
     hotspots: inv.hotspots,
     freeInterfaces: interfaces.filter((i) => i.free).map((i) => i.name),
+    movableInterfaces: interfaces.filter((i) => i.movableFrom).map((i) => i.name),
+    fitiBridges: [...inv.fitiBridges].filter((name) => inv.interfaces.has(name)).sort(),
   };
 }
 
@@ -445,6 +456,7 @@ function validateNetworkPlan(input, layout) {
   if (rawBridges.length > 4) throw planError('Add up to 4 new bridges.');
   if (rawExisting.length > 4) throw planError('Choose up to 4 existing bridges or VLANs.');
   const usedPorts = new Set();
+  const moves = [];
   const names = new Set();
   const jobs = [];
   const bridges = rawBridges.map((raw) => {
@@ -461,9 +473,10 @@ function validateNetworkPlan(input, layout) {
     for (const port of ports) {
       const item = byName.get(port);
       if (!item) throw planError(`${port} is not on this router's latest report.`);
-      if (!item.free) throw planError(`${port} is already in use on the router, so it stays as it is. Choose a free port.`);
+      if (!item.free && !item.movableFrom) throw planError(`${port} is already in use on the router, so it stays as it is. Choose a free port.`);
       if (usedPorts.has(port)) throw planError(`${port} can only belong to one bridge.`);
       usedPorts.add(port);
+      if (item.movableFrom) moves.push({ interface: port, from: item.movableFrom });
     }
     jobs.push(job);
     return { name, job, ports: ports.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) };
@@ -483,6 +496,14 @@ function validateNetworkPlan(input, layout) {
     return { interface: name, job, alreadyRunning: job === 'hotspot' ? hotspotOn.has(name) : pppoeOn.has(name) };
   });
   if (!bridges.length && !existing.length) throw planError('Add a bridge or choose an existing bridge or VLAN first.');
+  // A Wi-Fi Fiti bridge keeps at least one port, so whatever runs on it
+  // (e.g. the hotspot on bridge-hs) still has somewhere for customers to connect.
+  const leaving = new Map();
+  moves.forEach((m) => leaving.set(m.from, (leaving.get(m.from) || 0) + 1));
+  leaving.forEach((count, from) => {
+    const bridge = byName.get(from);
+    if (bridge && (bridge.members || []).length - count < 1) throw planError(`Leave at least one port in ${from}, so it keeps working.`);
+  });
   if (jobs.filter((j) => j === 'hotspot').length > 1) throw planError('Choose one place for hotspot customers.');
   if (jobs.filter((j) => j === 'pppoe').length > 1) throw planError('Choose one place for PPPoE customers.');
   // One customer Hotspot per router: if the router already runs one somewhere
@@ -492,7 +513,8 @@ function validateNetworkPlan(input, layout) {
   if (hotspotPlan && runningHotspot && (hotspotPlan.interface || hotspotPlan.name) !== runningHotspot) {
     throw planError(`This router already runs a hotspot on ${runningHotspot}. Use it for hotspot customers instead of adding another.`);
   }
-  return { version: 1, bridges, existing };
+  moves.sort((a, b) => a.interface.localeCompare(b.interface, undefined, { numeric: true }));
+  return { version: 1, bridges, existing, moves };
 }
 
 module.exports = {
