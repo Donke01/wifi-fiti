@@ -218,7 +218,10 @@
       ['buy','payment-recovery','waiting','active','existing-section','voucher-section','paybill-section','tv-section'].forEach(function (id) {
         $(id).classList.toggle('hidden', visible.indexOf(id) === -1);
       });
-      $('payment-recovery').classList.toggle('hidden', visible.indexOf('buy') === -1);
+      // Keep payment recovery available from both the package screen and an
+      // already-connected session. Customers often return after the router
+      // has connected, but still need to recover a receipt that was missed.
+      $('payment-recovery').classList.toggle('hidden', visible.indexOf('buy') === -1 && visible.indexOf('active') === -1);
       $('resume-payment').classList.toggle('hidden', visible.indexOf('resume-payment') === -1);
     }
     function message(id, text) { $(id).textContent = text || ''; }
