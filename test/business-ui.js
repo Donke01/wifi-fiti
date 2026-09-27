@@ -379,3 +379,5 @@ assert.match(html, /\/network-plan'/, 'the planner saves the map to the network-
 assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : state === 'free' \? 'Free' : state === 'movable' \? 'Movable' : 'In use'/,
   'every part says whether it is free, in use or carrying the internet');
 console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');
+assert.match(html, /if \(routerBoardsShown\[boardKey\]\) \{ board\.classList\.add\('rb-settled'\);/, 'redraws do not replay the routerboard entrance motion');
+assert.match(html, /\.router-map\.rb-settled,\.rb-settled \.router-port,\.rb-settled \.rb-net/);

@@ -77,7 +77,7 @@ assert.doesNotMatch(inventorySource, /dynamic=no/, 'the generic interface find (
 for (const menu of ['ethernet', 'wireless', 'wifi', 'bridge', 'vlan', 'pppoe-client', 'lte', 'wireguard']) {
   assert.match(inventorySource, new RegExp(`\\[/interface ${menu} find\\]`), `interfaces are listed from the ${menu} menu`);
 }
-assert.match(inventorySource, /inv\|agent\|3/);
+assert.match(inventorySource, /inv\|agent\|4/);
 const pollerSource = decodeScriptSource(installer, 'name=fiti-poll policy=read,write,ftp,test,policy source="');
 assert.match(pollerSource, /:global fitiInventory/);
 assert.match(pollerSource, /:set report \(\$report \. \$fitiInventory\)/, 'the poller sends the layout report with its sync');
@@ -239,14 +239,26 @@ async function createBusiness(email, name) {
   }
   // A router on the old layout report (no agent line) gets the current one in place.
   const { inventoryScriptLines: currentLines } = require('../src/lib/router-kit');
-  const update = paired.text.match(/\/system script set \[find where name="fiti-inventory"\] source="((?:[^"\\]|\\.)*)"/);
+  const update = paired.text.match(/\/system script set \[find where name="fiti-inventory"\] policy=read,test source="((?:[^"\\]|\\.)*)"/);
   assert.ok(update, 'an old layout report is replaced on the next poll');
+  assert.match(paired.text, /\/system script set \[find where name="fiti-inventory"\] policy=read,test source=/, 'the update keeps the report able to read the router');
   const decodedUpdate = update[1].replace(/\\(["\\$nr])/g, (m, c) => ({ n: '\n', r: '\r' })[c] || c);
   assert.equal(decodedUpdate, currentLines().join('\r\n') + '\r\n', 'with exactly the current script');
   const again = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
   assert.doesNotMatch(again.text, /security-profiles|security\.passphrase|\/ip hotspot user/);
   assert.doesNotMatch(again.text, /name="fiti-inventory"\] source=/, 'the update is not resent on every poll');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM tenant_jobs WHERE location_id=? AND delivered_at IS NULL').get(location.id).n, 1, 'the held job is still queued');
+
+  // A current router whose own timer's reports stop arriving is asked for one.
+  const current = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|4']), contentType: 'text/plain' });
+  assert.doesNotMatch(current.text, /system script run fiti-inventory/, 'a fresh report needs no refresh');
+  db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now','-3 minutes') WHERE location_id=?`).run(location.id);
+  const stale = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
+  assert.match(stale.text, /:do \{ \/system script run fiti-inventory \} on-error=/, 'an old report is refreshed from the poll reply');
+  assert.doesNotMatch(stale.text, /name="fiti-inventory"\] source=/, 'without resending the script');
+  const soon = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
+  assert.doesNotMatch(soon.text, /system script run fiti-inventory/, 'at most once a minute');
+  await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|4']), contentType: 'text/plain' });
 
   // The owner sees the layout; another business cannot.
   const topologyEndpoint = `/api/business/locations/${site}/router-topology`;

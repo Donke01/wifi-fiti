@@ -214,7 +214,9 @@ const UNIVERSAL_INSTALLER = 'tenant-router-install-universal.rsc';
 // find/get, and the result is only stored in the fitiInventory global that
 // the poller sends with its next authenticated sync.
 // Bump when the layout report changes; paired routers are updated in place.
-const INVENTORY_AGENT = 3;
+// 4: the in-place update sets policy=read,test explicitly (RouterOS 7 cleared
+// it on the RB951, so the 30-second timer's reports came back empty).
+const INVENTORY_AGENT = 4;
 function inventoryScriptLines() {
   const safe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-';
   const add = (expr) => `:if ($fitiInvLines < 190) do={ :set fitiInvOut ($fitiInvOut . ${expr} . "\\n"); :set fitiInvLines ($fitiInvLines + 1) }`;
@@ -273,7 +275,7 @@ function routerScriptSource(lines) {
 function inventoryScriptUpdate() {
   const esc = (text) => text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
   const source = inventoryScriptLines().join('\r\n') + '\r\n';
-  return ':do { :if ([:len [/system script find where name="fiti-inventory"]] = 1) do={ /system script set [find where name="fiti-inventory"] source="' + esc(source) + '"; /system script run fiti-inventory } } on-error={ :log warning "fiti: layout report update failed" }';
+  return ':do { :if ([:len [/system script find where name="fiti-inventory"]] = 1) do={ /system script set [find where name="fiti-inventory"] policy=read,test source="' + esc(source) + '"; /system script run fiti-inventory } } on-error={ :log warning "fiti: layout report update failed" }';
 }
 
 function replaceOnce(text, find, replacement, label) {

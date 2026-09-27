@@ -474,6 +474,10 @@
 .rb-goes{display:block;margin-top:6px;color:#115aa9;font:700 10px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace}
 @media(max-width:650px){.rb-networks{grid-template-columns:1fr}.rb-planner-tools select{min-width:0;flex:1 1 100%}}
 @media (prefers-reduced-motion:no-preference){.rb-net{animation:rbPortIn .45s cubic-bezier(.2,.8,.2,1) both}.rb .router-port.rb-selected{animation:rbGlow 1.6s ease-in-out infinite}}
+/* Periodic redraws and planner clicks must not replay the entrance motion. */
+.router-map.rb-settled,.rb-settled .router-port,.rb-settled .rb-net,.rb-planner.rb-settled .rb-net{animation:none}
+.rb-settled .rb-part.state-internet{animation:rbGlow 3.2s ease-in-out infinite}
+.rb-settled .router-port.rb-selected{animation:rbGlow 1.6s ease-in-out infinite}
 </style>
 </head>
 <body>
@@ -606,6 +610,7 @@
       var routerTopologyCache = {};
       // Unsaved network maps survive the dashboard's periodic redraws.
       var networkPlanDrafts = {};
+      var routerBoardsShown = {};
       var routerTopologyRequests = {};
       // A mapped deployment is a short-lived, owner-visible task. Keep its
       // status polling scoped to an open location card so a background tab
@@ -1791,7 +1796,8 @@
         var logical = items.filter(function (item) { return !item.physical; });
         var freeCount = items.filter(function (item) { return item.free; }).length;
         var movableCount = items.filter(function (item) { return item.movableFrom; }).length;
-        var board = el('section', 'router-map-board rb rb-layout'); ['tl', 'tr', 'bl', 'br'].forEach(function (corner) { add(board, 'i', 'rb-screw ' + corner); }); add(board, 'i', 'rb-sheen');
+        var board = el('section', 'router-map-board rb rb-layout');
+        var boardKey = String(location && location.id || ''); if (routerBoardsShown[boardKey]) { board.classList.add('rb-settled'); parent.classList.add('rb-settled'); } routerBoardsShown[boardKey] = true; ['tl', 'tr', 'bl', 'br'].forEach(function (corner) { add(board, 'i', 'rb-screw ' + corner); }); add(board, 'i', 'rb-sheen');
         var head = el('div', 'router-map-board-head'); var title = el('div'); var brand = add(title, 'span', 'rb-silk', 'Wi-Fi Fiti · Routerboard'); brand.setAttribute('aria-hidden', 'true');
         add(title, 'strong', '', 'Everything on this router');
         add(title, 'small', '', (layout.board ? layout.board.replace(/_/g, ' ') + ' · ' : '') + (layout.routerosVersion ? 'RouterOS ' + layout.routerosVersion + ' · ' : '') + 'reported ' + when(layout.reportedAt));
@@ -1927,8 +1933,9 @@
           panel.appendChild(foot);
           syncParts(); saveState();
         }
+        function settle() { panel.classList.add('rb-settled'); }
         function saveState() { panel.dataset.dirty = dirty ? '1' : ''; if (dirty) networkPlanDrafts[draftKey] = { draft: draft, dirty: true, selected: selected }; else delete networkPlanDrafts[draftKey]; }
-        render();
+        render(); window.setTimeout(settle, 900);
       }
       function appendRouterInventory(parent, inventory) {
         var panel = el('section', 'router-inventory');
