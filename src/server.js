@@ -659,7 +659,7 @@ function networkServiceQuote({ pppoeUsers = 0, hotspotConcurrent = 0 } = {}) {
 const TRIAL_DAYS = 7;
 // Free-trial throttles: enough to test real payments, not to run a business
 // for free. They lift the moment the tenant chooses a plan.
-const TRIAL_LIMITS = Object.freeze({ maxPackagePriceKes: 3, maxPackages: 3, maxVouchers: 10, maxPppoeUsers: 5 });
+const TRIAL_LIMITS = Object.freeze({ maxPackagePriceKes: 3, maxPackages: 3, maxVouchers: 5, maxPppoeUsers: 2 });
 const TRIAL_LIMIT_NOTE = 'These limits lift as soon as you choose a plan in Billing & payments.';
 // Trial throttles apply only while on the free trial with no paid plan yet.
 function trialLimited(business) {

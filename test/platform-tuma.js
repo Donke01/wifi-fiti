@@ -163,13 +163,13 @@ async function test(name, fn) {
 
   console.log('\nFree-trial throttles');
 
-  await test('on the trial: vouchers are capped at 10 and a package above KES 3 is never sold', async () => {
+  await test('on the trial: vouchers are capped at 5 and a package above KES 3 is never sold', async () => {
     const tok = `session-trialbiz`;
     const loc = database.prepare(`SELECT id FROM locations WHERE business_id='trialbiz' LIMIT 1`).get().id;
     const made = await call('POST', '/api/business/packages', { name: 'Two hours', price: 2, hours: 2 }, { Authorization: `Bearer ${tok}` });
     assert.equal(made.status, 201, JSON.stringify(made.body));
     const pkgId = made.body.packages[0].id;
-    assert.equal((await call('POST', '/api/business/vouchers', { locationId: loc, packageId: pkgId, count: 10 }, { Authorization: `Bearer ${tok}` })).status, 201);
+    assert.equal((await call('POST', '/api/business/vouchers', { locationId: loc, packageId: pkgId, count: 5 }, { Authorization: `Bearer ${tok}` })).status, 201);
     const extra = await call('POST', '/api/business/vouchers', { locationId: loc, packageId: pkgId, count: 1 }, { Authorization: `Bearer ${tok}` });
     assert.equal(extra.status, 400); assert.equal(extra.body.trialLimit, 'vouchers');
     // A package priced above the cap (e.g. created before it existed) is refused at checkout.
