@@ -14,6 +14,7 @@ const mikrotik = require('./lib/mikrotik');
 const { fulfil } = require('./lib/fulfil');
 const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup, buildUniversalRouterKit } = require('./lib/router-setup');
 const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topology');
+const routerChanges = require('./lib/router-changes');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
@@ -91,6 +92,9 @@ function requestHost(req) {
   return value.replace(/:\d+$/, '').replace(/\.$/, '');
 }
 
+function publicHostname() {
+  try { return new URL(String(config.publicUrl || '')).hostname || null; } catch (_) { return null; }
+}
 function edgeHostname(value) {
   const raw = String(value || '').trim().toLowerCase().replace(/\.$/, '');
   if (!raw || raw.length > 253) return null;
@@ -1728,7 +1732,7 @@ app.get('/api/business/locations/:locationId/router-topology', (req, res) => {
   // The universal kit's fuller layout report (every interface and what it is
   // used for) rides alongside the stable map data.
   const locationId = String(req.params.locationId);
-  res.json({ ...result, layout: tenant.routerInventoryForLocation(locationId), plan: tenant.routerPlanForLocation(locationId) });
+  res.json({ ...result, layout: tenant.routerInventoryForLocation(locationId), plan: tenant.routerPlanForLocation(locationId), changes: tenant.routerChangesForLocation(locationId) });
 });
 
 // The owner's network map for a universal-kit router: new bridges from free
@@ -1749,6 +1753,32 @@ app.delete('/api/business/locations/:locationId/network-plan', (req, res) => {
   if (!tenant.deleteRouterPlan({ locationId: String(req.params.locationId), businessId: business.id })) return res.status(404).json({ error: 'Location not found.' });
   res.json({ plan: null });
 });
+
+// Stage 3: review the saved map, apply it to the router, undo one change.
+function networkChangeRoute(handler, failure) {
+  return (req, res) => {
+    const business = businessAuth(req, res); if (!business) return;
+    try {
+      const result = handler(business, req);
+      if (result === null) return res.status(404).json({ error: 'Location not found.' });
+      res.json(result);
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.status ? error.message : failure });
+    }
+  };
+}
+app.get('/api/business/locations/:locationId/network-plan/review', networkChangeRoute((business, req) => {
+  const review = tenant.reviewRouterPlan({ locationId: String(req.params.locationId), businessId: business.id });
+  return review && { review };
+}, 'Could not review this network map.'));
+app.post('/api/business/locations/:locationId/network-plan/apply', networkChangeRoute((business, req) => {
+  const changes = tenant.applyRouterPlan({ locationId: String(req.params.locationId), businessId: business.id, confirm: Boolean(req.body && req.body.confirm === true) });
+  return changes && { changes };
+}, 'Could not apply this network map.'));
+app.post('/api/business/locations/:locationId/network-changes/:changeId/undo', networkChangeRoute((business, req) => {
+  const changes = tenant.undoRouterChange({ locationId: String(req.params.locationId), businessId: business.id, changeId: req.params.changeId });
+  return changes && { changes };
+}, 'Could not undo this change.'));
 
 // Confirmation stores descriptive dashboard metadata only. The tenant layer
 // requires every requested WAN, bridge, Wi-Fi interface and customer port to
@@ -4481,6 +4511,16 @@ function parseRemoteSupportEnrollment(rawBody, expectedLocationId) {
  * is deliberately inert: it records nothing until platform approval and
  * returns 204, never a peer, endpoint, route, or activation instruction.
  */
+// The router's answer about a network change from the owner's map. "confirmed"
+// is the only reply that makes the router keep an applied change.
+app.get('/api/router/change', (req, res) => {
+  const locationId = String(req.query.site || '');
+  const location = tenant.authenticateRouter(locationId, req.get('X-WiFi-Fiti-Router'), 'header');
+  if (!location) return res.status(403).type('text/plain').send('forbidden');
+  if (location.router_pairing_auth !== 'active' || !location.router_setup_verified_at) return res.status(409).type('text/plain').send('not-paired');
+  res.type('text/plain').send(tenant.recordRouterChangeAnswer(location, req.query));
+});
+
 app.post('/api/router/support-enroll', (req, res) => {
   const locationId = String(req.query.site || '');
   const location = tenant.authenticateRouter(locationId, req.get('X-WiFi-Fiti-Router'), 'header');
@@ -4605,23 +4645,33 @@ const inventoryUpdateSentAt = new Map();
 function tenantRouterScript(location, options = {}) {
   const result = tenantRouterScriptCore(location, options);
   if (location.router_kit !== 'universal' || (result.supportEmitted && result.supportEmitted.length)) return result;
+  const extra = [];
   const layout = tenant.routerInventoryForLocation(location.id);
-  if (!layout) return result;
-  if ((Number(layout.agent) || 1) < INVENTORY_AGENT) {
+  // A network change from the owner's map, at most one at a time.
+  try {
+    const change = routerChanges.nextScript(location, {
+      wan: layout && layout.wan && layout.wan.interface,
+      cloudHost: publicHostname(),
+      portalHost: edgeHostname(location.portal_hostname),
+      pppoeNet: (() => { try { return pppoe.pppoeSubnetForLocation(location.id).network; } catch (_) { return null; } })(),
+      layout,
+    });
+    if (change) extra.push(change);
+  } catch (error) { console.error('[router changes] could not build a change:', error.message); }
+  if (layout && (Number(layout.agent) || 1) < INVENTORY_AGENT) {
     const last = inventoryUpdateSentAt.get(location.id) || 0;
-    if (Date.now() - last < 10 * 60_000) return result;
-    inventoryUpdateSentAt.set(location.id, Date.now());
-    return { ...result, script: [result.script, inventoryScriptUpdate()].filter(Boolean).join('\n') };
+    if (Date.now() - last >= 10 * 60_000) { inventoryUpdateSentAt.set(location.id, Date.now()); extra.push(inventoryScriptUpdate()); }
+  } else if (layout && inventoryAgeOver(layout.reportedAt, 90_000)) {
+    // The router's own 30-second timer should keep the layout report fresh,
+    // but on some routers its reports do not arrive. A report run from the
+    // poll reply always does, so ask for one whenever the stored report is
+    // getting old. The owner can only save a map against a report under 5
+    // minutes old.
+    const lastAsk = inventoryRefreshAskedAt.get(location.id) || 0;
+    if (Date.now() - lastAsk >= 60_000) { inventoryRefreshAskedAt.set(location.id, Date.now()); extra.push(INVENTORY_REFRESH_LINE); }
   }
-  // The router's own 30-second timer should keep the layout report fresh,
-  // but on some routers it does not arrive. A report run from the poll reply
-  // always does, so ask for one whenever the stored report is getting old.
-  // The owner can only save a map against a report under 5 minutes old.
-  if (!inventoryAgeOver(layout.reportedAt, 90_000)) return result;
-  const lastAsk = inventoryRefreshAskedAt.get(location.id) || 0;
-  if (Date.now() - lastAsk < 60_000) return result;
-  inventoryRefreshAskedAt.set(location.id, Date.now());
-  return { ...result, script: [result.script, INVENTORY_REFRESH_LINE].filter(Boolean).join('\n') };
+  if (!extra.length) return result;
+  return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n') };
 }
 const inventoryRefreshAskedAt = new Map();
 const INVENTORY_REFRESH_LINE = ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }';

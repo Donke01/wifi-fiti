@@ -370,9 +370,9 @@ assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a
     assert.doesNotMatch(line, /\$/, 'no RouterOS variable expansion in the certificate text');
   }
 }
-assert.match(html, /if \(snapshot\.layout\) appendRouterLayoutBoard\(box, snapshot\.layout, location, snapshot\.plan \|\| null\);/,
+assert.match(html, /if \(snapshot\.layout\) appendRouterLayoutBoard\(box, snapshot\.layout, location, snapshot\.plan \|\| null, snapshot\.changes \|\| \[\]\);/,
   'a universal-kit router shows its full layout on the routerboard itself');
-assert.match(html, /function appendRouterLayoutBoard\(parent, layout, location, savedPlan\)/);
+assert.match(html, /function appendRouterLayoutBoard\(parent, layout, location, savedPlan, changes\)/);
 assert.match(html, /function plannable\(item\) \{ return Boolean\(item && \(item\.free \|\| item\.movableFrom\)\); \}/, 'only free or movable parts can be planned');
 assert.match(html, /function appendNetworkPlanner\(/, 'the routerboard carries the network map planner');
 assert.match(html, /\/network-plan'/, 'the planner saves the map to the network-plan endpoint');
@@ -381,3 +381,6 @@ assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : s
 console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');
 assert.match(html, /if \(routerBoardsShown\[boardKey\]\) \{ board\.classList\.add\('rb-settled'\);/, 'redraws do not replay the routerboard entrance motion');
 assert.match(html, /\.router-map\.rb-settled,\.rb-settled \.router-port,\.rb-settled \.rb-net/);
+assert.match(html, /\/network-plan\/apply', \{ method: 'POST', body: JSON\.stringify\(\{ confirm: true \}\) \}/, 'applying sends an explicit confirmation');
+assert.match(html, /tick\.addEventListener\('change', function \(\) \{ go\.disabled = !tick\.checked; \}\);/, 'Apply stays disabled until the owner ticks that they read the changes');
+assert.match(html, /undo\.textContent = 'Tap again to undo'/, 'undo needs a second tap');

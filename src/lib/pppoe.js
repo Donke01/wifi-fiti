@@ -198,7 +198,11 @@ function customerBridgeFor(locationId) {
     confirmed = row ? String(JSON.parse(row.mapping_json).customerBridge || '') : '';
   } catch (_) { /* no confirmed map yet */ }
   const location = db.prepare('SELECT customer_bridge, router_kit FROM locations WHERE id=?').get(locationId) || {};
-  // A universal-kit router only runs PPPoE where the owner mapped it.
+  // A universal-kit router only runs PPPoE where the owner mapped it: the
+  // bridge a map applied for PPPoE (stage 3), else nowhere yet.
+  let applied = '';
+  if (location.router_kit === 'universal') { try { applied = require('./router-changes').appliedPppoeInterface(locationId); } catch (_) {} }
+  if (applied) confirmed = applied;
   const fallback = location.router_kit === 'universal' ? '' : String(location.customer_bridge || '');
   const bridge = (confirmed || fallback).trim();
   return /^[A-Za-z0-9_-]{1,32}$/.test(bridge) ? bridge : '';
@@ -371,4 +375,4 @@ function attachPppoeRoutes(app, { businessAuth, subscriptionBlock = null }) {
   });
 }
 
-module.exports = { routersFor, routerRate, applyRouterReport, pppoeSubnetForLocation, encrypt, decrypt, profileCreate, profilesFor, userCreate, usersFor, jobFor, setUserLock, clearUserLock, claimJobs, markDelivered, markAcked, markFailed, recordHealth, healthFor, jobStatus, scriptForLocation, attachPppoeRoutes };
+module.exports = { customerBridgeFor, routersFor, routerRate, applyRouterReport, pppoeSubnetForLocation, encrypt, decrypt, profileCreate, profilesFor, userCreate, usersFor, jobFor, setUserLock, clearUserLock, claimJobs, markDelivered, markAcked, markFailed, recordHealth, healthFor, jobStatus, scriptForLocation, attachPppoeRoutes };

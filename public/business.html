@@ -460,6 +460,19 @@
 .job-hotspot .rb-job.on{border-color:#19b88a;background:#19b88a;color:#fff}.job-pppoe .rb-job.on{border-color:#7b5cff;background:#7b5cff;color:#fff}
 .rb-drop{display:flex;flex-wrap:wrap;gap:6px;min-height:46px;padding:8px;border:1.5px dashed #b9cde2;border-radius:12px;background:rgba(245,249,255,.8)}
 .rb-drop-hint{align-self:center;color:#8aa0b8;font-size:12px}
+.rb-review{position:relative;margin-top:14px;padding:14px;border:1px solid #c9d9ec;border-radius:14px;background:rgba(255,255,255,.92)}
+.rb-review-close{position:absolute;top:10px;right:10px}
+.rb-review-title{display:block;margin-bottom:8px;font-size:15px}
+.rb-review-item{margin:8px 0;padding:10px 12px;border-radius:11px;border-left:4px solid #22c58b;background:#f3fbf7}.rb-review-item.job-pppoe{border-left-color:#7c5cff;background:#f6f3ff}
+.rb-review-item ul,.rb-review-safety{margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.5;color:#33475e}
+.rb-review-note{margin:8px 0;font-size:13px;color:#33475e}.rb-review-blocker{margin:8px 0;padding:8px 11px;border-radius:10px;background:#fff0f1;color:#9b1c2c;font-size:13px}
+.rb-review-safety{margin:10px 0;padding:10px 12px 10px 28px;border-radius:11px;background:#f4f8fc}
+.rb-review-agree{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:13px;color:#1d2f44}.rb-review-agree input{width:18px;height:18px;min-height:0}
+.rb-changes{margin-top:6px}.rb-change{margin:6px 0;padding:10px 12px;border:1px solid #d9e5f2;border-radius:12px;background:rgba(255,255,255,.9)}
+.rb-change-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}.rb-change small{display:block;margin-top:4px;color:#5a6f86;font-size:12px}
+.rb-change-pill{padding:3px 9px;border-radius:99px;font-size:11px;font-weight:750}.rb-change-pill.ok{background:#dff7ec;color:#08785b}.rb-change-pill.wait{background:#e5efff;color:#1b5fc1}
+.rb-change-pill.warn{background:#fff3d6;color:#8a5a00}.rb-change-pill.bad{background:#ffe5e8;color:#9b1c2c}.rb-change-pill.off{background:#eef3f8;color:#536b85}
+.rb-undo{margin-top:8px;min-height:34px;padding:6px 12px;font-size:12px}
 .rb-moves{margin:10px 0 0;padding:8px 11px;border-radius:10px;background:#fff7e3;color:#7a5200;font-size:12.5px;border:1px solid #f3dca4}
 .rb-add-here{border:1px dashed #22c58b;background:rgba(34,197,139,.1);color:#0f7a57;border-radius:999px;padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;line-height:1;cursor:pointer;min-height:32px}
 .rb-chip-quiet .rb-x{opacity:.25;pointer-events:none}
@@ -1706,7 +1719,7 @@
         if (cached.result.mapping && cached.result.mapping.status !== model.mappingStatus) return true;
         return Boolean(model.needsRouterMapping && Date.now() - Number(cached.fetchedAt || 0) > 8000);
       }
-      function plannerInUse() { var active = document.activeElement; return Boolean(active && active.closest && active.closest('.rb-planner') && active.tagName === 'INPUT'); }
+      function plannerInUse() { if (document.querySelector('.rb-review')) return true; var active = document.activeElement; return Boolean(active && active.closest && active.closest('.rb-planner') && active.tagName === 'INPUT'); }
       function requestRouterTopology(location, model) {
         if (!location || !token) return Promise.resolve(null);
         var key = String(location.id);
@@ -1790,7 +1803,7 @@
         if (item.fitiBuilt) add(port, 'small', 'rb-on', 'built by Wi-Fi Fiti');
         return port;
       }
-      function appendRouterLayoutBoard(parent, layout, location, savedPlan) {
+      function appendRouterLayoutBoard(parent, layout, location, savedPlan, changes) {
         var items = layout.interfaces || [];
         var physical = items.filter(function (item) { return item.physical; });
         var logical = items.filter(function (item) { return !item.physical; });
@@ -1822,7 +1835,8 @@
           add(board, 'div', 'rb-row-label', 'On the router');
           var logic = el('div', 'router-port-grid rb-logic'); logical.forEach(function (item, index) { logic.appendChild(routerLayoutPart(item, physical.length + index)); }); board.appendChild(logic);
         }
-        if (location && location.id) appendNetworkPlanner(board, layout, location, savedPlan);
+        if (location && location.id && changes && changes.length) appendRouterChanges(board, changes, location);
+        if (location && location.id) appendNetworkPlanner(board, layout, location, savedPlan, changes || []);
         var bus = add(board, 'div', 'rb-bus'); bus.setAttribute('aria-hidden', 'true'); add(bus, 'i'); add(bus, 'i');
         add(board, 'p', 'rb-note', (freeCount ? 'Free for customers: ' + (layout.freeInterfaces || []).join(', ') + '. ' : movableCount ? '' : 'No free ports or Wi-Fi were found. ') + (movableCount ? 'Can be moved from a Wi-Fi Fiti bridge: ' + (layout.movableInterfaces || []).join(', ') + '. ' : '') + 'Parts in use are locked, so your existing network keeps working.' + (layout.skipped ? ' ' + layout.skipped + ' interface(s) with spaces or symbols in their names are not shown.' : ''));
         parent.appendChild(board);
@@ -1832,7 +1846,7 @@
       // bridges; an existing bridge or VLAN can be given a job. Saving checks
       // the map against the router's latest report. Nothing reaches the
       // router until the owner applies the map in the next step.
-      function appendNetworkPlanner(board, layout, location, savedPlan) {
+      function appendNetworkPlanner(board, layout, location, savedPlan, changes) {
         var items = layout.interfaces || [];
         var byName = {}; items.forEach(function (item) { byName[item.name] = item; });
         var taken = {}; items.forEach(function (item) { taken[item.name] = true; });
@@ -1923,6 +1937,11 @@
           var foot = el('div', 'rb-planner-foot');
           var save = add(foot, 'button', '', dirty || !savedPlan ? 'Save map' : 'Map saved'); save.type = 'button'; save.disabled = !dirty && Boolean(savedPlan); saveButton = save;
           var note = add(foot, 'span', 'form-note', savedPlan && !dirty ? 'Saved ' + when(savedPlan.savedAt) + '. Applying it to the router is the next step; nothing has changed on the router.' : 'Saving only records the map. Nothing on the router changes yet.');
+          var busyOnRouter = (changes || []).some(function (c) { return /^(queued|sent|undo-queued|undo-sent)$/.test(c.status); });
+          if (savedPlan && !dirty && !busyOnRouter) {
+            var reviewButton = add(foot, 'button', 'secondary rb-review-open', 'Review and apply'); reviewButton.type = 'button';
+            reviewButton.addEventListener('click', function () { openPlanReview(panel, location, reviewButton); });
+          }
           var err = add(foot, 'div', 'error'); err.setAttribute('aria-live', 'polite');
           save.addEventListener('click', function () {
             err.textContent = ''; setBusy(save, true, 'Saving…');
@@ -1936,6 +1955,93 @@
         function settle() { panel.classList.add('rb-settled'); }
         function saveState() { panel.dataset.dirty = dirty ? '1' : ''; if (dirty) networkPlanDrafts[draftKey] = { draft: draft, dirty: true, selected: selected }; else delete networkPlanDrafts[draftKey]; }
         render(); window.setTimeout(settle, 900);
+      }
+      // Stage 3: what applying the saved map will change, in plain words, and a
+      // deliberate confirmation before anything is sent to the router.
+      function openPlanReview(panel, location, opener) {
+        var old = panel.querySelector('.rb-review'); if (old) old.remove();
+        var box = el('section', 'rb-review'); box.setAttribute('aria-live', 'polite'); panel.appendChild(box);
+        add(box, 'p', 'form-note', 'Checking the map against the router…'); setBusy(opener, true, 'Checking…');
+        api('/api/business/locations/' + encodeURIComponent(location.id) + '/network-plan/review').then(function (result) {
+          setBusy(opener, false); clear(box); var review = result.review || {};
+          var close = add(box, 'button', 'rb-x rb-review-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close the review');
+          close.addEventListener('click', function () { box.remove(); renderOnboarding(); });
+          add(box, 'strong', 'rb-review-title', 'What will change on the router');
+          (review.changes || []).forEach(function (change, index) {
+            var item = el('div', 'rb-review-item job-' + change.job); add(item, 'b', '', (index + 1) + '. ' + change.title);
+            var list = el('ul'); (change.lines || []).forEach(function (line) { add(list, 'li', '', line); }); item.appendChild(list); box.appendChild(item);
+          });
+          (review.notes || []).forEach(function (note) { add(box, 'p', 'rb-review-note', note); });
+          (review.blockers || []).forEach(function (blocker) { add(box, 'p', 'rb-review-blocker', blocker); });
+          if (!review.canApply) return;
+          var safety = el('ul', 'rb-review-safety');
+          ['The router checks everything is still as shown before it changes anything.', 'If a command fails, or the router can’t reach Wi-Fi Fiti within about 90 seconds afterwards, it puts everything back by itself.', 'Each change can be undone later from this page.', 'Don’t apply from a laptop plugged into a port that moves: that connection will drop.'].forEach(function (line) { add(safety, 'li', '', line); });
+          box.appendChild(safety);
+          var agree = el('label', 'rb-review-agree'); var tick = el('input'); tick.type = 'checkbox'; agree.appendChild(tick); add(agree, 'span', '', 'I have read what will change on this router.'); box.appendChild(agree);
+          var go = add(box, 'button', 'rb-apply', 'Apply to router'); go.type = 'button'; go.disabled = true;
+          var err = add(box, 'div', 'error');
+          tick.addEventListener('change', function () { go.disabled = !tick.checked; });
+          go.addEventListener('click', function () {
+            err.textContent = ''; setBusy(go, true, 'Sending…');
+            api('/api/business/locations/' + encodeURIComponent(location.id) + '/network-plan/apply', { method: 'POST', body: JSON.stringify({ confirm: true }) }).then(function (applied) {
+              var cached = routerTopologyCache[String(location.id)]; if (cached && cached.result) cached.result.changes = applied.changes || [];
+              renderOnboarding();
+            }).catch(function (error) { setBusy(go, false); err.textContent = error.message; });
+          });
+        }).catch(function (error) { setBusy(opener, false); clear(box); add(box, 'p', 'rb-review-blocker', error.message); });
+      }
+      var ROUTER_CHANGE_STATUS = {
+        queued: ['wait', 'Waiting to send'], sent: ['wait', 'On the router · checking it still reaches Wi-Fi Fiti'], confirming: ['wait', 'Confirmed · the router is keeping it'],
+        applied: ['wait', 'Applied · checking the router’s next report'], verified: ['ok', 'Done · verified on the router'],
+        mismatch: ['warn', 'Applied, but the router’s report looks different'], failed: ['bad', 'Not applied'],
+        reverted: ['bad', 'Put back by the router'], cancelled: ['off', 'Not sent'], 'no-answer': ['warn', 'No answer from the router'],
+        'undo-queued': ['wait', 'Undoing…'], 'undo-sent': ['wait', 'Undoing…'], undone: ['off', 'Undone'], 'undo-no-answer': ['warn', 'No answer to the undo']
+      };
+      var ROUTER_CHANGE_REASON = {
+        port_changed: 'A port changed on the router after the map was saved. Nothing was touched; refresh and save the map again.',
+        name_taken: 'That bridge name is already used on the router. Nothing was touched; rename the bridge.',
+        interface_missing: 'That interface is no longer on the router. Nothing was touched.',
+        port_in_use: 'A port on this map now has another job on the router (an IP address, DHCP, VLAN or PPPoE). Nothing was touched.',
+        bridge_would_empty: 'That would leave a bridge with no ports. Nothing was touched.',
+        vlan_filtering: 'The bridge a port leaves uses VLAN filtering, so Wi-Fi Fiti leaves it alone. Nothing was touched.',
+        interface_in_use: 'That interface already has its own IP address or DHCP server. Nothing was touched.',
+        wan_missing: 'The internet connection the router reported is gone. Nothing was touched.',
+        pppoe_ambiguous: 'The router has more than one Wi-Fi Fiti PPPoE server. Nothing was touched.',
+        cannot_build: 'Wi-Fi Fiti could not prepare this change. Nothing was sent.',
+        subnet_check_failed: 'The router’s networks could not be read. Nothing was touched.',
+        undo_incomplete: 'The router could only partly put things back. Tap Undo to finish it.',
+        hotspot_exists: 'The router already runs a hotspot. Nothing was touched.',
+        no_free_subnet: 'Every network from 10.5.50.0/24 to 10.5.59.0/24 is already used on the router (by an address, route, VPN or pool). Nothing was touched.',
+        router_rejected: 'The router refused a command, so it put everything back.',
+        already_delivered: 'The router already had this change.',
+        lost_cloud: 'After the change the router could not reach Wi-Fi Fiti, so it undid it by itself. Check the internet connection and try again.',
+        previous_failed: 'An earlier change did not go through.', previous_reverted: 'An earlier change was put back.', previous_no_answer: 'An earlier change got no answer.',
+        no_answer: 'The router did not answer. It may be offline, or it may have put the change back. Check its next report.',
+        report_differs: 'The router’s latest report doesn’t match the change. Check the board above.',
+        undo_failed: 'The router could not undo it.', undo_missing: 'The router no longer has the undo for this change.'
+      };
+      function appendRouterChanges(board, changes, location) {
+        var section = el('section', 'rb-changes'); add(section, 'div', 'rb-row-label', 'Changes on the router');
+        changes.slice(0, 8).forEach(function (change) {
+          var info = ROUTER_CHANGE_STATUS[change.status] || ['off', change.status];
+          var row = el('div', 'rb-change ' + info[0]); var top = el('div', 'rb-change-top');
+          add(top, 'b', '', change.title); add(top, 'span', 'rb-change-pill ' + info[0], info[1]); row.appendChild(top);
+          if (change.reason && ROUTER_CHANGE_REASON[change.reason]) add(row, 'small', '', ROUTER_CHANGE_REASON[change.reason]);
+          add(row, 'small', 'rb-change-when', when(change.updatedAt));
+          if (change.canUndo) {
+            var undo = add(row, 'button', 'secondary rb-undo', 'Undo'); undo.type = 'button';
+            undo.addEventListener('click', function () {
+              if (!undo.dataset.armed) { undo.dataset.armed = '1'; undo.textContent = 'Tap again to undo'; setTimeout(function () { if (undo.isConnected && undo.dataset.armed) { delete undo.dataset.armed; undo.textContent = 'Undo'; } }, 4000); return; }
+              setBusy(undo, true, 'Undoing…');
+              api('/api/business/locations/' + encodeURIComponent(location.id) + '/network-changes/' + encodeURIComponent(change.id) + '/undo', { method: 'POST', body: '{}' }).then(function (result) {
+                var cached = routerTopologyCache[String(location.id)]; if (cached && cached.result) cached.result.changes = result.changes || [];
+                renderOnboarding();
+              }).catch(function (error) { setBusy(undo, false); delete undo.dataset.armed; add(row, 'div', 'error', error.message); });
+            });
+          }
+          section.appendChild(row);
+        });
+        board.appendChild(section);
       }
       function appendRouterInventory(parent, inventory) {
         var panel = el('section', 'router-inventory');
@@ -1979,7 +2085,7 @@
         // Universal-kit routers: the routerboard shows everything on the router
         // and what each part already does. Mapping where customers connect is next.
         if (location.router_kit === 'universal') {
-          if (snapshot.layout) appendRouterLayoutBoard(box, snapshot.layout, location, snapshot.plan || null);
+          if (snapshot.layout) appendRouterLayoutBoard(box, snapshot.layout, location, snapshot.plan || null, snapshot.changes || []);
           else { appendRouterPortMap(box, topology, mapping.mapping || null); appendRouterInventory(box, null); }
           body.appendChild(box); return;
         }
