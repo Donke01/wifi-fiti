@@ -22,7 +22,7 @@
   box-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 -1px 2px rgba(23,105,216,.12) inset,0 3px 8px -3px rgba(20,60,120,.35);
   transition:translate .35s var(--fm-ease),box-shadow .35s var(--fm-ease),color .35s}
 .fm-on .fm-chip::after{content:"";position:absolute;inset:3px;z-index:-1;border-radius:6px;background:radial-gradient(circle at 50% 60%,rgba(74,168,255,.28),transparent 70%);opacity:.5;transition:opacity .35s}
-.fm-on .nav .fm-chip{width:24px;height:24px;flex:0 0 24px;font-size:12px}
+.fm-on .nav .fm-chip{width:24px;height:24px;flex:0 0 24px;margin-right:4px;font-size:12px}
 .fm-on :hover>.fm-chip,.fm-on .fm-chip:hover{translate:0 -2px;box-shadow:0 1px 0 #fff inset,0 8px 14px -6px rgba(20,60,120,.45)}
 .fm-on :hover>.fm-chip::after{opacity:1}
 .fm-on .fm-chip.fm-lit{color:#fff;background:linear-gradient(150deg,#3b8cff,#1157ba);box-shadow:0 0 0 1px rgba(255,255,255,.35) inset,0 6px 16px -4px rgba(23,105,216,.65)}

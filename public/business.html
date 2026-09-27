@@ -404,6 +404,41 @@
 .free .router-inventory-badge{background:#dff7ec;color:#08785b}.internet .router-inventory-badge{background:#e1eeff;color:#115aa9}
 .router-inventory-item small{color:#60768e;font-size:11px;line-height:1.4}
 </style>
+<style>
+/* Routerboard with the universal kit's full layout */
+.rb-layout .rb-row-label{position:relative;z-index:1;margin:16px 2px 8px;color:#8aa0b8;font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.22em;text-transform:uppercase}
+.rb-layout .rb-logic .router-port{min-height:132px}
+.rb-part .rb-badge{align-self:flex-start;display:inline-flex;align-items:center;gap:5px;margin:0 0 8px;padding:3px 7px 3px 6px;border-radius:99px;font-size:9px;font-weight:850;letter-spacing:.06em;text-transform:uppercase}
+.rb-badge.free{color:#08785b;background:#dff7ec}.rb-badge.free::before{content:"";width:6px;height:6px;border-radius:50%;background:#2fd98f;box-shadow:0 0 6px #2fd98f}
+.rb-badge.used{color:#536b85;background:#eef3f8}.rb-badge.used::before{content:"";width:7px;height:6px;margin-top:2px;border-radius:1.5px;background:#7a8da4;box-shadow:0 -3px 0 -1px #eef3f8,0 -4px 0 0 #7a8da4}
+.rb-badge.internet{color:#115aa9;background:#e1eeff}.rb-badge.internet::before{content:"";width:7px;height:7px;border-radius:50%;border:1.5px solid #1769d8;box-sizing:border-box;background:linear-gradient(90deg,transparent 45%,#1769d8 45% 55%,transparent 55%)}
+.rb-part.state-used{filter:saturate(.8)}
+.rb-part.state-used .port-part{opacity:.78}
+.rb .rb-part.state-internet{border-color:rgba(120,172,232,.95);background:linear-gradient(165deg,rgba(242,248,255,.97),rgba(221,236,255,.8));box-shadow:0 10px 24px -12px rgba(23,105,216,.45),0 0 0 1px rgba(93,184,255,.25),inset 0 1px #fff}
+.rb .rb-part.state-free{border-color:rgba(142,220,192,.95);background:linear-gradient(165deg,rgba(245,255,250,.97),rgba(223,247,237,.78))}
+.rb .rb-part.state-used{background:linear-gradient(165deg,rgba(255,255,255,.95),rgba(242,245,249,.8))}
+.rb-part small.rb-on{margin-top:3px;color:#8aa0b8;font:600 10px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace}
+.rb-chip.small{width:34px;height:34px}.rb-chip.small .rb-chip-core{inset:8px}
+.rb-tag{position:relative;display:grid;place-items:center;min-width:46px;height:30px;margin-bottom:6px;padding:0 10px 0 16px;border-radius:4px 8px 8px 4px;background:linear-gradient(160deg,#2f7fe0,#1157ba);box-shadow:0 4px 10px -3px rgba(17,87,186,.5);clip-path:polygon(12px 0,100% 0,100% 100%,12px 100%,0 50%)}
+.rb-tag::before{content:"";position:absolute;left:8px;top:50%;width:5px;height:5px;margin-top:-2.5px;border-radius:50%;background:#e8f1ff}
+.rb-tag b{color:#fff;font:800 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em}
+.rb-tube{position:relative;width:62px;height:16px;margin-bottom:12px;border-radius:16px;background:linear-gradient(180deg,#d9e2ec,#9fb0c3);box-shadow:inset 0 2px 4px rgba(0,20,60,.3),0 3px 8px -3px rgba(20,50,90,.4);overflow:hidden}
+.rb-tube i{position:absolute;top:5px;left:-12px;width:12px;height:6px;border-radius:6px;background:#5db8ff;box-shadow:0 0 6px #5db8ff}
+.rb-path{position:relative;z-index:1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:14px 0 2px;padding:10px 12px;border:1px solid rgba(145,190,233,.7);border-radius:14px;background:linear-gradient(90deg,rgba(236,245,255,.9),rgba(226,240,255,.7))}
+.rb-node{padding:5px 9px;border-radius:9px;background:#fff;color:#115aa9;font:700 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 2px 6px -2px rgba(17,87,186,.3)}
+.rb-node.cloud{color:#fff;background:linear-gradient(150deg,#3b8cff,#1157ba)}
+.rb-link{position:relative;width:34px;height:4px;border-radius:4px;background:rgba(23,105,216,.25);overflow:hidden}
+.rb-link i{position:absolute;top:0;left:-10px;width:10px;height:4px;border-radius:4px;background:#1769d8;box-shadow:0 0 6px #5db8ff}
+.rb-note{position:relative;z-index:1;margin:14px 2px 0;color:#536b85;font-size:12px;line-height:1.5}
+@media (prefers-reduced-motion:no-preference){
+  .rb-badge.free::before{animation:rbBeat 2.4s ease-in-out infinite}
+  .rb-tube i{animation:rbTube 2.2s linear infinite}.rb-tube i:nth-child(2){animation-delay:1.1s}
+  .rb-link i{animation:rbTube 1.6s linear infinite}
+  .rb-part.state-internet{animation:rbPortIn .6s cubic-bezier(.2,.8,.2,1) both,rbGlow 3.2s ease-in-out 1s infinite;animation-delay:calc(var(--i,0) * 70ms + .25s),1s}
+}
+@keyframes rbTube{0%{left:-12px}100%{left:calc(100% + 2px)}}
+@keyframes rbGlow{0%,100%{box-shadow:0 10px 24px -12px rgba(23,105,216,.45),0 0 0 1px rgba(93,184,255,.25),inset 0 1px #fff}50%{box-shadow:0 10px 26px -10px rgba(23,105,216,.6),0 0 0 3px rgba(93,184,255,.3),inset 0 1px #fff}}
+</style>
 </head>
 <body>
   <main class="app">
@@ -1681,6 +1716,69 @@
           var kind = isBridge ? 'Bridge' : isWifi ? 'Wi-Fi' : item.type === 'ether' ? 'Ethernet' : item.type; add(port, 'span', 'port-type', kind); add(port, 'b', '', item.name); add(port, 'small', '', isWan ? 'WAN · ' + item.state : item.name === defaults.customerBridge ? 'Customer bridge' : isCustomer ? 'Customer network · ' + item.state : item.state); grid.appendChild(port);
         }); board.appendChild(grid); var bus = add(board, 'div', 'rb-bus'); bus.setAttribute('aria-hidden', 'true'); add(bus, 'i'); add(bus, 'i'); parent.appendChild(board);
       }
+      // The universal kit's full layout on the animated routerboard: the
+      // front panel carries the physical ports and radios, the logical layer
+      // below carries VLANs, PPPoE tunnels, bridges and the rest, and the
+      // internet path glows from its port to the internet. Every part says
+      // whether it is free, in use (locked) or carrying the internet.
+      function routerLayoutPart(item, index) {
+        var type = String(item.type || '');
+        var kind = type === 'ether' ? 'ether' : /^(wlan|wifi|wireless)$/.test(type) ? 'wifi' : type === 'bridge' ? 'bridge' : type === 'vlan' ? 'vlan' : /^pppoe/.test(type) ? 'tunnel' : type === 'lte' ? 'lte' : type === 'wg' ? 'secure' : 'logical';
+        var state = item.internet ? 'internet' : item.free ? 'free' : 'used';
+        var port = el('div', 'router-port rb-part is-' + (kind === 'wifi' || kind === 'lte' ? 'wifi' : kind === 'ether' ? 'ether' : kind === 'bridge' ? 'bridge' : 'logic') + ' kind-' + kind + ' state-' + state + (item.state === 'up' ? ' up' : ' down') + (item.state === 'disabled' ? ' disabled' : '') + (state === 'internet' ? ' wan' : state === 'free' ? ' customer' : ''));
+        port.style.setProperty('--i', index);
+        var part = add(port, 'span', 'port-part'); part.setAttribute('aria-hidden', 'true');
+        if (kind === 'ether') { var jack = add(part, 'span', 'rb-jack'); add(jack, 'i', 'rb-pins'); var leds = add(part, 'span', 'rb-port-leds'); add(leds, 'i', 'rb-led link'); add(leds, 'i', 'rb-led act'); }
+        else if (kind === 'wifi' || kind === 'lte') { add(part, 'span', 'rb-antenna'); var waves = add(part, 'span', 'rb-waves'); add(waves, 'i'); add(waves, 'i'); add(waves, 'i'); }
+        else if (kind === 'bridge') { var chip = add(part, 'span', 'rb-chip'); add(chip, 'i', 'rb-chip-core'); }
+        else if (kind === 'vlan') { var tag = add(part, 'span', 'rb-tag'); add(tag, 'b', '', item.vlanId ? String(item.vlanId) : 'VLAN'); }
+        else if (kind === 'tunnel') { var tube = add(part, 'span', 'rb-tube'); add(tube, 'i'); add(tube, 'i'); }
+        else { var box = add(part, 'span', 'rb-chip small'); add(box, 'i', 'rb-chip-core'); }
+        var badge = add(port, 'span', 'rb-badge ' + state, state === 'internet' ? 'Internet' : state === 'free' ? 'Free' : 'In use');
+        badge.setAttribute('title', state === 'free' ? 'Nothing uses this yet' : 'Locked: your existing network uses this');
+        var label = kind === 'ether' ? 'Ethernet' : kind === 'wifi' ? 'Wi-Fi' : kind === 'lte' ? 'LTE' : kind === 'bridge' ? 'Bridge' : kind === 'vlan' ? 'VLAN ' + (item.vlanId || '') : kind === 'tunnel' ? 'PPPoE' : kind === 'secure' ? 'WireGuard' : type;
+        add(port, 'span', 'port-type', label);
+        add(port, 'b', '', item.name);
+        var usage = (item.usage || []).slice(0, 2).join(' · ');
+        add(port, 'small', '', usage || (item.free ? 'Free for customers' : item.state));
+        if (item.parent) add(port, 'small', 'rb-on', 'on ' + item.parent);
+        if (item.members && item.members.length) add(port, 'small', 'rb-on', 'ports ' + item.members.join(', '));
+        return port;
+      }
+      function appendRouterLayoutBoard(parent, layout) {
+        var items = layout.interfaces || [];
+        var physical = items.filter(function (item) { return item.physical; });
+        var logical = items.filter(function (item) { return !item.physical; });
+        var freeCount = items.filter(function (item) { return item.free; }).length;
+        var board = el('section', 'router-map-board rb rb-layout'); ['tl', 'tr', 'bl', 'br'].forEach(function (corner) { add(board, 'i', 'rb-screw ' + corner); }); add(board, 'i', 'rb-sheen');
+        var head = el('div', 'router-map-board-head'); var title = el('div'); var brand = add(title, 'span', 'rb-silk', 'Wi-Fi Fiti · Routerboard'); brand.setAttribute('aria-hidden', 'true');
+        add(title, 'strong', '', 'Everything on this router');
+        add(title, 'small', '', (layout.board ? layout.board.replace(/_/g, ' ') + ' · ' : '') + (layout.routerosVersion ? 'RouterOS ' + layout.routerosVersion + ' · ' : '') + 'reported ' + when(layout.reportedAt));
+        head.appendChild(title);
+        var status = el('div', 'rb-status'); status.setAttribute('aria-hidden', 'true'); [['PWR', 'on'], ['SYS', 'beat'], ['NET', layout.wan ? 'on' : 'off']].forEach(function (led) { var wrap = add(status, 'span', 'rb-led-label'); add(wrap, 'i', 'rb-led ' + led[1]); wrap.appendChild(document.createTextNode(led[0])); }); head.appendChild(status);
+        var key = el('div', 'router-map-key'); add(key, 'span', 'customer', 'Free · ' + freeCount); add(key, 'span', '', 'In use · locked'); add(key, 'span', 'wan', 'Internet'); head.appendChild(key);
+        board.appendChild(head);
+        if (layout.wan) {
+          var chain = []; var seen = {}; var cursor = layout.wan.interface;
+          var byName = {}; items.forEach(function (item) { byName[item.name] = item; });
+          while (cursor && !seen[cursor]) { seen[cursor] = true; chain.unshift(cursor); cursor = byName[cursor] && byName[cursor].parent; }
+          var path = el('div', 'rb-path'); path.setAttribute('aria-label', 'Internet path: ' + chain.join(' to ') + ' to the internet');
+          chain.concat(['Internet']).forEach(function (name, index) {
+            if (index) { var link = add(path, 'span', 'rb-link'); link.setAttribute('aria-hidden', 'true'); add(link, 'i'); add(link, 'i'); }
+            add(path, 'span', 'rb-node' + (name === 'Internet' ? ' cloud' : ''), name);
+          });
+          board.appendChild(path);
+        }
+        add(board, 'div', 'rb-row-label', 'Front panel');
+        var grid = el('div', 'router-port-grid'); physical.forEach(function (item, index) { grid.appendChild(routerLayoutPart(item, index)); }); board.appendChild(grid);
+        if (logical.length) {
+          add(board, 'div', 'rb-row-label', 'On the router');
+          var logic = el('div', 'router-port-grid rb-logic'); logical.forEach(function (item, index) { logic.appendChild(routerLayoutPart(item, physical.length + index)); }); board.appendChild(logic);
+        }
+        var bus = add(board, 'div', 'rb-bus'); bus.setAttribute('aria-hidden', 'true'); add(bus, 'i'); add(bus, 'i');
+        add(board, 'p', 'rb-note', (freeCount ? 'Free for customers: ' + (layout.freeInterfaces || []).join(', ') + '. ' : 'No free ports or Wi-Fi were found. ') + 'Parts in use are locked, so your existing network keeps working. Next you will map where hotspot and PPPoE customers connect.' + (layout.skipped ? ' ' + layout.skipped + ' interface(s) with spaces or symbols in their names are not shown.' : ''));
+        parent.appendChild(board);
+      }
       function appendRouterInventory(parent, inventory) {
         var panel = el('section', 'router-inventory');
         var head = el('div', 'router-inventory-head'); add(head, 'strong', '', 'Everything on this router');
@@ -1720,10 +1818,14 @@
           var stale = el('div', 'router-map-status stale'); add(stale, 'span', 'map-status-mark', '!'); var staleCopy = el('div'); add(staleCopy, 'strong', '', 'Router inventory needs a refresh'); add(staleCopy, 'p', '', 'Keep the router online. Wi-Fi Fiti must see a current layout before it can save a map.'); stale.appendChild(staleCopy); box.appendChild(stale); var refresh = el('div', 'buttons'); setupAction(refresh, 'Refresh map', 'secondary', function () { delete routerTopologyCache[String(location.id)]; requestRouterTopology(location, model); }); box.appendChild(refresh); body.appendChild(box); return;
         }
         var detectedEthernet = (topology.interfaces || []).filter(function (item) { return item.type === 'ether'; }); var detectedBridges = (topology.interfaces || []).filter(function (item) { return item.type === 'bridge'; });
+        // Universal-kit routers: the routerboard shows everything on the router
+        // and what each part already does. Mapping where customers connect is next.
+        if (location.router_kit === 'universal') {
+          if (snapshot.layout) appendRouterLayoutBoard(box, snapshot.layout);
+          else { appendRouterPortMap(box, topology, mapping.mapping || null); appendRouterInventory(box, null); }
+          body.appendChild(box); return;
+        }
         appendRouterPortMap(box, topology, mapping.mapping || null);
-        // Universal-kit routers: show everything on the router and what each
-        // part already does. Mapping where customers connect comes next.
-        if (location.router_kit === 'universal') { appendRouterInventory(box, snapshot.layout); body.appendChild(box); return; }
         if (status === 'confirmed') {
           var confirmed = el('div', 'router-map-status'); add(confirmed, 'span', 'map-status-mark', '✓'); var confirmedCopy = el('div'); add(confirmedCopy, 'strong', '', 'Router map confirmed'); add(confirmedCopy, 'p', '', 'The current WAN and customer network layout has been recorded. You can now use the full workspace.'); confirmed.appendChild(confirmedCopy); box.appendChild(confirmed); var finishActions = el('div', 'buttons'); setupAction(finishActions, 'Finish setup', '', function () { completeOnboarding(onboardingModel()); }); box.appendChild(finishActions); body.appendChild(box); return;
         }
