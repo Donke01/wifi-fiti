@@ -74,7 +74,9 @@ function reviewPlan(plan, layout) {
   ];
   for (const bridge of plan && plan.bridges || []) {
     const lines = [`Create bridge ${bridge.name}.`];
+    const shared = virtualPorts(bridge);
     for (const port of bridge.ports) {
+      if (shared.has(port)) continue;
       const from = moves.get(port);
       lines.push(from ? `Move ${port} out of ${from} into ${bridge.name}. Anything plugged into ${port} joins ${bridge.name}.` : `Add ${port} to ${bridge.name}.`);
     }
@@ -82,7 +84,9 @@ function reviewPlan(plan, layout) {
       if (running) { blockers.push(`This router already runs a hotspot on ${running.interface}.`); continue; }
       if (!wan) { blockers.push('The router has not reported which connection carries the internet, so a hotspot cannot be started yet.'); continue; }
       lines.push(...hotspotLines(bridge.name, true));
-      if (bridge.wifi) for (const radio of bridge.wifi.radios) lines.push(`Turn on ${radio.name} and broadcast the open Wi-Fi "${bridge.wifi.ssid}". Customers join it freely; the login page controls internet access.`);
+      if (bridge.wifi) for (const radio of bridge.wifi.radios) lines.push(isVirtual(radio)
+        ? `Add a separate open Wi-Fi "${bridge.wifi.ssid}" on ${radio.name} for customers. Your own Wi-Fi on ${radio.name} keeps working exactly as it is; customers join the new one and the login page controls internet access.`
+        : `Turn on ${radio.name} and broadcast the open Wi-Fi "${bridge.wifi.ssid}". Customers join it freely; the login page controls internet access.`);
     } else {
       lines.push(...pppoeLines(bridge.name));
     }
@@ -184,6 +188,7 @@ function undoLines(change, id) {
   if (change.job === 'hotspot') {
     lines.push(`:if (([:len [/ip hotspot find where profile="fiti-hs-${id}"]] > 0) || ([:len [/ip address find where comment="${tag}"]] > 0)) do={ :error "fiti-undo-incomplete" }`);
   }
+  lines.push(...radioUndoCheckLines(change, id));
   for (const leftover of ['prev', 'prevdns', 'prevboot']) lines.push(`:do { /system script remove [find where name="fiti-${leftover}-${id}"] } on-error={}`);
   lines.push(`:do { /system scheduler remove [find where name="fiti-revert-${id}"] } on-error={}`);
   return lines;
@@ -206,12 +211,34 @@ function hotspotNameLines(oldName, newName) {
  * `wireless` package (hAP lite, RB951); `wifi` is the newer `wifi` package.
  */
 function radioKey(id, radio, field) { return `fiti-radio-${id}-${safe(radio)}-${field}`; }
+// A radio that is switched on keeps the owner's Wi-Fi: customers get their
+// own network on top of it (a virtual AP). Plans saved before this carry no
+// mode and meant a takeover.
+function isVirtual(radio) { return Boolean(radio && radio.mode === 'virtual'); }
+function virtualRadioName(radio, id) { return `${radio.type === 'wlan' ? 'fiti-wlan' : 'fiti-wifi'}-${id}`; }
+function virtualPorts(change) { return new Set(((change && change.wifi && change.wifi.radios) || []).filter(isVirtual).map((r) => r.name)); }
 function radioApplyLines(change, id) {
   const lines = [];
   if (!change.wifi) return lines;
   const ssid = ros(change.wifi.ssid);
+  const tag = `Wi-Fi Fiti change ${id}`;
   for (const radio of change.wifi.radios || []) {
     const r = safe(radio.name);
+    if (isVirtual(radio)) {
+      // The owner's radio is not touched at all: a second, open network on
+      // the same radio joins the customer bridge.
+      const v = virtualRadioName(radio, id);
+      if (radio.type === 'wlan') {
+        lines.push(
+          `:if ([:len [/interface wireless security-profiles find where name="fiti-open-${id}"]] = 0) do={ /interface wireless security-profiles add name="fiti-open-${id}" mode=none }`,
+          `/interface wireless add name="${v}" master-interface="${r}" mode=ap-bridge ssid=${ssid} security-profile="fiti-open-${id}" disabled=no comment="${tag}"`,
+        );
+      } else {
+        lines.push(`/interface wifi add name="${v}" master-interface="${r}" configuration.ssid=${ssid} configuration.mode=ap security.authentication-types="" disabled=no comment="${tag}"`);
+      }
+      lines.push(`/interface bridge port add bridge="${safe(change.target)}" interface="${v}"`);
+      continue;
+    }
     if (radio.type === 'wlan') {
       const get = (prop) => `[:tostr [/interface wireless get [find where name="${r}"] ${prop}]]`;
       lines.push(
@@ -240,6 +267,12 @@ function radioUndoLines(change, id) {
   if (!change.wifi) return lines;
   for (const radio of change.wifi.radios || []) {
     const r = safe(radio.name);
+    if (isVirtual(radio)) {
+      // Removing the customer network also takes it out of the bridge; the
+      // owner's radio was never changed.
+      lines.push(`:do { /interface ${radio.type === 'wlan' ? 'wireless' : 'wifi'} remove [find where name="${virtualRadioName(radio, id)}"] } on-error={}`);
+      continue;
+    }
     const val = (field) => `[/system script get [find where name="${radioKey(id, r, field)}"] source]`;
     if (radio.type === 'wlan') {
       lines.push(`:do { :local s ${val('ssid')}; :local m ${val('mode')}; :local p ${val('sec')}; :local d ${val('off')}; /interface wireless set [find where name="${r}"] ssid=$s mode=$m security-profile=$p disabled=($d = "true") } on-error={}`);
@@ -248,8 +281,16 @@ function radioUndoLines(change, id) {
     }
   }
   lines.push(`:do { /interface wireless security-profiles remove [find where name="fiti-open-${id}"] } on-error={}`);
-  for (const radio of change.wifi.radios || []) for (const field of ['ssid', 'mode', 'sec', 'off']) lines.push(`:do { /system script remove [find where name="${radioKey(id, radio.name, field)}"] } on-error={}`);
+  for (const radio of change.wifi.radios || []) {
+    if (isVirtual(radio)) continue;
+    for (const field of ['ssid', 'mode', 'sec', 'off']) lines.push(`:do { /system script remove [find where name="${radioKey(id, radio.name, field)}"] } on-error={}`);
+  }
   return lines;
+}
+// The undo is complete only once the customer network is gone.
+function radioUndoCheckLines(change, id) {
+  return ((change.wifi && change.wifi.radios) || []).filter(isVirtual)
+    .map((radio) => `:if ([:len [/interface find where name="${virtualRadioName(radio, id)}"]] > 0) do={ :error "fiti-undo-incomplete" }`);
 }
 
 // Masks for prefix lengths 0-24: an existing network overlaps a candidate /24
@@ -398,7 +439,9 @@ function applyScript(change, id, context) {
   if (name) {
     lines.push(`:if ([:len [/interface find where name="${name}"]] > 0) do={ :set fitiWhy "name_taken" }`);
     const leaving = new Map();
+    const shared = virtualPorts(change);
     for (const port of change.ports) {
+      if (shared.has(port)) continue;
       const from = (change.moves.find((m) => m.interface === port) || {}).from;
       lines.push(`:if ([:len [/interface find where name="${safe(port)}"]] != 1) do={ :set fitiWhy "port_changed" }`);
       lines.push(from
@@ -417,7 +460,18 @@ function applyScript(change, id, context) {
     lines.push(`:if ([:len [/interface find where name="${safe(change.target)}"]] != 1) do={ :set fitiWhy "interface_missing" }`);
   }
   for (const radio of (change.wifi && change.wifi.radios) || []) {
-    lines.push(`:if ([:len [/interface ${radio.type === 'wlan' ? 'wireless' : 'wifi'} find where name="${safe(radio.name)}"]] != 1) do={ :set fitiWhy "radio_missing" }`);
+    const menu = radio.type === 'wlan' ? 'wireless' : 'wifi';
+    const r = safe(radio.name);
+    lines.push(`:if ([:len [/interface ${menu} find where name="${r}"]] != 1) do={ :set fitiWhy "radio_missing" }`);
+    if (isVirtual(radio)) {
+      // The owner's radio must still be on and serving as an access point;
+      // a second network cannot ride on a radio that is off or a client.
+      const v = virtualRadioName(radio, id);
+      lines.push(`:if ([:len [/interface find where name="${v}"]] > 0) do={ :set fitiWhy "name_taken" }`);
+      lines.push(radio.type === 'wlan'
+        ? `:do { :local m [/interface wireless get [find where name="${r}"] mode]; :if ((($m != "ap-bridge") && ($m != "bridge")) || ([/interface wireless get [find where name="${r}"] disabled] = true)) do={ :set fitiWhy "radio_busy" } } on-error={ :set fitiWhy "radio_missing" }`
+        : `:do { :local m [:tostr [/interface wifi get [find where name="${r}"] configuration.mode]]; :if ((($m != "ap") && ($m != "")) || ([/interface wifi get [find where name="${r}"] disabled] = true)) do={ :set fitiWhy "radio_busy" } } on-error={ :set fitiWhy "radio_missing" }`);
+    }
   }
   if (change.job === 'hotspot') {
     lines.push(
@@ -439,19 +493,27 @@ function applyScript(change, id, context) {
   // 2. The undo is on the router before anything changes, with a guard that
   //    runs it if the router restarts before the cloud confirms.
   lines.push(`/system script add name="fiti-undo-${id}" policy=read,write,ftp,test,policy comment="${tag}" source=${src(undoLines(change, id))}`);
-  lines.push(`/system scheduler add name="fiti-revert-${id}" start-time=startup policy=read,write,ftp,test,policy on-event="/system script run fiti-undo-${id}" comment="${tag}: undo if the router restarts before the cloud confirms"`);
+  // The step reached is saved on the router, so a restart in the middle can
+  // be reported afterwards ("restarted while adding the Wi-Fi") instead of
+  // leaving the dashboard with no answer.
+  lines.push(`/system script add name="fiti-step-${id}" comment="${tag}" source="start"`);
+  lines.push(`/system script add name="fiti-reboot-${id}" policy=read,write,ftp,test,policy comment="${tag}" source=${src(rebootLines(id))}`);
+  lines.push(`/system scheduler add name="fiti-revert-${id}" start-time=startup policy=read,write,ftp,test,policy on-event="/system script run fiti-reboot-${id}" comment="${tag}: undo if the router restarts before the cloud confirms"`);
   // 3. The change. Any failure runs the undo at once.
+  const step = (name) => `/system script set [find where name="fiti-step-${id}"] source="${name}"`;
   const body = [];
   if (name) {
     body.push(`/interface bridge add name="${name}" protocol-mode=rstp comment="Wi-Fi Fiti customer network (${jobLabel(change.job)})"`);
+    const shared = virtualPorts(change);
     for (const port of change.ports) {
+      if (shared.has(port)) continue;
       const from = (change.moves.find((m) => m.interface === port) || {}).from;
       if (from) body.push(`/interface bridge port remove [find where interface="${safe(port)}" and bridge="${safe(from)}"]`);
       body.push(`/interface bridge port add bridge="${name}" interface="${safe(port)}"`);
     }
   }
-  if (change.job === 'hotspot') body.push(...hotspotApplyLines(change, id, context));
-  body.push(...radioApplyLines(change, id));
+  if (change.job === 'hotspot') { body.push(step('hotspot')); body.push(...hotspotApplyLines(change, id, context)); }
+  if (change.wifi) { body.push(step('wifi')); body.push(...radioApplyLines(change, id)); }
   if (change.job === 'pppoe') {
     body.push(
       ':local fitiPrev ""; :do { :set fitiPrev [/interface pppoe-server server get [find where comment="Wi-Fi Fiti PPPoE"] interface] } on-error={}',
@@ -463,11 +525,43 @@ function applyScript(change, id, context) {
   // retry it from the dashboard.
   const undoNow = `:local fitiUndoWhy "undo_incomplete"; :do { /system script run fiti-undo-${id}; /system script remove [find where name="fiti-undo-${id}"]; :set fitiUndoWhy "" } on-error={}`;
   lines.push(`:log info "fiti: network change ${id} started"`);
-  lines.push(':local fitiApplied false', ':do {', ...body.map((l) => '  ' + l), '  :set fitiApplied true', `  :log info "fiti: network change ${id} applied; checking the cloud"`,
+  lines.push(':local fitiApplied false', ':do {', ...body.map((l) => '  ' + l), '  ' + step('confirm'), '  :set fitiApplied true', `  :log info "fiti: network change ${id} applied; checking the cloud"`,
     `} on-error={ ${undoNow}; :local fitiWhyFail "router_rejected"; :if ([:len $fitiUndoWhy] > 0) do={ :set fitiWhyFail $fitiUndoWhy }; ${reportFetch(`&id=${id}&state=failed&reason=" . $fitiWhyFail . "`)} }`);
   lines.push(`:if ($fitiApplied) do={ :execute script=${src(confirmLines(id, undoNow))} }`);
   lines.push('} on-error={}');
   return lines.join('\n');
+}
+
+// The progress marker and restart reporter are only needed while a change is
+// waiting for the cloud.
+function stepCleanupLines(id) {
+  return [`:do { /system script remove [find where name="fiti-step-${id}"] } on-error={}`, `:do { /system script remove [find where name="fiti-reboot-${id}"] } on-error={}`];
+}
+
+// Runs at startup if the router restarted before the cloud confirmed: undo
+// first, then tell the cloud what happened and at which step, retrying while
+// the internet connection comes up.
+function rebootLines(id) {
+  const query = `&id=${id}&state=reverted&reason=" . $why . "`;
+  const url = '($fitiUrl . "/api/router/change?site=" . $fitiSite . "' + query + '")';
+  return [
+    ':local step "start"',
+    `:do { :set step [/system script get [find where name="fiti-step-${id}"] source] } on-error={}`,
+    ':local why ("rebooted_" . $step)',
+    ':local undone false',
+    `:do { /system script run fiti-undo-${id}; :set undone true } on-error={}`,
+    `:if ($undone) do={ :do { /system script remove [find where name="fiti-undo-${id}"] } on-error={}; :do { /system script remove [find where name="fiti-step-${id}"] } on-error={} } else={ :set why "undo_incomplete" }`,
+    ':log warning ("fiti: restarted during network change ' + id + ' (" . $step . "); put it back")',
+    ':local sent false', ':local i 0',
+    ':while (($sent = false) && ($i < 18)) do={',
+    '  :delay 10s',
+    '  :global fitiUrl', '  :global fitiToken', '  :global fitiSite',
+    `  :if ([:len $fitiUrl] > 0) do={ :do { /tool fetch url=${url} check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) output=none; :set sent true } on-error={ :do { /tool fetch url=${url} http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) output=none; :set sent true } on-error={} } }`,
+    '  :set i ($i + 1)',
+    '}',
+    // A partial undo keeps this reporter and its guard, so it runs again.
+    `:if ($undone) do={ :do { /system script remove [find where name="fiti-reboot-${id}"] } on-error={} }`,
+  ];
 }
 
 // Keep a change only if the router can still reach the cloud. After the cloud
@@ -476,10 +570,11 @@ function confirmLines(id, undoNow) {
   return [
     ':global fitiUrl', ':global fitiToken', ':global fitiSite',
     ':local ok false', ':local i 0',
-    // First try after 3 s, then every 5 s. At most 16 tries: even if every
-    // fetch times out this ends well inside the cloud's 8-minute wait.
-    ':while ((($ok = false) && ($i < 16))) do={',
-    '  :if ($i = 0) do={ :delay 3s } else={ :delay 5s }',
+    // First try after 1 s, then every 3 s, for about 80 s: a quick router is
+    // confirmed within seconds, and even if every fetch times out this ends
+    // well inside the cloud's 8-minute wait.
+    ':while ((($ok = false) && ($i < 26))) do={',
+    '  :if ($i = 0) do={ :delay 1s } else={ :delay 3s }',
     `  :local u ($fitiUrl . "/api/router/change?site=" . $fitiSite . "&id=${id}&state=applied")`,
     '  :local r ""',
     '  :do { :set r ([/tool fetch url=$u check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) output=user as-value]->"data") } on-error={ :do { :set r ([/tool fetch url=$u http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) output=user as-value]->"data") } on-error={} }',
@@ -489,6 +584,7 @@ function confirmLines(id, undoNow) {
     ':if ($ok) do={',
     `  :do { /system scheduler remove [find where name="fiti-revert-${id}"] } on-error={}`,
     `  :log info "fiti: network change ${id} confirmed"`,
+    ...stepCleanupLines(id).map((l) => '  ' + l),
     '  ' + reportFetch(`&id=${id}&state=kept`),
     // A fresh layout report goes with the next sync, so the change is
     // verified within seconds instead of waiting for the next scheduled one.
@@ -498,6 +594,7 @@ function confirmLines(id, undoNow) {
     `  ${undoNow}`,
     '  :delay 5s',
     '  ' + reportFetch(`&id=${id}&state=reverted&reason=" . $fitiUndoWhy . "`),
+    ...stepCleanupLines(id).map((l) => '  ' + l),
     '}',
   ];
 }
@@ -540,7 +637,7 @@ function undoScript(id) {
     ':global fitiUrl', ':global fitiToken', ':global fitiSite',
     `:if ([:len [/system script find where name="fiti-undo-${id}"]] = 1) do={`,
     `  :local fitiUndone false; :do { /system script run fiti-undo-${id}; :set fitiUndone true } on-error={}`,
-    `  :if ($fitiUndone) do={ /system script remove [find where name="fiti-undo-${id}"]; ${reportFetch(`&id=${id}&state=undone`)} } else={ ${reportFetch(`&id=${id}&state=undo-failed`)} }`,
+    `  :if ($fitiUndone) do={ /system script remove [find where name="fiti-undo-${id}"]; ${stepCleanupLines(id).join('; ')}; ${reportFetch(`&id=${id}&state=undone`)} } else={ ${reportFetch(`&id=${id}&state=undo-failed`)} }`,
     `} else={ ${reportFetch(`&id=${id}&state=undo-missing`)} }`,
     '} on-error={}',
   ].join('\n');
@@ -655,7 +752,9 @@ function nextScript(location, context, now = Date.now()) {
 }
 
 const REASONS = new Set(['radio_missing', 'not_fiti_bridge', 'already_delivered', 'name_taken', 'port_changed', 'port_in_use', 'bridge_would_empty', 'vlan_filtering', 'interface_missing',
-  'interface_in_use', 'wan_missing', 'hotspot_exists', 'no_free_subnet', 'subnet_check_failed', 'pppoe_ambiguous', 'router_rejected', 'undo_incomplete']);
+  'interface_in_use', 'wan_missing', 'hotspot_exists', 'no_free_subnet', 'subnet_check_failed', 'pppoe_ambiguous', 'router_rejected', 'undo_incomplete', 'radio_busy']);
+// "The router restarted while …": the step a change had reached.
+const REBOOT_REASONS = new Set(['rebooted_start', 'rebooted_hotspot', 'rebooted_wifi', 'rebooted_confirm']);
 /** The router's answer about a change. Returns the reply body. */
 function routerAnswer(location, query) {
   const id = Number(query.id);
@@ -677,7 +776,9 @@ function routerAnswer(location, query) {
     const reason = REASONS.has(String(query.reason)) ? String(query.reason) : 'router_rejected';
     setStatus.run({ id, status: 'failed', reason }); cancelRest(location.id, row.batch_id, 'previous_failed');
   } else if (state === 'reverted' && ['sent', 'confirming', 'applied', 'verified', 'no-answer'].includes(row.status)) {
-    setStatus.run({ id, status: 'reverted', reason: String(query.reason) === 'undo_incomplete' ? 'undo_incomplete' : 'lost_cloud' }); cancelRest(location.id, row.batch_id, 'previous_reverted');
+    const why = String(query.reason);
+    const reason = why === 'undo_incomplete' || REBOOT_REASONS.has(why) ? why : 'lost_cloud';
+    setStatus.run({ id, status: 'reverted', reason }); cancelRest(location.id, row.batch_id, 'previous_reverted');
   } else if (state === 'undone' && row.status === 'undo-sent') {
     setStatus.run({ id, status: 'undone', reason: null });
   } else if ((state === 'undo-failed' || state === 'undo-missing') && row.status === 'undo-sent') {
@@ -694,7 +795,11 @@ function matchesLayout(row, layout) {
   const item = (layout.interfaces || []).find((i) => i.name === name);
   let ok = Boolean(item);
   if (ok && row.kind === 'rename') ok = !(layout.interfaces || []).some((i) => i.name === spec.from);
-  if (ok && row.kind === 'bridge') ok = (spec.ports || []).every((p) => (item.members || []).includes(p));
+  if (ok && row.kind === 'bridge') {
+    // A shared radio shows up in the bridge as its customer network.
+    const shared = new Map(((spec.wifi && spec.wifi.radios) || []).filter(isVirtual).map((r) => [r.name, virtualRadioName(r, row.id)]));
+    ok = (spec.ports || []).every((p) => (item.members || []).includes(shared.get(p) || p));
+  }
   if (ok && row.job === 'hotspot') ok = (layout.hotspots || []).some((h) => h.interface === name && h.name === HOTSPOT_NAME);
   return ok;
 }

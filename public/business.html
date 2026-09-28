@@ -542,6 +542,13 @@
 @media (prefers-reduced-motion:no-preference){.rb-wifi.on .rb-wifi-bars i{animation:rbWifiBar 1.8s ease-in-out infinite}.rb-wifi.on .rb-wifi-bars i:nth-child(2){animation-delay:.2s}.rb-wifi.on .rb-wifi-bars i:nth-child(3){animation-delay:.4s}}
 @keyframes rbWifiBar{0%,100%{opacity:1}50%{opacity:.35}}
 @media (max-width:520px){.rb-wifi-add{padding-left:0}.rb-wifi-preview small{margin-left:0}}
+.rb-quick{margin:12px 0 4px;padding:16px;border-radius:18px;border:1px solid #8fd8b8;background:linear-gradient(135deg,#e9fff5,#e8f5ff);box-shadow:0 14px 34px -24px rgba(0,120,80,.6)}
+.rb-quick-top{display:flex;gap:12px;align-items:flex-start}.rb-quick-top strong{display:block;color:#0b4a33;font-size:15.5px}.rb-quick-top small{display:block;margin-top:3px;color:#2e5f4b;font-size:12.5px;line-height:1.45}
+.rb-quick-icon{flex:none;width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#1fc98a,#0a9d6b);color:#fff;display:grid;place-items:center;font-weight:800;box-shadow:0 8px 18px -8px rgba(10,157,107,.8)}
+.rb-quick-list{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:6px}.rb-quick-list li{display:flex;gap:8px;align-items:baseline;font-size:13.5px;color:#163a2c;line-height:1.45}.rb-quick-list li::before{content:"✓";color:#0a9d6b;font-weight:800}
+.rb-quick .rb-wifi-field{margin-top:12px}.rb-quick-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:14px}.rb-quick-foot small{color:#2e5f4b;font-size:12.5px}
+.rb-quick .error:empty{display:none}
+@media (max-width:520px){.rb-quick{padding:14px 13px}.rb-quick-foot button{width:100%}}
 .rb-reserve{margin-top:12px;padding:13px 14px;border-radius:16px;border:1px solid #c9b8ff;background:linear-gradient(135deg,#f5f0ff,#eaf3ff);box-shadow:0 12px 30px -20px rgba(95,60,200,.55)}
 .rb-reserve.has-port{border-color:#8f6bff;background:linear-gradient(135deg,#efe7ff,#e3efff)}
 .rb-reserve-top{display:flex;gap:12px;align-items:flex-start}.rb-reserve-top strong{display:block;color:#3a1f8f;font-size:14.5px}.rb-reserve-top small{display:block;margin-top:3px;color:#54478a;font-size:12.5px;line-height:1.45}
@@ -708,6 +715,7 @@
       var routerTopologyCache = {};
       // Unsaved network maps survive the dashboard's periodic redraws.
       var networkPlanDrafts = {};
+      var quickSetupNames = {};
       var routerBoardsShown = {};
       var changeFollowTimer = null;
       var kitConsolesShown = {};
@@ -2033,7 +2041,20 @@
         var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice(), wifi: b.wifi ? { ssid: b.wifi.ssid } : undefined }; }), existing: (savedPlan.existing || []).map(function (e) { return { interface: e.interface, job: e.job }; }), keep: (savedPlan.keep || []).slice() }
           : { bridges: [], existing: running ? [{ interface: running.interface, job: 'hotspot' }] : [], keep: [] };
         if (!draft.keep) draft.keep = [];
-        var selected = kept ? kept.selected : null; var dirty = kept ? kept.dirty : !savedPlan && Boolean(running); var saveButton = null;
+        var staleSaved = false;
+        if (!kept && savedPlan) {
+          // A saved map can outlive the router's layout (e.g. after an undo): an
+          // existing bridge that is gone, or a hotspot that no longer runs, is
+          // dropped instead of being shown as "already runs a hotspot".
+          var stillThere = draft.existing.filter(function (entry) { var original = (savedPlan.existing || []).find(function (e) { return e.interface === entry.interface; }) || {};
+            return byName[entry.interface] && !(entry.job === 'hotspot' && original.alreadyRunning && !(layout.hotspots || []).some(function (h) { return h.interface === entry.interface; })); });
+          if (stillThere.length !== draft.existing.length) { draft.existing = stillThere; staleSaved = true; }
+        }
+        // New maps keep one free Ethernet port for the owner (WinBox by MAC), so
+        // customer ports can never lock them out.
+        var freeEthers = items.filter(function (item) { return item.physical && item.type === 'ether' && item.free && !item.internet; });
+        if (!kept && !savedPlan && !draft.keep.length && freeEthers.length >= 2) draft.keep = [freeEthers[freeEthers.length - 1].name];
+        var selected = kept ? kept.selected : null; var dirty = kept ? kept.dirty : staleSaved || (!savedPlan && Boolean(running)); var saveButton = null;
         if (kept) { draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return plannable(byName[p]); }); }); draft.existing = draft.existing.filter(function (e) { return byName[e.interface]; }); if (selected && !plannable(byName[selected])) selected = null; }
         var panel = el('section', 'rb-planner');
         board.insertBefore(el('div', 'rb-row-label'), null).textContent = 'Map your network';
@@ -2041,7 +2062,7 @@
         function jobLabel(job) { return job === 'pppoe' ? 'PPPoE' : 'Hotspot'; }
         function freshName(job) { var base = job === 'pppoe' ? 'fiti-pppoe' : 'fiti-hotspot'; var name = base; var n = 2; while (taken[name] || draft.bridges.some(function (b) { return b.name === name; })) { name = base + '-' + n; n += 1; } return name; }
         function home(port) { var found = null; draft.bridges.forEach(function (b) { if (b.ports.indexOf(port) >= 0) found = b; }); return found; }
-        function plannable(item) { return Boolean(item && (item.free || item.movableFrom)); }
+        function plannable(item) { return Boolean(item && (item.free || item.movableFrom || item.shareWifi)); }
         function isRadio(item) { return Boolean(item && (item.type === 'wlan' || item.type === 'wifi')); }
         function defaultSsid() { var business = (state.workspace && state.workspace.business) || {}; return String(business.hotspot_name || business.name || 'Customer WiFi').replace(/["\\$]/g, '').slice(0, 32); }
         var radioNotice = '';
@@ -2052,8 +2073,8 @@
           board.querySelectorAll('[data-part]').forEach(function (node) {
             var name = node.getAttribute('data-part'); var item = byName[name]; if (!item) return;
             var target = home(name); var keptHere = draft.keep.indexOf(name) >= 0; node.classList.toggle('rb-assigned', Boolean(target)); node.classList.toggle('rb-kept', keptHere); node.classList.toggle('rb-selected', selected === name);
-            var radioHint = isRadio(item) && plannable(item) && !target && !keptHere; node.classList.toggle('rb-radio-hint', radioHint);
-            var goes = node.querySelector('.rb-goes'); if (radioHint) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = '📶 can broadcast customer Wi-Fi'; } else if (target || keptHere) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = keptHere ? '→ reserved for management' : '→ ' + target.name + ' · ' + jobLabel(target.job) + (item.movableFrom ? ' (leaves ' + item.movableFrom + ')' : ''); } else if (goes) goes.remove();
+            var radioHint = isRadio(item) && (item.free || item.shareWifi) && !target && !keptHere; node.classList.toggle('rb-radio-hint', radioHint);
+            var goes = node.querySelector('.rb-goes'); if (radioHint) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = item.shareWifi ? '📶 can add a separate customer Wi-Fi' : '📶 can broadcast customer Wi-Fi'; } else if (target || keptHere) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = keptHere ? '→ reserved for management' : '→ ' + target.name + ' · ' + jobLabel(target.job) + (item.movableFrom ? ' (leaves ' + item.movableFrom + ')' : ''); } else if (goes) goes.remove();
             if (plannable(item) && !node.dataset.plannable) {
               node.dataset.plannable = '1'; node.classList.add('rb-draggable'); node.setAttribute('draggable', 'true'); node.setAttribute('tabindex', '0'); node.setAttribute('role', 'button');
               node.setAttribute('aria-label', name + (item.movableFrom ? ': in ' + item.movableFrom + ', can be moved.' : ': free.') + ' Drag into a bridge, or select it and then choose a bridge.');
@@ -2065,6 +2086,65 @@
             }
           });
         }
+        // One screen for a router with no hotspot yet: a Wi-Fi name and one
+        // button build the hotspot, the customer Wi-Fi and the cable ports in a
+        // single change, with one Ethernet port kept for the owner.
+        function quickSetupCard() {
+          var busy = (changes || []).some(function (c) { return /^(queued|sent|confirming|applied|undo-queued|undo-sent)$/.test(c.status); });
+          if (running || busy || draft.bridges.length || !layout.wan) return null;
+          var keepPort = draft.keep.length ? draft.keep[0] : (freeEthers.length >= 2 ? freeEthers[freeEthers.length - 1].name : '');
+          var cablePorts = freeEthers.map(function (item) { return item.name; }).filter(function (name) { return name !== keepPort && draft.keep.indexOf(name) < 0; });
+          var radio = items.filter(function (item) { return isRadio(item) && (item.free || item.shareWifi); })[0] || null;
+          if (!cablePorts.length && !radio) return null;
+          var card = el('section', 'rb-quick'); card.setAttribute('aria-label', 'Set up in one step');
+          var top = el('div', 'rb-quick-top'); var icon = add(top, 'span', 'rb-quick-icon', '1'); icon.setAttribute('aria-hidden', 'true');
+          var copy = el('div'); add(copy, 'strong', '', 'Set up in one step');
+          add(copy, 'small', '', 'Wi-Fi Fiti builds the hotspot' + (radio ? ' and the customer Wi-Fi' : '') + ' in one change. The router checks everything first, and puts it all back by itself if anything goes wrong.');
+          top.appendChild(copy); card.appendChild(top);
+          var nameInput = null; var preview = null;
+          if (radio) {
+            var field = el('label', 'rb-wifi-field'); add(field, 'span', '', 'Wi-Fi name customers will see');
+            nameInput = el('input', 'rb-net-name'); nameInput.maxLength = 32; nameInput.value = quickSetupNames[draftKey] != null ? quickSetupNames[draftKey] : defaultSsid(); nameInput.setAttribute('aria-label', 'Customer Wi-Fi name');
+            field.appendChild(nameInput); card.appendChild(field);
+          }
+          var list = el('ul', 'rb-quick-list');
+          if (radio) { preview = add(list, 'li', ''); }
+          if (cablePorts.length) add(list, 'li', '', 'Cable customers plug into ' + cablePorts.join(', ') + '.');
+          if (keepPort) add(list, 'li', '', keepPort + ' stays yours for managing the router (WinBox, connect by MAC).');
+          else add(list, 'li', '', 'No spare Ethernet port to keep for you: manage the router from the internet side afterwards.');
+          card.appendChild(list);
+          function describeWifi() {
+            if (!preview) return; var name = (nameInput.value || '').trim() || 'Customer WiFi';
+            preview.textContent = radio.shareWifi ? 'Customers get their own open Wi-Fi "' + name + '" on ' + radio.name + '. Your own Wi-Fi keeps working as it is.' : radio.name + ' is turned on as the open Wi-Fi "' + name + '".';
+          }
+          describeWifi();
+          if (nameInput) {
+            nameInput.addEventListener('input', function () { var clean = nameInput.value.replace(/["\\$]/g, ''); if (clean !== nameInput.value) nameInput.value = clean; quickSetupNames[draftKey] = clean; describeWifi(); });
+          }
+          var foot = el('div', 'rb-quick-foot');
+          var go = add(foot, 'button', '', 'Set up'); go.type = 'button';
+          add(foot, 'small', '', 'Or draw the map yourself below.');
+          card.appendChild(foot);
+          var err = add(card, 'div', 'error'); err.setAttribute('aria-live', 'polite');
+          go.addEventListener('click', function () {
+            err.textContent = '';
+            var ssid = nameInput ? nameInput.value.trim() : '';
+            if (nameInput && !ssid) { err.textContent = 'Type a Wi-Fi name for customers.'; nameInput.focus(); return; }
+            var plan = { bridges: [{ name: freshName('hotspot'), job: 'hotspot', ports: cablePorts.concat(radio ? [radio.name] : []), wifi: radio ? { ssid: ssid } : undefined }], existing: [], keep: keepPort ? [keepPort] : [] };
+            var base = '/api/business/locations/' + encodeURIComponent(location.id);
+            setBusy(go, true, 'Saving…');
+            api(base + '/network-plan', { method: 'PUT', body: JSON.stringify({ plan: plan }) }).then(function (saved) {
+              var cached = routerTopologyCache[String(location.id)]; if (cached && cached.result) cached.result.plan = saved.plan;
+              setBusy(go, true, 'Sending to your router…');
+              return api(base + '/network-plan/apply', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+            }).then(function (applied) {
+              delete networkPlanDrafts[draftKey]; delete quickSetupNames[draftKey];
+              var cached = routerTopologyCache[String(location.id)]; if (cached && cached.result) cached.result.changes = applied.changes || [];
+              renderOnboarding();
+            }).catch(function (error) { setBusy(go, false); err.textContent = error.message; });
+          });
+          return card;
+        }
         function render() {
           clear(panel);
           var head = el('div', 'rb-planner-head');
@@ -2072,6 +2152,7 @@
           var movableNames = items.filter(function (item) { return item.movableFrom; }).map(function (item) { return item.name; });
           add(head, 'small', '', 'Add a bridge, then drag free parts into it. On a phone, tap a free part, then tap the bridge. ' + (movableNames.length ? 'Movable parts are in a bridge Wi-Fi Fiti built, so they can be moved too. ' : '') + 'Parts in use stay locked.');
           panel.appendChild(head);
+          var quick = quickSetupCard(); if (quick) panel.appendChild(quick);
           var tools = el('div', 'rb-planner-tools');
           var addHotspot = add(tools, 'button', 'secondary', '+ Hotspot bridge'); addHotspot.type = 'button';
           addHotspot.addEventListener('click', function () { draft.bridges.push({ name: freshName('hotspot'), job: 'hotspot', ports: selected ? [selected] : [] }); selected = null; dirty = true; render(); });
@@ -2128,7 +2209,8 @@
                 var preview = el('div', 'rb-wifi-preview'); var bars = add(preview, 'span', 'rb-wifi-bars'); bars.setAttribute('aria-hidden', 'true'); add(bars, 'i'); add(bars, 'i'); add(bars, 'i'); var previewName = add(preview, 'b', '', bridge.wifi.ssid || 'Customer WiFi'); add(preview, 'small', '', 'Open network · the login page controls access'); wifiPanel.appendChild(preview);
                 ssidInput.addEventListener('click', function (event) { event.stopPropagation(); });
                 ssidInput.addEventListener('input', function () { bridge.wifi.ssid = ssidInput.value.replace(/["\\$]/g, ''); if (ssidInput.value !== bridge.wifi.ssid) ssidInput.value = bridge.wifi.ssid; previewName.textContent = bridge.wifi.ssid || 'Customer WiFi'; dirty = true; saveState(); if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Save map'; } });
-                add(wifiPanel, 'small', 'rb-wifi-note', 'Broadcast on ' + radiosIn.join(', ') + '. Wi-Fi Fiti turns the radio on when you apply the map, and undo puts it back as it was.');
+                var sharing = radiosIn.every(function (port) { return (byName[port] || {}).shareWifi; });
+                add(wifiPanel, 'small', 'rb-wifi-note', sharing ? 'A separate open network on ' + radiosIn.join(', ') + '. Your own Wi-Fi on it keeps working as it is, and undo removes the customer network.' : 'Broadcast on ' + radiosIn.join(', ') + '. Wi-Fi Fiti turns the radio on when you apply the map, and undo puts it back as it was.');
               } else {
                 var freeRadios = items.filter(function (item) { return isRadio(item) && plannable(item) && !home(item.name) && draft.keep.indexOf(item.name) < 0; });
                 if (freeRadios.length) {
@@ -2242,6 +2324,11 @@
         router_rejected: 'The router refused a command, so it put everything back.',
         already_delivered: 'The router already had this change.',
         lost_cloud: 'After the change the router could not reach Wi-Fi Fiti, so it undid it by itself. Check the internet connection and try again.',
+        rebooted_start: 'The router restarted just as the change began, and put everything back by itself when it came up. Nothing was changed.',
+        rebooted_hotspot: 'The router restarted while building the hotspot, and put everything back by itself when it came up. Its memory may be too tight for a hotspot: check System → Resources in WinBox.',
+        rebooted_wifi: 'The router restarted while adding the customer Wi-Fi, and put everything back by itself when it came up. Try again without Wi-Fi (cable only), or on a router with more memory.',
+        rebooted_confirm: 'The router made the change, then restarted before it could confirm, so it put everything back by itself. Try again once it has been up for a few minutes.',
+        radio_busy: 'That radio is switched off or connected to another network as a client, so a customer Wi-Fi can\u2019t be added on it. Nothing was touched.',
         previous_failed: 'An earlier change did not go through.', previous_reverted: 'An earlier change was put back.', previous_no_answer: 'An earlier change got no answer.',
         no_answer: 'The router did not answer. It may be offline, or it may have put the change back. Check its next report.',
         report_differs: 'The router’s latest report doesn’t match the change. Check the board above.',

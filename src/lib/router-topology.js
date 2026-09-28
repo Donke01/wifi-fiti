@@ -300,6 +300,9 @@ const INVENTORY_LIMITS = Object.freeze({ lines: 200, interfaces: 64 });
 const INVENTORY_STATES = new Set(['up', 'down', 'disabled']);
 const WAN_KINDS = new Set(['pppoe', 'dhcp', 'static']);
 const PHYSICAL_TYPES = new Set(['ether', 'wlan', 'wifi', 'wireless']);
+const RADIO_TYPES = new Set(['wlan', 'wifi']);
+// The separate customer Wi-Fi a change adds on top of a radio (see router-changes).
+const VIRTUAL_RADIO = /^fiti-(?:wlan|wifi)-\d+$/;
 
 function parseRouterInventory(rawBody) {
   if (typeof rawBody !== 'string') return null;
@@ -385,7 +388,10 @@ function describeInventory(inv) {
   const rank = (label) => { const w = weight(label); return w < 0 ? 99 : w; };
   const interfaces = [...inv.interfaces.values()].map((item) => {
     const usage = (uses.get(item.name) || []).slice().sort((a, b) => rank(a) - rank(b));
-    const physical = PHYSICAL_TYPES.has(item.type);
+    const radio = RADIO_TYPES.has(item.type);
+    // A separate customer Wi-Fi Wi-Fi Fiti added on top of a radio is not a
+    // radio of its own: it is shown on its bridge, never as a free part.
+    const physical = PHYSICAL_TYPES.has(item.type) && !(radio && VIRTUAL_RADIO.test(item.name));
     const vlan = inv.vlans.find((v) => v.name === item.name);
     // A port whose only job is membership of a bridge Wi-Fi Fiti built itself
     // may be moved to another bridge. Ports in the owner's own bridges, or
@@ -406,8 +412,12 @@ function describeInventory(inv) {
       // Free: a port or radio nothing depends on. Everything else is kept as it is.
       // A switched-off radio with no job is free too: putting it in a hotspot
       // bridge is how the owner asks for it to be turned on.
-      free: physical && !usage.length && (item.state !== 'disabled' || ['wlan', 'wifi'].includes(item.type)),
+      free: physical && !usage.length && (item.state !== 'disabled' || radio),
       locked: internet.has(item.name) || Boolean(usage.length) || !physical,
+      // A radio that is switched on may be the owner's own Wi-Fi (even with no
+      // bridge: WinBox connects by MAC over it). Customers then get a second,
+      // separate network on it and the owner's Wi-Fi is left exactly as it is.
+      shareWifi: radio && physical && !internet.has(item.name) && item.state !== 'disabled' && !movableFrom,
     };
   }).sort((a, b) => Number(b.physical) - Number(a.physical) || a.name.localeCompare(b.name, undefined, { numeric: true }));
   return {
@@ -443,7 +453,6 @@ function describeInventory(inv) {
  *     existing: [{ interface: 'bridge-home', job: 'pppoe' }] }
  */
 const PLAN_JOBS = new Set(['hotspot', 'pppoe']);
-const RADIO_TYPES = new Set(['wlan', 'wifi']);
 // An open customer Wi-Fi name: printable, no quotes, backslashes or $.
 const PLAN_SSID = /^[^"\\$\x00-\x1f\x7f]{1,32}$/;
 const PLAN_BRIDGE_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,23}$/;
@@ -487,7 +496,7 @@ function validateNetworkPlan(input, layout) {
     for (const port of ports) {
       const item = byName.get(port);
       if (!item) throw planError(`${port} is not on this router's latest report.`);
-      if (!item.free && !item.movableFrom) throw planError(`${port} is already in use on the router, so it stays as it is. Choose a free port.`);
+      if (!item.free && !item.movableFrom && !item.shareWifi) throw planError(`${port} is already in use on the router, so it stays as it is. Choose a free port.`);
       if (keep.includes(port)) throw planError(`${port} is reserved for managing the router. Choose another port for ${name}.`);
       if (usedPorts.has(port)) throw planError(`${port} can only belong to one bridge.`);
       usedPorts.add(port);
@@ -503,7 +512,9 @@ function validateNetworkPlan(input, layout) {
       const ssid = String(raw && raw.wifi && raw.wifi.ssid || '').trim();
       if (!ssid) throw planError(`Give the customer Wi-Fi on ${name} a name.`);
       if (!PLAN_SSID.test(ssid)) throw planError('The Wi-Fi name can be up to 32 characters, without quotes, backslashes or $.');
-      wifi = { ssid, radios: radios.map((port) => ({ name: port, type: byName.get(port).type })) };
+      // A radio that is on gets a second network for customers (the owner's
+      // Wi-Fi keeps working); only a switched-off radio is taken over.
+      wifi = { ssid, radios: radios.map((port) => { const item = byName.get(port); return { name: port, type: item.type, mode: item.shareWifi ? 'virtual' : 'takeover' }; }) };
     }
     return { name, job, ports: ports.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), ...(wifi ? { wifi } : {}) };
   });
