@@ -4774,7 +4774,10 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
   let portalFast = false;
   if (portal) { const since = portalPendingSince.get(location.id) || Date.now(); portalPendingSince.set(location.id, since); portalFast = Date.now() - since < PORTAL_FAST_MS; }
   else portalPendingSince.delete(location.id);
-  const fastPoll = Boolean(jobs.length || deployment || portalFast || changeInFlight);
+  // A customer paying right now: be polling every second before the payment
+  // lands, so their login is on the router about a second after it is paid.
+  const paying = tenant.paymentInProgress(location.id);
+  const fastPoll = Boolean(jobs.length || deployment || portalFast || changeInFlight || paying);
   const pollTuning = controls.length ? '' : tenantPollTuningScript(fastPoll ? 1 : 5);
   // Opening a Wi-Fi (removing its password) is only for the stable kit, which
   // built that Wi-Fi for customers. A universal-kit router's Wi-Fi may be the
@@ -4833,6 +4836,18 @@ function acknowledgeTenantRouterJobs(location, value) {
   const ids = routerAckIds(value);
   for (const id of ids) tenant.markAcked.run(id, location.id);
   if (ids.length) console.log(`[tenant router] ${location.id} acked ${ids.join(', ')}`);
+  // One line per paid login: M-Pesa prompt → paid (job queued) → sent to the
+  // router → router confirmed. Shows which step makes a customer wait.
+  for (const id of ids) {
+    try {
+      const t = tenant.jobPaymentTiming(id, location.id);
+      if (!t) continue;
+      const at = (v) => { const ms = Date.parse(String(v || '').replace(' ', 'T') + 'Z'); return Number.isFinite(ms) ? ms : null; };
+      const gap = (a, b) => (a != null && b != null ? `${Math.round((b - a) / 1000)}s` : '?');
+      const prompt = at(t.promptAt); const paid = at(t.jobAt); const sent = at(t.deliveredAt); const now = Date.now();
+      console.log(`[payment timing] ${location.id} job ${id}: prompt→paid ${gap(prompt, paid)}, paid→sent ${gap(paid, sent)}, sent→confirmed ${gap(sent, now)}, total ${gap(prompt, now)}`);
+    } catch (_) { /* timing is informational only */ }
+  }
   return ids;
 }
 

@@ -1594,6 +1594,10 @@ const pendingJobs = db.prepare(`
 `);
 const markDelivered = db.prepare(`UPDATE tenant_jobs SET delivered_at=datetime('now') WHERE id=?`);
 const markAcked = db.prepare(`UPDATE tenant_jobs SET acked_at=datetime('now') WHERE id=? AND location_id=?`);
+// Where the time went for a paid login, logged when the router confirms it.
+const jobPaymentTimingStmt = db.prepare(`SELECT t.checkout_request_id AS checkout, t.created_at AS promptAt, j.created_at AS jobAt, j.delivered_at AS deliveredAt
+  FROM tenant_jobs j JOIN tenant_transactions t ON t.provisioning_job_id = j.id WHERE j.id = ? AND j.location_id = ?`);
+function jobPaymentTiming(jobId, locationId) { return jobPaymentTimingStmt.get(Number(jobId), String(locationId)) || null; }
 const jobById = db.prepare(`SELECT j.id, j.location_id, j.acked_at
   FROM tenant_jobs j WHERE j.id=? AND j.location_id=?`);
 // A reopened captive window must not offer a newly-created credential until
@@ -3469,6 +3473,14 @@ function renameRouterBridge({ locationId, businessId, changeId, name }) {
   if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Your router’s latest report is a few minutes old. A fresh one normally arrives within 30 seconds: try the rename again in a moment.', 409);
   return routerChanges().queueRename(locationId, changeId, name, layout, /^[A-Za-z][A-Za-z0-9_-]{0,23}$/);
 }
+// A customer is paying at this location right now: an M-Pesa prompt sent in
+// the last three minutes and not yet settled, or paid and not yet on the
+// router. The router polls every second meanwhile, so the login job is picked
+// up within a second of the payment instead of on the next 5-second tick.
+const paymentInProgressStmt = db.prepare(`SELECT 1 FROM tenant_transactions WHERE location_id = ?
+  AND ((status = 'pending' AND created_at >= datetime('now', '-3 minutes'))
+    OR (status = 'paid' AND provisioned = 0 AND updated_at >= datetime('now', '-3 minutes'))) LIMIT 1`);
+function paymentInProgress(locationId) { return Boolean(paymentInProgressStmt.get(String(locationId))); }
 function routerChangesForLocation(locationId) { return routerChanges().listChanges(locationId); }
 /** The router's answer about a change; a fully applied map is then cleared. */
 function recordRouterChangeAnswer(location, query) {
@@ -4477,6 +4489,7 @@ function deletePackageForOwner(packageId, businessId) {
 }
 
 module.exports = {
+  paymentInProgress, jobPaymentTiming,
   deletePackageForOwner, setPaymentDeviceIp, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, renameRouterBridge, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
