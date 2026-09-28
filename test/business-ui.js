@@ -66,7 +66,7 @@ assert.match(html, /Back to workspace/,
   'owners can leave onboarding without deleting their saved progress');
 assert.match(html, /Router setup is paused\./,
   'leaving an incomplete journey presents an accurate resumable state');
-assert.match(html, /Initial Preparation \(Optional\)/,
+assert.match(html, /'Router just reset\? Give it internet first'\); add\(preparation, 'p', 'setup-preparation-copy', 'Optional: /,
   'fresh-router preparation is explicitly optional');
 assert.match(html, /\/system reset-configuration no-defaults=yes skip-backup=yes/,
   'the manual reset instruction uses valid RouterOS no-defaults syntax');
@@ -80,8 +80,10 @@ assert.doesNotMatch(html, /no-default=yes/,
 // commercial stage.
 assert.match(html, /id="onboarding-section"/,
   'the business workspace includes a dedicated guided setup surface');
-assert.match(html, /SELF-ONBOARDING/,
-  'the onboarding journey has a focused self-onboarding heading');
+assert.match(html, /'onboarding-flow-kicker', 'SETUP GUIDE'/,
+  'the onboarding journey has a focused setup-guide heading');
+assert.doesNotMatch(html, /onboarding-flow-count|setup stage/,
+  'the rail and "Step N of 3" show progress, without a second counter');
 assert.match(html, /Add router.*Secure connection.*Map router/s,
   'the journey presents the requested three-stage sequence');
 assert.match(html, /sequential-onboarding[\s\S]*section:not\(#onboarding-section\)/,
@@ -108,8 +110,8 @@ assert.match(html, /var freshKitRequired = Boolean\(location && !routerPairingPe
   'a requested re-pairing cannot inherit a previous router verification');
 assert.match(html, /!freshKitRequired && routerSuccessfullyPaired\(location\)/,
   'the old secure sync remains blocked until a new kit is issued and succeeds');
-assert.match(html, /The next page asks for the customer Wi-Fi name and password, then creates one visible kit/,
-  'a re-pairing preserves the explicit SSID and password screen instead of silently creating a random kit');
+assert.match(html, /On the next page, tap Generate connection kit to make a new kit, then paste it in WinBox/,
+  'a re-pairing waits for the owner to generate the new kit instead of silently creating one');
 assert.match(html, /Create a fresh connection kit/,
   'a requested re-pairing clearly explains why the old router is no longer verified');
 assert.match(html, /clearFreshRouterSetup\(location\); saveSetup\(result\.location, result\.portalUrl, result\.setup\)/,
@@ -130,8 +132,10 @@ assert.match(html, /document\.visibilityState === 'hidden'/,
   'automatic status checks pause while the dashboard is not visible');
 assert.match(html, /Router needs to reconnect/,
   'a historically paired but offline router is never presented as ready for customers');
-assert.match(html, /Create a different kit/,
+assert.match(html, /moreOption\('Generate a new kit'/,
   'the guided setup offers a single clear recovery action for its connection kit');
+assert.doesNotMatch(html, /Create a different kit/,
+  'the pairing card does not repeat the kit recovery action');
 assert.match(html, /Copy connection kit/,
   'the normal onboarding route lets an owner copy the complete RouterOS kit directly');
 assert.match(html, /appendRouterMappingSetup/,
@@ -160,20 +164,20 @@ assert.match(html, /Choose the physical WAN port/,
   'an unknown WAN is never silently guessed from the first Ethernet port');
 assert.match(html, /This layout cannot be mapped yet/,
   'incomplete router inventories receive a clear blocked state instead of empty selectors');
-assert.match(html, /Confirm the layout after sync/,
-  'the connection milestones accurately describe the next focused page');
+assert.match(html, /'Map router', 'Choose where customers connect'/,
+  'the progress rail describes the map step in plain words');
 assert.match(html, /@media\(max-width:900px\)\{\.onboarding-flow-head[\s\S]*\.setup-rail\{grid-template-columns:1fr/,
   'the three setup stages stay readable in one connected mobile/tablet sequence');
-assert.match(html, /Initial Preparation \(Optional\)/,
+assert.match(html, /if \(!model\.syncHealthy\) appendPreparation\(connectBody, model\.location, phase === 'prepare'\);/,
   'safe optional preparation guidance is available in the connection stage');
 assert.match(html, /Wi-Fi Fiti never resets a router remotely/,
   'the new onboarding language keeps router resets explicitly owner-controlled');
 assert.match(html, /function connectionPhaseFor\(model\)/,
   'the connection stage remembers which single focused page an owner was on');
-assert.match(html, /Continue to secure connection/,
-  'preparation has one explicit transition into the secure kit page');
-assert.match(html, /appendConnectionMilestones\(prepareBody, phase\)/,
-  'the preparation page shows progress without rendering the following work');
+assert.doesNotMatch(html, /Prepare your router|Continue to secure connection/,
+  'step 2 is one page: preparation is a collapsed section, not a page of its own');
+assert.doesNotMatch(html, /appendConnectionMilestones/,
+  'step 2 relies on the stage rail above it, without a second rail');
 assert.doesNotMatch(html, /appendConnectionMilestones\(connectBody, phase\)/,
   'the secure-kit page relies on the stage rail above it, without a second rail');
 assert.match(html, /\/ip dhcp-client add interface=ether1 disabled=no comment="Wi-Fi Fiti WAN"/,
@@ -183,7 +187,7 @@ assert.match(html, /Skip it for PPPoE, static IP or another WAN port/,
 assert.match(html, /Wi-Fi Fiti already retries through its outbound polling link/,
   'failed connection checks offer an honest recovery path rather than a fake second transport');
 assert.match(html, /Review WAN preparation/,
-  'two unsuccessful connection checks route the owner back to the prerequisite page');
+  'two unsuccessful connection checks open the WAN preparation section');
 
 // New business owners create a sign-in first, then complete only their
 // organisation profile. Router identity is collected in a small dialog so
@@ -202,6 +206,17 @@ assert.match(html, /name="routerName"[\s\S]*name="location"/,
   'the add-router dialog captures router name and location');
 assert.match(html, /openRouterDraftModal\(\)/,
   'the initial router route is launched from the short dialog');
+assert.match(html, /<button type="submit">Save and continue<\/button><button type="button" class="secondary" id="router-draft-later">/,
+  'the add-router dialog has one clear save action');
+assert.doesNotMatch(html, /router-draft-clear|Clear fields/, 'the add-router dialog has no clear-fields button');
+assert.match(html, /Shown on the customer login page\.[\s\S]*Your own number[\s\S]*Becomes the default customer Wi-Fi name/,
+  'each organisation field says what it is for');
+assert.match(html, /if \(!hotspot\.dataset\.edited\) hotspot\.value = event\.currentTarget\.value;/,
+  'the hotspot name follows the organisation name until the owner edits it');
+assert.match(html, /if \(!pairingWait && !model\.syncHealthy && !model\.freshKitRequired && !model\.paired && !routerPairingPending\(model\.location\)\) return;/,
+  'before a kit exists, Generate connection kit is the only main action');
+assert.match(html, /waitForStart: true, startedAt: saved && saved\.copiedAt \|\| ''/,
+  'the pairing timer starts only once the kit is copied');
 
 // The normal connection route is one outbound-only path. It must not pretend
 // to be a working VPN or make the owner choose between duplicate installers.
@@ -220,8 +235,8 @@ assert.doesNotMatch(onboardingRenderer[0], /mountSetupPanel\([^\n]*router-setup-
 assert.match(onboardingRenderer[0], /appendSimpleRouterSetup\(connectBody, model\)/,
   'the focused journey mounts one compact router-kit screen');
 assert.match(onboardingRenderer[0], /phase === 'prepare'/,
-  'only the preparation page is rendered before the owner explicitly continues');
-assert.match(html, /add\(modes, 'h4', '', 'Choose your kit'\)/,
+  'the preparation section opens only when the owner asked for it');
+assert.match(html, /add\(modes, 'summary', '', 'Other kit'\)/,
   'the focused journey lets the owner choose the kit, with the connection kit first');
 assert.match(html, /kitOption\('universal', 'Connection kit \(recommended\)'/, 'the connection kit is the recommended choice');
 assert.match(html, /ssid\.label\.classList\.toggle\('hidden', !automatic\); ssid\.input\.disabled = !automatic;/, 'the Wi-Fi name is asked only for the automatic hotspot kit');
@@ -336,7 +351,9 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
       screen + (loaderReady ? ' enables the server-retained secure bootstrap' : ' blocks copying when the secure bootstrap is unavailable'));
     copiedCommand = '';
     if (loaderReady) {
+      delete savedKits[uiLocation.id].copiedAt;
       buttons[0].listeners.click();
+      assert.match(String(savedKits[uiLocation.id].copiedAt), /^\d{4}-\d\d-\d\dT/, screen + ' records when the kit was copied');
       assert.match(copiedCommand, /\/api\/router\/v1\/bootstrap\?site=loc-installer-test/,
         screen + ' copies the authenticated short bootstrap rather than exposing full RouterOS source');
       assert.match(copiedCommand, /check-certificate=yes/,
@@ -344,6 +361,7 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
       assert.match(copiedCommand, /&vlan=1/, screen + ' copies the universal kit by default');
       assert.ok(copiedCommand.length < 500, screen + ' copies a short connection kit');
       assert.ok(nodes.some(node => node.tagName === 'button' && node.textContent === 'Copy certificate fix'), screen + ' offers the certificate fix for routers without CAs');
+      assert.ok(nodes.some(node => node.tagName === 'button' && node.textContent === 'Copy device-mode fix'), screen + ' offers the device-mode fix next to the certificate and clock fixes');
       const fallback = nodes.find(node => node.tagName === 'button' && node.textContent === 'Copy automatic hotspot kit (fallback)');
       assert.ok(fallback, screen + ' offers the automatic kit as a fallback');
     }
