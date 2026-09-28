@@ -984,7 +984,10 @@ function buildUniversalRouterKit({ location, token, appUrl, portalUrl }) {
     ...setupPrefix({ location: safeLocation, token: safeToken, appUrl, portalUrl, config }),
     ...pairingSuffix({ appUrl, portalUrl, location: safeLocation, token: safeToken, config, preserveDetected: true }),
   ]);
-  return script.replace(/\/tenant-router-install\.rsc/g, '/tenant-router-install-universal.rsc');
+  // The pasted connection kit is just "download, then import" so it fits a
+  // small router's terminal; the downloaded file cleans itself up here.
+  return script.replace(/\/tenant-router-install\.rsc/g, '/tenant-router-install-universal.rsc')
+    + '\n:do { /file remove [find where name="fiti.rsc"] } on-error={}\n';
 }
 
 module.exports = {

@@ -316,7 +316,7 @@ const context = vm.createContext({
   advanceOnboardingStage() {}, renderLocations() {}, downloadRouterScript() {},
 });
 vm.runInContext(html.match(/var ROUTER_ROOT_PINS = \[[^\]]*\];/)[0], context);
-for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps',
+for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps', 'routerCertificateFix',
   'routerBootstrapCommand', 'storedRouterKitHasScript', 'storedRouterKitIsCurrent', 'storedRouterKitIsStale',
   'appendRouterInstaller', 'appendSimpleRouterSetup', 'renderPairingKits', 'showRouterSetup']) {
   const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
@@ -342,7 +342,8 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
       assert.match(copiedCommand, /check-certificate=yes/,
         screen + ' keeps certificate verification enabled in the standard bootstrap');
       assert.match(copiedCommand, /&vlan=1/, screen + ' copies the universal kit by default');
-      assert.match(copiedCommand, /\/router-roots\.pem/, screen + ' carries the pinned-root fallback, so routers without CAs pair first time');
+      assert.ok(copiedCommand.length < 500, screen + ' copies a short connection kit');
+      assert.ok(nodes.some(node => node.tagName === 'button' && node.textContent === 'Copy certificate fix'), screen + ' offers the certificate fix for routers without CAs');
       const fallback = nodes.find(node => node.tagName === 'button' && node.textContent === 'Copy automatic hotspot kit (fallback)');
       assert.ok(fallback, screen + ' offers the automatic kit as a fallback');
     }
@@ -359,14 +360,14 @@ assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a
   const setup = { ...savedKits[uiLocation.id], setup: { ...(savedKits[uiLocation.id].setup || {}), loader: true } };
   const universal = context.routerBootstrapCommand(setup, false, false, true);
   assert.match(universal, /&vlan=1/);
-  assert.ok(universal.length < 2600, 'the connection kit is short enough to paste into a hAP lite terminal (' + universal.length + ' characters)');
-  assert.doesNotMatch(universal, /BEGIN CERTIFICATE/, 'no certificate text is pasted');
-  assert.match(universal, /check-certificate=yes/, 'certificate checks stay on for the kit download');
-  const first = universal.indexOf('check-certificate=yes'); const roots = universal.indexOf('/router-roots.pem');
-  assert.ok(first >= 0 && roots > first, 'the router tries its own CAs first; the roots are fetched only if that fails');
-  assert.match(universal, /\/router-roots\.pem" check-certificate=no dst-path="fiti-roots\.pem"/, 'the public roots file needs no CA to download');
-  assert.doesNotMatch(universal.slice(roots - 200, roots + 60), /X-WiFi-Fiti-Router/, 'the router credential is never sent without a certificate check');
-  assert.match(universal, /else=\{ \/certificate remove \$c \}/, 'any certificate that does not match a pinned fingerprint is removed');
+  assert.ok(universal.length < 500, 'the connection kit is a short paste (' + universal.length + ' characters)');
+  assert.doesNotMatch(universal, /BEGIN CERTIFICATE|router-roots/, 'no certificates in the main command');
+  assert.match(universal, /check-certificate=yes dst-path="fiti\.rsc"; \/import fiti\.rsc$/, 'download securely, then run it');
+  const fix = context.routerCertificateFix();
+  assert.ok(fix.length < 1200, 'the certificate fix is a short second paste (' + fix.length + ' characters)');
+  assert.match(fix, /\/router-roots\.pem" check-certificate=no dst-path="fiti-roots\.pem"/, 'the public roots file needs no CA to download');
+  assert.doesNotMatch(fix, /X-WiFi-Fiti-Router|loc-installer-test/, 'the certificate fix sends no router credential');
+  assert.match(fix, /else=\{ \/certificate remove \$c \}/, 'any certificate that does not match a pinned fingerprint is removed');
   assert.doesNotMatch(context.routerBootstrapCommand(setup, true, false, true), /router-roots/, 'the CA-compatibility command is unchanged');
 }
 // The pinned fingerprints are exactly those of Mozilla's roots (via Node's

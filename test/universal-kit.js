@@ -195,6 +195,7 @@ async function createBusiness(email, name) {
   const universalKit = await api(`/api/router/v1/bootstrap?site=${site}&vlan=1`, { routerToken: location.routerToken });
   assert.equal(universalKit.status, 200, universalKit.text);
   assert.match(universalKit.text, /UNIVERSAL KIT \(TEST\)/, 'the fourth kit slot is now the universal kit');
+  assert.match(universalKit.text, /\/file remove \[find where name="fiti\.rsc"\]/, 'the downloaded kit removes its own file');
   assert.doesNotMatch(universalKit.text, NETWORK_CHANGES);
   assert.doesNotMatch(universalKit.text, /Kitale WiFi|SafeWifiPass9/, 'none of the automatic kit\'s Wi-Fi settings are applied');
   const standardKit = await api(`/api/router/v1/bootstrap?site=${site}`, { routerToken: location.routerToken });

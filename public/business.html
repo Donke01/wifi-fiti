@@ -491,6 +491,7 @@
 @keyframes patiencePulse{0%{transform:scale(.7);opacity:.9}100%{transform:scale(1.6);opacity:0}}
 @keyframes patienceBeat{0%,100%{box-shadow:0 0 0 0 rgba(43,125,224,.45)}50%{box-shadow:0 0 0 6px rgba(43,125,224,0)}}
 @keyframes patienceFade{from{opacity:.2}to{opacity:1}}
+.cert-fix{margin:12px 0;padding:10px 12px;border:1px solid #f1d596;border-radius:12px;background:#fffaf0}.cert-fix summary{cursor:pointer;font-weight:750;color:#7a5200}.cert-fix p{margin:8px 0;font-size:13px;color:#4f4020;line-height:1.5}
 .kit-choice-options{display:grid;gap:8px;margin-top:8px}.kit-option{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border:1px solid #d3e1f2;border-radius:12px;background:#fff;cursor:pointer}.kit-option input{width:18px;height:18px;min-height:0;margin-top:2px;flex:none}.kit-option strong{display:block;font-size:14px}.kit-option small{display:block;margin-top:3px;color:#5a6f86;font-size:12.5px;font-weight:500;line-height:1.45}.kit-option:has(input:checked){border-color:#2b7de0;background:#f3f8ff;box-shadow:0 0 0 1px #2b7de0 inset}
 .rb-keep-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:8px 11px;border-radius:10px;background:#eef4ff;border:1px solid #cddcf5}.rb-keep-label{font-size:12px;font-weight:750;color:#1d3f73}.rb-keep-row small{flex-basis:100%;color:#445a74;font-size:12px}
 .rb-keep-chip{background:#1d3f73}.rb-part.rb-kept{outline:2px dashed #7fa6e6;outline-offset:-4px}
@@ -775,6 +776,11 @@
           ':do { /file remove [find where name="fiti-roots.pem"] } on-error={}'
         ].join('; ');
       }
+      // Line 2, only when line 1 reports "no trusted CA certificate found": adds
+      // the pinned roots (nothing secret, no router credential sent).
+      function routerCertificateFix() {
+        return ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={}; ' + routerRootTrustSteps(window.location.origin) + '; :put "Certificates added. Now paste the connection kit again."';
+      }
       function routerBootstrapCommand(setup, compatibility) {
         var telemetryTest = arguments[2];
         var vlanTest = arguments[3];
@@ -788,14 +794,14 @@
         // none (the hAP lite) fetches the pinned roots and tries again. The
         // standard kit's command stays exactly as it was.
         if (vlanTest && !compatibility) {
-          var fetchKit = '/tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=yes dst-path="wifi-fiti-bootstrap.rsc" mode=https';
+          // Two short commands instead of one long one: this line only turns on
+          // the router's certificate store, downloads the kit securely and runs
+          // it. The kit removes its own file. A router with no certificates at
+          // all runs the separate certificate fix first (routerCertificateFix).
           return [
-            ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={ :do { [:parse "/certificate settings set builtin-trust-anchors=trusted"] } on-error={} }',
-            ':do { /file remove [find where name="wifi-fiti-bootstrap.rsc"] } on-error={}',
-            ':do { ' + fetchKit + ' } on-error={ ' + routerRootTrustSteps(origin) + '; ' + fetchKit + ' }',
-            ':if ([:len [/file find where name="wifi-fiti-bootstrap.rsc"]] != 1) do={ :error "Wi-Fi Fiti kit was not downloaded. Check WAN, DNS and RouterOS certificate trust, then retry." }',
-            '/import file-name="wifi-fiti-bootstrap.rsc"',
-            ':do { /file remove "wifi-fiti-bootstrap.rsc" } on-error={}'
+            ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={}',
+            '/tool fetch url="' + rosQuote(bootstrapUrl) + '" http-header-field="' + rosQuote('X-WiFi-Fiti-Router: ' + routerToken) + '" check-certificate=yes dst-path="fiti.rsc"',
+            '/import fiti.rsc'
           ].join('; ');
         }
         return [
@@ -1649,6 +1655,13 @@
         }
         var actions = el('div', 'buttons');
         var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(script, quickCopy); }); quickCopy.disabled = !script;
+        if (script && !fallbackChosen) {
+          var fix = el('details', 'cert-fix'); add(fix, 'summary', '', 'If the router says “no trusted CA certificate found”');
+          add(fix, 'p', '', 'Some routers (like the hAP lite) come without the certificates needed for a secure download. Paste this once, then paste the connection kit again. It adds only the four certificates Wi-Fi Fiti uses, checked by fingerprint, and sends nothing secret.');
+          var fixText = routerCertificateFix(); var fixPre = add(fix, 'pre', 'kit-script', fixText); fixPre.setAttribute('aria-label', 'Certificate fix command');
+          var fixActions = el('div', 'buttons'); var fixCopy = setupAction(fixActions, 'Copy certificate fix', 'secondary', function () { copyText(fixText, fixCopy); }); fix.appendChild(fixActions);
+          box.appendChild(fix);
+        }
         var compatibilityCopy = setupAction(actions, 'Copy CA compatibility kit', 'secondary', function () {
           if (!window.confirm('Use this only if the router stops with "no trusted CA certificate found". It skips certificate checks for this router. Continue?')) return;
           copyText(compatibilityScript, compatibilityCopy);
