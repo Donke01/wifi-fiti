@@ -483,7 +483,7 @@ function validateNetworkPlan(input, layout) {
       const item = byName.get(port);
       if (!item) throw planError(`${port} is not on this router's latest report.`);
       if (!item.free && !item.movableFrom) throw planError(`${port} is already in use on the router, so it stays as it is. Choose a free port.`);
-      if (keep.includes(port)) throw planError(`${port} is kept for managing the router. Choose another port for ${name}.`);
+      if (keep.includes(port)) throw planError(`${port} is reserved for managing the router. Choose another port for ${name}.`);
       if (usedPorts.has(port)) throw planError(`${port} can only belong to one bridge.`);
       usedPorts.add(port);
       if (item.movableFrom) moves.push({ interface: port, from: item.movableFrom });

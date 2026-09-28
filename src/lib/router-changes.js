@@ -110,9 +110,9 @@ function reviewPlan(plan, layout) {
   // when every free port is about to become a customer port.
   const used = new Set((plan && plan.bridges || []).flatMap((b) => b.ports));
   const kept = (plan && plan.keep) || [];
-  if (kept.length) notes.push(`${kept.join(' and ')} ${kept.length > 1 ? 'stay' : 'stays'} free for you to manage the router with WinBox (connect by MAC address).`);
+  if (kept.length) notes.push(`${kept.join(' and ')} ${kept.length > 1 ? 'are' : 'is'} reserved for you to manage the router with WinBox (connect by MAC address).`);
   else if (changes.length && !(layout && layout.interfaces || []).some((i) => i.physical && i.free && i.type === 'ether' && !used.has(i.name))) {
-    notes.push('No free Ethernet port is left for you. Once customer ports block router settings, manage this router from the internet side (WinBox to its WAN address) or keep a port for management on the map.');
+    notes.push('No free Ethernet port is left for you. Once customer ports block router settings, manage this router from the internet side (WinBox to its WAN address) or reserve a port for management on the map.');
   }
   // Hotspot first, so its customers keep a network while ports move to PPPoE.
   changes.sort((a, b) => Number(a.job === 'pppoe') - Number(b.job === 'pppoe'));

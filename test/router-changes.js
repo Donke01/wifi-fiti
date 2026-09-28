@@ -47,7 +47,7 @@ function blank(extra = []) {
   assert.match(review.notes[0], /bridge-hs already runs a hotspot/);
   assert.match(review.notes.join(' '), /No free Ethernet port is left for you/, 'the owner is warned before losing every free port');
   const keptReview = rc.reviewPlan({ ...plan, bridges: [{ name: 'fiti-pppoe', job: 'pppoe', ports: ['ether4'] }], keep: ['ether5'] }, parseRouterInventory(rb951()));
-  assert.match(keptReview.notes.join(' '), /ether5 stays free for you to manage the router/);
+  assert.match(keptReview.notes.join(' '), /ether5 is reserved for you to manage the router/);
   assert.doesNotMatch(keptReview.notes.join(' '), /No free Ethernet port/);
   assert.match(review.changes[0].lines.join(' '), /Move ether4 out of bridge-hs into fiti-pppoe/);
   assert.match(review.changes[0].lines.join(' '), /A PPPoE server you set up yourself stays as it is/);
