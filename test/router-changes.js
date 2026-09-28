@@ -45,6 +45,10 @@ function blank(extra = []) {
   const review = rc.reviewPlan(plan, parseRouterInventory(rb951()));
   assert.equal(review.changes.length, 1, 'a hotspot that already runs needs no change');
   assert.match(review.notes[0], /bridge-hs already runs a hotspot/);
+  assert.match(review.notes.join(' '), /No free Ethernet port is left for you/, 'the owner is warned before losing every free port');
+  const keptReview = rc.reviewPlan({ ...plan, bridges: [{ name: 'fiti-pppoe', job: 'pppoe', ports: ['ether4'] }], keep: ['ether5'] }, parseRouterInventory(rb951()));
+  assert.match(keptReview.notes.join(' '), /ether5 stays free for you to manage the router/);
+  assert.doesNotMatch(keptReview.notes.join(' '), /No free Ethernet port/);
   assert.match(review.changes[0].lines.join(' '), /Move ether4 out of bridge-hs into fiti-pppoe/);
   assert.match(review.changes[0].lines.join(' '), /A PPPoE server you set up yourself stays as it is/);
   const script = rc.applyScript(review.changes[0], 7, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke' });
@@ -61,7 +65,10 @@ function blank(extra = []) {
   assert.doesNotMatch(script, /\/interface bridge port remove \[find where interface="ether[23]"|wlan1/, 'the hotspot ports are not touched');
   assert.doesNotMatch(script, /\/ip hotspot add|\/ip address add/, 'a PPPoE bridge starts no hotspot');
   assert.match(script, /state=applied/); assert.match(script, /\\"confirmed\\"/, 'only a "confirmed" reply keeps the change');
-  assert.match(script, /while \(\(\(\\\$ok = false\) && \(\\\$i < 9\)\)\)/, 'the router gives the cloud about 90 seconds');
+  assert.match(script, /while \(\(\(\\\$ok = false\) && \(\\\$i < 16\)\)\)/, 'the router keeps trying the cloud for a while');
+  assert.match(script, /:if \(\\\$i = 0\) do=\{ :delay 3s \} else=\{ :delay 5s \}/, 'the first confirm comes after 3 seconds');
+  assert.match(script, /:log info "fiti: network change 7 started"/, 'the router log shows when a change starts');
+  assert.match(script, /state=kept.*system script run fiti-inventory/s, 'a fresh layout report follows straight after keeping it');
   assert.match(script, /fiti-undo-7.*source=".*bridge port add bridge=\\"bridge-hs\\" interface=\\"ether4\\"/, 'undo puts ether4 back in bridge-hs');
   assert.match(script, /fiti-undo-7.*source=".*interface bridge remove \[find where name=\\"fiti-pppoe\\"\]/, 'undo removes the new bridge');
   assert.match(script, /fiti-prev-7/, 'the PPPoE server returns to where it was on undo');
@@ -180,6 +187,7 @@ async function pairedUniversal(token, name, report) {
 
   // The next poll carries the change; the one after waits for the answer.
   const delivered = await kitale.poll(rb951());
+  assert.match(delivered.text, /interval=1s disabled=no/, 'the router checks in every second while a change is in flight');
   const id = (delivered.text.match(/# Wi-Fi Fiti network change (\d+)/) || [])[1];
   assert.ok(id, 'the change is in the poll reply');
   assert.match(delivered.text, /\/interface bridge add name="fiti-pppoe"/);

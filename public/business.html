@@ -474,6 +474,8 @@
 .rb-change-pill.warn{background:#fff3d6;color:#8a5a00}.rb-change-pill.bad{background:#ffe5e8;color:#9b1c2c}.rb-change-pill.off{background:#eef3f8;color:#536b85}
 .rb-undo{margin-top:8px;min-height:34px;padding:6px 12px;font-size:12px}
 .rb-change-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.rb-rename{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.rb-rename .rb-net-name{width:auto;min-width:0;flex:1 1 140px;min-height:34px}.rb-rename .error{flex-basis:100%}
+.rb-keep-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:8px 11px;border-radius:10px;background:#eef4ff;border:1px solid #cddcf5}.rb-keep-label{font-size:12px;font-weight:750;color:#1d3f73}.rb-keep-row small{flex-basis:100%;color:#445a74;font-size:12px}
+.rb-keep-chip{background:#1d3f73}.rb-part.rb-kept{outline:2px dashed #7fa6e6;outline-offset:-4px}
 .rb-moves{margin:10px 0 0;padding:8px 11px;border-radius:10px;background:#fff7e3;color:#7a5200;font-size:12.5px;border:1px solid #f3dca4}
 .rb-add-here{border:1px dashed #22c58b;background:rgba(34,197,139,.1);color:#0f7a57;border-radius:999px;padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;line-height:1;cursor:pointer;min-height:32px}
 .rb-chip-quiet .rb-x{opacity:.25;pointer-events:none}
@@ -625,6 +627,7 @@
       // Unsaved network maps survive the dashboard's periodic redraws.
       var networkPlanDrafts = {};
       var routerBoardsShown = {};
+      var changeFollowTimer = null;
       var routerTopologyRequests = {};
       // A mapped deployment is a short-lived, owner-visible task. Keep its
       // status polling scoped to an open location card so a background tab
@@ -1591,14 +1594,17 @@
         // The server returns the exact encrypted kit only after authenticating
         // this location-specific header token; the full RouterOS source stays
         // out of the browser UI and remains an internal fallback.
-        var script = routerBootstrapCommand(saved);
-        var compatibilityScript = routerBootstrapCommand(saved, true);
+        // The universal kit is the default: it pairs a router in any state
+        // without changing its network, and the owner maps it afterwards. The
+        // automatic kit that builds a hotspot itself stays as the fallback.
+        var script = routerBootstrapCommand(saved, false, false, true);
+        var compatibilityScript = routerBootstrapCommand(saved, true, false, true);
+        var standardScript = routerBootstrapCommand(saved);
+        var standardCompatScript = routerBootstrapCommand(saved, true);
         var telemetryTestScript = routerBootstrapCommand(saved, false, true);
-        var vlanTestScript = routerBootstrapCommand(saved, false, false, true);
-        var universalCompatScript = routerBootstrapCommand(saved, true, false, true);
         add(box, 'h4', '', script ? 'Secure bootstrap command' : 'Secure bootstrap unavailable');
         if (script) {
-          add(box, 'p', '', 'paste this complete kit once as one short command in a new WinBox terminal. It securely downloads the exact router kit over HTTPS, imports it locally, and removes the temporary file. Your administrator password is never requested.');
+          add(box, 'p', '', 'Paste this complete kit once, as one short command in a new WinBox terminal. It pairs the router as it is — it changes no interface, bridge, VLAN, address, DHCP, PPPoE or firewall setting — then you map where customers connect on the routerboard. On a freshly reset router, run the DHCP preparation step first so it has internet. Your administrator password is never requested.');
           var command = add(box, 'pre', 'kit-script', script); command.setAttribute('aria-label', 'Secure Wi-Fi Fiti bootstrap command');
         } else {
           add(box, 'p', 'kit-refresh-note', 'Wi-Fi Fiti could not prepare the secure bootstrap. Generate a new kit.');
@@ -1606,23 +1612,23 @@
         var actions = el('div', 'buttons');
         var quickCopy = setupAction(actions, 'Copy connection kit', '', function () { copyText(script, quickCopy); }); quickCopy.disabled = !script;
         var compatibilityCopy = setupAction(actions, 'Copy CA compatibility kit', 'secondary', function () {
-          if (!window.confirm('This recovery kit disables HTTPS certificate verification for its initial download. Use it only after RouterOS reports “no trusted CA certificate found”. Continue?')) return;
+          if (!window.confirm('Use this only if the router stops with "no trusted CA certificate found". It skips certificate checks for this router. Continue?')) return;
           copyText(compatibilityScript, compatibilityCopy);
         }); compatibilityCopy.disabled = !compatibilityScript;
+        var standardCopy = setupAction(actions, 'Copy automatic hotspot kit (fallback)', 'secondary', function () {
+          if (!window.confirm('The automatic kit builds a hotspot with the Wi-Fi name and ports from the setup form, and can change this router\u2019s bridges and Wi-Fi. Use it only if the connection kit does not work on this router. Continue?')) return;
+          copyText(standardScript, standardCopy);
+        }); standardCopy.disabled = !standardScript;
+        var standardCompatCopy = setupAction(actions, 'Copy automatic kit (CA compatibility)', 'secondary', function () {
+          if (!window.confirm('Fallback kit without certificate checks. Use it only if the automatic kit stops with "no trusted CA certificate found". Continue?')) return;
+          copyText(standardCompatScript, standardCompatCopy);
+        }); standardCompatCopy.disabled = !standardCompatScript;
         var telemetryCopy = setupAction(actions, 'Copy telemetry TEST kit', 'secondary', function () {
           copyText(telemetryTestScript, telemetryCopy);
         }); telemetryCopy.disabled = !telemetryTestScript;
-        var vlanCopy = setupAction(actions, 'Copy UNIVERSAL kit (test)', 'secondary', function () {
-          if (!window.confirm('The universal kit pairs this router as it is. It does not create or change any interface, bridge, VLAN, address, DHCP, PPPoE or firewall setting. On a freshly reset router, run the DHCP preparation step first. Continue?')) return;
-          copyText(vlanTestScript, vlanCopy);
-        }); vlanCopy.disabled = !vlanTestScript;
-        var universalCompatCopy = setupAction(actions, 'Copy UNIVERSAL kit (CA compatibility)', 'secondary', function () {
-          if (!window.confirm('Use this only if the universal kit stops with "no trusted CA certificate found". It skips certificate checks for this router, like the standard CA compatibility kit. Continue?')) return;
-          copyText(universalCompatScript, universalCompatCopy);
-        }); universalCompatCopy.disabled = !universalCompatScript;
-        add(box, 'small', 'form-note', 'TEST KIT only: reports guarded CPU, memory, traffic and active-user samples. It is isolated from the production kit and should be used on a test router/location.');
-        add(box, 'small', 'form-note', 'UNIVERSAL KIT (test): pairs any router, freshly reset or already running VLANs, PPPoE or a TV network, without changing it. An existing Hotspot is used as it is; otherwise you map where customers connect after pairing. Use the standard kit if anything goes wrong.');
-        add(box, 'small', 'form-note', 'CA compatibility is a recovery option only. It disables certificate verification for the initial download; all other routers must use the standard connection kit.');
+        add(box, 'small', 'form-note', 'The connection kit works on any router: freshly reset, or already running VLANs, PPPoE or a TV network. An existing hotspot is used as it is.');
+        add(box, 'small', 'form-note', 'Fallback: the automatic hotspot kit sets the router up in one go using the setup form. Use it only if the connection kit does not work.');
+        add(box, 'small', 'form-note', 'CA compatibility is a recovery option only. It disables certificate verification for the download.');
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);
         body.appendChild(box);
@@ -1854,8 +1860,9 @@
         var running = (layout.hotspots || [])[0] || null;
         var eligible = items.filter(function (item) { return (item.type === 'bridge' || item.type === 'vlan') && !item.internet; });
         var draftKey = String(location.id); var kept = networkPlanDrafts[draftKey];
-        var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice() }; }), existing: (savedPlan.existing || []).map(function (e) { return { interface: e.interface, job: e.job }; }) }
-          : { bridges: [], existing: running ? [{ interface: running.interface, job: 'hotspot' }] : [] };
+        var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice() }; }), existing: (savedPlan.existing || []).map(function (e) { return { interface: e.interface, job: e.job }; }), keep: (savedPlan.keep || []).slice() }
+          : { bridges: [], existing: running ? [{ interface: running.interface, job: 'hotspot' }] : [], keep: [] };
+        if (!draft.keep) draft.keep = [];
         var selected = kept ? kept.selected : null; var dirty = kept ? kept.dirty : !savedPlan && Boolean(running); var saveButton = null;
         if (kept) { draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return plannable(byName[p]); }); }); draft.existing = draft.existing.filter(function (e) { return byName[e.interface]; }); if (selected && !plannable(byName[selected])) selected = null; }
         var panel = el('section', 'rb-planner');
@@ -1865,12 +1872,12 @@
         function freshName(job) { var base = job === 'pppoe' ? 'fiti-pppoe' : 'fiti-hotspot'; var name = base; var n = 2; while (taken[name] || draft.bridges.some(function (b) { return b.name === name; })) { name = base + '-' + n; n += 1; } return name; }
         function home(port) { var found = null; draft.bridges.forEach(function (b) { if (b.ports.indexOf(port) >= 0) found = b; }); return found; }
         function plannable(item) { return Boolean(item && (item.free || item.movableFrom)); }
-        function assign(port, bridge) { var item = byName[port]; if (!plannable(item)) return; draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return p !== port; }); }); bridge.ports.push(port); selected = null; dirty = true; render(); }
+        function assign(port, bridge) { var item = byName[port]; if (!plannable(item) || draft.keep.indexOf(port) >= 0) return; draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return p !== port; }); }); bridge.ports.push(port); selected = null; dirty = true; render(); }
         function syncParts() {
           board.querySelectorAll('[data-part]').forEach(function (node) {
             var name = node.getAttribute('data-part'); var item = byName[name]; if (!item) return;
-            var target = home(name); node.classList.toggle('rb-assigned', Boolean(target)); node.classList.toggle('rb-selected', selected === name);
-            var goes = node.querySelector('.rb-goes'); if (target) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = '→ ' + target.name + ' · ' + jobLabel(target.job) + (item.movableFrom ? ' (leaves ' + item.movableFrom + ')' : ''); } else if (goes) goes.remove();
+            var target = home(name); var keptHere = draft.keep.indexOf(name) >= 0; node.classList.toggle('rb-assigned', Boolean(target)); node.classList.toggle('rb-kept', keptHere); node.classList.toggle('rb-selected', selected === name);
+            var goes = node.querySelector('.rb-goes'); if (target || keptHere) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = keptHere ? '→ kept for you (management)' : '→ ' + target.name + ' · ' + jobLabel(target.job) + (item.movableFrom ? ' (leaves ' + item.movableFrom + ')' : ''); } else if (goes) goes.remove();
             if (plannable(item) && !node.dataset.plannable) {
               node.dataset.plannable = '1'; node.classList.add('rb-draggable'); node.setAttribute('draggable', 'true'); node.setAttribute('tabindex', '0'); node.setAttribute('role', 'button');
               node.setAttribute('aria-label', name + (item.movableFrom ? ': in ' + item.movableFrom + ', can be moved.' : ': free.') + ' Drag into a bridge, or select it and then choose a bridge.');
@@ -1902,7 +1909,23 @@
             pickExisting.addEventListener('change', function () { if (!pickExisting.value) return; var hasHotspot = (layout.hotspots || []).some(function (h) { return h.interface === pickExisting.value; }); draft.existing.push({ interface: pickExisting.value, job: hasHotspot ? 'hotspot' : 'pppoe' }); dirty = true; render(); });
             tools.appendChild(pickExisting);
           }
+          // A port kept for the owner: never put in a customer bridge, so WinBox
+          // always has a way in.
+          var keepable = items.filter(function (item) { return item.physical && item.type === 'ether' && !item.internet && draft.keep.indexOf(item.name) < 0 && !home(item.name) && (item.free || item.movableFrom); });
+          if (draft.keep.length < 2 && keepable.length) {
+            var pickKeep = el('select', 'rb-existing-pick rb-keep-pick'); pickKeep.setAttribute('aria-label', 'Keep a port for managing the router');
+            var none = el('option', '', 'Keep a port for management…'); none.value = ''; pickKeep.appendChild(none);
+            keepable.forEach(function (item) { var o = el('option', '', item.name); o.value = item.name; pickKeep.appendChild(o); });
+            pickKeep.addEventListener('change', function () { if (!pickKeep.value) return; draft.keep.push(pickKeep.value); if (selected === pickKeep.value) selected = null; dirty = true; render(); });
+            tools.appendChild(pickKeep);
+          }
           panel.appendChild(tools);
+          if (draft.keep.length) {
+            var keepRow = el('div', 'rb-keep-row'); add(keepRow, 'span', 'rb-keep-label', 'Kept for you:');
+            draft.keep.forEach(function (port) { var chip = add(keepRow, 'span', 'rb-port-chip rb-keep-chip'); chip.appendChild(document.createTextNode(port)); var x = add(chip, 'button', 'rb-x small', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Stop keeping ' + port); x.addEventListener('click', function () { draft.keep = draft.keep.filter(function (p) { return p !== port; }); dirty = true; render(); }); });
+            add(keepRow, 'small', '', 'Plug in here to manage the router with WinBox (connect by MAC address).');
+            panel.appendChild(keepRow);
+          }
           var nets = el('div', 'rb-networks');
           draft.bridges.forEach(function (bridge, index) {
             var card = el('div', 'rb-net job-' + bridge.job); card.setAttribute('role', 'group'); card.setAttribute('aria-label', 'New bridge ' + bridge.name);
@@ -2025,6 +2048,18 @@
       function appendRouterChanges(board, changes, location) {
         var section = el('section', 'rb-changes'); add(section, 'div', 'rb-row-label', 'Changes on the router');
         var busy = changes.some(function (c) { return /^(queued|sent|confirming|undo-queued|undo-sent)$/.test(c.status); });
+        // While a change is on its way, follow it every 3 seconds without a reload.
+        var stillChecking = busy || changes.some(function (c) { return c.status === 'applied'; });
+        if (changeFollowTimer) { clearTimeout(changeFollowTimer); changeFollowTimer = null; }
+        if (stillChecking) {
+          changeFollowTimer = setTimeout(function () {
+            changeFollowTimer = null; if (!token || document.visibilityState === 'hidden') return;
+            api(routerTopologyUrl(location)).then(function (result) {
+              routerTopologyCache[String(location.id)] = { result: result, error: '', fetchedAt: Date.now() };
+              if (!plannerInUse()) renderOnboarding();
+            }).catch(function () {});
+          }, 3000);
+        }
         changes.slice(0, 8).forEach(function (change) {
           var info = ROUTER_CHANGE_STATUS[change.status] || ['off', change.status];
           var row = el('div', 'rb-change ' + info[0]); var top = el('div', 'rb-change-top');
