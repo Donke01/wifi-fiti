@@ -403,3 +403,6 @@ assert.match(html, /savedKit && savedKit\.token/, 'the pairing card only appears
 assert.match(html, /add\(reserveCopy, 'strong', '', 'Reserve a port for management'\)/, 'the map offers a visible card to reserve a port for management');
 assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit is shown as one console');
 assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');
+assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'\)/, 'every hotspot bridge shows its Wi-Fi panel');
+assert.match(html, /'Wi-Fi can only join a hotspot bridge\. PPPoE customers connect by cable\.'/, 'a radio dropped on a PPPoE bridge is refused with a reason');
+assert.match(html, /goes\.textContent = '📶 can broadcast customer Wi-Fi'/, 'free radios say they can broadcast customer Wi-Fi');

@@ -104,6 +104,20 @@ function blank(extra = []) {
   assert.match(hsScript, /name="fiti-map"/, 'and keeps it after a reboot');
   assert.match(hsScript, /fiti-undo-9.*ip hotspot remove.*ip address remove \[find where comment=\\"Wi-Fi Fiti change 9\\"\]/, 'undo removes everything the hotspot added');
 
+  // Customer Wi-Fi on a new hotspot bridge: radio on last, put back on undo.
+  const wifiPlan = { bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['ether2', 'wlan1'], wifi: { ssid: 'Sirende WiFi', radios: [{ name: 'wlan1', type: 'wlan' }] } }], existing: [], moves: [] };
+  const wifiReview = rc.reviewPlan(wifiPlan, parseRouterInventory(blank()));
+  assert.match(wifiReview.changes[0].title, /Wi-Fi "Sirende WiFi"/);
+  assert.match(wifiReview.changes[0].lines.join(' '), /Turn on wlan1 and broadcast the open Wi-Fi "Sirende WiFi"/);
+  const wifiScript = rc.applyScript(wifiReview.changes[0], 11, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke' });
+  assert.match(wifiScript, /:if \(\[:len \[\/interface wireless find where name="wlan1"\]\] != 1\) do=\{ :set fitiWhy "radio_missing" \}/, 'the radio must still be there');
+  assert.ok(wifiScript.indexOf('name="fiti-radio-11-wlan1-ssid" source=') < wifiScript.indexOf('/interface wireless set [find where name="wlan1"] mode=ap-bridge'), 'the radio\'s old settings are kept before it changes');
+  assert.ok(wifiScript.indexOf('/ip hotspot add name="fiti-hotspot"') < wifiScript.indexOf('/interface wireless set [find where name="wlan1"] mode=ap-bridge'), 'the radio turns on only once the hotspot is ready');
+  assert.match(wifiScript, /mode=ap-bridge ssid="Sirende WiFi" security-profile="fiti-open-11" disabled=no/);
+  const wifiUndo = rc.undoLines(wifiReview.changes[0], 11).join('\n');
+  assert.match(wifiUndo, /\/interface wireless set \[find where name="wlan1"\] ssid=\$s mode=\$m security-profile=\$p disabled=\(\$d = "true"\)/, 'undo puts the radio back exactly');
+  assert.ok(wifiUndo.indexOf('interface wireless set') < wifiUndo.indexOf('bridge remove'), 'the radio is restored before its bridge goes');
+
   // Blockers instead of risky guesses.
   const blocked = rc.reviewPlan({ bridges: [], existing: [{ interface: 'bridge-hs', job: 'pppoe' }, { interface: 'vlan9', job: 'pppoe' }], moves: [] },
     parseRouterInventory(rb951(['inv|if|vlan9|vlan|up', 'inv|vlan|vlan9|9|ether3'])));
@@ -268,7 +282,7 @@ async function pairedUniversal(token, name, report) {
   const hap = await pairedUniversal(bravo, 'Hap', blank());
   const hapBase = `/api/business/locations/${hap.site}`;
   assert.equal((await api(`${hapBase}/network-plan`, { method: 'PUT', token: bravo, body: { plan: {
-    bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['ether2', 'wlan1'] }, { name: 'fiti-ppp', job: 'pppoe', ports: ['ether3'] }] } } })).status, 200);
+    bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['ether2', 'wlan1'], wifi: { ssid: 'Hap WiFi' } }, { name: 'fiti-ppp', job: 'pppoe', ports: ['ether3'] }] } } })).status, 200);
   const two = await api(`${hapBase}/network-plan/apply`, { method: 'POST', token: bravo, body: { confirm: true } });
   assert.deepEqual(two.body.changes.map((c) => c.job).reverse(), ['hotspot', 'pppoe'], 'the hotspot is applied first');
   const hsReply = await hap.poll(blank());
