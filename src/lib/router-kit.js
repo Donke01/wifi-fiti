@@ -216,7 +216,7 @@ const UNIVERSAL_INSTALLER = 'tenant-router-install-universal.rsc';
 // Bump when the layout report changes; paired routers are updated in place.
 // 4: the in-place update sets policy=read,test explicitly (RouterOS 7 cleared
 // it on the RB951, so the 30-second timer's reports came back empty).
-const INVENTORY_AGENT = 4;
+const INVENTORY_AGENT = 5;
 function inventoryScriptLines() {
   const safe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-';
   const add = (expr) => `:if ($fitiInvLines < 190) do={ :set fitiInvOut ($fitiInvOut . ${expr} . "\\n"); :set fitiInvLines ($fitiInvLines + 1) }`;
@@ -256,6 +256,15 @@ function inventoryScriptLines() {
     ':if ($fitiInvWan = "") do={ :do { :foreach c in=[/ip dhcp-client find where status=bound] do={ :if ($fitiInvWan = "") do={ :set fitiInvWan [/ip dhcp-client get $c interface]; :set fitiInvWanKind "dhcp" } } } on-error={} }',
     ':if ($fitiInvWan = "") do={ :do { :foreach r in=[/ip route find where dst-address=0.0.0.0/0 and active=yes] do={ :if ($fitiInvWan = "") do={ :local g [:tostr [/ip route get $r immediate-gw]]; :local pc [:find $g "%"]; :if ([:typeof $pc] != "nil") do={ :set fitiInvWan [:pick $g ($pc + 1) [:len $g]]; :set fitiInvWanKind "static" } } } } on-error={} }',
     `:if ([$fitiInvSafe $fitiInvWan]) do={ ${add('("inv|wan|" . $fitiInvWan . "|" . $fitiInvWanKind)')} }`,
+    // Every internet connection, not only the main one: a second line (backup
+    // or load-shared) must be locked on the map and covered by the hotspot's
+    // NAT and DNS rules. Agent 5.
+    `:do { :foreach p in=[/interface pppoe-client find where running=yes] do={ :local nm [/interface pppoe-client get $p name]; :if ([$fitiInvSafe $nm]) do={ ${add('("inv|wans|" . $nm . "|pppoe")')} } } } on-error={}`,
+    `:do { :foreach c in=[/ip dhcp-client find where status=bound and add-default-route!=no] do={ :local ifc [/ip dhcp-client get $c interface]; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|wans|" . $ifc . "|dhcp")')} } } } on-error={}`,
+    // Default routes, one by one (an inactive backup may have no gateway to
+    // read): "10.0.0.1%ether2" or a bare interface name.
+    `:do { :foreach r in=[/ip route find where dst-address=0.0.0.0/0 and disabled=no] do={ :do { :local g [:tostr [/ip route get $r immediate-gw]]; :local ifc ""; :local pc [:find $g "%"]; :if ([:typeof $pc] != "nil") do={ :set ifc [:pick $g ($pc + 1) [:len $g]] } else={ :if ([:len [/interface find where name=$g]] = 1) do={ :set ifc $g } }; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|wans|" . $ifc . "|static")')} } } on-error={} } } on-error={}`,
+    `:do { :foreach m in=[/interface list member find where list="WAN"] do={ :local ifc [:tostr [/interface list member get $m interface]]; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|wanlist|WAN|" . $ifc)')} } } } on-error={}`,
     `:if ($fitiInvSkipped > 0) do={ ${add('("inv|skipped|" . $fitiInvSkipped)')} }`,
     ':set fitiInventory ($fitiInvOut . "fiti-inventory-end\\n")',
   ];

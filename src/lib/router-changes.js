@@ -59,11 +59,12 @@ function reviewPlan(plan, layout) {
   const running = (layout && layout.hotspots || [])[0] || null;
   const pppoeNow = (layout && layout.pppoeServers || []).map((s) => s.interface);
   const wan = layout && layout.wan && layout.wan.interface;
+  const wanText = [...new Set([wan, ...((layout && layout.wans) || []).map((w) => w.interface)].filter(Boolean))].join(' or ');
   const changes = []; const blockers = []; const notes = [];
   const moves = new Map((plan && plan.moves || []).map((m) => [m.interface, m.from]));
   const hotspotLines = (target, created) => [
     created ? `Start a new hotspot (${HOTSPOT_NAME}) on ${target}, with its own private network (the first free one from 10.5.50.0/24 to 10.5.59.0/24) and DHCP.` : `Start a hotspot (${HOTSPOT_NAME}) on ${target}, with its own private network and DHCP.`,
-    `Hotspot customers on ${target} get internet through ${wan}, can reach only the login page and DNS on the router, and can't open router settings.`,
+    `Hotspot customers on ${target} get internet through ${wanText}, can reach only the login page and DNS on the router, and can't open router settings.`,
     'Customer billing, the login page and vouchers then run on this hotspot.',
   ];
   const pppoeLines = (target) => [
@@ -381,10 +382,28 @@ function subnetPreflightLines() {
   ];
 }
 
-function hotspotApplyLines(change, id, { wan, cloudHost, portalHost, pppoeNet }) {
+// Every internet connection the hotspot's customers may leave by: the main
+// one, any other line (backup or load-shared) and, when the router keeps a
+// "WAN" interface list that holds the main line, that list itself (it also
+// covers a line added later).
+function internetSides({ wan, wans, wanList }) {
+  const all = [...new Set([wan, ...(Array.isArray(wans) ? wans : [])].filter(Boolean))].map(safe);
+  const list = Array.isArray(wanList) && wanList.includes(wan) ? wanList.map(safe) : [];
+  return { all, useList: list.length > 0, outside: list.length ? all.filter((w) => !list.includes(w)) : all };
+}
+function hotspotApplyLines(change, id, { wan, wans, wanList, cloudHost, portalHost, pppoeNet }) {
   const tag = `Wi-Fi Fiti change ${id}`;
   const target = safe(change.target);
-  const out = safe(wan);
+  safe(wan);
+  const sides = internetSides({ wan, wans, wanList });
+  const dnsDrops = [
+    ...(sides.useList ? ['in-interface-list=WAN'] : []),
+    ...sides.outside.map((w) => `in-interface="${w}"`),
+  ].flatMap((match) => [`chain=input ${match} protocol=udp dst-port=53 action=drop`, `chain=input ${match} protocol=tcp dst-port=53 action=drop`]);
+  const nats = [
+    ...(sides.useList ? ['out-interface-list=WAN'] : []),
+    ...sides.outside.map((w) => `out-interface="${w}"`),
+  ];
   const net = '("10.5." . $fitiNet . ".0/24")';
   const gw = '("10.5." . $fitiNet . ".1")';
   // Every rule goes directly before the first ordinary input rule, in its
@@ -398,8 +417,7 @@ function hotspotApplyLines(change, id, { wan, cloudHost, portalHost, pppoeNet })
     ':do { :local s [/ip firewall filter find where chain=input dynamic=no]; :if ([:len $s] > 0) do={ :set fitiAnchor [:pick $s 0] } } on-error={}',
     // The router's DNS answers hotspot customers, never the internet side:
     // these drops exist before DNS is opened.
-    rule(`chain=input in-interface="${out}" protocol=udp dst-port=53 action=drop`),
-    rule(`chain=input in-interface="${out}" protocol=tcp dst-port=53 action=drop`),
+    ...dnsDrops.map(rule),
     // Customers may reach only DNS, DHCP and the login page on the router.
     // 64872-64875 are where RouterOS itself serves the hotspot login.
     rule(`chain=input in-interface="${target}" protocol=tcp dst-port=53,80,443,64872-64875 action=accept`),
@@ -410,7 +428,7 @@ function hotspotApplyLines(change, id, { wan, cloudHost, portalHost, pppoeNet })
     `/ip dhcp-server add name="fiti-dhcp-${id}" interface="${target}" address-pool="fiti-pool-${id}" lease-time=1h disabled=no comment="${tag}"`,
     `/ip dhcp-server network add address=${net} gateway=${gw} dns-server=${gw} comment="${tag}"`,
     '/ip dns set allow-remote-requests=yes',
-    `/ip firewall nat add chain=srcnat src-address=${net} out-interface="${out}" action=masquerade comment="${tag}"`,
+    ...nats.map((match) => `/ip firewall nat add chain=srcnat src-address=${net} ${match} action=masquerade comment="${tag}"`),
     `/ip firewall mangle add chain=postrouting out-interface="${target}" action=change-ttl new-ttl=set:1 passthrough=yes comment="${tag}"`,
   ];
   if (pppoeNet && /^10\.250\.\d{1,3}\.0\/24$/.test(pppoeNet)) {
@@ -527,7 +545,8 @@ function applyScript(change, id, context) {
   }
   if (change.job === 'hotspot') {
     lines.push(
-      `:if ([:len [/interface find where name="${safe(context.wan)}"]] != 1) do={ :set fitiWhy "wan_missing" }`,
+      ...internetSides(context).all.map((w) => `:if ([:len [/interface find where name="${w}"]] != 1) do={ :set fitiWhy "wan_missing" }`),
+      ...(internetSides(context).useList ? [':if ([:len [/interface list find where name="WAN"]] != 1) do={ :set fitiWhy "wan_missing" }'] : []),
       ':if ([:len [/ip hotspot find]] > 0) do={ :set fitiWhy "hotspot_exists" }',
       `:if ([:len [/ip pool find where name="fiti-pool-${id}"]] > 0) do={ :set fitiWhy "name_taken" }`,
       `:do { :if (([:len [/system script find where name="fiti-map"]] > 0) && (!([/system script get [find where name="fiti-map"] comment] ~ "^Wi-Fi Fiti change"))) do={ :set fitiWhy "name_taken" } } on-error={}`,

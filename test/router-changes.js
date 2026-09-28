@@ -36,6 +36,45 @@ function blank(extra = []) {
     'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', ...extra, 'fiti-inventory-end'].join('\n') + '\n';
 }
 
+// ---- Two internet connections (main + backup / load-shared) --------------
+{
+  require('../src/lib/tenant');
+  const rc = require('../src/lib/router-changes');
+  const twoWan = (extra = []) => ['fiti-inventory-v2', 'inv|agent|5', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|ether4|ether|up',
+    'inv|if|pppoe-out1|pppoe-out|up', 'inv|pppoe-client|pppoe-out1|ether2', 'inv|addr|ether1', 'inv|dhcp-client|ether1|bound',
+    'inv|wan|ether1|dhcp', 'inv|wans|ether1|dhcp', 'inv|wans|pppoe-out1|pppoe', ...extra, 'fiti-inventory-end'].join('\n') + '\n';
+  const layout = parseRouterInventory(twoWan());
+  assert.deepEqual(layout.wans.map((w) => w.interface), ['ether1', 'pppoe-out1'], 'both lines are reported, the main one first');
+  const byName = Object.fromEntries(layout.interfaces.map((i) => [i.name, i]));
+  assert.ok(byName.ether1.internet && byName['pppoe-out1'].internet && byName.ether2.internet, 'both lines and the port under the backup are internet, so they stay locked');
+  assert.ok(!byName.ether2.free, 'the backup line\'s port is never offered to customers');
+  assert.match(byName['pppoe-out1'].usage.join(' '), /Internet connection/);
+  const plan = { bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['ether3'] }], existing: [], moves: [] };
+  const review = rc.reviewPlan(plan, layout);
+  assert.match(review.changes[0].lines.join(' '), /get internet through ether1 or pppoe-out1/);
+  const ctx = { wan: 'ether1', wans: layout.wans.map((w) => w.interface), wanList: layout.wanList, cloudHost: 'cloud.wififiti.co.ke' };
+  const script = rc.applyScript(review.changes[0], 31, ctx);
+  for (const w of ['ether1', 'pppoe-out1']) {
+    assert.match(script, new RegExp(`/ip firewall nat add chain=srcnat src-address=\\("10\\.5\\." \\. \\$fitiNet \\. "\\.0/24"\\) out-interface="${w}" action=masquerade`), `customers are shared out through ${w} too (failover)`);
+    assert.match(script, new RegExp(`chain=input in-interface="${w}" protocol=udp dst-port=53 action=drop`), `the router's DNS is closed on ${w}`);
+    assert.match(script, new RegExp(`:if \\(\\[:len \\[/interface find where name="${w}"\\]\\] != 1\\) do=\\{ :set fitiWhy "wan_missing" \\}`));
+  }
+  assert.match(rc.undoLines(review.changes[0], 31).join('\n'), /\/ip firewall nat remove \[find where comment="Wi-Fi Fiti change 31"\]/, 'undo removes every rule the change added');
+  // A router with a "WAN" list holding the main line: the rules follow the
+  // list (a line added later is covered), plus any line outside the list.
+  const listed = parseRouterInventory(twoWan(['inv|if|lte1|lte|up', 'inv|wans|lte1|static', 'inv|wanlist|WAN|ether1', 'inv|wanlist|WAN|pppoe-out1']));
+  const listScript = rc.applyScript(rc.reviewPlan(plan, listed).changes[0], 32, { wan: 'ether1', wans: listed.wans.map((w) => w.interface), wanList: listed.wanList, cloudHost: 'cloud.wififiti.co.ke' });
+  assert.match(listScript, /out-interface-list=WAN action=masquerade/);
+  assert.match(listScript, /chain=input in-interface-list=WAN protocol=tcp dst-port=53 action=drop/);
+  assert.match(listScript, /out-interface="lte1" action=masquerade/, 'a line outside the list is covered on its own');
+  assert.doesNotMatch(listScript, /out-interface="ether1"|out-interface="pppoe-out1"/, 'lines in the list are covered by the list');
+  assert.match(listScript, /:if \(\[:len \[\/interface list find where name="WAN"\]\] != 1\) do=\{ :set fitiWhy "wan_missing" \}/);
+  // An older report (agent 4) with only the main line keeps today's rules.
+  const old = rc.applyScript(review.changes[0], 33, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke' });
+  assert.match(old, /out-interface="ether1" action=masquerade/);
+  assert.doesNotMatch(old, /pppoe-out1|interface-list/);
+}
+
 // ---- Scripts: order of safety steps, and nothing unexpected --------------
 {
   require('../src/lib/tenant');

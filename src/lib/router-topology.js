@@ -312,7 +312,7 @@ function parseRouterInventory(rawBody) {
   if (lines.indexOf(INVENTORY_BEGIN, start + 1) >= 0) throw topologyError('Duplicate router inventory report.');
   const end = lines.indexOf(INVENTORY_END, start + 1);
   if (end < 0 || end - start - 1 > INVENTORY_LIMITS.lines) throw topologyError('Incomplete router inventory report.');
-  const inv = { version: 2, agent: 1, routerosVersion: null, board: null, wan: null, skipped: 0,
+  const inv = { version: 2, agent: 1, routerosVersion: null, board: null, wan: null, wans: [], wanList: [], skipped: 0,
     interfaces: new Map(), vlans: [], bridgePorts: [], pppoeClients: [], pppoeServers: [],
     addressed: new Set(), dhcpServers: [], dhcpClients: [], hotspots: [], fitiBridges: new Set() };
   const tok = (value, label) => safeToken(value, label);
@@ -347,6 +347,8 @@ function parseRouterInventory(rawBody) {
       case 'dhcp-client': inv.dhcpClients.push({ interface: tok(f[2], 'DHCP client interface'), status: TOKEN.test(f[3] || '') ? f[3] : 'unknown' }); break;
       case 'hotspot': inv.hotspots.push({ name: tok(f[2], 'Hotspot name'), interface: tok(f[3], 'Hotspot interface') }); break;
       case 'wan': inv.wan = { interface: tok(f[2], 'WAN interface'), kind: WAN_KINDS.has(f[3]) ? f[3] : 'static' }; break;
+      case 'wans': { const name = tok(f[2], 'WAN interface'); if (!inv.wans.some((w) => w.interface === name) && inv.wans.length < 8) inv.wans.push({ interface: name, kind: WAN_KINDS.has(f[3]) ? f[3] : 'static' }); break; }
+      case 'wanlist': if (f[2] === 'WAN') { const name = tok(f[3], 'WAN list member'); if (!inv.wanList.includes(name) && inv.wanList.length < 8) inv.wanList.push(name); } break;
       case 'skipped': inv.skipped = Math.max(0, Math.min(999, Math.floor(Number(f[2]) || 0))); break;
       default: break; // newer agents may add records; ignore what this server does not know
     }
@@ -367,11 +369,17 @@ function describeInventory(inv) {
   const parentOf = new Map();
   inv.vlans.forEach((v) => parentOf.set(v.name, v.parent));
   inv.pppoeClients.forEach((c) => parentOf.set(c.name, c.interface));
-  if (inv.wan) {
-    let cursor = inv.wan.interface; const seen = new Set();
+  // Every internet connection the router reported (main first), each with
+  // what carries it (a VLAN's or a PPPoE client's parent port).
+  const wans = [];
+  for (const w of [inv.wan, ...inv.wans]) { if (w && inv.interfaces.has(w.interface) && !wans.some((x) => x.interface === w.interface)) wans.push(w); }
+  if (!inv.wan && wans.length) inv.wan = wans[0];
+  const wanNames = new Set(wans.map((w) => w.interface));
+  for (const w of wans) {
+    let cursor = w.interface; const seen = new Set();
     while (cursor && !seen.has(cursor)) { seen.add(cursor); internet.add(cursor); cursor = parentOf.get(cursor); }
   }
-  internet.forEach((name) => use(name, name === (inv.wan && inv.wan.interface) ? 'Internet connection' : 'Carries the internet connection'));
+  internet.forEach((name) => use(name, wanNames.has(name) ? 'Internet connection' : 'Carries the internet connection'));
   inv.vlans.forEach((v) => use(v.parent, `Carries VLAN ${v.vlanId} (${v.name})`));
   inv.pppoeClients.forEach((c) => use(c.interface, `Runs PPPoE client ${c.name}`));
   inv.bridgePorts.forEach((p) => use(p.interface, `In bridge ${p.bridge}`));
@@ -426,6 +434,8 @@ function describeInventory(inv) {
     routerosVersion: inv.routerosVersion,
     board: inv.board,
     wan: inv.wan,
+    wans,
+    wanList: inv.wanList.filter((name) => inv.interfaces.has(name)),
     skipped: inv.skipped,
     interfaces,
     vlans: inv.vlans,

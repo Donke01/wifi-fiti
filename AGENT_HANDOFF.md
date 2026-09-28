@@ -12,7 +12,9 @@ branch and do not put production secrets, router keys, database files, or
   PR #10 `map-wifi`, PR #11 (owner's Wi-Fi kept, one-step setup, restart
   reports), then `setup-polish`, `poll-guard`, `lighter-reports` and
   `faster-connect` (latest merge `8533043`).
-- **Branch `stage3-finish` is pushed but NOT merged.** It includes
+- **Branches `stage3-finish` and `multi-wan` (built on it) are pushed but
+  NOT merged.** Merging `multi-wan` brings both.
+- `stage3-finish`: It includes
   `change-follow` and closes stage 3 (see below). The full suite passes, and
   the map was checked in a browser against a local seeded server at 1280 px
   and 390 px. It still needs a real-router test of "add Wi-Fi to a running
@@ -70,6 +72,21 @@ On `stage3-finish` (not live yet):
      (`radio_busy`), except a radio moved out of a Wi-Fi Fiti bridge.
    - The undo keeps the saved radio settings until it has proven the radio's
      on/off state is back.
+
+7. **Two internet connections** (branch `multi-wan`, on top of
+   `stage3-finish`).
+   - The layout report (agent 5) lists every line: `inv|wans|<if>|<kind>`
+     for running PPPoE clients, bound DHCP clients with a default route, and
+     default routes; `inv|wanlist|WAN|<if>` for the router's "WAN" interface
+     list.
+   - Every line (and the port under it) is "Internet" and locked on the map.
+   - The hotspot's NAT masquerade and the DNS drops cover every line, so
+     customers keep internet on failover or load sharing. When the "WAN"
+     list holds the main line, the rules use `out-interface-list=WAN` /
+     `in-interface-list=WAN` (a line added later is covered), plus a rule for
+     any line outside the list.
+   - Older (agent 4) reports keep the single-WAN rules. Routers get the new
+     report script automatically (every 10 min while their agent is older).
 
 Left for later: band/channel choice for customer Wi-Fi, and a hardware test
 of the RouterOS 7 `wifi` package (hAP ax etc.; code exists, untested).
