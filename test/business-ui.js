@@ -174,8 +174,8 @@ assert.match(html, /Continue to secure connection/,
   'preparation has one explicit transition into the secure kit page');
 assert.match(html, /appendConnectionMilestones\(prepareBody, phase\)/,
   'the preparation page shows progress without rendering the following work');
-assert.match(html, /appendConnectionMilestones\(connectBody, phase\)/,
-  'the secure-kit page retains the same compact progress context');
+assert.doesNotMatch(html, /appendConnectionMilestones\(connectBody, phase\)/,
+  'the secure-kit page relies on the stage rail above it, without a second rail');
 assert.match(html, /\/ip dhcp-client add interface=ether1 disabled=no comment="Wi-Fi Fiti WAN"/,
   'new DHCP routers can be prepared with a visible, copyable WAN command');
 assert.match(html, /Skip it for PPPoE, static IP or another WAN port/,
@@ -400,3 +400,6 @@ assert.match(html, /title: 'Reading your router'/, 'the first layout report has 
 assert.match(html, /'Router checks and applies it', 'Router confirms it is still online', 'Final check of its report'/, 'a change in flight shows its steps');
 assert.match(html, /If anything goes wrong, the router puts everything back by itself\./, 'owners are told a failed change is undone automatically');
 assert.match(html, /savedKit && savedKit\.token/, 'the pairing card only appears once a kit exists');
+assert.match(html, /add\(reserveCopy, 'strong', '', 'Reserve a port for management'\)/, 'the map offers a visible card to reserve a port for management');
+assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit is shown as one console');
+assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');

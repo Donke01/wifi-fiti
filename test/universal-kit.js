@@ -129,7 +129,7 @@ refuses({ existing: [{ interface: 'ether2', job: 'hotspot' }] }, /bridge or VLAN
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], existing: [{ interface: 'bridge-tv', job: 'hotspot' }] }, /one place for hotspot/);
 refuses({}, /first/);
 assert.deepEqual(validateNetworkPlan({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], keep: ['ether3'] }, parsed).keep, ['ether3'], 'a port can be kept for management');
-refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether3'] }], keep: ['ether3'] }, /kept for managing/, 'a kept port never goes into a customer bridge');
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether3'] }], keep: ['ether3'] }, /reserved for managing/, 'a kept port never goes into a customer bridge');
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], keep: ['ether1'] }, /internet/);
 assert.throws(() => validateNetworkPlan({ existing: [] }, null), (e) => e.status === 409);
 // Ports in a bridge Wi-Fi Fiti built may move; ports in the owner's bridges may not.
