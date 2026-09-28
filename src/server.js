@@ -21,6 +21,7 @@ const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./
 const { sendEmail, verificationEmail } = require('./lib/email');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
+const pppoeBilling = require('./lib/pppoe-billing');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
@@ -576,6 +577,22 @@ app.use((req, res, next) => {
     const secretGuess = SECRET_CHECKING_POSTS.test(path) && identity
       ? tenantAccess.allowed(path + ':id:' + identity, 20, 15 * 60_000) : { allowed: true };
     const blocked = [perIpIdentity, perIp, secretGuess].find((limit) => !limit.allowed);
+    if (blocked) return res.status(429).set('Retry-After', String(blocked.retryAfter))
+      .json({ error: 'Too many attempts. Please wait a few minutes before trying again.' });
+  } else if (path.startsWith('/api/pppoe-pay/')) {
+    // The PPPoE pay page is public: bound how fast one address can look up
+    // account numbers (masked, but still a list), try phone numbers against
+    // an account, or start prompts.
+    const lookup = /\/account\/[^/]+$/.test(path) && req.method === 'GET';
+    const verify = path.endsWith('/verify');
+    const limits = [
+      tenantAccess.allowed('pppoe-pay:ip:' + req.ip, 300, 5 * 60_000),
+      lookup ? tenantAccess.allowed('pppoe-pay:lookup:' + req.ip, 40, 5 * 60_000) : { allowed: true },
+      verify ? tenantAccess.allowed('pppoe-pay:verify:' + req.ip, 10, 15 * 60_000) : { allowed: true },
+      verify ? tenantAccess.allowed('pppoe-pay:verify-account:' + path, 8, 15 * 60_000) : { allowed: true },
+      path.endsWith('/pay') ? tenantAccess.allowed('pppoe-pay:prompt:' + req.ip, 12, 5 * 60_000) : { allowed: true },
+    ];
+    const blocked = limits.find((limit) => !limit.allowed);
     if (blocked) return res.status(429).set('Retry-After', String(blocked.retryAfter))
       .json({ error: 'Too many attempts. Please wait a few minutes before trying again.' });
   }
@@ -2296,6 +2313,8 @@ function tenantPaidPayload(transaction) {
 function provisionTenantPayment(checkoutRequestId) {
   const transaction = tenant.getTransaction.get(checkoutRequestId);
   if (!transaction || transaction.status !== 'paid') return transaction;
+  // A PPPoE subscriber's payment adds days or credit, not a hotspot package.
+  if (pppoeBilling.userIdFromTransaction(transaction)) return settlePppoeTransaction(transaction);
   // Offline purchases stay paid-but-unbound until the customer presents the
   // one-time claim code from the target device's captive portal.
   if (String(transaction.mac || '').startsWith('CLAIM:')) return transaction;
@@ -2306,6 +2325,45 @@ function provisionTenantPayment(checkoutRequestId) {
   const paidAt = tenant.locationById.get(provisioned.location_id);
   if (!paidAt || !trialLimited(paidAt)) whatsappNotifications.enqueuePayment(provisioned, { eventIdPrefix: 'tenant-payment' });
   return provisioned;
+}
+
+function settlePppoeTransaction(transaction) {
+  if (!transaction.provisioned) {
+    try {
+      const result = pppoeBilling.settleTransaction(transaction);
+      tenant.setTransactionProvisioned.run({ checkoutRequestId: transaction.checkout_request_id, subscriptionId: null, provisioningJobId: null });
+      if (result && !result.duplicate) notifyPppoePayment(result);
+    } catch (err) {
+      tenant.setProvisionError.run(String(err.message).slice(0, 200), transaction.checkout_request_id);
+      throw err;
+    }
+  }
+  return tenant.getTransaction.get(transaction.checkout_request_id);
+}
+
+/**
+ * SMS receipt for a PPPoE payment: to whoever paid, and to the account holder
+ * unless someone else paid and chose not to tell them. Uses the tenant's
+ * FitiSignal credits; a failure never affects the payment.
+ */
+function notifyPppoePayment(result) {
+  try {
+    const user = result.user;
+    const business = db.businessById.get(user.business_id);
+    if (!business) return;
+    const text = pppoeBilling.receiptText(business, user, result);
+    const payer = result.payment.payer_phone ? mpesa.normalizePhone(result.payment.payer_phone) : null;
+    const holder = user.phone || null;
+    const targets = new Set();
+    if (payer) targets.add(payer);
+    const paidBySomeoneElse = payer && holder && payer !== holder;
+    if (holder && !(paidBySomeoneElse && result.intent && !result.intent.notify_holder)) targets.add(holder);
+    for (const to of targets) {
+      try {
+        fitiSignal.enqueue({ businessId: business.id, eventId: `pppoe-pay:${result.payment.id}:${to}`, serviceKey: 'payment_confirmation', to: `+${to}`, message: text });
+      } catch (error) { console.warn(`[pppoe receipt] SMS not queued: ${error.message}`); }
+    }
+  } catch (error) { console.warn(`[pppoe receipt] ${error.message}`); }
 }
 
 async function queryTenantMpesa(transaction) {
@@ -2724,67 +2782,8 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   }
   try {
     lastPush.set(throttleKey, Date.now());
-    let pushed;
-    let paymentSource = 'fiti';
-    let platformFee = pkg.price * 5 / 100;
-    const selectedProvider = paymentIntegrations.summary(location.business_id).selected;
-    if (selectedProvider === 'tuma') {
-      // Prefer the tenant's own Tuma business: the money settles directly to
-      // the Till / PayBill / bank they chose. Without one, the platform Tuma
-      // account collects and the sale is owed to the tenant ('tuma').
-      let tenantTuma = null;
-      // A tenant who subscribed after their Tuma business was switched off
-      // gets it back before this payment, so the money still goes to them.
-      await tumaTenants.resumeIfSuspended(location.business_id, tumaAccountEntitled).catch(() => false);
-      try { tenantTuma = tumaTenants.credentialsFor(location.business_id); }
-      catch (err) {
-        lastPush.delete(throttleKey);
-        return res.status(409).json({ error: 'This operator needs to reconnect their Tuma payout account.' });
-      }
-      // Both paths need the callback secret: it is how Tuma's result reaches us.
-      if (!tuma.callbackConfigured() || (!tenantTuma && !tuma.configured())) {
-        lastPush.delete(throttleKey);
-        return res.status(409).json({ error: 'Tuma is selected but its API credentials are not configured yet.' });
-      }
-      pushed = await tuma.stkPush({ credentials: tenantTuma || undefined, phone, amount: pkg.price,
-        publicUrl: config.publicUrl, description: pkg.name });
-      paymentSource = tenantTuma ? 'tuma_direct' : 'tuma';
-      platformFee = 0;
-    } else if (location.collection_mode === 'own') {
-      let credentials;
-      try { credentials = tenant.paymentCredentials(location.business_id); }
-      catch (err) {
-        lastPush.delete(throttleKey);
-        return res.status(409).json({ error: 'This operator needs to reconnect their own M-Pesa collection account.' });
-      }
-      if (!credentials) {
-        lastPush.delete(throttleKey);
-        return res.status(409).json({ error: 'This operator must finish connecting their own M-Pesa collection account before taking payments.' });
-      }
-      pushed = await tenantMpesa.stkPush({ credentials, phone, amount: pkg.price,
-        accountReference: `WF-${location.id.slice(-6)}`, description: pkg.name });
-      paymentSource = 'own';
-      platformFee = 0;
-    } else {
-      // Wi-Fi Fiti collection: the customer pays Wi-Fi Fiti's Tuma account
-      // and the sale, less Wi-Fi Fiti's 5%, is owed to the tenant ('tuma').
-      // Daraja on the platform shortcode stays as the fallback ('fiti').
-      // PLATFORM_COLLECTION=daraja forces Daraja.
-      const preferTuma = String(process.env.PLATFORM_COLLECTION || 'tuma').toLowerCase() !== 'daraja';
-      if (preferTuma && tuma.configured() && tuma.callbackConfigured()) {
-        try {
-          pushed = await tuma.stkPush({ phone, amount: pkg.price, publicUrl: config.publicUrl, description: pkg.name });
-          paymentSource = 'tuma';
-        } catch (err) {
-          console.warn(`[tenant collection] Wi-Fi Fiti Tuma prompt failed for KES ${pkg.price}, using Daraja: ${err.message} ${err.details || ''}`);
-        }
-      }
-      if (!pushed) {
-        pushed = await mpesa.stkPush({ phone, amount: pkg.price,
-          accountReference: `WF-${location.id.slice(-6)}`, description: pkg.name });
-        paymentSource = 'fiti';
-      }
-    }
+    const { pushed, paymentSource, platformFee } = await pushTenantPrompt(location, {
+      phone, amount: pkg.price, description: pkg.name, accountReference: `WF-${location.id.slice(-6)}` });
     const portalToken = tenantPortalCapability();
     tenant.insertTransaction.run({ checkoutRequestId: pushed.checkoutRequestId,
       merchantRequestId: pushed.merchantRequestId, businessId: location.business_id, locationId: location.id,
@@ -2808,10 +2807,72 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
     res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price, phoneDisplay: mpesa.displayPhone(phone), deviceType, deviceLabel, mac });
   } catch (err) {
     lastPush.delete(throttleKey);
+    if (err.promptStatus) return res.status(err.promptStatus).json({ error: err.message });
     console.error('[tenant pay] STK push failed:', err.message);
     res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
   }
 });
+
+/**
+ * Send an M-Pesa prompt for a customer payment by the rail this business
+ * uses: its own Tuma business (direct settlement), its own Daraja PayBill or
+ * Till, or Wi-Fi Fiti collection (Tuma, falling back to Daraja) with the 5%
+ * fee. Shared by hotspot packages and PPPoE subscriptions. A setup problem
+ * the customer should hear about throws with `promptStatus`.
+ */
+async function pushTenantPrompt(location, { phone, amount, description, accountReference }) {
+  const setupError = (message) => Object.assign(new Error(message), { promptStatus: 409 });
+  let pushed;
+  let paymentSource = 'fiti';
+  let platformFee = amount * 5 / 100;
+  const selectedProvider = paymentIntegrations.summary(location.business_id).selected;
+  if (selectedProvider === 'tuma') {
+    // Prefer the tenant's own Tuma business: the money settles directly to
+    // the Till / PayBill / bank they chose. Without one, the platform Tuma
+    // account collects and the sale is owed to the tenant ('tuma').
+    let tenantTuma = null;
+    // A tenant who subscribed after their Tuma business was switched off
+    // gets it back before this payment, so the money still goes to them.
+    await tumaTenants.resumeIfSuspended(location.business_id, tumaAccountEntitled).catch(() => false);
+    try { tenantTuma = tumaTenants.credentialsFor(location.business_id); }
+    catch (err) { throw setupError('This operator needs to reconnect their Tuma payout account.'); }
+    // Both paths need the callback secret: it is how Tuma's result reaches us.
+    if (!tuma.callbackConfigured() || (!tenantTuma && !tuma.configured())) {
+      throw setupError('Tuma is selected but its API credentials are not configured yet.');
+    }
+    pushed = await tuma.stkPush({ credentials: tenantTuma || undefined, phone, amount,
+      publicUrl: config.publicUrl, description });
+    paymentSource = tenantTuma ? 'tuma_direct' : 'tuma';
+    platformFee = 0;
+  } else if (location.collection_mode === 'own') {
+    let credentials;
+    try { credentials = tenant.paymentCredentials(location.business_id); }
+    catch (err) { throw setupError('This operator needs to reconnect their own M-Pesa collection account.'); }
+    if (!credentials) throw setupError('This operator must finish connecting their own M-Pesa collection account before taking payments.');
+    pushed = await tenantMpesa.stkPush({ credentials, phone, amount, accountReference, description });
+    paymentSource = 'own';
+    platformFee = 0;
+  } else {
+    // Wi-Fi Fiti collection: the customer pays Wi-Fi Fiti's Tuma account
+    // and the sale, less Wi-Fi Fiti's 5%, is owed to the tenant ('tuma').
+    // Daraja on the platform shortcode stays as the fallback ('fiti').
+    // PLATFORM_COLLECTION=daraja forces Daraja.
+    const preferTuma = String(process.env.PLATFORM_COLLECTION || 'tuma').toLowerCase() !== 'daraja';
+    if (preferTuma && tuma.configured() && tuma.callbackConfigured()) {
+      try {
+        pushed = await tuma.stkPush({ phone, amount, publicUrl: config.publicUrl, description });
+        paymentSource = 'tuma';
+      } catch (err) {
+        console.warn(`[tenant collection] Wi-Fi Fiti Tuma prompt failed for KES ${amount}, using Daraja: ${err.message} ${err.details || ''}`);
+      }
+    }
+    if (!pushed) {
+      pushed = await mpesa.stkPush({ phone, amount, accountReference, description });
+      paymentSource = 'fiti';
+    }
+  }
+  return { pushed, paymentSource, platformFee };
+}
 
 app.get('/api/tenant/:locationId/status/:checkoutRequestId', async (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
@@ -4279,6 +4340,9 @@ function handleTenantC2bConfirmation(req, setting) {
       const rawReference = String(body.BillRefNumber || '').trim();
       const reference = setting.account_prefix && rawReference.startsWith(setting.account_prefix)
         ? rawReference.slice(setting.account_prefix.length) : rawReference;
+      // A PPPoE subscriber pays with their username as the account number.
+      const pppoeUser = reference ? pppoeBilling.userByUsername(setting.business_id, reference) : null;
+      if (pppoeUser) { recordPppoePayBill({ setting, body, receipt, user: pppoeUser }); return; }
       const phone = mpesa.normalizePhone(reference) || mpesa.normalizePhone(body.MSISDN);
       const amount = Math.round(Number(body.TransAmount));
       if (!phone || !Number.isFinite(amount) || amount <= 0) {
@@ -4312,6 +4376,24 @@ function handleTenantC2bConfirmation(req, setting) {
   });
 }
 
+function recordPppoePayBill({ setting, body, receipt, user }) {
+  const amount = Math.round(Number(body.TransAmount));
+  if (!Number.isFinite(amount) || amount <= 0) { console.warn(`[tenant c2b] ${receipt}: invalid PPPoE amount`); return; }
+  const checkoutRequestId = `c2b_${receipt}`.replace(/[^A-Za-z0-9_.=-]/g, '').slice(0, 64);
+  if (tenant.getTransaction.get(checkoutRequestId)) return;
+  const locationId = user.location_id && tenant.locationById.get(user.location_id) ? user.location_id : setting.location_id;
+  tenant.insertTransaction.run({
+    checkoutRequestId, merchantRequestId: `C2B-${receipt}`.slice(0, 64),
+    businessId: setting.business_id, locationId,
+    phone: mpesa.normalizePhone(body.MSISDN) || '', packageId: 0, packageName: `PPPoE ${user.username}`.slice(0, 80),
+    amount, seconds: 0, rateLimit: null, mac: pppoeBilling.transactionMac(user), ip: null,
+  });
+  tenant.setTransactionTerms.run({ checkoutRequestId, paymentSource: 'c2b', platformFee: 0 });
+  tenant.setTransactionResult.run({ checkoutRequestId, status: 'paid', resultCode: 0, resultDesc: 'C2B payment confirmed', receipt });
+  provisionTenantPayment(checkoutRequestId);
+  console.log(`[tenant c2b] ${receipt} paid PPPoE account ${user.username}`);
+}
+
 // Safaricom may notify us later that a previously accepted C2B payment was
 // reversed. Reversals never grant a second package and immediately queue the
 // router revoke job for any subscription created from that receipt.
@@ -4323,9 +4405,14 @@ function handleTenantC2bReversal(req, setting) {
       const receipt = String(body.OriginalTransactionID || body.OriginalReceipt || body.TransID || '').trim().toUpperCase();
       if (!receipt) return;
       // Only a receipt this tenant's own shortcode was paid with can be reversed.
-      const transaction = db.db.prepare('SELECT * FROM tenant_transactions WHERE mpesa_receipt=? AND location_id=? AND payment_source=\'c2b\' AND status=\'paid\' LIMIT 1').get(receipt, setting.location_id);
+      const transaction = db.db.prepare('SELECT * FROM tenant_transactions WHERE mpesa_receipt=? AND business_id=? AND payment_source=\'c2b\' AND status=\'paid\' LIMIT 1').get(receipt, setting.business_id);
       if (!transaction) return;
       db.db.prepare("UPDATE tenant_transactions SET status='reversed', result_desc='C2B payment reversed', updated_at=datetime('now') WHERE checkout_request_id=? AND status='paid'").run(transaction.checkout_request_id);
+      if (pppoeBilling.userIdFromTransaction(transaction)) {
+        pppoeBilling.reverseByReceipt(setting.business_id, receipt);
+        console.log(`[tenant c2b] reversed PPPoE payment ${receipt}`);
+        return;
+      }
       if (transaction.subscription_id) {
         const subscription = tenant.subscriptionById.get(transaction.subscription_id, transaction.location_id);
         if (subscription) {
@@ -4340,8 +4427,17 @@ function handleTenantC2bReversal(req, setting) {
 
 function tenantC2bValidation(setting, req) {
   const shortcode = String(req.body?.BusinessShortCode || req.body?.ShortCode || '').trim();
-  return setting && shortcode === String(setting.shortcode)
-    ? { ResultCode: 0, ResultDesc: 'Accepted' } : { ResultCode: 1, ResultDesc: 'Rejected' };
+  if (!setting || shortcode !== String(setting.shortcode)) return { ResultCode: 1, ResultDesc: 'Rejected' };
+  // A PPPoE payment is turned back (money never leaves the customer) while
+  // the owner's own PPPoE plan has lapsed and they could not be reconnected.
+  // This needs Safaricom's validation switched on for the PayBill; without it
+  // the payment is kept as credit instead (pppoe-billing).
+  const rawReference = String(req.body?.BillRefNumber || '').trim();
+  const reference = setting.account_prefix && rawReference.startsWith(setting.account_prefix)
+    ? rawReference.slice(setting.account_prefix.length) : rawReference;
+  const pppoeUser = reference ? pppoeBilling.userByUsername(setting.business_id, reference) : null;
+  if (pppoeUser && !pppoeBilling.ownerCanServe(db.businessById.get(setting.business_id))) return { ResultCode: 'C2B00016', ResultDesc: 'Rejected' };
+  return { ResultCode: 0, ResultDesc: 'Accepted' };
 }
 
 app.post('/api/c2b/t/:token/validate', (req, res) => {
@@ -4379,8 +4475,8 @@ app.post('/api/mpesa/c2b/tenant/reversal', (req, res) => {
   // A reversal names the original receipt, not always the shortcode; scope it
   // to the receipt's own tenant.
   const receipt = String(req.body?.OriginalTransactionID || req.body?.OriginalReceipt || req.body?.TransID || '').trim().toUpperCase();
-  const row = receipt && db.db.prepare("SELECT location_id FROM tenant_transactions WHERE mpesa_receipt=? AND payment_source='c2b' LIMIT 1").get(receipt);
-  const setting = row && db.db.prepare('SELECT * FROM business_c2b_settings WHERE location_id=? AND active=1').get(row.location_id);
+  const row = receipt && db.db.prepare("SELECT business_id FROM tenant_transactions WHERE mpesa_receipt=? AND payment_source='c2b' LIMIT 1").get(receipt);
+  const setting = row && db.db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=? AND active=1').get(row.business_id);
   handleTenantC2bReversal(req, setting);
 });
 
@@ -5402,7 +5498,267 @@ require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth, subscriptionBlock:
   const block = serviceBilling.pppoeAddBlockDetail(business, usage);
   if (!block) return null;
   return { message: block.message, needs: block.reason ? { action: 'subscribe', service: 'pppoe', reason: block.reason } : null };
+}, userExtras: {
+  // Phone, name and installation fee are checked before the subscriber exists.
+  check(body) {
+    const raw = String(body.phone || '').trim();
+    const phone = raw ? mpesa.normalizePhone(raw) : null;
+    if (raw && !phone) throw Object.assign(new Error('Enter a valid Kenyan phone number for the subscriber, or leave it blank.'), { status: 400 });
+    const installFee = Number(body.installFee || 0);
+    if (!Number.isInteger(installFee) || installFee < 0 || installFee > 1_000_000) throw Object.assign(new Error('The installation fee must be a whole number of shillings.'), { status: 400 });
+    return { phone, fullName: body.fullName, installFee };
+  },
+  apply(user, checked) {
+    const { secret_ciphertext: _hidden, ...safe } = pppoeBilling.setupNewSubscriber(user, checked);
+    return safe;
+  },
 } });
+
+/* ------------------------------------------------------------------ */
+/* PPPoE customer payments                                             */
+/* ------------------------------------------------------------------ */
+
+// The pay page: a subscriber's own link (with its private k), or the
+// business's page where anyone types an account number.
+app.get(['/pay/:code', '/pay/:code/:username'], (req, res) => {
+  if (!pppoeBilling.businessForPayCode(req.params.code)) return res.status(404).type('text/plain').send('This pay page was not found.');
+  res.set('Cache-Control', 'no-cache');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.sendFile(path.join(publicDirectory, 'pppoe-pay.html'));
+});
+
+function pppoePayContext(req, res) {
+  const business = pppoeBilling.businessForPayCode(req.params.code);
+  if (!business) { res.status(404).json({ error: 'This pay page was not found.' }); return null; }
+  const settings = pppoeBilling.settingsFor(business.id);
+  return { business, settings };
+}
+function pppoePayBill(businessId) {
+  const row = db.db.prepare('SELECT shortcode, account_prefix FROM business_c2b_settings WHERE business_id=? AND active=1').get(businessId);
+  return row ? { shortcode: row.shortcode, accountPrefix: row.account_prefix || '' } : null;
+}
+/** Why customers of this business cannot pay online right now, or null. */
+function pppoePayBlock(business) {
+  const name = business.portal_name || business.name || 'Your provider';
+  if (!pppoeBilling.ownerCanServe(business)) return { code: 'provider_paused', error: `${name} can't take payments right now. Nothing has been charged. Please call ${name} to renew your internet.` };
+  const sales = tumaFee.salesBlock(business.id);
+  if (sales) return { code: 'provider_paused', error: sales };
+  if (ownerPhoneBlock(business)) return { code: 'provider_paused', error: `${name} is not taking payments yet. Please ask them.` };
+  return null;
+}
+/** The account asked for, and whether the request carries its private link. */
+function pppoeAccountFor(ctx, req, res) {
+  const user = pppoeBilling.userByUsername(ctx.business.id, String(req.params.username || '').slice(0, 96));
+  if (!user) { res.status(404).json({ error: `No account called ${String(req.params.username || '').slice(0, 40)} here. Check the spelling with whoever gave it to you.` }); return null; }
+  const supplied = req.query.k || (req.body && req.body.k) || req.get('X-WiFi-Fiti-Account');
+  return { user, owner: Boolean(supplied) && pppoeBilling.accountTokenOk(user, supplied) };
+}
+
+app.get('/api/pppoe-pay/:code', (req, res) => {
+  const ctx = pppoePayContext(req, res); if (!ctx) return;
+  const block = pppoePayBlock(ctx.business);
+  res.json({
+    business: { ...pppoeBilling.businessView(ctx.business), logoUrl: brandingPayload(ctx.business).logoUrl || null },
+    payBill: pppoePayBill(ctx.business.id),
+    features: { payForOthers: ctx.settings.payForOthers, changePlan: ctx.settings.selfChangePlan, boosts: ctx.settings.boosts },
+    paused: block ? block.error : null,
+  });
+});
+
+app.get('/api/pppoe-pay/:code/account/:username', (req, res) => {
+  const ctx = pppoePayContext(req, res); if (!ctx) return;
+  const found = pppoeAccountFor(ctx, req, res); if (!found) return;
+  if (found.owner) return res.json({ private: true, account: pppoeBilling.privateAccount(found.user), token: pppoeBilling.accountToken(found.user) });
+  // Anyone may pay an account by its number (unless the owner turned that
+  // off); they see only the plan, the amount due and a masked name.
+  if (!ctx.settings.payForOthers) return res.json({ private: false, needsPhone: true, account: { username: found.user.username } });
+  res.json({ private: false, account: pppoeBilling.publicAccount(found.user) });
+});
+
+// The phone number on the account opens its private view (receipts, plan changes).
+app.post('/api/pppoe-pay/:code/account/:username/verify', (req, res) => {
+  const ctx = pppoePayContext(req, res); if (!ctx) return;
+  const found = pppoeAccountFor(ctx, req, res); if (!found) return;
+  const phone = mpesa.normalizePhone(req.body && req.body.phone);
+  if (!phone || !found.user.phone || phone !== found.user.phone) return res.status(403).json({ error: 'That is not the phone number on this account.' });
+  res.json({ private: true, token: pppoeBilling.accountToken(found.user), account: pppoeBilling.privateAccount(found.user) });
+});
+
+app.post('/api/pppoe-pay/:code/account/:username/quote', (req, res) => {
+  const ctx = pppoePayContext(req, res); if (!ctx) return;
+  const found = pppoeAccountFor(ctx, req, res); if (!found) return;
+  if (!found.owner) return res.status(403).json({ error: 'Open this from your own pay link to change plan or boost.' });
+  try {
+    const body = req.body || {};
+    if (body.purpose === 'boost') return res.json({ quote: pppoeBilling.boostQuote(found.user, body.profileId) });
+    res.json({ quote: pppoeBilling.changeQuote(found.user, body.profileId, { timing: body.timing === 'renewal' ? 'renewal' : 'now', useCredit: body.useCredit !== false }) });
+  } catch (error) { res.status(error.status || 400).json({ error: error.message }); }
+});
+
+app.post('/api/pppoe-pay/:code/account/:username/pay', async (req, res) => {
+  const ctx = pppoePayContext(req, res); if (!ctx) return;
+  const found = pppoeAccountFor(ctx, req, res); if (!found) return;
+  const { business, settings } = ctx; const user = found.user;
+  const body = req.body || {};
+  const purpose = ['pay', 'upgrade', 'boost'].includes(body.purpose) ? body.purpose : 'pay';
+  if (!found.owner && !settings.payForOthers) return res.status(403).json({ error: 'Open your own pay link, or enter the phone number on this account first.' });
+  const block = pppoePayBlock(business);
+  if (block) return res.status(402).json(block);
+  const state = pppoeBilling.accountState(user);
+  if (!state.billed) return res.status(409).json({ error: 'This account is not set up for online payments. Please ask your provider.' });
+  let amount; let targetProfileId = null; let fromCredit = 0;
+  try {
+    if (purpose === 'pay') {
+      amount = body.amount === undefined || body.amount === null || body.amount === '' ? state.amountDue : Number(body.amount);
+      const most = Math.max(state.price * 12 + state.installDue, 1);
+      if (!Number.isInteger(amount) || amount < 1 || amount > most) return res.status(400).json({ error: `Enter an amount from KES 1 to KES ${most.toLocaleString('en-KE')}.` });
+    } else {
+      if (!found.owner) return res.status(403).json({ error: 'Open this from your own pay link to change plan or boost.' });
+      if (purpose === 'upgrade') {
+        if (!settings.selfChangePlan) return res.status(403).json({ error: 'Please ask your provider to change your plan.' });
+        const timing = body.timing === 'renewal' ? 'renewal' : 'now';
+        const quote = pppoeBilling.changeQuote(user, body.profileId, { timing, useCredit: body.useCredit !== false });
+        if (timing === 'renewal') {
+          const updated = pppoeBilling.scheduleChange(user, quote.target.id);
+          return res.json({ scheduled: true, account: pppoeBilling.privateAccount(updated) });
+        }
+        if (!quote.payNow) {
+          // Covered by credit: nothing to pay, the plan moves now.
+          const result = pppoeBilling.applyPayment({ userId: user.id, amount: 0, method: 'credit', purpose: 'upgrade', targetProfileId: quote.target.id,
+            expected: 0, fromCredit: quote.fromCredit, note: 'Upgrade paid from credit' });
+          return res.json({ applied: true, account: pppoeBilling.privateAccount(result.user) });
+        }
+        amount = quote.payNow; targetProfileId = quote.target.id; fromCredit = quote.fromCredit;
+      } else {
+        if (!settings.boosts) return res.status(403).json({ error: 'Speed boosts are not offered here.' });
+        const quote = pppoeBilling.boostQuote(user, body.profileId);
+        amount = quote.amount; targetProfileId = quote.target.id;
+      }
+    }
+  } catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  const phone = mpesa.normalizePhone(body.phone);
+  if (!phone) return res.status(400).json({ error: 'Enter a valid M-Pesa number, e.g. 0712 345 678.' });
+  if (trialLimited(business) && amount > TRIAL_LIMITS.maxPackagePriceKes) {
+    return res.status(402).json({ code: 'trial_limit', error: 'Online payments above KES 3 open once your provider finishes their Wi-Fi Fiti trial. Please pay them directly for now.' });
+  }
+  const locationId = user.location_id || (db.db.prepare('SELECT id FROM locations WHERE business_id=? ORDER BY rowid LIMIT 1').get(business.id) || {}).id;
+  const location = locationId && tenant.locationById.get(locationId);
+  if (!location) return res.status(409).json({ error: 'This provider has not finished setting up yet.' });
+  if (tenant.pendingPaymentForPhone.get(location.id, phone)) return res.status(429).json({ error: 'A payment request is already on its way to this number. Please check the phone first.' });
+  const throttleKey = `${location.id}:${phone}`;
+  const previous = lastPush.get(throttleKey);
+  if (previous && Date.now() - previous < PUSH_COOLDOWN_MS) return res.status(429).json({ error: 'A payment request is already on its way. Please wait a moment.' });
+  if (trialLimited(business) && !tenantAccess.allowed(`trial-prompts:${business.id}`, TRIAL_PROMPTS_PER_DAY, 86400_000).allowed) {
+    return res.status(429).json({ error: 'This provider has reached its payment limit for today. Please try again tomorrow.' });
+  }
+  try {
+    lastPush.set(throttleKey, Date.now());
+    const label = purpose === 'boost' ? 'Speed boost' : purpose === 'upgrade' ? 'Plan upgrade' : 'Internet';
+    const { pushed, paymentSource, platformFee } = await pushTenantPrompt(location, {
+      phone, amount, description: `${label} ${user.username}`.slice(0, 40), accountReference: user.username.slice(0, 12) });
+    tenant.insertTransaction.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
+      businessId: business.id, locationId: location.id, phone, packageId: 0,
+      packageName: `PPPoE ${label.toLowerCase()} · ${user.username}`.slice(0, 80), amount, seconds: 0, rateLimit: null,
+      mac: pppoeBilling.transactionMac(user), ip: null });
+    tenant.setTransactionTerms.run({ checkoutRequestId: pushed.checkoutRequestId, paymentSource, platformFee });
+    const statusToken = pppoeBilling.recordIntent({ checkoutRequestId: pushed.checkoutRequestId, user, purpose, targetProfileId, amount,
+      fromCredit, payerPhone: phone, notifyHolder: body.notify !== false });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, statusToken, amount, phoneDisplay: mpesa.displayPhone(phone) });
+  } catch (err) {
+    lastPush.delete(throttleKey);
+    if (err.promptStatus) return res.status(err.promptStatus).json({ error: err.message });
+    console.error('[pppoe pay] STK push failed:', err.message);
+    res.status(502).json({ error: 'Could not reach M-Pesa. Please try again.' });
+  }
+});
+
+app.get('/api/pppoe-pay/:code/status/:checkoutRequestId', async (req, res) => {
+  const ctx = pppoePayContext(req, res); if (!ctx) return;
+  const intent = pppoeBilling.intentFor.get(String(req.params.checkoutRequestId || ''));
+  if (!intent || intent.business_id !== ctx.business.id || !pppoeBilling.intentTokenOk(intent, req.get('X-WiFi-Fiti-Portal'))) {
+    return res.status(404).json({ error: 'Payment not found.' });
+  }
+  let tx = tenant.getTransaction.get(intent.checkout_request_id);
+  if (!tx) return res.status(404).json({ error: 'Payment not found.' });
+  if (tx.status === 'pending') tx = await queryTenantNow(tx);
+  if (tx.status === 'paid') {
+    try { tx = provisionTenantPayment(tx.checkout_request_id); }
+    catch (err) { console.error(`[pppoe status] ${tx.checkout_request_id}:`, err.message); return res.json({ status: 'pending' }); }
+    const payment = db.db.prepare('SELECT * FROM pppoe_payments WHERE checkout_request_id=?').get(tx.checkout_request_id);
+    const user = db.db.prepare('SELECT * FROM pppoe_users WHERE id=?').get(intent.user_id);
+    return res.json({ status: 'paid', receipt: payment ? pppoeBilling.receiptView(payment) : null, account: user ? pppoeBilling.publicAccount(user) : null });
+  }
+  res.json({ status: tx.status, reason: tx.status === 'failed' ? friendlyFailure(tx.result_code, tx.result_desc) : null });
+});
+
+/* ---- Owner side ---------------------------------------------------- */
+
+function pppoeOwnerRoute(handler) {
+  return (req, res) => {
+    const business = businessAuth(req, res); if (!business) return;
+    try { return handler(req, res, business); }
+    catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  };
+}
+app.get('/api/business/pppoe/billing', pppoeOwnerRoute((req, res, business) => {
+  const settings = pppoeBilling.settingsFor(business.id);
+  const users = db.db.prepare('SELECT * FROM pppoe_users WHERE business_id=? ORDER BY username').all(business.id);
+  res.json({
+    settings, payPage: pppoeBilling.payPageUrl(business.id), payBill: pppoePayBill(business.id),
+    serving: pppoeBilling.ownerCanServe(db.businessById.get(business.id)),
+    subscribers: Object.fromEntries(users.map((u) => [u.id, pppoeBilling.ownerView(u, { settings })])),
+    payments: pppoeBilling.paymentsForOwner(business.id, { limit: 50 }),
+  });
+}));
+app.put('/api/business/pppoe/billing/settings', pppoeOwnerRoute((req, res, business) => {
+  res.json({ settings: pppoeBilling.saveSettings(business.id, req.body || {}) });
+}));
+app.patch('/api/business/pppoe/profiles/:profileId', pppoeOwnerRoute((req, res, business) => {
+  res.json({ profile: pppoeBilling.updatePlan(business.id, req.params.profileId, req.body || {}) });
+}));
+app.patch('/api/business/pppoe/users/:userId', pppoeOwnerRoute((req, res, business) => {
+  const user = pppoeBilling.updateSubscriber(business.id, req.params.userId, req.body || {});
+  res.json({ subscriber: pppoeBilling.ownerView(user, { settings: pppoeBilling.settingsFor(business.id) }) });
+}));
+// Cash, money sent to the owner's own number, or a bank transfer.
+app.post('/api/business/pppoe/users/:userId/payments', pppoeOwnerRoute((req, res, business) => {
+  const user = pppoeBilling.userFor(business.id, req.params.userId);
+  const body = req.body || {};
+  const amount = Number(body.amount);
+  if (!Number.isInteger(amount) || amount < 1 || amount > 1_000_000) return res.status(400).json({ error: 'Enter the amount received in whole shillings.' });
+  const method = ['cash', 'mpesa_owner', 'bank'].includes(body.method) ? body.method : 'cash';
+  const receipt = String(body.receipt || '').trim().toUpperCase().slice(0, 40) || null;
+  if (receipt && tenant.duplicateReceipt.get(receipt, '')) return res.status(409).json({ error: `Receipt ${receipt} already came in automatically.` });
+  const result = pppoeBilling.applyPayment({ userId: user.id, amount, method, receipt, note: body.note, recordedBy: business.owner_name || 'Owner' });
+  notifyPppoePayment(result);
+  res.status(201).json({ held: result.held, days: result.days, payment: pppoeBilling.receiptView(result.payment),
+    subscriber: pppoeBilling.ownerView(result.user, { settings: pppoeBilling.settingsFor(business.id) }) });
+}));
+app.post('/api/business/pppoe/users/:userId/extend', pppoeOwnerRoute((req, res, business) => {
+  const user = pppoeBilling.userFor(business.id, req.params.userId);
+  const result = pppoeBilling.applyPayment({ userId: user.id, amount: 0, method: 'owner', purpose: 'extension', extensionDays: req.body && req.body.days,
+    note: req.body && req.body.note, recordedBy: business.owner_name || 'Owner' });
+  res.status(201).json({ subscriber: pppoeBilling.ownerView(result.user, { settings: pppoeBilling.settingsFor(business.id) }) });
+}));
+app.post('/api/business/pppoe/users/:userId/send-link', pppoeOwnerRoute((req, res, business) => {
+  const user = pppoeBilling.userFor(business.id, req.params.userId);
+  if (!user.phone) return res.status(400).json({ error: 'Add the subscriber\'s phone number first.' });
+  const state = pppoeBilling.accountState(user);
+  const name = business.portal_name || business.name || '';
+  const text = `${name}: pay for your internet (${user.username})${state.amountDue ? `, ${`KES ${state.amountDue.toLocaleString('en-KE')}`} due` : ''}: ${pppoeBilling.payLink(user)}`;
+  const queued = fitiSignal.enqueue({ businessId: business.id, eventId: `pppoe-link:${user.id}:${Date.now()}`, serviceKey: 'receipt_link', to: `+${user.phone}`, message: text });
+  if (queued && queued.skipped) return res.status(402).json({ error: queued.reason === 'insufficient-credits' ? 'Buy SMS credits to send the link, or copy it instead.' : 'The SMS was not sent (your SMS limits). Copy the link instead.' });
+  res.json({ sent: true });
+}));
+app.get('/api/business/pppoe/payments', pppoeOwnerRoute((req, res, business) => {
+  res.json({ payments: pppoeBilling.paymentsForOwner(business.id, { userId: req.query.userId ? String(req.query.userId) : null, limit: 200 }) });
+}));
+
+// Boost ends, credit renewals and customer reminders.
+const runPppoeBilling = () => pppoeBilling.sweep({ send: async (businessId, eventId, to, message, serviceKey) =>
+  fitiSignal.enqueue({ businessId, eventId, serviceKey, to, message }) }).catch((err) => console.error('[pppoe billing]', err.message));
+setTimeout(runPppoeBilling, 90_000).unref();
+setInterval(runPppoeBilling, 10 * 60_000).unref();
 // Tenant Dashboard is a read-model module. Keep it mounted independently so
 // its UI can be rebuilt incrementally without touching router or payment code.
 require('./lib/tenant-dashboard').attachTenantDashboardRoutes(app, { businessAuth, db: db.db });

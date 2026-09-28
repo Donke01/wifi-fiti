@@ -1,32 +1,486 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wi-Fi Fiti · PPPoE access</title><style>
-:root{--ink:#10233f;--muted:#69809b;--line:#dce7f3;--blue:#1769d2;--blue2:#0b4fae;--good:#08785b;--goodbg:#eaf9f2;--bg:#f4f8fd;--shadow:0 18px 45px #183c6712}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% 0,#dff8f5 0,transparent 28%),linear-gradient(135deg,#f4f8fd,#eef7fb);color:var(--ink);font:15px Inter,system-ui,-apple-system,sans-serif}.shell{width:min(1120px,100%);margin:auto;padding:26px 22px 52px}.topbar{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:26px}.brand{display:flex;align-items:center;gap:12px}.brand-mark{display:grid;place-items:center;width:43px;height:43px;border-radius:14px;color:#fff;background:linear-gradient(145deg,#18a2d7,#1769d2);font-size:22px;font-weight:900;box-shadow:0 10px 22px #1769d238}.brand h1{margin:0;font-size:24px;letter-spacing:-.05em}.brand small{display:block;margin-top:2px;color:var(--muted);font-size:12px;font-weight:650}.back{padding:9px 12px;border:1px solid var(--line);border-radius:10px;color:#175aa7;background:#fff;font-weight:800;text-decoration:none}.hero{padding:30px;border-radius:24px;color:#fff;background:linear-gradient(120deg,#0b3d83,#1769d2 58%,#16a3b1);box-shadow:var(--shadow);position:relative;overflow:hidden}.hero:after{content:'↔';position:absolute;right:32px;top:15px;color:#fff2;font-size:150px;font-weight:900}.hero h2{position:relative;margin:0 0 8px;font-size:clamp(28px,4vw,43px);letter-spacing:-.06em}.hero p{position:relative;max-width:670px;margin:0;color:#e7f4ff;line-height:1.55}..steps{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:24px}.step{padding:12px;border:1px solid #ffffff36;border-radius:13px;background:#ffffff13}.step b{display:block;margin-bottom:4px;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.step span{font-size:12px;color:#dceeff}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}.metric,.card{border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:var(--shadow)}.metric{padding:17px}.metric span{display:block;color:var(--muted);font-size:12px;font-weight:750}.metric strong{display:block;margin-top:5px;font-size:27px;letter-spacing:-.06em}.content{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{padding:22px}.card h3{margin:0;font-size:20px;letter-spacing:-.04em}.card>p{margin:6px 0 17px;color:var(--muted);line-height:1.5}.form-grid{display:grid;gap:12px}label span{display:block;margin-bottom:5px;color:#526b87;font-size:12px;font-weight:800}input,select{width:100%;min-height:45px;padding:10px 12px;border:1px solid #cbd9ea;border-radius:10px;color:var(--ink);background:#fff}input:focus,select:focus{outline:3px solid #1769d21c;border-color:#6fa0e2}.primary{width:100%;min-height:45px;border:0;border-radius:10px;color:#fff;background:linear-gradient(110deg,var(--blue2),var(--blue));font-weight:850;cursor:pointer}.msg{padding:10px 12px;border-radius:10px;color:var(--good);background:var(--goodbg);font-size:13px;font-weight:700}.err{padding:10px 12px;border-radius:10px;color:#a62945;background:#fff0f3;font-size:13px;font-weight:700}.full{grid-column:1/-1}.table-wrap{overflow:auto;margin-top:12px;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:620px}th,td{padding:13px 12px;text-align:left;border-bottom:1px solid #e8eff6}th{color:var(--muted);font-size:10px;letter-spacing:.09em;text-transform:uppercase}td{font-size:13px}tr:last-child td{border-bottom:0}.status{display:inline-flex;padding:5px 9px;border-radius:99px;color:var(--good);background:var(--goodbg);font-size:11px;font-weight:850}.status.disabled{color:#a62945;background:#fff0f3}.row-action{padding:7px 10px;border:1px solid #cbdcf2;border-radius:8px;color:#175aa7;background:#f3f8ff;font-size:12px;font-weight:800;cursor:pointer}.notice{margin-top:13px;padding:13px;border-left:4px solid #2bb58c;border-radius:10px;color:#236951;background:#f1fcf7;font-size:13px;line-height:1.45}.empty{padding:22px;text-align:center;color:var(--muted)}@media(max-width:800px){.content{grid-template-columns:1fr}.full{grid-column:auto}.steps,.metrics{grid-template-columns:1fr}.topbar{align-items:flex-start;flex-direction:column}.back{align-self:stretch;text-align:center}.hero{padding:23px}.hero:after{right:3px;font-size:100px}}
-</style><style>.routers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:0 0 16px}.router-status{padding:14px 16px;border:1px solid #d7e4f1;border-left-width:4px;border-radius:14px;background:#fff}.router-status strong{display:block;margin-bottom:4px}.router-status span{display:block;font-size:13px}.router-status small{display:block;margin-top:5px;color:#60768e;font-size:12px;line-height:1.4}.router-status .map-confirm{margin-top:10px}.router-status.ok{border-left-color:#16a47a}.router-status.warn{border-left-color:#e3a21a}.router-status.bad{border-left-color:#d4405c}.delivery{font-size:12px;font-weight:700}.delivery.ok{color:#08785b}.delivery.warn{color:#936000}.delivery.bad{color:#b6304a}</style>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wi-Fi Fiti · PPPoE subscribers</title>
 <script src="/fiti-actions.js"></script>
 <link rel="stylesheet" href="/assets/fiti-motion.css">
 <script src="/assets/fiti-motion.js" defer></script>
-</head><body><main class="shell"><header class="topbar"><div class="brand"><div class="brand-mark">↔</div><div><h1>PPPoE access</h1><small>Wi-Fi Fiti for Business</small></div></div><a class="back" href="/business.html">← Back to dashboard</a></header><section class="hero"><h2>Manage subscriber access</h2><p>Create speed profiles, enrol PPPoE subscribers, and deliver credentials automatically to a paired MikroTik router.</p><div class="steps"><div class="step"><b>01 · Profile</b><span>Define speed and service limits.</span></div><div class="step"><b>02 · Enrol</b><span>Assign credentials and location.</span></div><div class="step"><b>03 · Provision</b><span>Router applies access on its next secure poll.</span></div></div></section><section id="app"><div class="empty">Loading your workspace…</div></section></main><script>
-(async function(){const token=localStorage.getItem('fiti_business_token')||'';const app=document.getElementById('app');const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const api=async(path,opt={})=>{const r=await fetch(path,{...opt,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'}});const b=await r.json().catch(()=>({}));if(!r.ok){if(b.needs&&window.FitiActions&&!opt.fitiRetried&&await window.FitiActions.open(b.needs,{message:b.error}))return api(path,{...opt,fitiRetried:true});throw Error(b.error||'Request failed')}return b};try{const workspace=await api('/api/business/me');let state=await api('/api/business/pppoe');const locations=workspace.locations||workspace.business?.locations||[];const reasons={bridge_missing:'The confirmed customer bridge is missing on the router. Re-confirm the router map.',subnet_clash:'The PPPoE address range is already used on this router (for example by a VLAN overlay).',setup_failed:'The router could not set up its PPPoE server. Check RouterOS and try again.',router_rejected:'The router rejected this subscriber. Check the username and profile.',secret_unreadable:'The saved password could not be read. Set a new password for this subscriber.'};const delivery=x=>{const r=(state.routers||[]).find(v=>v.id===x.location_id);if(r&&!r.ready&&x.job_status!=='acked')return['Waiting: confirm this router\'s map','warn'];if(!x.job_status)return['Not sent',''];if(x.job_status==='acked')return[x.job_action==='revoke'?'Disabled on router':'Active on router','ok'];if(x.job_status==='failed')return['Failed: '+(reasons[x.job_error]||'the router did not apply it'),'bad'];if(x.job_error)return['Retrying: '+(reasons[x.job_error]||x.job_error),'warn'];return['Waiting for router','warn']};const routerName=id=>{const r=(state.routers||[]).find(v=>v.id===id)||locations.find(v=>v.id===id);return r?(r.name||r.router_name||id):id};function draw(message){const profiles=state.profiles||[],users=state.users||[],routers=state.routers||[];app.innerHTML=`<section class="metrics"><div class="metric"><span>Access profiles</span><strong>${profiles.length}</strong></div><div class="metric"><span>Subscribers</span><strong>${users.length}</strong></div><div class="metric"><span>Active subscribers</span><strong>${users.filter(x=>x.status==='active').length}</strong></div></section>${routers.length?`<section class="routers">${routers.map(r=>{const h=r.health;const live=h&&h.status==='online';return `<article class="router-status ${r.ready?(h?(live?'ok':'bad'):'warn'):'bad'}"><strong>${esc(r.name||r.id)}</strong>${r.ready?`<span>${h?(live?`PPPoE server running · ${Number(h.activeSessions)||0} connected`:'PPPoE server is off on this router'):'Ready. Status appears after the router applies its first subscriber.'}</span><small>Bridge ${esc(r.customerBridge)} · addresses ${esc(r.subnet)}${h?` · last report ${esc(h.lastSeenAt)} UTC`:''}</small>`:`<span>Confirm this router's map first</span><small>PPPoE subscribers can't connect until the customer bridge is confirmed. Subscribers you add now wait and are sent as soon as it is.</small><button type="button" class="row-action map-confirm" data-map="${esc(r.id)}">Confirm router map</button>`}</article>`}).join('')}</section>`:''}<div class="content"><section class="card"><h3>1. Create access profile</h3><p>Set the download and upload speed for a customer tier.</p><form id="profile" class="form-grid"><label><span>Profile name</span><input name="name" placeholder="Home 10 Mbps" required></label><label><span>Download rate</span><input name="downloadRate" placeholder="10M" required></label><label><span>Upload rate</span><input name="uploadRate" placeholder="5M" required></label><button class="primary">Create profile</button><div id="pm"></div></form></section><section class="card"><h3>2. Enrol subscriber</h3><p>Create credentials and send them to the selected router.</p><form id="user" class="form-grid"><label><span>Router location</span><select name="locationId" required>${locations.map(x=>`<option value="${esc(x.id)}">${esc(x.name||x.router_name||x.id)}</option>`).join('')}</select></label><label><span>Access profile</span><select name="profileId" required>${profiles.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.download_rate)}/${esc(x.upload_rate)}</option>`).join('')}</select></label><label><span>Username</span><input name="username" placeholder="customer001" required></label><label><span>Password</span><input name="secret" type="password" minlength="8" placeholder="Minimum 8 characters" required></label><button class="primary">Enroll and provision</button><div id="um"></div></form></section><section class="card full"><h3>Subscriber access</h3><p>All changes are delivered through the router’s authenticated Wi-Fi Fiti polling channel.</p><div class="table-wrap"><table><thead><tr><th>Username</th><th>Router</th><th>Profile</th><th>Status</th><th>On the router</th><th>Action</th></tr></thead><tbody>${users.length?users.map(x=>{const p=profiles.find(v=>v.id===x.profile_id);return `<tr><td><b>${esc(x.username)}</b></td><td>${esc(routerName(x.location_id))}</td><td>${esc(p?.name||'—')}</td><td><span class="status ${x.status!=='active'?'disabled':''}">${esc(x.status)}</span></td><td>${(()=>{const d=delivery(x);return `<span class="delivery ${d[1]}">${esc(d[0])}</span>`})()}</td><td><button class="row-action" data-id="${esc(x.id)}">Provision again</button></td></tr>`}).join(''):'<tr><td colspan="6" class="empty">No PPPoE subscribers enrolled yet.</td></tr>'}</tbody></table></div>${message?`<div class="notice">${esc(message)}</div>`:''}</section></div>`;document.getElementById('profile').onsubmit=async e=>{e.preventDefault();const box=document.getElementById('pm');try{await api('/api/business/pppoe/profiles',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});state=await api('/api/business/pppoe');draw('Profile created successfully.')}catch(x){box.className='err';box.textContent=x.message}};document.getElementById('user').onsubmit=async e=>{e.preventDefault();const box=document.getElementById('um');try{const u=(await api('/api/business/pppoe/users',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))})).user;await api('/api/business/pppoe/users/'+encodeURIComponent(u.id)+'/provision',{method:'POST',body:JSON.stringify({locationId:u.location_id})});state=await api('/api/business/pppoe');draw('Subscriber enrolled. The router will apply the credentials on its next secure poll.')}catch(x){box.className='err';box.textContent=x.message}};document.querySelectorAll('[data-map]').forEach(b=>b.onclick=async()=>{if(window.FitiActions&&await window.FitiActions.open({action:'confirm_router_map',locationId:b.dataset.map})){state=await api('/api/business/pppoe');draw('Router map confirmed. Waiting subscribers are on their way to the router.')}});document.querySelectorAll('[data-id]').forEach(b=>b.onclick=async()=>{try{await api('/api/business/pppoe/users/'+encodeURIComponent(b.dataset.id)+'/provision',{method:'POST',body:'{}'});state=await api('/api/business/pppoe');draw('Provisioning queued for the router.')}catch(x){draw(x.message)}})}draw()}catch(e){app.innerHTML='<section class="card"><h3>Sign in required</h3><p>Open the business dashboard and sign in first.</p><a class="back" href="/business.html">Open business dashboard</a></section>'}})();
-</script><script>
-// Security controls are added after each redraw so existing tenant sessions
-// get the hardened defaults without requiring a dashboard refresh.
-(function(){
-  const app=document.getElementById('app');
-  function label(text, name, type, attrs){const l=document.createElement('label');const s=document.createElement('span');s.textContent=text;l.appendChild(s);const i=document.createElement('input');i.name=name;i.type=type||'text';Object.keys(attrs||{}).forEach(k=>i.setAttribute(k,attrs[k]));l.appendChild(i);return l;}
-  function enhance(){
-    const p=document.getElementById('profile');
-    if(p&&!p.querySelector('[name="maxSessions"]')){
-      const submit=p.querySelector('button[type="submit"],button.primary');
-      p.insertBefore(label('Maximum sessions','maxSessions','number',{min:'1',max:'1',value:'1',required:'required'}),submit);
-      p.insertBefore(label('Session timeout (seconds, optional)','sessionTimeoutSeconds','number',{min:'0',max:'604800',placeholder:'0 = no fixed limit'}),submit);
-      p.insertBefore(label('Idle timeout (seconds)','idleTimeoutSeconds','number',{min:'60',max:'86400',value:'900',required:'required'}),submit);
-    }
-    const u=document.getElementById('user');
-    if(u&&!u.querySelector('[name="expiresAt"]')){
-      const submit=u.querySelector('button[type="submit"],button.primary');
-      p&&u.insertBefore(label('Expiry (optional)','expiresAt','datetime-local',{}),submit);
-      u.insertBefore(label('Maximum sessions','maxSessions','number',{min:'1',max:'1',value:'1',required:'required'}),submit);
-    }
+<style>
+:root{color-scheme:light;--ink:#132742;--muted:#5b6d86;--line:#dce5f0;--bg:#f6f8fc;--card:#fff;--blue:#1769d8;--blue-soft:#eef4fd;--blue-ink:#16427f;
+  --good-soft:#e6f6ef;--good-ink:#0e5f43;--warn-soft:#fff4dc;--warn-ink:#6b4500;--warn-line:#f0d48f;--bad-soft:#fdecef;--bad-ink:#8c2238;--shadow:0 18px 45px #183c6712}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+.shell{width:min(1180px,100%);margin:auto;padding:24px 20px 60px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}.brand-mark{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;color:#fff;background:var(--blue);font-size:20px;font-weight:900}
+.brand h1{margin:0;font-size:22px;letter-spacing:-.02em}.brand small{display:block;color:var(--muted);font-size:12px;font-weight:650}
+a{color:var(--blue)}
+.back{padding:9px 12px;border:1px solid var(--line);border-radius:10px;color:#175aa7;background:#fff;font-weight:800;text-decoration:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 20px;box-shadow:var(--shadow)}
+.card h2{margin:0;font-size:18px;letter-spacing:-.01em}.card>p.lead{margin:4px 0 14px;color:var(--muted)}
+.grid{display:grid;gap:16px}.two{grid-template-columns:1fr 1fr}
+.metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:0 0 16px}
+.metric{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 16px}.metric span{display:block;color:var(--muted);font-size:12px;font-weight:700}.metric strong{display:block;margin-top:4px;font-size:24px}
+.banner{display:flex;gap:12px;align-items:center;padding:14px 16px;border-radius:14px;margin-bottom:16px;flex-wrap:wrap}
+.banner.warn{background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn-ink)}.banner.good{background:var(--good-soft);color:var(--good-ink)}
+.banner span{flex:1;min-width:220px}
+button,.button{min-height:40px;border:0;border-radius:10px;background:var(--blue);color:#fff;font:inherit;font-weight:800;cursor:pointer;padding:0 14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}button.small{min-height:34px;font-size:12px;padding:0 10px}
+button:disabled{opacity:.55;cursor:not-allowed}
+input,select{width:100%;min-height:42px;padding:8px 11px;border:1.5px solid #c8d5e6;border-radius:10px;color:var(--ink);background:#fff;font:inherit}
+input[type=checkbox]{width:18px;height:18px;min-height:0;padding:0;accent-color:var(--blue)}
+input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #9cc2f5;outline-offset:2px}
+label span.l{display:block;margin-bottom:5px;color:#44597a;font-size:12px;font-weight:750}
+.form{display:grid;gap:11px}.form .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.check{display:flex;gap:10px;align-items:flex-start;padding:6px 0}.check input{width:18px;height:18px;min-height:0;margin-top:2px;accent-color:var(--blue)}
+.check b{display:block}.check small{display:block;color:var(--muted)}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px;margin-top:10px}
+table{width:100%;border-collapse:collapse;min-width:920px}th,td{padding:11px 12px;text-align:left;border-bottom:1px solid #e8eff6;vertical-align:top}
+th{color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;background:#f8fafd}td{font-size:13px}tr:last-child td{border-bottom:0}
+td small{display:block;color:var(--muted);font-size:12px}
+.pill{display:inline-block;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:800;white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good-ink)}.pill.warn{background:var(--warn-soft);color:var(--warn-ink)}.pill.bad{background:var(--bad-soft);color:var(--bad-ink)}.pill.info{background:var(--blue-soft);color:var(--blue-ink)}
+.delivery{font-size:12px;font-weight:700}.delivery.ok{color:#08785b}.delivery.warn{color:#8a5800}.delivery.bad{color:#b6304a}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.filters button{min-height:34px;border-radius:999px;background:#fff;color:var(--ink);border:1.5px solid var(--line);font-size:12px}
+.filters button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+.msg{padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700}.msg.ok{color:var(--good-ink);background:var(--good-soft)}.msg.err{color:var(--bad-ink);background:var(--bad-soft)}
+.routers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:0 0 16px}
+.router-status{padding:14px 16px;border:1px solid #d7e4f1;border-left-width:4px;border-radius:14px;background:#fff}.router-status strong{display:block;margin-bottom:4px}
+.router-status span{display:block;font-size:13px}.router-status small{display:block;margin-top:5px;color:#60768e;font-size:12px}
+.router-status.ok{border-left-color:#16a47a}.router-status.warn{border-left-color:#e3a21a}.router-status.bad{border-left-color:#d4405c}
+dialog{border:0;border-radius:18px;padding:0;width:min(460px,calc(100% - 24px));box-shadow:0 30px 80px -30px rgba(19,39,66,.7)}
+dialog::backdrop{background:rgba(19,39,66,.35)}
+dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{margin:0 0 14px;color:var(--muted);font-size:13px}
+.preview{padding:11px 13px;border-radius:12px;background:var(--blue-soft);color:var(--blue-ink);font-size:13px}
+.linkbox{display:flex;gap:8px}.linkbox input{font-size:12px}
+.payments{display:grid;gap:0}.payments div{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid #edf2f8;font-size:13px}
+.payments div:first-child{border-top:0}
+.muted{color:var(--muted)}.hidden{display:none!important}
+@media(max-width:900px){.two{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark" aria-hidden="true">↔</div><div><h1>PPPoE subscribers</h1><small>Wi-Fi Fiti for Business</small></div></div>
+    <a class="back" href="/business.html">← Back to dashboard</a>
+  </header>
+  <section id="app" aria-live="polite"><div class="card muted">Loading your workspace…</div></section>
+</main>
+
+<dialog id="pay-dialog"><form method="dialog" id="pay-form" class="form">
+  <div><h3>Record a payment</h3><p class="sub" id="pay-sub"></p></div>
+  <div class="pair">
+    <label><span class="l">Paid until</span><input id="pay-until" disabled></label>
+    <label><span class="l">Credit</span><input id="pay-credit" disabled></label>
+  </div>
+  <label><span class="l">Amount received (KES)</span><input id="pay-amount" inputmode="numeric" required></label>
+  <label><span class="l">How they paid</span><select id="pay-method"><option value="cash">Cash</option><option value="mpesa_owner">M-Pesa to my own number</option><option value="bank">Bank transfer</option></select></label>
+  <label><span class="l">Receipt or M-Pesa code (optional)</span><input id="pay-receipt" placeholder="e.g. QJK4X7T2LM" autocapitalize="characters"></label>
+  <label><span class="l">Note (optional)</span><input id="pay-note" maxlength="200"></label>
+  <div class="preview" id="pay-preview"></div>
+  <div id="pay-msg"></div>
+  <div class="actions"><button type="submit" value="save" id="pay-save">Save payment</button><button type="button" class="secondary" data-close>Cancel</button></div>
+  <p class="muted" style="margin:0;font-size:12px">Payments by PayBill (username as account number) or the customer's pay link are added by themselves. Use this for cash or money sent to your own number.</p>
+</form></dialog>
+
+<dialog id="edit-dialog"><form method="dialog" id="edit-form" class="form">
+  <div><h3>Edit subscriber</h3><p class="sub" id="edit-sub"></p></div>
+  <label><span class="l">Full name</span><input id="edit-name" maxlength="80"></label>
+  <label><span class="l">Phone (for reminders and receipts)</span><input id="edit-phone" type="tel" placeholder="07xx xxx xxx"></label>
+  <label><span class="l">Plan (changes now, speed applies at once)</span><select id="edit-plan"></select></label>
+  <label><span class="l">Plan from next renewal</span><select id="edit-next"></select></label>
+  <label><span class="l">Installation fee still due (KES)</span><input id="edit-install" inputmode="numeric"></label>
+  <div class="pair">
+    <label><span class="l">Add free days</span><input id="edit-days" inputmode="numeric" placeholder="e.g. 2"></label>
+    <label><span class="l">Reason</span><input id="edit-days-note" placeholder="e.g. outage" maxlength="200"></label>
+  </div>
+  <div id="edit-msg"></div>
+  <div class="actions"><button type="submit" value="save">Save</button><button type="button" class="secondary" data-close>Cancel</button></div>
+</form></dialog>
+
+<script>
+(function () {
+  'use strict';
+  var token = ''; try { token = localStorage.getItem('fiti_business_token') || ''; } catch (e) {}
+  var app = document.getElementById('app');
+  var state = null; var billing = null; var workspace = null; var filter = 'all'; var flash = null;
+  var DAY = 86400000;
+
+  function h(tag, attrs, children) {
+    var el = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      var v = attrs[k]; if (v === null || v === undefined || v === false) return;
+      if (k === 'class') el.className = v; else if (k === 'text') el.textContent = v;
+      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : v);
+    });
+    (children || []).forEach(function (c) { if (c !== null && c !== undefined && c !== false) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+    return el;
   }
-  new MutationObserver(enhance).observe(app,{childList:true,subtree:true}); enhance();
+  function kes(n) { return 'KES ' + Math.round(Number(n) || 0).toLocaleString('en-KE'); }
+  function day(iso) { return iso ? new Date(iso).toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' }) : '—'; }
+  function api(path, opt) {
+    opt = opt || {};
+    return fetch(path, { method: opt.method || 'GET', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: opt.body ? JSON.stringify(opt.body) : undefined })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) {
+        if (!r.ok) {
+          if (b.needs && window.FitiActions && !opt.retried) return window.FitiActions.open(b.needs, { message: b.error }).then(function (done) { if (done) return api(path, Object.assign({}, opt, { retried: true })); throw new Error(b.error || 'Request failed'); });
+          var e = new Error(b.error || 'Request failed'); e.status = r.status; throw e;
+        }
+        return b;
+      }); });
+  }
+  function reload(message) {
+    return Promise.all([api('/api/business/pppoe'), api('/api/business/pppoe/billing')]).then(function (r) { state = r[0]; billing = r[1]; flash = message || null; draw(); });
+  }
+  function msg(box, text, ok) { box.textContent = ''; if (text) box.appendChild(h('div', { class: 'msg ' + (ok ? 'ok' : 'err'), role: ok ? 'status' : 'alert', text: text })); }
+
+  var STATUS = {
+    paid: ['Paid up', 'good'], due: ['Due soon', 'warn'], grace: ['Grace days', 'warn'], expired: ['Ended', 'bad'],
+    awaiting_payment: ['Awaiting first payment', 'info'], no_expiry: ['No expiry', 'good'], disabled: ['Switched off', 'bad'],
+  };
+  var REASONS = { bridge_missing: 'The confirmed customer bridge is missing on the router. Re-confirm the router map.', subnet_clash: 'The PPPoE address range is already used on this router.',
+    setup_failed: 'The router could not set up its PPPoE server.', router_rejected: 'The router rejected this subscriber. Check the username and profile.', secret_unreadable: 'The saved password could not be read. Set a new password.' };
+  function locations() { return (workspace && (workspace.locations || (workspace.business && workspace.business.locations))) || []; }
+  function routerName(id) { var r = (state.routers || []).filter(function (v) { return v.id === id; })[0] || locations().filter(function (v) { return v.id === id; })[0]; return r ? (r.name || r.router_name || id) : (id || '—'); }
+  function delivery(u) {
+    var r = (state.routers || []).filter(function (v) { return v.id === u.location_id; })[0];
+    if (r && !r.ready && u.job_status !== 'acked') return ['Waiting: confirm this router’s map', 'warn'];
+    if (!u.job_status) return u.status === 'awaiting_payment' ? ['Sent once paid', 'warn'] : ['Not sent', ''];
+    if (u.job_status === 'acked') return [u.job_action === 'revoke' ? 'Off on the router' : 'On the router', 'ok'];
+    if (u.job_status === 'failed') return ['Failed: ' + (REASONS[u.job_error] || 'the router did not apply it'), 'bad'];
+    if (u.job_error) return ['Retrying: ' + (REASONS[u.job_error] || u.job_error), 'warn'];
+    return ['Waiting for the router', 'warn'];
+  }
+  function profileName(id) { var p = (state.profiles || []).filter(function (x) { return x.id === id; })[0]; return p ? p.name : '—'; }
+  function sub(u) { return (billing.subscribers || {})[u.id] || { billing: {} }; }
+
+  // ---- Page ---------------------------------------------------------------
+  Promise.all([api('/api/business/me'), api('/api/business/pppoe'), api('/api/business/pppoe/billing')]).then(function (r) {
+    workspace = r[0]; state = r[1]; billing = r[2]; draw();
+  }).catch(function () {
+    app.textContent = '';
+    app.appendChild(h('section', { class: 'card' }, [h('h2', { text: 'Sign in required' }), h('p', { class: 'lead', text: 'Open the business dashboard and sign in first.' }), h('a', { class: 'back', href: '/business.html', text: 'Open business dashboard' })]));
+  });
+
+  function draw() {
+    app.textContent = '';
+    var users = state.users || [];
+    var counts = { paid: 0, due: 0, ended: 0, credit: 0 };
+    users.forEach(function (u) { var b = sub(u).billing; if (b.status === 'paid' || b.status === 'no_expiry') counts.paid++; if (b.status === 'due') counts.due++; if (b.status === 'grace' || b.status === 'expired') counts.ended++; counts.credit += b.credit || 0; });
+    if (!billing.serving) app.appendChild(h('div', { class: 'banner warn', role: 'status' }, [
+      h('span', {}, [h('b', { text: 'Your PPPoE + Static IP plan has ended. ' }), 'Customer payments are refused until you renew, so nobody pays for internet you cannot switch back on. PayBill or cash that still arrives is kept as the customer’s credit.']),
+      h('button', { type: 'button', text: 'Renew plan', onclick: function () { if (window.FitiActions) window.FitiActions.open({ action: 'subscribe', service: 'pppoe', reason: 'expired' }).then(function (ok) { if (ok) reload('Plan renewed. Customer payments are open again.'); }); } }),
+    ]));
+    if (flash) app.appendChild(h('div', { class: 'banner good', role: 'status' }, [h('span', { text: flash })]));
+    app.appendChild(h('section', { class: 'metrics' }, [
+      metric('Subscribers', users.length), metric('Paid up', counts.paid), metric('Due in 3 days', counts.due), metric('Ended or in grace', counts.ended), metric('Credit held', kes(counts.credit)),
+    ]));
+    if ((state.routers || []).length) app.appendChild(routersSection());
+    app.appendChild(subscribersSection());
+    app.appendChild(h('div', { class: 'grid two', style: 'margin-top:16px' }, [addSubscriberCard(), plansCard()]));
+    app.appendChild(h('div', { class: 'grid two', style: 'margin-top:16px' }, [howCustomersPayCard(), settingsCard()]));
+    app.appendChild(h('div', { style: 'margin-top:16px' }, [paymentsCard()]));
+  }
+  function metric(label, value) { return h('div', { class: 'metric' }, [h('span', { text: label }), h('strong', { text: String(value) })]); }
+
+  function routersSection() {
+    return h('section', { class: 'routers', 'aria-label': 'Routers' }, state.routers.map(function (r) {
+      var health = r.health; var live = health && health.status === 'online';
+      var cls = r.ready ? (health ? (live ? 'ok' : 'bad') : 'warn') : 'bad';
+      return h('article', { class: 'router-status ' + cls }, r.ready ? [
+        h('strong', { text: r.name || r.id }),
+        h('span', { text: health ? (live ? 'PPPoE server running · ' + (Number(health.activeSessions) || 0) + ' connected' : 'PPPoE server is off on this router') : 'Ready. Status appears after the router applies its first subscriber.' }),
+        h('small', { text: 'Bridge ' + r.customerBridge + ' · addresses ' + r.subnet + (health ? ' · last report ' + health.lastSeenAt + ' UTC' : '') }),
+      ] : [
+        h('strong', { text: r.name || r.id }), h('span', { text: 'Confirm this router’s map first' }),
+        h('small', { text: 'Subscribers can’t connect until the customer bridge is confirmed. Subscribers you add now are sent as soon as it is.' }),
+        h('button', { type: 'button', class: 'secondary small', style: 'margin-top:8px', text: 'Confirm router map', onclick: function () {
+          if (window.FitiActions) window.FitiActions.open({ action: 'confirm_router_map', locationId: r.id }).then(function (ok) { if (ok) reload('Router map confirmed. Waiting subscribers are on their way to the router.'); });
+        } }),
+      ]);
+    }));
+  }
+
+  // ---- Subscribers ---------------------------------------------------------
+  function subscribersSection() {
+    var users = (state.users || []).filter(function (u) {
+      var s = sub(u).billing.status;
+      if (filter === 'due') return s === 'due'; if (filter === 'ended') return s === 'grace' || s === 'expired';
+      if (filter === 'awaiting') return s === 'awaiting_payment'; if (filter === 'credit') return (sub(u).billing.credit || 0) > 0;
+      return true;
+    });
+    var box = h('div');
+    var rows = users.length ? users.map(function (u) { return subscriberRow(u, box); }) : [h('tr', {}, [h('td', { colspan: '7', class: 'muted', text: (state.users || []).length ? 'No subscribers match this filter.' : 'No PPPoE subscribers yet. Add one below.' })])];
+    return h('section', { class: 'card' }, [
+      h('h2', { text: 'Subscribers' }),
+      h('p', { class: 'lead', text: 'Customers pay by M-Pesa with their username as the account number. Paid days go on the router by themselves.' }),
+      h('div', { class: 'filters', role: 'group', 'aria-label': 'Filter' }, [['all', 'All'], ['due', 'Due soon'], ['ended', 'Ended'], ['awaiting', 'Awaiting first payment'], ['credit', 'With credit']].map(function (f) {
+        return h('button', { type: 'button', 'aria-pressed': String(filter === f[0]), text: f[1], onclick: function () { filter = f[0]; draw(); } });
+      })),
+      box,
+      h('div', { class: 'table-wrap' }, [h('table', {}, [
+        h('thead', {}, [h('tr', {}, ['Subscriber', 'Plan', 'Paid until', 'Credit', 'Status', 'On the router', ''].map(function (t) { return h('th', { text: t }); }))]),
+        h('tbody', {}, rows),
+      ])]),
+    ]);
+  }
+  function subscriberRow(u, box) {
+    var info = sub(u); var b = info.billing || {};
+    var st = STATUS[b.status] || [u.status, 'info']; var d = delivery(u);
+    var planNote = b.nextProfile ? 'Moves to ' + b.nextProfile.name + ' at renewal' : b.boost ? 'Boosted to ' + b.boost.profile.name + ' until ' + day(b.boost.until) : (b.price ? kes(b.price) + ' / ' + b.periodDays + ' days' : 'No price set');
+    return h('tr', {}, [
+      h('td', {}, [h('b', { text: u.username }), h('small', { text: [info.fullName, info.phone, routerName(u.location_id)].filter(Boolean).join(' · ') })]),
+      h('td', {}, [h('span', { text: profileName(u.profile_id) }), h('small', { text: planNote })]),
+      h('td', {}, [h('span', { text: b.status === 'no_expiry' ? 'No expiry' : b.paidUntil ? day(b.paidUntil) : '—' }), b.status === 'grace' ? h('small', { text: 'On until ' + day(b.accessUntil) }) : null]),
+      h('td', {}, [h('span', { text: b.credit ? kes(b.credit) : '—' }), b.installDue ? h('small', { text: 'Install fee due ' + kes(b.installDue) }) : (b.billed && b.credit && b.amountDue ? h('small', { text: kes(b.amountDue) + ' more renews' }) : null)]),
+      h('td', {}, [h('span', { class: 'pill ' + st[1], text: st[0] })]),
+      h('td', {}, [h('span', { class: 'delivery ' + d[1], text: d[0] })]),
+      h('td', {}, [h('div', { class: 'actions' }, [
+        b.billed ? h('button', { type: 'button', class: 'small', text: 'Record payment', onclick: function () { openPay(u); } }) : null,
+        h('button', { type: 'button', class: 'secondary small', text: 'Edit', onclick: function () { openEdit(u); } }),
+        info.payLink ? h('button', { type: 'button', class: 'secondary small', text: 'Copy pay link', onclick: function () { copy(info.payLink, box); } }) : null,
+        info.payLink && info.phone ? h('button', { type: 'button', class: 'secondary small', text: 'Text link', onclick: function () {
+          api('/api/business/pppoe/users/' + encodeURIComponent(u.id) + '/send-link', { method: 'POST', body: {} }).then(function () { msg(box, 'Pay link sent to ' + info.phone + '.', true); }).catch(function (e) { msg(box, e.message); });
+        } }) : null,
+        h('button', { type: 'button', class: 'secondary small', text: 'Send to router', onclick: function () {
+          api('/api/business/pppoe/users/' + encodeURIComponent(u.id) + '/provision', { method: 'POST', body: {} }).then(function () { return reload('Sent again. The router applies it on its next check-in.'); }).catch(function (e) { msg(box, e.message); });
+        } }),
+      ])]),
+    ]);
+  }
+  function copy(text, box) {
+    var done = function () { msg(box, 'Pay link copied. It opens this customer’s own account, so send it only to them.', true); };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () { prompt('Copy the pay link:', text); });
+    else { prompt('Copy the pay link:', text); }
+  }
+
+  // ---- Record payment ------------------------------------------------------
+  var payDialog = document.getElementById('pay-dialog'); var current = null;
+  document.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', function () { b.closest('dialog').close(); }); });
+  function paymentPreview() {
+    var b = sub(current).billing; var paid = parseInt(document.getElementById('pay-amount').value, 10) || 0;
+    var out = document.getElementById('pay-preview');
+    if (!paid) { out.textContent = 'Type the amount you received.'; return; }
+    if (!billing.serving) { out.textContent = kes(paid) + ' will be kept as credit until you renew your PPPoE plan.'; return; }
+    var install = b.installDue || 0; var toInstall = Math.min(install, paid); var total = (b.credit || 0) + paid - toInstall;
+    if (install > toInstall) { out.textContent = kes(toInstall) + ' goes to the installation fee; ' + kes(install - toInstall) + ' of it is still due.'; return; }
+    var periods = Math.floor(total / b.price); var left = total - periods * b.price;
+    if (!periods) { out.textContent = kes(total) + ' will be held as credit. ' + kes(b.price - total) + ' more adds ' + b.periodDays + ' days.'; return; }
+    var within = b.paidUntil && ['paid', 'due', 'grace'].indexOf(b.status) >= 0;
+    var from = within ? new Date(b.paidUntil).getTime() : Date.now();
+    out.textContent = 'Adds ' + periods * b.periodDays + ' days: paid until ' + day(new Date(from + periods * b.periodDays * DAY).toISOString()) + (left ? ', with ' + kes(left) + ' kept as credit.' : '.') + (within ? '' : ' Counted from today, because their internet had ended.');
+  }
+  function openPay(u) {
+    current = u; var b = sub(u).billing;
+    document.getElementById('pay-sub').textContent = u.username + (sub(u).fullName ? ' · ' + sub(u).fullName : '') + ' · ' + profileName(u.profile_id) + ', ' + kes(b.price) + ' / ' + b.periodDays + ' days';
+    document.getElementById('pay-until').value = b.paidUntil ? day(b.paidUntil) : 'Not yet';
+    document.getElementById('pay-credit').value = kes(b.credit);
+    document.getElementById('pay-amount').value = b.amountDue || b.price || '';
+    document.getElementById('pay-receipt').value = ''; document.getElementById('pay-note').value = ''; document.getElementById('pay-method').value = 'cash';
+    msg(document.getElementById('pay-msg'), ''); paymentPreview(); payDialog.showModal(); document.getElementById('pay-amount').focus();
+  }
+  document.getElementById('pay-amount').addEventListener('input', function (e) { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 7); paymentPreview(); });
+  document.getElementById('pay-form').addEventListener('submit', function (ev) {
+    ev.preventDefault(); var box = document.getElementById('pay-msg'); var save = document.getElementById('pay-save'); save.disabled = true;
+    api('/api/business/pppoe/users/' + encodeURIComponent(current.id) + '/payments', { method: 'POST', body: {
+      amount: parseInt(document.getElementById('pay-amount').value, 10), method: document.getElementById('pay-method').value,
+      receipt: document.getElementById('pay-receipt').value, note: document.getElementById('pay-note').value } }).then(function (r) {
+      payDialog.close();
+      var b = r.subscriber.billing;
+      return reload(r.held ? 'Saved as credit: renew your PPPoE plan to reconnect ' + current.username + '.' : r.days ? 'Saved. ' + current.username + ' is paid until ' + day(b.paidUntil) + '.' : 'Saved. ' + kes(b.credit) + ' is held as credit for ' + current.username + '.');
+    }).catch(function (e) { msg(box, e.message); }).then(function () { save.disabled = false; });
+  });
+
+  // ---- Edit ---------------------------------------------------------------
+  var editDialog = document.getElementById('edit-dialog');
+  function openEdit(u) {
+    current = u; var info = sub(u); var b = info.billing || {};
+    document.getElementById('edit-sub').textContent = u.username + ' · ' + routerName(u.location_id);
+    document.getElementById('edit-name').value = info.fullName || '';
+    document.getElementById('edit-phone').value = info.phone || '';
+    var plan = document.getElementById('edit-plan'); var next = document.getElementById('edit-next');
+    plan.textContent = ''; next.textContent = '';
+    next.appendChild(h('option', { value: '', text: 'No change' }));
+    (state.profiles || []).forEach(function (p) {
+      var label = p.name + ' · ' + p.download_rate + '/' + p.upload_rate + (p.price ? ' · ' + kes(p.price) : '');
+      plan.appendChild(h('option', { value: p.id, text: label, selected: p.id === u.profile_id }));
+      if (p.price) next.appendChild(h('option', { value: p.id, text: label, selected: b.nextProfile && b.nextProfile.id === p.id }));
+    });
+    document.getElementById('edit-install').value = b.installDue || 0;
+    document.getElementById('edit-days').value = ''; document.getElementById('edit-days-note').value = '';
+    msg(document.getElementById('edit-msg'), ''); editDialog.showModal();
+  }
+  document.getElementById('edit-form').addEventListener('submit', function (ev) {
+    ev.preventDefault(); var box = document.getElementById('edit-msg');
+    var days = parseInt(document.getElementById('edit-days').value, 10) || 0;
+    api('/api/business/pppoe/users/' + encodeURIComponent(current.id), { method: 'PATCH', body: {
+      fullName: document.getElementById('edit-name').value, phone: document.getElementById('edit-phone').value,
+      profileId: document.getElementById('edit-plan').value, nextProfileId: document.getElementById('edit-next').value || null,
+      installFeeDue: parseInt(document.getElementById('edit-install').value, 10) || 0 } }).then(function () {
+      if (!days) return null;
+      return api('/api/business/pppoe/users/' + encodeURIComponent(current.id) + '/extend', { method: 'POST', body: { days: days, note: document.getElementById('edit-days-note').value } });
+    }).then(function () { editDialog.close(); return reload('Saved ' + current.username + '.'); }).catch(function (e) { msg(box, e.message); });
+  });
+
+  // ---- Add subscriber -------------------------------------------------------
+  function addSubscriberCard() {
+    var box = h('div');
+    var locs = locations(); var profiles = state.profiles || [];
+    var start = h('select', { name: 'start', id: 'new-start' }, [h('option', { value: 'link', text: 'They pay first (pay link, PayBill or cash)' }), h('option', { value: 'paid', text: 'Already paid until a date' })]);
+    var until = h('input', { type: 'date', name: 'paidUntil', id: 'new-until' });
+    var untilLabel = h('label', { class: 'hidden' }, [h('span', { class: 'l', text: 'Paid until' }), until]);
+    start.addEventListener('change', function () { untilLabel.classList.toggle('hidden', start.value !== 'paid'); });
+    var form = h('form', { class: 'form', onsubmit: function (ev) {
+      ev.preventDefault(); var f = new FormData(form); var body = {};
+      f.forEach(function (v, k) { body[k] = v; });
+      body.installFee = parseInt(body.installFee, 10) || 0;
+      if (start.value === 'paid') { if (!until.value) { msg(box, 'Choose the date they have paid until.'); return; } body.expiresAt = new Date(until.value + 'T21:00:00+03:00').toISOString(); }
+      delete body.start; delete body.paidUntil;
+      api('/api/business/pppoe/users', { method: 'POST', body: body }).then(function (r) {
+        var u = r.user;
+        return (u.status === 'active' ? api('/api/business/pppoe/users/' + encodeURIComponent(u.id) + '/provision', { method: 'POST', body: { locationId: u.location_id } }) : Promise.resolve()).then(function () {
+          return reload(u.status === 'awaiting_payment' ? u.username + ' added. Send them their pay link: the login goes to the router as soon as they pay.' : u.username + ' added and sent to the router.');
+        });
+      }).catch(function (e) { msg(box, e.message); });
+    } }, [
+      h('div', { class: 'pair' }, [
+        h('label', {}, [h('span', { class: 'l', text: 'Username (their account number)' }), h('input', { name: 'username', required: true, placeholder: 'e.g. jane.w', autocapitalize: 'none' })]),
+        h('label', {}, [h('span', { class: 'l', text: 'Password' }), h('input', { name: 'secret', type: 'password', minlength: '8', required: true, placeholder: '8 characters or more' })]),
+      ]),
+      h('div', { class: 'pair' }, [
+        h('label', {}, [h('span', { class: 'l', text: 'Full name' }), h('input', { name: 'fullName', maxlength: '80' })]),
+        h('label', {}, [h('span', { class: 'l', text: 'Phone (reminders, receipts)' }), h('input', { name: 'phone', type: 'tel', placeholder: '07xx xxx xxx' })]),
+      ]),
+      h('div', { class: 'pair' }, [
+        h('label', {}, [h('span', { class: 'l', text: 'Router' }), h('select', { name: 'locationId', required: true }, locs.map(function (x) { return h('option', { value: x.id, text: x.name || x.router_name || x.id }); }))]),
+        h('label', {}, [h('span', { class: 'l', text: 'Plan' }), h('select', { name: 'profileId', required: true }, profiles.map(function (p) { return h('option', { value: p.id, text: p.name + ' · ' + p.download_rate + '/' + p.upload_rate + (p.price ? ' · ' + kes(p.price) : ' · no price') }); }))]),
+      ]),
+      h('div', { class: 'pair' }, [
+        h('label', {}, [h('span', { class: 'l', text: 'Installation fee (KES, optional)' }), h('input', { name: 'installFee', inputmode: 'numeric', placeholder: '0' })]),
+        h('label', {}, [h('span', { class: 'l', text: 'Starts' }), start]),
+      ]),
+      untilLabel,
+      h('input', { type: 'hidden', name: 'maxSessions', value: '1' }),
+      box, h('div', {}, [h('button', { type: 'submit', disabled: !profiles.length || !locs.length, text: 'Add subscriber' })]),
+      !profiles.length ? h('p', { class: 'muted', style: 'margin:0', text: 'Add a plan first.' }) : null,
+    ]);
+    return h('section', { class: 'card' }, [h('h2', { text: 'Add a subscriber' }), h('p', { class: 'lead', text: 'On a priced plan, the login goes to the router once the first payment (and any installation fee) is in.' }), form]);
+  }
+
+  // ---- Plans and prices ------------------------------------------------------
+  function plansCard() {
+    var box = h('div');
+    var rows = (state.profiles || []).map(function (p) {
+      var price = h('input', { inputmode: 'numeric', value: p.price == null ? '' : p.price, placeholder: 'No price', 'aria-label': 'Price for ' + p.name });
+      var period = h('input', { inputmode: 'numeric', value: p.period_days || 30, 'aria-label': 'Days for ' + p.name });
+      var boost = h('input', { inputmode: 'numeric', value: p.boost_price == null ? '' : p.boost_price, placeholder: '—', 'aria-label': '24-hour boost price for ' + p.name });
+      var self = h('input', { type: 'checkbox', checked: p.self_service !== 0, 'aria-label': 'Customers can choose ' + p.name });
+      var save = h('button', { type: 'button', class: 'secondary small', text: 'Save', onclick: function () {
+        api('/api/business/pppoe/profiles/' + encodeURIComponent(p.id), { method: 'PATCH', body: {
+          price: price.value === '' ? null : parseInt(price.value, 10), periodDays: parseInt(period.value, 10) || 30,
+          boostPrice: boost.value === '' ? null : parseInt(boost.value, 10), selfService: self.checked } }).then(function () { return reload(p.name + ' saved.'); }).catch(function (e) { msg(box, e.message); });
+      } });
+      return h('tr', {}, [h('td', {}, [h('b', { text: p.name }), h('small', { text: p.download_rate + ' down · ' + p.upload_rate + ' up' })]), h('td', {}, [price]), h('td', {}, [period]), h('td', {}, [boost]), h('td', {}, [self]), h('td', {}, [save])]);
+    });
+    var add = h('form', { class: 'form', style: 'margin-top:14px', onsubmit: function (ev) {
+      ev.preventDefault(); var f = new FormData(add); var body = {}; f.forEach(function (v, k) { body[k] = v; });
+      var price = parseInt(body.price, 10); delete body.price;
+      api('/api/business/pppoe/profiles', { method: 'POST', body: body }).then(function (r) {
+        return price ? api('/api/business/pppoe/profiles/' + encodeURIComponent(r.profile.id), { method: 'PATCH', body: { price: price } }) : null;
+      }).then(function () { return reload('Plan added.'); }).catch(function (e) { msg(box, e.message); });
+    } }, [
+      h('div', { class: 'pair' }, [
+        h('label', {}, [h('span', { class: 'l', text: 'New plan name' }), h('input', { name: 'name', required: true, placeholder: 'Home 10 Mbps' })]),
+        h('label', {}, [h('span', { class: 'l', text: 'Price per 30 days (KES)' }), h('input', { name: 'price', inputmode: 'numeric', placeholder: '1500' })]),
+      ]),
+      h('div', { class: 'pair' }, [
+        h('label', {}, [h('span', { class: 'l', text: 'Download' }), h('input', { name: 'downloadRate', required: true, placeholder: '10M' })]),
+        h('label', {}, [h('span', { class: 'l', text: 'Upload' }), h('input', { name: 'uploadRate', required: true, placeholder: '5M' })]),
+      ]),
+      h('input', { type: 'hidden', name: 'maxSessions', value: '1' }), h('input', { type: 'hidden', name: 'idleTimeoutSeconds', value: '900' }),
+      h('div', {}, [h('button', { type: 'submit', text: 'Add plan' })]),
+    ]);
+    return h('section', { class: 'card' }, [
+      h('h2', { text: 'Plans and prices' }),
+      h('p', { class: 'lead', text: 'A plan with a price is paid for by customers. A boost price lets slower plans borrow this speed for 24 hours.' }),
+      box,
+      h('div', { class: 'table-wrap' }, [h('table', { style: 'min-width:560px' }, [
+        h('thead', {}, [h('tr', {}, ['Plan', 'Price (KES)', 'Days', 'Boost 24 h', 'Self-service', ''].map(function (t) { return h('th', { text: t }); }))]),
+        h('tbody', {}, rows.length ? rows : [h('tr', {}, [h('td', { colspan: '6', class: 'muted', text: 'No plans yet.' })])]),
+      ])]),
+      add,
+    ]);
+  }
+
+  // ---- How customers pay ------------------------------------------------------
+  function howCustomersPayCard() {
+    var page = h('input', { readonly: true, value: billing.payPage, 'aria-label': 'Pay page address' });
+    var box = h('div');
+    return h('section', { class: 'card' }, [
+      h('h2', { text: 'How customers pay' }),
+      h('div', { class: 'form' }, [
+        h('p', { style: 'margin:0' }, [h('b', { text: 'Account number: ' }), 'the subscriber’s PPPoE username.']),
+        billing.payBill
+          ? h('p', { style: 'margin:0' }, [h('b', { text: 'PayBill: ' }), billing.payBill.shortcode + ', account ' + (billing.payBill.accountPrefix || '') + '<username>. Matched automatically.'])
+          : h('p', { class: 'muted', style: 'margin:0', text: 'PayBill payments are matched automatically once PayBill (C2B) reconciliation is set up under Payments.' }),
+        h('label', {}, [h('span', { class: 'l', text: 'Pay page (anyone types an account number)' }), h('div', { class: 'linkbox' }, [page, h('button', { type: 'button', class: 'secondary small', text: 'Copy', onclick: function () { copy(billing.payPage, box); } })])]),
+        h('p', { class: 'muted', style: 'margin:0', text: 'Every reminder carries the customer’s own link: it shows their receipts and lets them change plan or boost.' }),
+        h('p', { class: 'preview', style: 'margin:0', text: 'Short or extra payments are kept as credit. Credit adds up until it covers a full plan, then the days are added by themselves.' }),
+        box,
+      ]),
+    ]);
+  }
+
+  // ---- Settings ----------------------------------------------------------------
+  function settingsCard() {
+    var s = billing.settings; var box = h('div');
+    function check(key, title, text) {
+      var input = h('input', { type: 'checkbox', checked: s[key], onchange: function () { save(key, input.checked); } });
+      return h('label', { class: 'check' }, [input, h('span', {}, [h('b', { text: title }), h('small', { text: text })])]);
+    }
+    function save(key, value) {
+      var body = {}; body[key] = value;
+      api('/api/business/pppoe/billing/settings', { method: 'PUT', body: body }).then(function (r) { billing.settings = r.settings; msg(box, 'Saved.', true); }).catch(function (e) { msg(box, e.message); });
+    }
+    var grace = h('select', { 'aria-label': 'Grace days', onchange: function () { save('graceDays', parseInt(grace.value, 10)); } },
+      [0, 1, 2, 3, 4, 5, 6, 7].map(function (n) { return h('option', { value: String(n), text: n === 0 ? 'None: cut off when paid days end' : n + ' day' + (n > 1 ? 's' : ''), selected: n === s.graceDays }); }));
+    return h('section', { class: 'card' }, [
+      h('h2', { text: 'Billing settings' }),
+      h('div', { class: 'form' }, [
+        h('label', {}, [h('span', { class: 'l', text: 'Grace days after paid days end' }), grace]),
+        h('p', { class: 'muted', style: 'margin:-4px 0 4px', text: 'The internet stays on this long. Paying during grace continues from the old date, so grace is never free days.' }),
+        check('remindBefore', 'SMS 3 days before', 'With the amount due after credit and their pay link.'),
+        check('remindDay', 'SMS on the day it ends', 'Sent in the morning.'),
+        check('remindAfter', 'SMS when paid days end', 'Once, with the pay link. Reminders use your SMS credits.'),
+        check('selfChangePlan', 'Customers can change their own plan', 'Faster: now, paying the difference for the days left. Cheaper: from their next renewal.'),
+        check('boosts', 'Customers can buy 24-hour speed boosts', 'On plans with a boost price.'),
+        check('payForOthers', 'Anyone can pay an account by its number', 'They see only a masked name, the plan, its paid-until date and the amount due. Off: the phone number on the account is needed.'),
+        check('expiredPage', 'Show ended customers a pay page (test first)', 'Instead of cutting them off, the router lets them reach only the pay page, and web pages open it. Try it on one router before relying on it.'),
+        box,
+      ]),
+    ]);
+  }
+
+  // ---- Payments -------------------------------------------------------------------
+  function paymentsCard() {
+    var list = billing.payments || [];
+    var method = { mpesa: 'M-Pesa prompt', paybill: 'PayBill', cash: 'Cash', mpesa_owner: 'M-Pesa to you', bank: 'Bank', credit: 'From credit', owner: 'You' };
+    return h('section', { class: 'card' }, [
+      h('h2', { text: 'Recent payments' }),
+      h('div', { class: 'payments' }, list.length ? list.map(function (p) {
+        return h('div', {}, [
+          h('span', {}, [h('b', { text: p.username + ' · ' }), p.what, h('small', { class: 'muted', style: 'display:block', text: day(p.at) + ' · ' + (method[p.method] || p.method) + (p.receipt ? ' · ' + p.receipt : '') + (p.payerPhone ? ' · paid by ' + p.payerPhone : '') + (p.note ? ' · ' + p.note : '') })]),
+          h('strong', { style: p.reversed ? 'text-decoration:line-through' : '', text: p.amount ? kes(p.amount) : '—' }),
+        ]);
+      }) : [h('p', { class: 'muted', text: 'No PPPoE payments yet.' })]),
+    ]);
+  }
 })();
-</script></body></html>
+</script>
+</body>
+</html>

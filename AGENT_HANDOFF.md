@@ -138,6 +138,36 @@ A guided path from a set-up router to the first paying customer.
 Left for later: a hardware test
 of the RouterOS 7 `wifi` package (hAP ax etc.; code exists, untested).
 
+### PPPoE customer payments (branch `claude/keen-goldberg-3n2ttc`, not merged)
+
+Built on `main` `4a6e045`. PPPoE subscribers pay for their own internet: plan
+prices, username as account number (pay page prompt, PayBill, owner-recorded
+cash), credit for short/extra payments, installation fee, 3 grace days (owner
+setting), plan changes (faster now for the difference, cheaper at renewal),
+24-hour speed boosts, pay for someone else (masked), receipts, SMS reminders,
+and refusal while the owner's own PPPoE plan has lapsed. See the README section
+"PPPoE customer payments" for the rules.
+- Code: `src/lib/pppoe-billing.js` (all money maths, `applyPayment`),
+  `src/lib/pppoe.js` (new columns, boost profile, `reconnect` drops the live
+  session, optional expired pay-page profile, expiry compared with julianday),
+  `src/server.js` (`pushTenantPrompt` shared with hotspot sales; `/pay/...`,
+  `/api/pppoe-pay/...`, owner `/api/business/pppoe/...` routes; PayBill
+  matching, validation and reversal; 10-minute sweep), `public/pppoe-pay.html`
+  (customer, self-contained for the walled garden), `public/pppoe.html`
+  (owner page, rebuilt).
+- Tests: `test/pppoe-billing.js`, `test/pppoe-pay-integration.js` (both in
+  `npm test`); full suite passes. Pages checked in Chromium at 390 and 1280 px
+  against a seeded local server.
+- Still to prove:
+  1. A live M-Pesa prompt and a real PayBill payment with the username.
+  2. PayBill refusal needs Safaricom validation switched on for the tenant's
+     PayBill; without it, money that arrives while the owner is lapsed is kept
+     as credit.
+  3. The expired pay page (off by default) on a real router: address list,
+     walled garden, web-proxy redirect on RouterOS 6 and 7.
+  4. That dropping the session after a plan change or boost reconnects the
+     customer's router within seconds.
+
 ### Other work merged today (all live)
 
 - **Router clock fix**: `/router-time` plus a short "clock fix" paste under
