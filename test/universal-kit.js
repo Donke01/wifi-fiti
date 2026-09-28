@@ -111,9 +111,9 @@ const serialized = JSON.stringify(parsed);
 for (const forbidden of ['"address"', '"mac"', '"password"', '"secret"', '"token"', '"route"']) assert.ok(!serialized.includes(forbidden), `no ${forbidden} field`);
 
 // ---- The network map (stage 2: saved plan only) ---------------------------
-const plan = validateNetworkPlan({ bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['wlan1', 'ether3'] }],
+const plan = validateNetworkPlan({ bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['wlan1', 'ether3'], wifi: { ssid: 'Guest WiFi' } }],
   existing: [{ interface: 'bridge-tv', job: 'pppoe' }] }, parsed);
-assert.deepEqual(plan, { version: 1, bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether3', 'wlan1'] }],
+assert.deepEqual(plan, { version: 1, bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether3', 'wlan1'], wifi: { ssid: 'Guest WiFi', radios: [{ name: 'wlan1', type: 'wlan' }] } }],
   existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }], moves: [], keep: [] });
 const refuses = (input, pattern, why) => assert.throws(() => validateNetworkPlan(input, parsed), (e) => e.status === 400 && pattern.test(e.message), why);
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether4'] }] }, /already in use/, 'a port in use stays as it is');
@@ -131,6 +131,15 @@ refuses({}, /first/);
 assert.deepEqual(validateNetworkPlan({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], keep: ['ether3'] }, parsed).keep, ['ether3'], 'a port can be kept for management');
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether3'] }], keep: ['ether3'] }, /reserved for managing/, 'a kept port never goes into a customer bridge');
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], keep: ['ether1'] }, /internet/);
+// Customer Wi-Fi: a radio (even a switched-off one) can join a hotspot bridge with a name.
+const radioLayout = parseRouterInventory(['fiti-inventory-v2', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|wlan1|wlan|disabled', 'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
+assert.equal(radioLayout.interfaces.find((i) => i.name === 'wlan1').free, true, 'a switched-off radio with no job is free to use');
+assert.deepEqual(validateNetworkPlan({ bridges: [{ name: 'fiti-hotspot', job: 'hotspot', ports: ['wlan1', 'ether2'], wifi: { ssid: 'Sirende WiFi' } }] }, radioLayout).bridges[0].wifi,
+  { ssid: 'Sirende WiFi', radios: [{ name: 'wlan1', type: 'wlan' }] });
+assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'fiti-hotspot', job: 'hotspot', ports: ['wlan1'] }] }, radioLayout), /Give the customer Wi-Fi/, 'a hotspot Wi-Fi needs a name');
+assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'fiti-hotspot', job: 'hotspot', ports: ['wlan1'], wifi: { ssid: 'Bad"Name' } }] }, radioLayout), /without quotes/);
+assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'fiti-pppoe', job: 'pppoe', ports: ['wlan1'], wifi: { ssid: 'x' } }] }, radioLayout), /Wi-Fi can only join a hotspot bridge/, 'PPPoE customers connect by cable');
+assert.equal(validateNetworkPlan({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'], wifi: { ssid: 'ignored' } }] }, radioLayout).bridges[0].wifi, undefined, 'no radio, no Wi-Fi');
 assert.throws(() => validateNetworkPlan({ existing: [] }, null), (e) => e.status === 409);
 // Ports in a bridge Wi-Fi Fiti built may move; ports in the owner's bridges may not.
 const fitiLayout = parseRouterInventory(['fiti-inventory-v2', 'inv|agent|3', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|ether4|ether|up',
@@ -288,7 +297,7 @@ async function createBusiness(email, name) {
 
   // The owner saves a map; it is checked against the router's report.
   const planEndpoint = `/api/business/locations/${site}/network-plan`;
-  const goodPlan = { bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether2', 'wlan1'] }], existing: [] };
+  const goodPlan = { bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether2', 'wlan1'], wifi: { ssid: 'Guest WiFi', radios: [{ name: 'wlan1', type: 'wlan' }] } }], existing: [] };
   const savedPlan = await api(planEndpoint, { method: 'PUT', token: alpha, body: { plan: goodPlan } });
   assert.equal(savedPlan.status, 200, JSON.stringify(savedPlan.body));
   assert.deepEqual(savedPlan.body.plan.bridges, goodPlan.bridges);

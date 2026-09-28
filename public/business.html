@@ -526,6 +526,22 @@
 @media (max-width:640px){.kit-console{padding:16px 14px 14px;border-radius:18px}.kit-how{grid-template-columns:1fr}.kit-terminal-title{display:none}.kit-terminal-bar{justify-content:space-between}}
 .cert-fix{margin:12px 0;padding:10px 12px;border:1px solid #f1d596;border-radius:12px;background:#fffaf0}.cert-fix summary{cursor:pointer;font-weight:750;color:#7a5200}.cert-fix p{margin:8px 0;font-size:13px;color:#4f4020;line-height:1.5}
 .kit-choice-options{display:grid;gap:8px;margin-top:8px}.kit-option{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border:1px solid #d3e1f2;border-radius:12px;background:#fff;cursor:pointer}.kit-option input{width:18px;height:18px;min-height:0;margin-top:2px;flex:none}.kit-option strong{display:block;font-size:14px}.kit-option small{display:block;margin-top:3px;color:#5a6f86;font-size:12.5px;font-weight:500;line-height:1.45}.kit-option:has(input:checked){border-color:#2b7de0;background:#f3f8ff;box-shadow:0 0 0 1px #2b7de0 inset}
+.rb-wifi{margin-top:10px;padding:11px 12px;border-radius:14px;border:1px solid #9fdcff;background:linear-gradient(135deg,#eaf8ff,#e8fff5);box-shadow:0 10px 26px -20px rgba(0,120,200,.6)}
+.rb-wifi-top{display:flex;align-items:center;gap:10px}.rb-wifi-top strong{display:block;color:#064a73;font-size:14px}.rb-wifi-top small{display:block;margin-top:2px;color:#2f607e;font-size:12.5px;line-height:1.4}
+.rb-wifi-icon{position:relative;flex:none;width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#1fb6ff,#0a84d8);box-shadow:0 8px 18px -8px rgba(10,132,216,.8)}
+.rb-wifi-icon i{position:absolute;left:50%;bottom:7px;border:2.5px solid #fff;border-color:#fff transparent transparent;border-radius:50%;transform:translateX(-50%)}
+.rb-wifi-icon i:nth-child(1){width:22px;height:22px;bottom:-4px}.rb-wifi-icon i:nth-child(2){width:14px;height:14px;bottom:0}.rb-wifi-icon i:nth-child(3){width:5px;height:5px;bottom:5px;border:0;background:#fff}
+.rb-wifi-field{display:block;margin-top:10px}.rb-wifi-field>span{display:block;margin-bottom:5px;color:#1c5578;font-size:12px;font-weight:750}.rb-wifi-field .rb-net-name{width:100%}
+.rb-wifi-preview{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:9px;padding:9px 11px;border-radius:12px;background:#0d2236;color:#e6f5ff}
+.rb-wifi-preview b{font-size:14px}.rb-wifi-preview small{flex-basis:100%;color:#8fc2e3;font-size:11.5px;margin-left:30px}
+.rb-wifi-bars{display:inline-flex;align-items:flex-end;gap:2px;width:20px;height:14px}.rb-wifi-bars i{width:4px;border-radius:1px;background:#36d399}.rb-wifi-bars i:nth-child(1){height:5px}.rb-wifi-bars i:nth-child(2){height:9px}.rb-wifi-bars i:nth-child(3){height:14px}
+.rb-wifi-note{display:block;margin-top:8px;color:#2f607e;font-size:12px;line-height:1.45}
+.rb-wifi-add{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;padding-left:42px}.rb-wifi-pick{min-height:34px;padding:6px 13px;border:1.5px dashed #37a8e8;border-radius:99px;background:rgba(255,255,255,.9);color:#075a8c;font-size:13px;font-weight:750;box-shadow:none}
+.rb-part.rb-radio-hint .rb-goes{color:#075a8c;background:#e3f6ff;border-radius:8px;padding:3px 7px}
+.rb-radio-notice{background:#eaf6ff;color:#075a8c;border-color:#b6ddf7}
+@media (prefers-reduced-motion:no-preference){.rb-wifi.on .rb-wifi-bars i{animation:rbWifiBar 1.8s ease-in-out infinite}.rb-wifi.on .rb-wifi-bars i:nth-child(2){animation-delay:.2s}.rb-wifi.on .rb-wifi-bars i:nth-child(3){animation-delay:.4s}}
+@keyframes rbWifiBar{0%,100%{opacity:1}50%{opacity:.35}}
+@media (max-width:520px){.rb-wifi-add{padding-left:0}.rb-wifi-preview small{margin-left:0}}
 .rb-reserve{margin-top:12px;padding:13px 14px;border-radius:16px;border:1px solid #c9b8ff;background:linear-gradient(135deg,#f5f0ff,#eaf3ff);box-shadow:0 12px 30px -20px rgba(95,60,200,.55)}
 .rb-reserve.has-port{border-color:#8f6bff;background:linear-gradient(135deg,#efe7ff,#e3efff)}
 .rb-reserve-top{display:flex;gap:12px;align-items:flex-start}.rb-reserve-top strong{display:block;color:#3a1f8f;font-size:14.5px}.rb-reserve-top small{display:block;margin-top:3px;color:#54478a;font-size:12.5px;line-height:1.45}
@@ -2014,7 +2030,7 @@
         var running = (layout.hotspots || [])[0] || null;
         var eligible = items.filter(function (item) { return (item.type === 'bridge' || item.type === 'vlan') && !item.internet; });
         var draftKey = String(location.id); var kept = networkPlanDrafts[draftKey];
-        var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice() }; }), existing: (savedPlan.existing || []).map(function (e) { return { interface: e.interface, job: e.job }; }), keep: (savedPlan.keep || []).slice() }
+        var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice(), wifi: b.wifi ? { ssid: b.wifi.ssid } : undefined }; }), existing: (savedPlan.existing || []).map(function (e) { return { interface: e.interface, job: e.job }; }), keep: (savedPlan.keep || []).slice() }
           : { bridges: [], existing: running ? [{ interface: running.interface, job: 'hotspot' }] : [], keep: [] };
         if (!draft.keep) draft.keep = [];
         var selected = kept ? kept.selected : null; var dirty = kept ? kept.dirty : !savedPlan && Boolean(running); var saveButton = null;
@@ -2026,12 +2042,18 @@
         function freshName(job) { var base = job === 'pppoe' ? 'fiti-pppoe' : 'fiti-hotspot'; var name = base; var n = 2; while (taken[name] || draft.bridges.some(function (b) { return b.name === name; })) { name = base + '-' + n; n += 1; } return name; }
         function home(port) { var found = null; draft.bridges.forEach(function (b) { if (b.ports.indexOf(port) >= 0) found = b; }); return found; }
         function plannable(item) { return Boolean(item && (item.free || item.movableFrom)); }
-        function assign(port, bridge) { var item = byName[port]; if (!plannable(item) || draft.keep.indexOf(port) >= 0) return; draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return p !== port; }); }); bridge.ports.push(port); selected = null; dirty = true; render(); }
+        function isRadio(item) { return Boolean(item && (item.type === 'wlan' || item.type === 'wifi')); }
+        function defaultSsid() { var business = (state.workspace && state.workspace.business) || {}; return String(business.hotspot_name || business.name || 'Customer WiFi').replace(/["\\$]/g, '').slice(0, 32); }
+        var radioNotice = '';
+        function assign(port, bridge) { var item = byName[port]; if (!plannable(item) || draft.keep.indexOf(port) >= 0) return;
+          if (isRadio(item) && bridge.job !== 'hotspot') { radioNotice = 'Wi-Fi can only join a hotspot bridge. PPPoE customers connect by cable.'; selected = null; render(); return; }
+          if (isRadio(item) && !bridge.wifi) bridge.wifi = { ssid: defaultSsid() }; draft.bridges.forEach(function (b) { b.ports = b.ports.filter(function (p) { return p !== port; }); }); bridge.ports.push(port); selected = null; dirty = true; render(); }
         function syncParts() {
           board.querySelectorAll('[data-part]').forEach(function (node) {
             var name = node.getAttribute('data-part'); var item = byName[name]; if (!item) return;
             var target = home(name); var keptHere = draft.keep.indexOf(name) >= 0; node.classList.toggle('rb-assigned', Boolean(target)); node.classList.toggle('rb-kept', keptHere); node.classList.toggle('rb-selected', selected === name);
-            var goes = node.querySelector('.rb-goes'); if (target || keptHere) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = keptHere ? '→ reserved for management' : '→ ' + target.name + ' · ' + jobLabel(target.job) + (item.movableFrom ? ' (leaves ' + item.movableFrom + ')' : ''); } else if (goes) goes.remove();
+            var radioHint = isRadio(item) && plannable(item) && !target && !keptHere; node.classList.toggle('rb-radio-hint', radioHint);
+            var goes = node.querySelector('.rb-goes'); if (radioHint) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = '📶 can broadcast customer Wi-Fi'; } else if (target || keptHere) { if (!goes) goes = add(node, 'span', 'rb-goes'); goes.textContent = keptHere ? '→ reserved for management' : '→ ' + target.name + ' · ' + jobLabel(target.job) + (item.movableFrom ? ' (leaves ' + item.movableFrom + ')' : ''); } else if (goes) goes.remove();
             if (plannable(item) && !node.dataset.plannable) {
               node.dataset.plannable = '1'; node.classList.add('rb-draggable'); node.setAttribute('draggable', 'true'); node.setAttribute('tabindex', '0'); node.setAttribute('role', 'button');
               node.setAttribute('aria-label', name + (item.movableFrom ? ': in ' + item.movableFrom + ', can be moved.' : ': free.') + ' Drag into a bridge, or select it and then choose a bridge.');
@@ -2093,6 +2115,31 @@
             bridge.ports.forEach(function (port) { var chip = add(zone, 'span', 'rb-port-chip'); add(chip, 'i', 'rb-led ' + ((byName[port] || {}).state === 'up' ? 'on' : 'off')); chip.appendChild(document.createTextNode(port)); var x = add(chip, 'button', 'rb-x small', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Take ' + port + ' out of ' + bridge.name); x.addEventListener('click', function (event) { event.stopPropagation(); if (selected) { assign(selected, bridge); return; } bridge.ports = bridge.ports.filter(function (p) { return p !== port; }); dirty = true; render(); }); if (selected) { x.tabIndex = -1; x.setAttribute('aria-hidden', 'true'); chip.classList.add('rb-chip-quiet'); } });
             if (selected && bridge.ports.length) { var addHere = add(zone, 'button', 'rb-drop-hint rb-add-here', '+ Add ' + selected); addHere.type = 'button'; }
             card.appendChild(zone);
+            if (bridge.job === 'hotspot') {
+              // Customer Wi-Fi, right where the owner builds the hotspot.
+              var radiosIn = bridge.ports.filter(function (port) { return isRadio(byName[port]); });
+              var wifiPanel = el('div', 'rb-wifi' + (radiosIn.length ? ' on' : ''));
+              var wifiTop = el('div', 'rb-wifi-top'); var waves = add(wifiTop, 'span', 'rb-wifi-icon'); waves.setAttribute('aria-hidden', 'true'); add(waves, 'i'); add(waves, 'i'); add(waves, 'i');
+              var wifiCopy = el('div'); add(wifiCopy, 'strong', '', radiosIn.length ? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'); wifiTop.appendChild(wifiCopy); wifiPanel.appendChild(wifiTop);
+              if (radiosIn.length) {
+                if (!bridge.wifi) bridge.wifi = { ssid: defaultSsid() };
+                var ssidLabel = el('label', 'rb-wifi-field'); add(ssidLabel, 'span', '', 'Wi-Fi name customers will see');
+                var ssidInput = el('input', 'rb-net-name'); ssidInput.value = bridge.wifi.ssid; ssidInput.maxLength = 32; ssidInput.setAttribute('aria-label', 'Customer Wi-Fi name'); ssidLabel.appendChild(ssidInput); wifiPanel.appendChild(ssidLabel);
+                var preview = el('div', 'rb-wifi-preview'); var bars = add(preview, 'span', 'rb-wifi-bars'); bars.setAttribute('aria-hidden', 'true'); add(bars, 'i'); add(bars, 'i'); add(bars, 'i'); var previewName = add(preview, 'b', '', bridge.wifi.ssid || 'Customer WiFi'); add(preview, 'small', '', 'Open network · the login page controls access'); wifiPanel.appendChild(preview);
+                ssidInput.addEventListener('click', function (event) { event.stopPropagation(); });
+                ssidInput.addEventListener('input', function () { bridge.wifi.ssid = ssidInput.value.replace(/["\\$]/g, ''); if (ssidInput.value !== bridge.wifi.ssid) ssidInput.value = bridge.wifi.ssid; previewName.textContent = bridge.wifi.ssid || 'Customer WiFi'; dirty = true; saveState(); if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Save map'; } });
+                add(wifiPanel, 'small', 'rb-wifi-note', 'Broadcast on ' + radiosIn.join(', ') + '. Wi-Fi Fiti turns the radio on when you apply the map, and undo puts it back as it was.');
+              } else {
+                var freeRadios = items.filter(function (item) { return isRadio(item) && plannable(item) && !home(item.name) && draft.keep.indexOf(item.name) < 0; });
+                if (freeRadios.length) {
+                  add(wifiCopy, 'small', '', 'Let customers join by Wi-Fi as well as by cable.');
+                  var radioButtons = el('div', 'rb-wifi-add'); freeRadios.forEach(function (item) { var addRadio = add(radioButtons, 'button', 'rb-wifi-pick', '+ Add ' + item.name); addRadio.type = 'button'; addRadio.addEventListener('click', function (event) { event.stopPropagation(); assign(item.name, bridge); }); }); wifiPanel.appendChild(radioButtons);
+                } else {
+                  add(wifiCopy, 'small', '', 'No free Wi-Fi radio on this router right now; customers connect by cable.');
+                }
+              }
+              card.appendChild(wifiPanel);
+            }
             card.addEventListener('click', function () { if (selected) assign(selected, bridge); });
             card.addEventListener('dragover', function (event) { event.preventDefault(); card.classList.add('rb-drop-hover'); });
             card.addEventListener('dragleave', function () { card.classList.remove('rb-drop-hover'); });
@@ -2112,6 +2159,7 @@
           if (!draft.bridges.length && !draft.existing.length) add(nets, 'div', 'rb-net-empty', 'Nothing mapped yet. Add a hotspot or PPPoE bridge above.');
           panel.appendChild(nets);
           var leaving = []; draft.bridges.forEach(function (b) { b.ports.forEach(function (p) { var it = byName[p]; if (it && it.movableFrom) leaving.push(p + ' leaves ' + it.movableFrom); }); });
+          if (radioNotice) { add(panel, 'p', 'rb-moves rb-radio-notice', radioNotice); radioNotice = ''; }
           if (leaving.length) add(panel, 'p', 'rb-moves', 'Moving: ' + leaving.join(', ') + '. Devices plugged in there will join the new bridge instead.');
           var foot = el('div', 'rb-planner-foot');
           var save = add(foot, 'button', '', dirty || !savedPlan ? 'Save map' : 'Map saved'); save.type = 'button'; save.disabled = !dirty && Boolean(savedPlan); saveButton = save;

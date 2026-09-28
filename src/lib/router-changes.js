@@ -82,12 +82,14 @@ function reviewPlan(plan, layout) {
       if (running) { blockers.push(`This router already runs a hotspot on ${running.interface}.`); continue; }
       if (!wan) { blockers.push('The router has not reported which connection carries the internet, so a hotspot cannot be started yet.'); continue; }
       lines.push(...hotspotLines(bridge.name, true));
+      if (bridge.wifi) for (const radio of bridge.wifi.radios) lines.push(`Turn on ${radio.name} and broadcast the open Wi-Fi "${bridge.wifi.ssid}". Customers join it freely; the login page controls internet access.`);
     } else {
       lines.push(...pppoeLines(bridge.name));
     }
     changes.push({ kind: 'bridge', target: bridge.name, job: bridge.job, ports: bridge.ports.slice(),
       moves: bridge.ports.filter((p) => moves.has(p)).map((p) => ({ interface: p, from: moves.get(p) })),
-      title: `${bridge.name} · ${jobLabel(bridge.job)}`, lines });
+      wifi: bridge.job === 'hotspot' && bridge.wifi ? bridge.wifi : undefined,
+      title: `${bridge.name} · ${jobLabel(bridge.job)}${bridge.job === 'hotspot' && bridge.wifi ? ` · Wi-Fi "${bridge.wifi.ssid}"` : ''}`, lines });
   }
   for (const entry of plan && plan.existing || []) {
     const item = byName.get(entry.interface) || {};
@@ -147,6 +149,7 @@ function undoLines(change, id) {
     lines.push(`:do { /system scheduler remove [find where name="fiti-revert-${id}"] } on-error={}`);
     return lines;
   }
+  lines.push(...radioUndoLines(change, id));
   if (change.job === 'pppoe') {
     lines.push(`:do { :local p [/system script get [find where name="fiti-prev-${id}"] source]; :if ([:len $p] > 0) do={ /interface pppoe-server server set [find where comment="Wi-Fi Fiti PPPoE"] interface=$p } else={ :foreach s in=[/interface pppoe-server server find where comment="Wi-Fi Fiti PPPoE" and interface="${target}"] do={ /interface pppoe-server server set $s disabled=yes } } } on-error={}`);
   }
@@ -194,6 +197,59 @@ function hotspotNameLines(oldName, newName) {
     `:if ($fitiBridge = "${oldName}") do={ :set fitiBridge "${newName}" }`,
     `:do { :if ([/system script get [find where name="fiti-map"] comment] ~ "^Wi-Fi Fiti change") do={ /system script set [find where name="fiti-map"] source=${src([`:global fitiBridge "${newName}"`, `:global fitiHotspotServer "${HOTSPOT_NAME}"`])} } } on-error={}`,
   ];
+}
+
+/*
+ * Customer Wi-Fi on a hotspot bridge: the radio is switched on as an open
+ * access point. Its previous name, mode, security and on/off state are kept on
+ * the router so the undo puts it back exactly. `wlan` is the RouterOS
+ * `wireless` package (hAP lite, RB951); `wifi` is the newer `wifi` package.
+ */
+function radioKey(id, radio, field) { return `fiti-radio-${id}-${safe(radio)}-${field}`; }
+function radioApplyLines(change, id) {
+  const lines = [];
+  if (!change.wifi) return lines;
+  const ssid = ros(change.wifi.ssid);
+  for (const radio of change.wifi.radios || []) {
+    const r = safe(radio.name);
+    if (radio.type === 'wlan') {
+      const get = (prop) => `[:tostr [/interface wireless get [find where name="${r}"] ${prop}]]`;
+      lines.push(
+        `/system script add name="${radioKey(id, r, 'ssid')}" source=${get('ssid')}`,
+        `/system script add name="${radioKey(id, r, 'mode')}" source=${get('mode')}`,
+        `/system script add name="${radioKey(id, r, 'sec')}" source=${get('security-profile')}`,
+        `/system script add name="${radioKey(id, r, 'off')}" source=${get('disabled')}`,
+        `:if ([:len [/interface wireless security-profiles find where name="fiti-open-${id}"]] = 0) do={ /interface wireless security-profiles add name="fiti-open-${id}" mode=none }`,
+        `/interface wireless set [find where name="${r}"] mode=ap-bridge ssid=${ssid} security-profile="fiti-open-${id}" disabled=no`,
+      );
+    } else {
+      const get = (prop) => `[:tostr [/interface wifi get [find where name="${r}"] ${prop}]]`;
+      lines.push(
+        `/system script add name="${radioKey(id, r, 'ssid')}" source=${get('configuration.ssid')}`,
+        `/system script add name="${radioKey(id, r, 'mode')}" source=${get('configuration.mode')}`,
+        `/system script add name="${radioKey(id, r, 'sec')}" source=${get('security.authentication-types')}`,
+        `/system script add name="${radioKey(id, r, 'off')}" source=${get('disabled')}`,
+        `/interface wifi set [find where name="${r}"] configuration.ssid=${ssid} configuration.mode=ap security.authentication-types="" disabled=no`,
+      );
+    }
+  }
+  return lines;
+}
+function radioUndoLines(change, id) {
+  const lines = [];
+  if (!change.wifi) return lines;
+  for (const radio of change.wifi.radios || []) {
+    const r = safe(radio.name);
+    const val = (field) => `[/system script get [find where name="${radioKey(id, r, field)}"] source]`;
+    if (radio.type === 'wlan') {
+      lines.push(`:do { :local s ${val('ssid')}; :local m ${val('mode')}; :local p ${val('sec')}; :local d ${val('off')}; /interface wireless set [find where name="${r}"] ssid=$s mode=$m security-profile=$p disabled=($d = "true") } on-error={}`);
+    } else {
+      lines.push(`:do { :local s ${val('ssid')}; :local m ${val('mode')}; :local a ${val('sec')}; :local d ${val('off')}; /interface wifi set [find where name="${r}"] configuration.ssid=$s configuration.mode=$m security.authentication-types=$a disabled=($d = "true") } on-error={}`);
+    }
+  }
+  lines.push(`:do { /interface wireless security-profiles remove [find where name="fiti-open-${id}"] } on-error={}`);
+  for (const radio of change.wifi.radios || []) for (const field of ['ssid', 'mode', 'sec', 'off']) lines.push(`:do { /system script remove [find where name="${radioKey(id, radio.name, field)}"] } on-error={}`);
+  return lines;
 }
 
 // Masks for prefix lengths 0-24: an existing network overlaps a candidate /24
@@ -360,6 +416,9 @@ function applyScript(change, id, context) {
   } else {
     lines.push(`:if ([:len [/interface find where name="${safe(change.target)}"]] != 1) do={ :set fitiWhy "interface_missing" }`);
   }
+  for (const radio of (change.wifi && change.wifi.radios) || []) {
+    lines.push(`:if ([:len [/interface ${radio.type === 'wlan' ? 'wireless' : 'wifi'} find where name="${safe(radio.name)}"]] != 1) do={ :set fitiWhy "radio_missing" }`);
+  }
   if (change.job === 'hotspot') {
     lines.push(
       `:if ([:len [/interface find where name="${safe(context.wan)}"]] != 1) do={ :set fitiWhy "wan_missing" }`,
@@ -392,6 +451,7 @@ function applyScript(change, id, context) {
     }
   }
   if (change.job === 'hotspot') body.push(...hotspotApplyLines(change, id, context));
+  body.push(...radioApplyLines(change, id));
   if (change.job === 'pppoe') {
     body.push(
       ':local fitiPrev ""; :do { :set fitiPrev [/interface pppoe-server server get [find where comment="Wi-Fi Fiti PPPoE"] interface] } on-error={}',
@@ -519,7 +579,7 @@ function queueBatch(locationId, changes) {
   db.exec('BEGIN IMMEDIATE');
   try {
     changes.forEach((change, seq) => insertChange.run({ locationId, batchId, seq, kind: change.kind, target: change.target, job: change.job,
-      spec: JSON.stringify({ title: change.title, lines: change.lines, ports: change.ports, moves: change.moves, from: change.from }) }));
+      spec: JSON.stringify({ title: change.title, lines: change.lines, ports: change.ports, moves: change.moves, from: change.from, wifi: change.wifi }) }));
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
   return batchId;
@@ -582,7 +642,7 @@ function nextScript(location, context, now = Date.now()) {
   if (!row) return '';
   let spec = {}; try { spec = JSON.parse(row.spec_json); } catch (_) {}
   if (row.status === 'undo-queued') { const script = undoScript(row.id); setStatus.run({ id: row.id, status: 'undo-sent', reason: null }); return script; }
-  const change = { kind: row.kind, target: row.target, job: row.job, ports: spec.ports || [], moves: spec.moves || [], title: spec.title || row.target, from: spec.from };
+  const change = { kind: row.kind, target: row.target, job: row.job, ports: spec.ports || [], moves: spec.moves || [], title: spec.title || row.target, from: spec.from, wifi: spec.wifi };
   let script;
   try { script = applyScript(change, row.id, context); } catch (error) {
     // Built before it is marked sent, so a change that cannot be built is
@@ -594,7 +654,7 @@ function nextScript(location, context, now = Date.now()) {
   return script;
 }
 
-const REASONS = new Set(['not_fiti_bridge', 'already_delivered', 'name_taken', 'port_changed', 'port_in_use', 'bridge_would_empty', 'vlan_filtering', 'interface_missing',
+const REASONS = new Set(['radio_missing', 'not_fiti_bridge', 'already_delivered', 'name_taken', 'port_changed', 'port_in_use', 'bridge_would_empty', 'vlan_filtering', 'interface_missing',
   'interface_in_use', 'wan_missing', 'hotspot_exists', 'no_free_subnet', 'subnet_check_failed', 'pppoe_ambiguous', 'router_rejected', 'undo_incomplete']);
 /** The router's answer about a change. Returns the reply body. */
 function routerAnswer(location, query) {

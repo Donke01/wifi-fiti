@@ -404,7 +404,9 @@ function describeInventory(inv) {
       usage,
       internet: internet.has(item.name),
       // Free: a port or radio nothing depends on. Everything else is kept as it is.
-      free: physical && !usage.length && item.state !== 'disabled',
+      // A switched-off radio with no job is free too: putting it in a hotspot
+      // bridge is how the owner asks for it to be turned on.
+      free: physical && !usage.length && (item.state !== 'disabled' || ['wlan', 'wifi'].includes(item.type)),
       locked: internet.has(item.name) || Boolean(usage.length) || !physical,
     };
   }).sort((a, b) => Number(b.physical) - Number(a.physical) || a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -441,6 +443,9 @@ function describeInventory(inv) {
  *     existing: [{ interface: 'bridge-home', job: 'pppoe' }] }
  */
 const PLAN_JOBS = new Set(['hotspot', 'pppoe']);
+const RADIO_TYPES = new Set(['wlan', 'wifi']);
+// An open customer Wi-Fi name: printable, no quotes, backslashes or $.
+const PLAN_SSID = /^[^"\\$\x00-\x1f\x7f]{1,32}$/;
 const PLAN_BRIDGE_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,23}$/;
 const PLAN_EXISTING_TYPES = new Set(['bridge', 'vlan']);
 
@@ -489,7 +494,18 @@ function validateNetworkPlan(input, layout) {
       if (item.movableFrom) moves.push({ interface: port, from: item.movableFrom });
     }
     jobs.push(job);
-    return { name, job, ports: ports.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) };
+    // A radio in a bridge broadcasts an open customer Wi-Fi; only hotspot
+    // bridges take one (PPPoE customers connect by cable).
+    const radios = ports.filter((port) => RADIO_TYPES.has((byName.get(port) || {}).type));
+    let wifi;
+    if (radios.length) {
+      if (job !== 'hotspot') throw planError(`Wi-Fi can only join a hotspot bridge. PPPoE customers connect by cable: take ${radios.join(', ')} out of ${name}.`);
+      const ssid = String(raw && raw.wifi && raw.wifi.ssid || '').trim();
+      if (!ssid) throw planError(`Give the customer Wi-Fi on ${name} a name.`);
+      if (!PLAN_SSID.test(ssid)) throw planError('The Wi-Fi name can be up to 32 characters, without quotes, backslashes or $.');
+      wifi = { ssid, radios: radios.map((port) => ({ name: port, type: byName.get(port).type })) };
+    }
+    return { name, job, ports: ports.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), ...(wifi ? { wifi } : {}) };
   });
   const seenExisting = new Set();
   const existing = rawExisting.map((raw) => {
