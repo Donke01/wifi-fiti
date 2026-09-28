@@ -432,7 +432,11 @@ assert.match(html, /<select aria-label="Customer location"><option value="">All 
 assert.match(html, /function appendGoLive\(parent, location, options\)/);
 assert.match(html, /'\/api\/business\/locations\/' \+ encodeURIComponent\(locationId\) \+ '\/go-live'/, 'the card reads the same checks a purchase uses');
 assert.match(html, /api\('\/api\/business\/packages\/starter', \{ method: 'POST', body: '\{\}' \}\)/, 'starter packages in one tap');
-assert.match(html, /if \(snapshot\.layout && \(snapshot\.layout\.hotspots \|\| \[\]\)\.length\) appendGoLive\(box, location\);/, 'shown on the map once a hotspot runs');
+assert.match(html, /if \(snapshot\.layout && \(snapshot\.layout\.hotspots \|\| \[\]\)\.length\) appendGoLive\(box, location, \{ finish: true \}\);/, 'shown on the map once a hotspot runs');
+assert.match(html, /'golive-finish'[\s\S]{0,300}Go to my dashboard[\s\S]{0,300}completeOnboarding\(onboardingModel\(\)\)/, 'the map ends with a way to the dashboard');
+assert.match(html, /s\.error === 'needs_permission'/, 'an older kit is told to paste the kit again');
+assert.match(html, /The file holds your router passwords/, 'backup warning');
+assert.match(html, /input\.value = toolCustomerInput/, 'the customer box keeps its text while the page refreshes');
 assert.match(html, /renderOverviewInsights\(\); renderGoLiveOverview\(\);/, 'and on Overview');
 assert.match(html, /\}, busy \? 5000 : 20000\);/, 'fast only while a purchase is happening');
 assert.match(html, /if \(document\.visibilityState === 'hidden'\) \{ scheduleGoLive\(\); return; \}/, 'no checks from a hidden tab');
@@ -445,6 +449,12 @@ assert.match(html, /function appendWifiOptions\(panel, radioItem, wifi\)/);
 assert.match(html, /if \(!radioItem \|\| radioItem\.shareWifi \|\| !WIFI_CHANNELS\[radioItem\.band\]\) return;/, 'a channel only for a radio Wi-Fi Fiti takes over, with a known band');
 assert.match(html, /add\(more, 'summary', '', 'More Wi-Fi options'\)/);
 assert.match(html, /login_backup_failed: /);
+// Router tools page.
+assert.match(html, /<button type="button" data-module="tools"><span class="symbol" aria-hidden="true">⚒<\/span>Router tools<\/button>/);
+assert.match(html, /,tools: \['tools-section'\]/);
+assert.match(html, /\{ tool: 'reboot', title: 'Restart the router'/);
+assert.match(html, /if \(card\.danger && !go\.dataset\.armed\) \{ go\.dataset\.armed = '1'; go\.textContent = 'Tap again to restart';/, 'a restart needs two taps');
+assert.match(html, /section\.offsetParent === null \|\| document\.visibilityState === 'hidden'\) \{ scheduleTools\(\); return; \}/, 'no checks from a hidden page');
 assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit is shown as one console');
 assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');
 assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'\)/, 'every hotspot bridge shows its Wi-Fi panel');

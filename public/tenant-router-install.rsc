@@ -155,7 +155,8 @@
 /system scheduler remove [find name="fiti-poll"]
 /system scheduler remove [find name="fiti-globals"]
 
-/system script add name=fiti-poll policy=read,write,ftp,test,policy source="\
+# reboot and sensitive: for the owner's Router tools (restart, save a backup).
+/system script add name=fiti-poll policy=read,write,ftp,reboot,test,policy,sensitive source="\
 :global fitiUrl\r\
 \n:global fitiPortalHost\r\
 \n:global fitiPortalAppliedHost\r\
@@ -419,7 +420,7 @@
 # A sync starts only when the last one has finished: on a slow board (hAP lite)
 # one sync can take over a second, and overlapping syncs kept its CPU at 100%.
 /system scheduler add name=fiti-poll start-date=$fitiPollStartDate start-time=$fitiPollStartTime interval=1s disabled=no \
-  policy=read,write,ftp,test,policy on-event=":if ([:len [/system script job find where script=\"fiti-poll\"]] = 0) do={ /system script run fiti-poll }" \
+  policy=read,write,ftp,reboot,test,policy,sensitive on-event=":if ([:len [/system script job find where script=\"fiti-poll\"]] = 0) do={ /system script run fiti-poll }" \
   comment="Wi-Fi Fiti: sync usage, ack jobs, collect work"
 
 # Initialize the globals immediately. Do not wait for the first reboot/startup
