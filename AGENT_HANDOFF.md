@@ -4,21 +4,25 @@ This repository is the source of truth for Wi-Fi Fiti. Work from the `main`
 branch and do not put production secrets, router keys, database files, or
 `.env` files into Git or support messages.
 
-## Handover — 28 Sep 2026, evening (read this first)
+## Handover — 28 Sep 2026, night (read this first)
 
 ### Where the code is
 
-- `main` is deployed on Railway (cloud.wififiti.co.ke). Merged and live today:
-  PR #10 `map-wifi`, PR #11 (owner's Wi-Fi kept, one-step setup, restart
-  reports), then `setup-polish`, `poll-guard`, `lighter-reports` and
-  `faster-connect` (latest merge `8533043`).
-- **Branches `stage3-finish` and `multi-wan` (built on it) are pushed but
-  NOT merged.** Merging `multi-wan` brings both.
-- `stage3-finish`: It includes
-  `change-follow` and closes stage 3 (see below). The full suite passes, and
-  the map was checked in a browser against a local seeded server at 1280 px
-  and 390 px. It still needs a real-router test of "add Wi-Fi to a running
-  hotspot". Merge only when the owner says **"push"**.
+- `main` is deployed on Railway (cloud.wififiti.co.ke). Everything in this
+  handover is merged and live; the latest merge is `de8a944`
+  (`onboarding-simplify`). Merged today, in order: PR #10 `map-wifi`, PR #11
+  (owner's Wi-Fi kept, one-step setup, restart reports), `setup-polish`,
+  `poll-guard`, `lighter-reports`, `faster-connect`, `multi-wan` (with
+  `stage3-finish`), `go-live`, `map-advanced`, `router-tools`, PR #12 (PPPoE
+  customer payments), `map-entry`, `onboarding-simplify`.
+- **No feature branch is waiting to be merged.** Branches that still show
+  commits ahead of `main` (`billing-hub`, `guided-setup`, `trial-guards` and
+  others from 14–27 Sep) are old history, far behind `main`.
+  They are not pending work; ask the owner before touching them.
+- Merge a new branch only when the owner says **"push"**, then check the live
+  business.html (see Verification). A push to `main` redeploys the server.
+- Stage 3 still needs a real-router test of "add Wi-Fi to a running hotspot"
+  (see Next steps).
 - `test/ceiling.js` flakes with the clock; rerun it before assuming a failure.
 - **Don't apply `changes.diff`** (repo root). It turns on remote access and
   the VPN automatically, without the owner's explicit consent, which the
@@ -36,7 +40,7 @@ Proven on real routers:
 - Undo on the RB951 (hotspot + Wi-Fi "CLOUDNET", change 9): finished on the
   router within seconds, ports and wlan1 free again.
 
-On `stage3-finish` (not live yet):
+Merged with `multi-wan` (`3e60fc9`, live):
 1. **Wi-Fi added to a hotspot that already runs**: new change kind `wifi`
    (job `wifi`).
    - Validation: `existing[].wifi = { ssid, radio }` on the bridge running
@@ -88,7 +92,7 @@ On `stage3-finish` (not live yet):
    - Older (agent 4) reports keep the single-WAN rules. Routers get the new
      report script automatically (every 10 min while their agent is older).
 
-### Stage 4 (go live): branch `go-live`
+### Stage 4 (go live): `go-live` (live)
 
 A guided path from a set-up router to the first paying customer.
 
@@ -110,7 +114,7 @@ A guided path from a set-up router to the first paying customer.
   - Buttons open Packages, Branding, Payments, Transactions, or the login
     page.
 
-### Map: advanced changes (branch `map-advanced`)
+### Map: advanced changes: `map-advanced` (live)
 
 - **Adopt an owner's hotspot** (kind/job `adopt`).
   - `existing[].adopt` on the bridge that runs a hotspot not named
@@ -138,7 +142,7 @@ A guided path from a set-up router to the first paying customer.
 Left for later: a hardware test
 of the RouterOS 7 `wifi` package (hAP ax etc.; code exists, untested).
 
-### PPPoE customer payments (branch `claude/keen-goldberg-3n2ttc`, not merged)
+### PPPoE customer payments: PR #12 from `claude/keen-goldberg-3n2ttc` (live)
 
 Built on `main` `4a6e045`. PPPoE subscribers pay for their own internet: plan
 prices, username as account number (pay page prompt, PayBill, owner-recorded
@@ -168,6 +172,54 @@ and refusal while the owner's own PPPoE plan has lapsed. See the README section
   4. That dropping the session after a plan change or boost reconnects the
      customer's router within seconds.
 
+### First-time onboarding, simplified: `onboarding-simplify` (live)
+
+For a new owner who found step 2 confusing (two pages, two progress lists,
+duplicate buttons, text about a Wi-Fi name the page no longer asks for).
+All in `public/business.html` unless named.
+
+- **Organisation screen:** a hint under each field. The hotspot name follows
+  the organisation name until the owner edits it (`dataset.edited`).
+- **Add-router popup:** "Save and continue" and "I'll add it later" only.
+- **Header:** kicker "SETUP GUIDE", plain intro and rail subtitles, no
+  "N / 3" counter (the rail and "STEP N OF 3" show progress).
+- **Step 2 is one page** (stage 2 in `renderOnboarding`):
+  - "Router just reset? Give it internet first" is a collapsed, optional
+    section with the reset and DHCP commands (`appendPreparation(body,
+    location, isOpen)`). The connection phase is `'install'` by default;
+    `'prepare'` only keeps this section open across a refresh (opening it,
+    or "Review WAN preparation", sets it).
+  - Before a kit exists, "Generate connection kit" is the only main action:
+    no connection-state card, no "Check connection now". The kit choice
+    sits in a collapsed "Other kit"; the connection kit stays the default.
+  - Kit console (`appendRouterInstaller`): the certificate, clock and
+    device-mode fixes are collapsed troubleshooting items. "Generate a new
+    kit" stays under More kit options; "Create a different kit" is gone.
+  - Pairing card (`appendPairingPatience`): the first message says to paste
+    the kit in WinBox. The timer starts only when a kit is copied:
+    `copyKit` stores `copiedAt` on the session kit and calls
+    `startPatience(key)`. `appendPatienceCard` has `waitForStart` and
+    `repeatFrom` options for this.
+  - Footer: only "Back to router".
+- **Step 1:** "Add another router" appears once another router exists or
+  this one has connected before. "Continue to connection kit" starts a fresh
+  pairing (drops the kit, "Previous verification is paused") only for a
+  router that verified before (`beginFreshRouterPairing`); a router that
+  never connected keeps its kit.
+- **Step 3:** universal routers have no "Confirm your router map" heading.
+  `appendQuickSetupLead` adds "Go to one-step setup" at the top when the
+  `.rb-quick` card exists; CSS (`:has`) hides it once that card is gone.
+- **Welcome page:** `billing-hub.js` and `tuma-payout.js` send no requests
+  while signed out (their `api()` fails at once without a token). Portal
+  templates load only when signed in, and again when their page opens.
+- **Customer portal:** the voucher icon's SVG path is fixed
+  (`tenant-portal.html`).
+- **Router kit:** the universal kit's no-internet message points to the
+  setup page's DHCP command (`src/lib/router-setup.js`, text only).
+- Checked: full suite; Chromium at 390 and 1280 px against a local server
+  with a fake router (pairing, layout report, one-step card). Not yet:
+  Firefox, and a real router through the new pages.
+
 ### Other work merged today (all live)
 
 - **Router clock fix**: `/router-time` plus a short "clock fix" paste under
@@ -190,6 +242,15 @@ and refusal while the owner's own PPPoE plan has lapsed. See the README section
 - **`[payment timing]` log line** per paid login: prompt→paid, paid→sent,
   sent→confirmed. The owner reports payments now connect quickly. Tuma has no
   status API, so a slow "prompt→paid" is Tuma's side.
+- **Router tools page** (`router-tools`): health, log, speed test, check a
+  customer, backup and restart, one at a time per router, riding the poll
+  reply. Restart and backup check the poller's permissions first and say
+  plainly when the kit needs pasting again. The map also got a "Go to my
+  dashboard" button.
+- **Universal routers count as mapped** once they run a hotspot or bill the
+  owner's own (`map-entry`). Each router on the Routers page has a Router
+  map button; an open map stays open and refreshes until "Go to my
+  dashboard".
 
 ### The owner's routers
 
@@ -204,14 +265,20 @@ and refusal while the owner's own PPPoE plan has lapsed. See the README section
 
 ### Next steps (in this order)
 
-1. The owner says "push" → merge `stage3-finish`, check the live
-   business.html.
+1. Walk the owner through the new onboarding in Firefox, and pair one real
+   router through it (a new account, or "Start router setup again" on a
+   spare router).
 2. On the RB951: one-step setup cable-only (no Wi-Fi), then add Wi-Fi to the
    running hotspot from its card, check a phone gets the login page, then
    Undo the Wi-Fi only.
 3. Then: "Add TV" not showing in the customer portal, and the other open
    items (regenerate the exposed Daraja sandbox key, replace placeholder
    router API credentials).
+4. Small UI follow-ups: when a universal router goes quiet during step 3,
+   step 2 says "Router setup needs attention — Paired · map its network
+   next. Correct the router setting…", which doesn't fit a router that is
+   just offline. Reloading while on Portal templates loads the list twice
+   (harmless).
 
 ### Working with the owner (Don)
 
@@ -241,6 +308,13 @@ and refusal while the owner's own PPPoE plan has lapsed. See the README section
   skipped while an input has focus or the review is open.
 - Test fixtures: plans with a radio in a hotspot bridge need
   `wifi: { ssid }`.
+- Scrolling to something inside the map: `.router-map` is `overflow:hidden`,
+  so `scrollIntoView` scrolls the card itself and hides its top for good.
+  Use `scrollPageTo(node)`, which moves only the window.
+- `test/business-ui.js` runs `appendRouterInstaller`, `appendSimpleRouterSetup`
+  and a few helpers in a vm with a tiny DOM (no `querySelector`, `dataset` or
+  `classList.toggle`). Guard page globals with `typeof`, as
+  `kitConsolesShown` and `startPatience` are.
 
 ### Reference: stage 3 change order on the router
 
@@ -308,6 +382,9 @@ The business dashboard uses a focused three-step journey:
 1. Add router
 2. Secure connection
 3. Map router
+
+Step 2 is a single page: optional reset help (collapsed), one connection kit,
+then a wait card whose timer starts when the kit is copied.
 
 Owners can go back without losing configuration, pause and resume onboarding,
 and remove only an unused, unpaired router. Removal deletes the cloud draft
