@@ -114,7 +114,7 @@ for (const forbidden of ['"address"', '"mac"', '"password"', '"secret"', '"token
 const plan = validateNetworkPlan({ bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['wlan1', 'ether3'] }],
   existing: [{ interface: 'bridge-tv', job: 'pppoe' }] }, parsed);
 assert.deepEqual(plan, { version: 1, bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether3', 'wlan1'] }],
-  existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }], moves: [] });
+  existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }], moves: [], keep: [] });
 const refuses = (input, pattern, why) => assert.throws(() => validateNetworkPlan(input, parsed), (e) => e.status === 400 && pattern.test(e.message), why);
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether4'] }] }, /already in use/, 'a port in use stays as it is');
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether1'] }] }, /already in use/, 'the internet port cannot be moved');
@@ -128,6 +128,9 @@ refuses({ existing: [{ interface: 'vlan100', job: 'hotspot' }] }, /internet/, 't
 refuses({ existing: [{ interface: 'ether2', job: 'hotspot' }] }, /bridge or VLAN/);
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], existing: [{ interface: 'bridge-tv', job: 'hotspot' }] }, /one place for hotspot/);
 refuses({}, /first/);
+assert.deepEqual(validateNetworkPlan({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], keep: ['ether3'] }, parsed).keep, ['ether3'], 'a port can be kept for management');
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether3'] }], keep: ['ether3'] }, /kept for managing/, 'a kept port never goes into a customer bridge');
+refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], keep: ['ether1'] }, /internet/);
 assert.throws(() => validateNetworkPlan({ existing: [] }, null), (e) => e.status === 409);
 // Ports in a bridge Wi-Fi Fiti built may move; ports in the owner's bridges may not.
 const fitiLayout = parseRouterInventory(['fiti-inventory-v2', 'inv|agent|3', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|ether4|ether|up',

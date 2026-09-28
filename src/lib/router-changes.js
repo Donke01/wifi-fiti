@@ -27,8 +27,8 @@ const { db } = require('./db');
 
 const SAFE = /^[A-Za-z0-9_.-]{1,64}$/;
 const ACTIVE = ['queued', 'sent', 'confirming', 'undo-queued', 'undo-sent'];
-// The router's confirm loop tries 9 times, 10 s apart, each try up to two
-// fetches that can each time out: about 4.5 minutes at worst. The server must
+// The router's confirm loop tries up to 16 times, 3-5 s apart, each try up
+// to two fetches that can each time out: under 7 minutes at worst. The server must
 // wait longer than that, or it would answer "not confirmed" to a change that
 // worked and the router would put it back.
 const SENT_TIMEOUT_MS = 8 * 60_000;
@@ -105,6 +105,14 @@ function reviewPlan(plan, layout) {
       changes.push({ kind: 'existing', target: entry.interface, job: 'pppoe', ports: [], moves: [],
         title: `${entry.interface} · PPPoE`, lines: [`Keep ${entry.interface} and its ports as they are.`, ...pppoeLines(entry.interface)] });
     }
+  }
+  // Keep a way in for the owner: a port kept for management, or a warning
+  // when every free port is about to become a customer port.
+  const used = new Set((plan && plan.bridges || []).flatMap((b) => b.ports));
+  const kept = (plan && plan.keep) || [];
+  if (kept.length) notes.push(`${kept.join(' and ')} ${kept.length > 1 ? 'stay' : 'stays'} free for you to manage the router with WinBox (connect by MAC address).`);
+  else if (changes.length && !(layout && layout.interfaces || []).some((i) => i.physical && i.free && i.type === 'ether' && !used.has(i.name))) {
+    notes.push('No free Ethernet port is left for you. Once customer ports block router settings, manage this router from the internet side (WinBox to its WAN address) or keep a port for management on the map.');
   }
   // Hotspot first, so its customers keep a network while ports move to PPPoE.
   changes.sort((a, b) => Number(a.job === 'pppoe') - Number(b.job === 'pppoe'));
@@ -394,7 +402,8 @@ function applyScript(change, id, context) {
   // A partial undo keeps its script and guard, and says so, so the owner can
   // retry it from the dashboard.
   const undoNow = `:local fitiUndoWhy "undo_incomplete"; :do { /system script run fiti-undo-${id}; /system script remove [find where name="fiti-undo-${id}"]; :set fitiUndoWhy "" } on-error={}`;
-  lines.push(':local fitiApplied false', ':do {', ...body.map((l) => '  ' + l), '  :set fitiApplied true',
+  lines.push(`:log info "fiti: network change ${id} started"`);
+  lines.push(':local fitiApplied false', ':do {', ...body.map((l) => '  ' + l), '  :set fitiApplied true', `  :log info "fiti: network change ${id} applied; checking the cloud"`,
     `} on-error={ ${undoNow}; :local fitiWhyFail "router_rejected"; :if ([:len $fitiUndoWhy] > 0) do={ :set fitiWhyFail $fitiUndoWhy }; ${reportFetch(`&id=${id}&state=failed&reason=" . $fitiWhyFail . "`)} }`);
   lines.push(`:if ($fitiApplied) do={ :execute script=${src(confirmLines(id, undoNow))} }`);
   lines.push('} on-error={}');
@@ -407,8 +416,10 @@ function confirmLines(id, undoNow) {
   return [
     ':global fitiUrl', ':global fitiToken', ':global fitiSite',
     ':local ok false', ':local i 0',
-    ':while ((($ok = false) && ($i < 9))) do={',
-    '  :delay 10s',
+    // First try after 3 s, then every 5 s. At most 16 tries: even if every
+    // fetch times out this ends well inside the cloud's 8-minute wait.
+    ':while ((($ok = false) && ($i < 16))) do={',
+    '  :if ($i = 0) do={ :delay 3s } else={ :delay 5s }',
     `  :local u ($fitiUrl . "/api/router/change?site=" . $fitiSite . "&id=${id}&state=applied")`,
     '  :local r ""',
     '  :do { :set r ([/tool fetch url=$u check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) output=user as-value]->"data") } on-error={ :do { :set r ([/tool fetch url=$u http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) output=user as-value]->"data") } on-error={} }',
@@ -419,6 +430,9 @@ function confirmLines(id, undoNow) {
     `  :do { /system scheduler remove [find where name="fiti-revert-${id}"] } on-error={}`,
     `  :log info "fiti: network change ${id} confirmed"`,
     '  ' + reportFetch(`&id=${id}&state=kept`),
+    // A fresh layout report goes with the next sync, so the change is
+    // verified within seconds instead of waiting for the next scheduled one.
+    '  :do { /system script run fiti-inventory } on-error={}',
     '} else={',
     `  :log warning "fiti: network change ${id} lost the cloud; undoing it"`,
     `  ${undoNow}`,
@@ -445,6 +459,7 @@ function renameScript(change, id) {
     `:if ([:len $fitiWhy] > 0) do={ ${reportFetch(`&id=${id}&state=failed&reason=" . $fitiWhy . "`)}; :error "fiti-change-preflight" }`,
     `/system script add name="fiti-undo-${id}" policy=read,write,ftp,test,policy comment="${tag}" source=${src(undoLines(change, id))}`,
     `/system scheduler add name="fiti-revert-${id}" start-time=startup policy=read,write,ftp,test,policy on-event="/system script run fiti-undo-${id}" comment="${tag}: undo if the router restarts before the cloud confirms"`,
+    `:log info "fiti: network change ${id} started"`,
     ':local fitiApplied false',
     ':do {',
     `  /interface bridge set [find where name="${from}"] name="${to}"`,

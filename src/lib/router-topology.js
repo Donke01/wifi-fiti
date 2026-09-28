@@ -451,6 +451,15 @@ function validateNetworkPlan(input, layout) {
   const byName = new Map(layout.interfaces.map((item) => [item.name, item]));
   const hotspotOn = new Map((layout.hotspots || []).map((h) => [h.interface, h.name]));
   const pppoeOn = new Set((layout.pppoeServers || []).map((p) => p.interface));
+  // Ports the owner keeps for managing the router (WinBox); never bridged.
+  const rawKeep = Array.isArray(input && input.keep) ? input.keep : [];
+  if (rawKeep.length > 2) throw planError('Keep at most 2 ports for management.');
+  const keep = [...new Set(rawKeep.map((p) => String(p || '').trim()))].map((port) => {
+    const item = byName.get(port);
+    if (!item || !item.physical) throw planError(`${port || 'That port'} is not a port on this router's latest report.`);
+    if (item.internet) throw planError(`${port} carries the internet connection. Choose another port to keep for management.`);
+    return port;
+  });
   const rawBridges = Array.isArray(input && input.bridges) ? input.bridges : [];
   const rawExisting = Array.isArray(input && input.existing) ? input.existing : [];
   if (rawBridges.length > 4) throw planError('Add up to 4 new bridges.');
@@ -474,6 +483,7 @@ function validateNetworkPlan(input, layout) {
       const item = byName.get(port);
       if (!item) throw planError(`${port} is not on this router's latest report.`);
       if (!item.free && !item.movableFrom) throw planError(`${port} is already in use on the router, so it stays as it is. Choose a free port.`);
+      if (keep.includes(port)) throw planError(`${port} is kept for managing the router. Choose another port for ${name}.`);
       if (usedPorts.has(port)) throw planError(`${port} can only belong to one bridge.`);
       usedPorts.add(port);
       if (item.movableFrom) moves.push({ interface: port, from: item.movableFrom });
@@ -496,6 +506,7 @@ function validateNetworkPlan(input, layout) {
     return { interface: name, job, alreadyRunning: job === 'hotspot' ? hotspotOn.has(name) : pppoeOn.has(name) };
   });
   if (!bridges.length && !existing.length) throw planError('Add a bridge or choose an existing bridge or VLAN first.');
+  keep.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   // A Wi-Fi Fiti bridge keeps at least one port, so whatever runs on it
   // (e.g. the hotspot on bridge-hs) still has somewhere for customers to connect.
   const leaving = new Map();
@@ -514,7 +525,7 @@ function validateNetworkPlan(input, layout) {
     throw planError(`This router already runs a hotspot on ${runningHotspot}. Use it for hotspot customers instead of adding another.`);
   }
   moves.sort((a, b) => a.interface.localeCompare(b.interface, undefined, { numeric: true }));
-  return { version: 1, bridges, existing, moves };
+  return { version: 1, bridges, existing, moves, keep };
 }
 
 module.exports = {

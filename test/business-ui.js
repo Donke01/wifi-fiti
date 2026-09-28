@@ -256,13 +256,15 @@ assert.match(html, /http-header-field="' \+ rosQuote\('X-WiFi-Fiti-Router: ' \+ 
   'the concise command authenticates with the per-location router token, not a global credential');
 assert.match(html, /Copy connection kit/,
   'owners can copy the single secure connection kit directly');
-assert.match(html, /This recovery kit disables HTTPS certificate verification for its initial download/,
+assert.match(html, /Use this only if the router stops with "no trusted CA certificate found"\. It skips certificate checks for this router\. Continue\?/,
   'the CA recovery kit requires an explicit security acknowledgement before copying');
+assert.match(html, /var script = routerBootstrapCommand\(saved, false, false, true\);/, 'the universal kit is the default connection kit');
+assert.match(html, /Copy automatic hotspot kit \(fallback\)/, 'the automatic kit stays available as the fallback');
 assert.doesNotMatch(html, /Download full kit|Download \\.rsc|Show full RouterOS kit \(fallback\)/,
   'the customer onboarding view does not expose downloads or fallback scripts');
 assert.match(html, /Wi-Fi Fiti kit was not downloaded\. Check WAN, DNS and RouterOS certificate trust, then retry\./,
   'a failed short installer stops before importing a stale file');
-assert.match(html, /paste this complete kit once/,
+assert.match(html, /Paste this complete kit once/,
   'the dashboard explains that the copied connection kit is complete');
 const compactKitUi = html.match(/function appendSimpleRouterSetup\(body, model\) \{[\s\S]*?\n\s*function selectedMode\(\)/);
 assert.ok(compactKitUi, 'the compact connection-kit UI is present');
@@ -335,7 +337,10 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
         screen + ' copies the authenticated short bootstrap rather than exposing full RouterOS source');
       assert.match(copiedCommand, /check-certificate=yes/,
         screen + ' keeps certificate verification enabled in the standard bootstrap');
-      assert.doesNotMatch(copiedCommand, /\/certificate import/, screen + ' leaves the standard kit command unchanged');
+      assert.match(copiedCommand, /&vlan=1/, screen + ' copies the universal kit by default');
+      assert.match(copiedCommand, /\/certificate import/, screen + ' carries the embedded CA roots, so older routers pair first time');
+      const fallback = nodes.find(node => node.tagName === 'button' && node.textContent === 'Copy automatic hotspot kit (fallback)');
+      assert.ok(fallback, screen + ' offers the automatic kit as a fallback');
     }
     assert.equal(copiedCommand === '', !loaderReady,
       screen + ' does not expose a browser fallback when the encrypted kit is unavailable');

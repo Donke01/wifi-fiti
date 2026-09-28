@@ -4718,7 +4718,10 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
   // tests (and, more importantly, operators) must be able to see that a
   // support control cannot touch the customer poller. The tuning command is
   // retried on the next ordinary sync once the control is acknowledged.
-  const fastPoll = Boolean(jobs.length || deployment || portal);
+  // A network change from the owner's map also polls every second until the
+  // router has confirmed it, so each step follows the last within a second.
+  const changeInFlight = location.router_kit === 'universal' && routerChanges.hasActiveChange(location.id);
+  const fastPoll = Boolean(jobs.length || deployment || portal || changeInFlight);
   const pollTuning = controls.length ? '' : tenantPollTuningScript(fastPoll ? 1 : 5);
   // Opening a Wi-Fi (removing its password) is only for the stable kit, which
   // built that Wi-Fi for customers. A universal-kit router's Wi-Fi may be the
