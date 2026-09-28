@@ -4608,7 +4608,9 @@ function tenantPollTuningScript(intervalSeconds = 5) {
     // the installer anchors it once to the router's current clock. For an
     // already-installed scheduler that never fired (run-count=0), repair the
     // stale start timestamp exactly once on the next successful sync.
-    `    /system scheduler set $fitiPollSchedulerId interval=${interval} disabled=no`,
+    // Only touch the scheduler when it differs: every "set" is logged, and a
+    // set on every 5-second sync flooded the router log.
+    `    :if (([/system scheduler get $fitiPollSchedulerId interval] != [:totime "${interval}"]) || ([/system scheduler get $fitiPollSchedulerId disabled] = true)) do={ /system scheduler set $fitiPollSchedulerId interval=${interval} disabled=no }`,
     '    :if ($fitiPollRunCount = 0) do={',
     '      :local fitiPollStartDate [/system clock get date]',
     '      :local fitiPollStartTime [/system clock get time]',
@@ -4665,20 +4667,22 @@ function tenantRouterScript(location, options = {}) {
   if (layout && (Number(layout.agent) || 1) < INVENTORY_AGENT) {
     const last = inventoryUpdateSentAt.get(location.id) || 0;
     if (Date.now() - last >= 10 * 60_000) { inventoryUpdateSentAt.set(location.id, Date.now()); extra.push(inventoryScriptUpdate()); }
-  } else if (layout && inventoryAgeOver(layout.reportedAt, 90_000)) {
-    // The router's own 30-second timer should keep the layout report fresh,
-    // but on some routers its reports do not arrive. A report run from the
-    // poll reply always does, so ask for one whenever the stored report is
-    // getting old. The owner can only save a map against a report under 5
-    // minutes old.
+  } else if (layout && inventoryAgeOver(layout.reportedAt, 25_000)) {
+    // The layout report is run from the poll reply about every 30 seconds.
+    // Reports from the router's own 30-second timer never reached the cloud
+    // on the RB951 (the timer and the poller do not share the report), while
+    // a report run from the reply always does. The old timer is removed.
     const lastAsk = inventoryRefreshAskedAt.get(location.id) || 0;
-    if (Date.now() - lastAsk >= 60_000) { inventoryRefreshAskedAt.set(location.id, Date.now()); extra.push(INVENTORY_REFRESH_LINE); }
+    if (Date.now() - lastAsk >= 25_000) { inventoryRefreshAskedAt.set(location.id, Date.now()); extra.push(INVENTORY_REFRESH_LINE, INVENTORY_TIMER_REMOVE_LINE); }
   }
   if (!extra.length) return result;
   return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n') };
 }
 const inventoryRefreshAskedAt = new Map();
 const INVENTORY_REFRESH_LINE = ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }';
+// The separate 30-second layout timer is no longer used; the poll reply runs
+// the report instead. find is silent once it is gone, so nothing is logged.
+const INVENTORY_TIMER_REMOVE_LINE = ':do { :local t [/system scheduler find where name="fiti-inventory" and comment~"Wi-Fi Fiti"]; :if ([:len $t] > 0) do={ /system scheduler remove $t } } on-error={}';
 function inventoryAgeOver(reportedAt, ageMs) {
   let text = String(reportedAt || '').trim().replace(' ', 'T');
   if (text && !/(?:Z|[+-]\d\d:\d\d)$/i.test(text)) text += 'Z';
