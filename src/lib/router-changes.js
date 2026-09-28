@@ -27,8 +27,12 @@ const { db } = require('./db');
 
 const SAFE = /^[A-Za-z0-9_.-]{1,64}$/;
 const ACTIVE = ['queued', 'sent', 'confirming', 'undo-queued', 'undo-sent'];
-const SENT_TIMEOUT_MS = 4 * 60_000;
-const CONFIRMING_SETTLE_MS = 6 * 60_000;
+// The router's confirm loop tries 9 times, 10 s apart, each try up to two
+// fetches that can each time out: about 4.5 minutes at worst. The server must
+// wait longer than that, or it would answer "not confirmed" to a change that
+// worked and the router would put it back.
+const SENT_TIMEOUT_MS = 8 * 60_000;
+const CONFIRMING_SETTLE_MS = 10 * 60_000;
 const HOTSPOT_NAME = 'fiti-hotspot';
 
 function changeError(message, status = 400) { const e = new Error(message); e.status = status; return e; }
