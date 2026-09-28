@@ -416,8 +416,10 @@
 # startup scheduler above still performs an immediate sync after reboot.
 :local fitiPollStartDate [/system clock get date]
 :local fitiPollStartTime [/system clock get time]
+# A sync starts only when the last one has finished: on a slow board (hAP lite)
+# one sync can take over a second, and overlapping syncs kept its CPU at 100%.
 /system scheduler add name=fiti-poll start-date=$fitiPollStartDate start-time=$fitiPollStartTime interval=1s disabled=no \
-  policy=read,write,ftp,test,policy on-event="/system script run fiti-poll" \
+  policy=read,write,ftp,test,policy on-event=":if ([:len [/system script job find where script=\"fiti-poll\"]] = 0) do={ /system script run fiti-poll }" \
   comment="Wi-Fi Fiti: sync usage, ack jobs, collect work"
 
 # Initialize the globals immediately. Do not wait for the first reboot/startup

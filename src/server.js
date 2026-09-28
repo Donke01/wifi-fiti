@@ -4622,6 +4622,8 @@ function hydratedRemoteSupportControls(controls) {
 // is acknowledged quickly. The next empty response restores five seconds.
 // This is emitted as an idempotent, ownership-checked command, so existing
 // routers adopt the policy without a manual re-import or second installer.
+// The poll scheduler's on-event: skip this tick while a sync is still running.
+const POLL_GUARD_EVENT = ':if ([:len [/system script job find where script=\\"fiti-poll\\"]] = 0) do={ /system script run fiti-poll }';
 function tenantPollTuningScript(intervalSeconds = 5) {
   const interval = intervalSeconds === 1 ? '1s' : '5s';
   return [
@@ -4638,6 +4640,10 @@ function tenantPollTuningScript(intervalSeconds = 5) {
     // Only touch the scheduler when it differs: every "set" is logged, and a
     // set on every 5-second sync flooded the router log.
     `    :if (([/system scheduler get $fitiPollSchedulerId interval] != [:totime "${interval}"]) || ([/system scheduler get $fitiPollSchedulerId disabled] = true)) do={ /system scheduler set $fitiPollSchedulerId interval=${interval} disabled=no }`,
+    // One sync at a time. On a slow board (hAP lite) a sync can take longer
+    // than the interval; overlapping syncs piled up, held the CPU at 100% and
+    // crashed the console. Installed routers get the guard from here.
+    `    :if ([:typeof [:find [/system scheduler get $fitiPollSchedulerId on-event] "script job find"]] = "nil") do={ /system scheduler set $fitiPollSchedulerId on-event="${POLL_GUARD_EVENT}" }`,
     '    :if ($fitiPollRunCount = 0) do={',
     '      :local fitiPollStartDate [/system clock get date]',
     '      :local fitiPollStartTime [/system clock get time]',
@@ -4708,6 +4714,8 @@ function tenantRouterScript(location, options = {}) {
   if (!extra.length) return result;
   return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n') };
 }
+const portalPendingSince = new Map();
+const PORTAL_FAST_MS = 2 * 60_000;
 const inventoryRefreshAskedAt = new Map();
 const INVENTORY_REFRESH_LINE = ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }';
 // The separate 30-second layout timer is no longer used; the poll reply runs
@@ -4751,7 +4759,12 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
   // A network change from the owner's map also polls every second until the
   // router has confirmed it, so each step follows the last within a second.
   const changeInFlight = location.router_kit === 'universal' && routerChanges.hasActiveChange(location.id);
-  const fastPoll = Boolean(jobs.length || deployment || portal || changeInFlight);
+  // A waiting login-page update polls fast for two minutes at most; a router
+  // that cannot finish it (or keeps retrying) falls back to the normal pace.
+  let portalFast = false;
+  if (portal) { const since = portalPendingSince.get(location.id) || Date.now(); portalPendingSince.set(location.id, since); portalFast = Date.now() - since < PORTAL_FAST_MS; }
+  else portalPendingSince.delete(location.id);
+  const fastPoll = Boolean(jobs.length || deployment || portalFast || changeInFlight);
   const pollTuning = controls.length ? '' : tenantPollTuningScript(fastPoll ? 1 : 5);
   // Opening a Wi-Fi (removing its password) is only for the stable kit, which
   // built that Wi-Fi for customers. A universal-kit router's Wi-Fi may be the
