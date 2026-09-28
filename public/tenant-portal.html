@@ -391,7 +391,7 @@
     }
     async function pollPayment() {
       if (!checkout || !checkout.portalToken) return;
-      stop(); var version = generation, attempts = 0;
+      stop(); var version = generation, attempts = 0, lastAwaitingRouter = false;
       waiting('Check your phone', checkout.offline ? 'Complete your M-Pesa payment. Your package will be saved for this Wi‑Fi. Join the Wi‑Fi on the device you want to connect afterwards. Your one-time claim code is ' + (checkout.claimCode || 'shown here after payment') + '.' : 'Complete your M-Pesa payment. We will connect your WiFi automatically after confirmation.');
       async function check() {
         if (version !== generation || !checkout) return;
@@ -428,6 +428,7 @@
             checkout = null; write('_checkout', null); stop(); show('buy');
             message('error', result.reason || 'This payment was not completed.'); return;
           }
+          lastAwaitingRouter = Boolean(result.awaitingRouter);
           if (result.awaitingRouter) {
             message('waiting-title', 'Payment received');
             message('waiting-copy', 'The router is connecting your device. Your package is saved. Keep this page open and be ready to screenshot your connection details.');
@@ -444,7 +445,9 @@
           message('waiting-copy', 'Connection interrupted. We are checking again; do not make another payment.');
         }
         if (++attempts >= 150) { pauseWait('Confirmation is taking longer than expected. Check again or contact the operator; do not pay a second time.', pollPayment); return; }
-        timer = setTimeout(check, 2400);
+        // Paid and only the router left: check every second, so the receipt
+        // shows about a second after the router connects the device.
+        timer = setTimeout(check, lastAwaitingRouter ? 1000 : 2400);
       }
       check();
     }

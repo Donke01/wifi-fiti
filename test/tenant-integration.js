@@ -582,6 +582,11 @@ async function main() {
     assert.equal(request.Amount, alpha.package.price);
     assert.equal(request.BusinessShortCode, '174379');
     assert.equal(request.CallBackURL, 'https://wifi-fiti.example.test/api/mpesa/callback');
+    // While the customer is entering their PIN the router already polls every
+    // second, so the login reaches it about a second after payment.
+    const whilePaying = await routerSync(alpha.location);
+    assert.match(whilePaying.script, /interval=1s disabled=no/, 'the router polls every second while a customer is paying');
+    assert.equal(tenant.paymentInProgress(alpha.location.id), true);
     assert.equal((await api(statusPath)).status, 403);
     assert.equal((await api(statusPath, { portalToken: 'wrong-token' })).status, 403);
     assert.equal((await api(endpoint(bravo.location, `status/${id}`), { portalToken: payment.portalToken })).status, 404);
