@@ -127,6 +127,14 @@ function undoLines(change, id) {
   const tag = `Wi-Fi Fiti change ${id}`;
   const target = safe(change.target);
   const lines = [];
+  if (change.kind === 'rename') {
+    const from = safe(change.from);
+    lines.push(`:do { :if ([:len [/interface bridge find where name="${target}"]] = 1) do={ /interface bridge set [find where name="${target}"] name="${from}" } } on-error={}`);
+    if (change.job === 'hotspot') lines.push(...hotspotNameLines(target, from));
+    lines.push(`:if ([:len [/interface bridge find where name="${from}"]] != 1) do={ :error "fiti-undo-incomplete" }`);
+    lines.push(`:do { /system scheduler remove [find where name="fiti-revert-${id}"] } on-error={}`);
+    return lines;
+  }
   if (change.job === 'pppoe') {
     lines.push(`:do { :local p [/system script get [find where name="fiti-prev-${id}"] source]; :if ([:len $p] > 0) do={ /interface pppoe-server server set [find where comment="Wi-Fi Fiti PPPoE"] interface=$p } else={ :foreach s in=[/interface pppoe-server server find where comment="Wi-Fi Fiti PPPoE" and interface="${target}"] do={ /interface pppoe-server server set $s disabled=yes } } } on-error={}`);
   }
@@ -164,6 +172,16 @@ function undoLines(change, id) {
   for (const leftover of ['prev', 'prevdns', 'prevboot']) lines.push(`:do { /system script remove [find where name="fiti-${leftover}-${id}"] } on-error={}`);
   lines.push(`:do { /system scheduler remove [find where name="fiti-revert-${id}"] } on-error={}`);
   return lines;
+}
+
+// The poller keeps serving the hotspot after its bridge is renamed: its
+// global and the boot copy in fiti-map follow the new name.
+function hotspotNameLines(oldName, newName) {
+  return [
+    ':global fitiBridge',
+    `:if ($fitiBridge = "${oldName}") do={ :set fitiBridge "${newName}" }`,
+    `:do { :if ([/system script get [find where name="fiti-map"] comment] ~ "^Wi-Fi Fiti change") do={ /system script set [find where name="fiti-map"] source=${src([`:global fitiBridge "${newName}"`, `:global fitiHotspotServer "${HOTSPOT_NAME}"`])} } } on-error={}`,
+  ];
 }
 
 // Masks for prefix lengths 0-24: an existing network overlaps a candidate /24
@@ -297,6 +315,7 @@ function portFreeChecks(port) {
 
 /** The script a poll reply carries to apply one change. */
 function applyScript(change, id, context) {
+  if (change.kind === 'rename') return renameScript(change, id);
   const name = change.kind === 'bridge' ? safe(change.target) : null;
   const tag = `Wi-Fi Fiti change ${id}`;
   const lines = [
@@ -373,9 +392,15 @@ function applyScript(change, id, context) {
   const undoNow = `:local fitiUndoWhy "undo_incomplete"; :do { /system script run fiti-undo-${id}; /system script remove [find where name="fiti-undo-${id}"]; :set fitiUndoWhy "" } on-error={}`;
   lines.push(':local fitiApplied false', ':do {', ...body.map((l) => '  ' + l), '  :set fitiApplied true',
     `} on-error={ ${undoNow}; :local fitiWhyFail "router_rejected"; :if ([:len $fitiUndoWhy] > 0) do={ :set fitiWhyFail $fitiUndoWhy }; ${reportFetch(`&id=${id}&state=failed&reason=" . $fitiWhyFail . "`)} }`);
-  // 4. Keep it only if the router can still reach the cloud. After the cloud
-  //    confirms, the guard goes and the router says it kept the change.
-  const confirm = [
+  lines.push(`:if ($fitiApplied) do={ :execute script=${src(confirmLines(id, undoNow))} }`);
+  lines.push('} on-error={}');
+  return lines.join('\n');
+}
+
+// Keep a change only if the router can still reach the cloud. After the cloud
+// confirms, the guard goes and the router says it kept the change.
+function confirmLines(id, undoNow) {
+  return [
     ':global fitiUrl', ':global fitiToken', ':global fitiSite',
     ':local ok false', ':local i 0',
     ':while ((($ok = false) && ($i < 9))) do={',
@@ -397,8 +422,34 @@ function applyScript(change, id, context) {
     '  ' + reportFetch(`&id=${id}&state=reverted&reason=" . $fitiUndoWhy . "`),
     '}',
   ];
-  lines.push(`:if ($fitiApplied) do={ :execute script=${src(confirm)} }`);
-  lines.push('} on-error={}');
+}
+
+/** Rename a bridge Wi-Fi Fiti built. RouterOS keeps every reference to it. */
+function renameScript(change, id) {
+  const from = safe(change.from); const to = safe(change.target);
+  const tag = `Wi-Fi Fiti change ${id}`;
+  const undoNow = `:local fitiUndoWhy "undo_incomplete"; :do { /system script run fiti-undo-${id}; /system script remove [find where name="fiti-undo-${id}"]; :set fitiUndoWhy "" } on-error={}`;
+  const lines = [
+    `# Wi-Fi Fiti network change ${id}: rename ${from} to ${to}`,
+    ':do {',
+    ':global fitiUrl', ':global fitiToken', ':global fitiSite',
+    ':local fitiWhy ""',
+    `:if ([:len [/system script find where name="fiti-undo-${id}"]] > 0) do={ :set fitiWhy "already_delivered" }`,
+    `:if ([:len [/interface bridge find where name="${from}"]] != 1) do={ :set fitiWhy "interface_missing" }`,
+    `:if ([:len [/interface find where name="${to}"]] > 0) do={ :set fitiWhy "name_taken" }`,
+    `:do { :if (!([/interface bridge get [find where name="${from}"] comment] ~ "Wi-Fi Fiti")) do={ :set fitiWhy "not_fiti_bridge" } } on-error={}`,
+    `:if ([:len $fitiWhy] > 0) do={ ${reportFetch(`&id=${id}&state=failed&reason=" . $fitiWhy . "`)}; :error "fiti-change-preflight" }`,
+    `/system script add name="fiti-undo-${id}" policy=read,write,ftp,test,policy comment="${tag}" source=${src(undoLines(change, id))}`,
+    `/system scheduler add name="fiti-revert-${id}" start-time=startup policy=read,write,ftp,test,policy on-event="/system script run fiti-undo-${id}" comment="${tag}: undo if the router restarts before the cloud confirms"`,
+    ':local fitiApplied false',
+    ':do {',
+    `  /interface bridge set [find where name="${from}"] name="${to}"`,
+    ...(change.job === 'hotspot' ? hotspotNameLines(from, to).map((l) => '  ' + l) : []),
+    '  :set fitiApplied true',
+    `} on-error={ ${undoNow}; :local fitiWhyFail "router_rejected"; :if ([:len $fitiUndoWhy] > 0) do={ :set fitiWhyFail $fitiUndoWhy }; ${reportFetch(`&id=${id}&state=failed&reason=" . $fitiWhyFail . "`)} }`,
+    `:if ($fitiApplied) do={ :execute script=${src(confirmLines(id, undoNow))} }`,
+    '} on-error={}',
+  ];
   return lines.join('\n');
 }
 
@@ -432,7 +483,16 @@ function publicChange(row) {
     canUndo: ['applied', 'verified', 'mismatch'].includes(row.status) || row.reason === 'undo_incomplete' };
 }
 
-function listChanges(locationId) { return changesFor.all(locationId).map(publicChange); }
+function listChanges(locationId) {
+  return changesFor.all(locationId).map((row) => {
+    const change = publicChange(row);
+    if (row.kind === 'bridge') {
+      change.currentName = currentName(locationId, row.target, row.id);
+      change.canRename = ['applied', 'verified', 'mismatch'].includes(row.status);
+    }
+    return change;
+  });
+}
 function hasActiveChange(locationId) { return activeFor.all(locationId).length > 0; }
 
 function queueBatch(locationId, changes) {
@@ -440,7 +500,7 @@ function queueBatch(locationId, changes) {
   db.exec('BEGIN IMMEDIATE');
   try {
     changes.forEach((change, seq) => insertChange.run({ locationId, batchId, seq, kind: change.kind, target: change.target, job: change.job,
-      spec: JSON.stringify({ title: change.title, lines: change.lines, ports: change.ports, moves: change.moves }) }));
+      spec: JSON.stringify({ title: change.title, lines: change.lines, ports: change.ports, moves: change.moves, from: change.from }) }));
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
   return batchId;
@@ -451,7 +511,7 @@ function queueUndo(locationId, id) {
   if (!row) throw changeError('That change was not found.', 404);
   if (!['applied', 'verified', 'mismatch'].includes(row.status) && row.reason !== 'undo_incomplete') throw changeError('Only an applied change can be undone.', 409);
   if (hasActiveChange(locationId)) throw changeError('Wait for the change in progress to finish first.', 409);
-  const newer = db.prepare(`SELECT id FROM tenant_router_changes WHERE location_id=? AND job=? AND id>? AND status IN ('applied','verified','mismatch') LIMIT 1`).get(locationId, row.job, row.id);
+  const newer = db.prepare(`SELECT id FROM tenant_router_changes WHERE location_id=? AND job=? AND kind!='rename' AND id>? AND status IN ('applied','verified','mismatch') LIMIT 1`).get(locationId, row.job, row.id);
   if (newer) throw changeError(`Undo the newer ${jobLabel(row.job)} change first.`, 409);
   // A newer change that moved a port out of this bridge must be undone first,
   // or its port would have no bridge to go back to.
@@ -459,6 +519,7 @@ function queueUndo(locationId, id) {
   for (const other of later) {
     let spec = {}; try { spec = JSON.parse(other.spec_json); } catch (_) {}
     if ((spec.moves || []).some((m) => m.from === row.target)) throw changeError(`Undo ${other.target} first: it took a port from ${row.target}.`, 409);
+    if (spec.from === row.target) throw changeError(`Undo the rename to ${other.target} first.`, 409);
   }
   setStatus.run({ id: row.id, status: 'undo-queued', reason: null });
   return publicChange(changeById.get(id, locationId));
@@ -502,7 +563,7 @@ function nextScript(location, context, now = Date.now()) {
   if (!row) return '';
   let spec = {}; try { spec = JSON.parse(row.spec_json); } catch (_) {}
   if (row.status === 'undo-queued') { const script = undoScript(row.id); setStatus.run({ id: row.id, status: 'undo-sent', reason: null }); return script; }
-  const change = { kind: row.kind, target: row.target, job: row.job, ports: spec.ports || [], moves: spec.moves || [], title: spec.title || row.target };
+  const change = { kind: row.kind, target: row.target, job: row.job, ports: spec.ports || [], moves: spec.moves || [], title: spec.title || row.target, from: spec.from };
   let script;
   try { script = applyScript(change, row.id, context); } catch (error) {
     // Built before it is marked sent, so a change that cannot be built is
@@ -514,7 +575,7 @@ function nextScript(location, context, now = Date.now()) {
   return script;
 }
 
-const REASONS = new Set(['already_delivered', 'name_taken', 'port_changed', 'port_in_use', 'bridge_would_empty', 'vlan_filtering', 'interface_missing',
+const REASONS = new Set(['not_fiti_bridge', 'already_delivered', 'name_taken', 'port_changed', 'port_in_use', 'bridge_would_empty', 'vlan_filtering', 'interface_missing',
   'interface_in_use', 'wan_missing', 'hotspot_exists', 'no_free_subnet', 'subnet_check_failed', 'pppoe_ambiguous', 'router_rejected', 'undo_incomplete']);
 /** The router's answer about a change. Returns the reply body. */
 function routerAnswer(location, query) {
@@ -549,10 +610,13 @@ function routerAnswer(location, query) {
 /** The next layout report re-checks every applied change. */
 function matchesLayout(row, layout) {
   let spec = {}; try { spec = JSON.parse(row.spec_json); } catch (_) {}
-  const item = (layout.interfaces || []).find((i) => i.name === row.target);
+  // A bridge renamed later is checked under its current name.
+  const name = row.kind === 'bridge' ? currentName(row.location_id, row.target, row.id) : row.target;
+  const item = (layout.interfaces || []).find((i) => i.name === name);
   let ok = Boolean(item);
+  if (ok && row.kind === 'rename') ok = !(layout.interfaces || []).some((i) => i.name === spec.from);
   if (ok && row.kind === 'bridge') ok = (spec.ports || []).every((p) => (item.members || []).includes(p));
-  if (ok && row.job === 'hotspot') ok = (layout.hotspots || []).some((h) => h.interface === row.target && h.name === HOTSPOT_NAME);
+  if (ok && row.job === 'hotspot') ok = (layout.hotspots || []).some((h) => h.interface === name && h.name === HOTSPOT_NAME);
   return ok;
 }
 function recheck(locationId, layout) {
@@ -565,9 +629,38 @@ function recheck(locationId, layout) {
 }
 
 /** Where PPPoE runs on a universal-kit router, once a map put it somewhere. */
+const LIVE = "('applied','verified','mismatch')";
+/** What a bridge created by a change is called now, following later renames. */
+function currentName(locationId, name, afterId) {
+  const renames = db.prepare(`SELECT id, target, spec_json FROM tenant_router_changes WHERE location_id=? AND kind='rename' AND id>? AND status IN ${LIVE} ORDER BY id`).all(locationId, afterId);
+  let current = name;
+  for (const r of renames) { let spec = {}; try { spec = JSON.parse(r.spec_json); } catch (_) {} if (spec.from === current) current = r.target; }
+  return current;
+}
 function appliedPppoeInterface(locationId) {
-  const row = db.prepare(`SELECT target FROM tenant_router_changes WHERE location_id=? AND job='pppoe' AND status IN ('applied','verified','mismatch') ORDER BY id DESC LIMIT 1`).get(locationId);
-  return row ? row.target : '';
+  const row = db.prepare(`SELECT id, target FROM tenant_router_changes WHERE location_id=? AND job='pppoe' AND kind!='rename' AND status IN ${LIVE} ORDER BY id DESC LIMIT 1`).get(locationId);
+  return row ? currentName(locationId, row.target, row.id) : '';
+}
+
+/**
+ * Rename a bridge a map created. Checked against a fresh layout report, then
+ * sent like any other change: preflight, undo first, cloud confirm, verify.
+ */
+function queueRename(locationId, changeId, newName, layout, validName) {
+  const row = changeById.get(Number(changeId), locationId);
+  if (!row || row.kind !== 'bridge') throw changeError('That bridge was not found.', 404);
+  if (!['applied', 'verified', 'mismatch'].includes(row.status)) throw changeError('Only a bridge that is on the router can be renamed.', 409);
+  if (hasActiveChange(locationId)) throw changeError('Wait for the change in progress to finish first.', 409);
+  const from = currentName(locationId, row.target, row.id);
+  const to = String(newName || '').trim();
+  if (!validName.test(to)) throw changeError('Use a short name: letters, numbers, - or _, starting with a letter.');
+  if (to === from) throw changeError(`It is already called ${from}.`);
+  const items = (layout && layout.interfaces) || [];
+  if (!items.some((i) => i.name === from && i.type === 'bridge')) throw changeError(`${from} is not on the router's latest report.`, 409);
+  if (items.some((i) => i.name === to)) throw changeError(`${to} already exists on the router. Choose another name.`);
+  const lines = [`Rename bridge ${from} to ${to}.`, `Its ports, ${jobLabel(row.job)} service and settings stay exactly as they are.`];
+  queueBatch(locationId, [{ kind: 'rename', target: to, job: row.job, ports: [], moves: [], from, title: `${from} → ${to} · Rename`, lines }]);
+  return listChanges(locationId);
 }
 
 function batchSettled(locationId, batchId) {
@@ -575,5 +668,5 @@ function batchSettled(locationId, batchId) {
   return rows.length > 0 && rows.every((r) => ['applied', 'verified'].includes(r.status));
 }
 
-module.exports = { reviewPlan, applyScript, undoScript, undoLines, queueBatch, queueUndo, listChanges, hasActiveChange, nextScript, routerAnswer,
+module.exports = { queueRename, currentName, reviewPlan, applyScript, undoScript, undoLines, queueBatch, queueUndo, listChanges, hasActiveChange, nextScript, routerAnswer,
   recheck, appliedPppoeInterface, batchSettled, HOTSPOT_NAME, ACTIVE };

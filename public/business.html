@@ -473,6 +473,7 @@
 .rb-change-pill{padding:3px 9px;border-radius:99px;font-size:11px;font-weight:750}.rb-change-pill.ok{background:#dff7ec;color:#08785b}.rb-change-pill.wait{background:#e5efff;color:#1b5fc1}
 .rb-change-pill.warn{background:#fff3d6;color:#8a5a00}.rb-change-pill.bad{background:#ffe5e8;color:#9b1c2c}.rb-change-pill.off{background:#eef3f8;color:#536b85}
 .rb-undo{margin-top:8px;min-height:34px;padding:6px 12px;font-size:12px}
+.rb-change-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.rb-rename{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.rb-rename .rb-net-name{width:auto;min-width:0;flex:1 1 140px;min-height:34px}.rb-rename .error{flex-basis:100%}
 .rb-moves{margin:10px 0 0;padding:8px 11px;border-radius:10px;background:#fff7e3;color:#7a5200;font-size:12.5px;border:1px solid #f3dca4}
 .rb-add-here{border:1px dashed #22c58b;background:rgba(34,197,139,.1);color:#0f7a57;border-radius:999px;padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;line-height:1;cursor:pointer;min-height:32px}
 .rb-chip-quiet .rb-x{opacity:.25;pointer-events:none}
@@ -1719,7 +1720,7 @@
         if (cached.result.mapping && cached.result.mapping.status !== model.mappingStatus) return true;
         return Boolean(model.needsRouterMapping && Date.now() - Number(cached.fetchedAt || 0) > 8000);
       }
-      function plannerInUse() { if (document.querySelector('.rb-review')) return true; var active = document.activeElement; return Boolean(active && active.closest && active.closest('.rb-planner') && active.tagName === 'INPUT'); }
+      function plannerInUse() { if (document.querySelector('.rb-review')) return true; var active = document.activeElement; return Boolean(active && active.closest && active.closest('.rb-planner, .rb-changes') && active.tagName === 'INPUT'); }
       function requestRouterTopology(location, model) {
         if (!location || !token) return Promise.resolve(null);
         var key = String(location.id);
@@ -1908,7 +1909,7 @@
             var top = el('div', 'rb-net-top'); add(top, 'span', 'rb-chip mini', ''); var nameInput = el('input', 'rb-net-name'); nameInput.value = bridge.name; nameInput.maxLength = 24; nameInput.setAttribute('aria-label', 'Bridge name'); nameInput.addEventListener('input', function () { bridge.name = nameInput.value.trim(); dirty = true; syncParts(); saveState(); if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Save map'; } }); top.appendChild(nameInput);
             var removeBridge = add(top, 'button', 'rb-x', '×'); removeBridge.type = 'button'; removeBridge.setAttribute('aria-label', 'Remove ' + bridge.name); removeBridge.addEventListener('click', function (event) { event.stopPropagation(); draft.bridges.splice(index, 1); dirty = true; render(); });
             card.appendChild(top);
-            var jobs = el('div', 'rb-jobs'); ['hotspot', 'pppoe'].forEach(function (job) { var b = add(jobs, 'button', 'rb-job' + (bridge.job === job ? ' on' : ''), jobLabel(job)); b.type = 'button'; b.setAttribute('aria-pressed', String(bridge.job === job)); b.addEventListener('click', function (event) { event.stopPropagation(); bridge.job = job; dirty = true; render(); }); }); card.appendChild(jobs);
+            var jobs = el('div', 'rb-jobs'); ['hotspot', 'pppoe'].forEach(function (job) { var b = add(jobs, 'button', 'rb-job' + (bridge.job === job ? ' on' : ''), jobLabel(job)); b.type = 'button'; b.setAttribute('aria-pressed', String(bridge.job === job)); b.addEventListener('click', function (event) { event.stopPropagation(); if (bridge.job !== job && /^fiti-(hotspot|pppoe)(-\d+)?$/.test(bridge.name)) { bridge.name = ''; bridge.name = freshName(job); } bridge.job = job; dirty = true; render(); }); }); card.appendChild(jobs);
             var zone = el('div', 'rb-drop'); zone.setAttribute('aria-label', 'Parts in ' + bridge.name);
             if (!bridge.ports.length) add(zone, 'span', 'rb-drop-hint', selected ? 'Tap here to add ' + selected : 'Drop free parts here');
             bridge.ports.forEach(function (port) { var chip = add(zone, 'span', 'rb-port-chip'); add(chip, 'i', 'rb-led ' + ((byName[port] || {}).state === 'up' ? 'on' : 'off')); chip.appendChild(document.createTextNode(port)); var x = add(chip, 'button', 'rb-x small', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Take ' + port + ' out of ' + bridge.name); x.addEventListener('click', function (event) { event.stopPropagation(); if (selected) { assign(selected, bridge); return; } bridge.ports = bridge.ports.filter(function (p) { return p !== port; }); dirty = true; render(); }); if (selected) { x.tabIndex = -1; x.setAttribute('aria-hidden', 'true'); chip.classList.add('rb-chip-quiet'); } });
@@ -2018,18 +2019,35 @@
         previous_failed: 'An earlier change did not go through.', previous_reverted: 'An earlier change was put back.', previous_no_answer: 'An earlier change got no answer.',
         no_answer: 'The router did not answer. It may be offline, or it may have put the change back. Check its next report.',
         report_differs: 'The router’s latest report doesn’t match the change. Check the board above.',
+        not_fiti_bridge: 'That bridge was not built by Wi-Fi Fiti, so it keeps its name. Nothing was touched.',
         undo_failed: 'The router could not undo it.', undo_missing: 'The router no longer has the undo for this change.'
       };
       function appendRouterChanges(board, changes, location) {
         var section = el('section', 'rb-changes'); add(section, 'div', 'rb-row-label', 'Changes on the router');
+        var busy = changes.some(function (c) { return /^(queued|sent|confirming|undo-queued|undo-sent)$/.test(c.status); });
         changes.slice(0, 8).forEach(function (change) {
           var info = ROUTER_CHANGE_STATUS[change.status] || ['off', change.status];
           var row = el('div', 'rb-change ' + info[0]); var top = el('div', 'rb-change-top');
-          add(top, 'b', '', change.title); add(top, 'span', 'rb-change-pill ' + info[0], info[1]); row.appendChild(top);
+          add(top, 'b', '', change.title + (change.currentName && change.currentName !== change.target ? ' (now ' + change.currentName + ')' : '')); add(top, 'span', 'rb-change-pill ' + info[0], info[1]); row.appendChild(top);
           if (change.reason && ROUTER_CHANGE_REASON[change.reason]) add(row, 'small', '', ROUTER_CHANGE_REASON[change.reason]);
           add(row, 'small', 'rb-change-when', when(change.updatedAt));
-          if (change.canUndo) {
-            var undo = add(row, 'button', 'secondary rb-undo', 'Undo'); undo.type = 'button';
+          var actions = el('div', 'rb-change-actions'); row.appendChild(actions);
+          if (change.canRename && !busy) {
+            var renameOpen = add(actions, 'button', 'secondary rb-undo', 'Rename'); renameOpen.type = 'button';
+            renameOpen.addEventListener('click', function () {
+              renameOpen.remove(); var form = el('div', 'rb-rename'); var input = el('input', 'rb-net-name'); input.value = change.currentName || change.target; input.maxLength = 24; input.setAttribute('aria-label', 'New bridge name');
+              var go = add(form, 'button', 'rb-undo', 'Rename on router'); go.type = 'button'; form.insertBefore(input, go); var err = add(form, 'div', 'error'); actions.appendChild(form); input.focus(); input.select();
+              go.addEventListener('click', function () {
+                err.textContent = ''; setBusy(go, true, 'Sending…');
+                api('/api/business/locations/' + encodeURIComponent(location.id) + '/network-changes/' + encodeURIComponent(change.id) + '/rename', { method: 'POST', body: JSON.stringify({ name: input.value.trim() }) }).then(function (result) {
+                  var cached = routerTopologyCache[String(location.id)]; if (cached && cached.result) cached.result.changes = result.changes || [];
+                  input.blur(); renderOnboarding();
+                }).catch(function (error) { setBusy(go, false); err.textContent = error.message; });
+              });
+            });
+          }
+          if (change.canUndo && !busy) {
+            var undo = add(actions, 'button', 'secondary rb-undo', 'Undo'); undo.type = 'button';
             undo.addEventListener('click', function () {
               if (!undo.dataset.armed) { undo.dataset.armed = '1'; undo.textContent = 'Tap again to undo'; setTimeout(function () { if (undo.isConnected && undo.dataset.armed) { delete undo.dataset.armed; undo.textContent = 'Undo'; } }, 4000); return; }
               setBusy(undo, true, 'Undoing…');

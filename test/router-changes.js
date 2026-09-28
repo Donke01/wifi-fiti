@@ -205,6 +205,36 @@ async function pairedUniversal(token, name, report) {
   assert.equal(verified.canUndo, true);
   assert.equal((await kitale.answer(`id=${id}&state=applied`)).text, 'not-confirmed', 'a settled change is not re-confirmed');
 
+  // Rename the bridge on the router; PPPoE follows it.
+  const renameUrl = `${base}/network-changes/${id}/rename`;
+  assert.equal((await api(renameUrl, { method: 'POST', token: bravo, body: { name: 'fiti-ppp' } })).status, 404, 'another business cannot rename it');
+  assert.equal((await api(renameUrl, { method: 'POST', token: alpha, body: { name: 'bridge-hs' } })).status, 400, 'a name already on the router is refused');
+  assert.equal((await api(renameUrl, { method: 'POST', token: alpha, body: { name: 'bad name' } })).status, 400);
+  const renamed = await api(renameUrl, { method: 'POST', token: alpha, body: { name: 'fiti-ppp' } });
+  assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+  const renameReply = await kitale.poll(after);
+  const renameId = (renameReply.text.match(/# Wi-Fi Fiti network change (\d+): rename fiti-pppoe to fiti-ppp/) || [])[1];
+  assert.ok(renameId, renameReply.text.slice(0, 300));
+  assert.match(renameReply.text, /\/interface bridge set \[find where name="fiti-pppoe"\] name="fiti-ppp"/);
+  assert.match(renameReply.text, /not_fiti_bridge/, 'only a bridge Wi-Fi Fiti built is renamed');
+  assert.match(renameReply.text, /fiti-undo-.*name=\\"fiti-ppp\\"\] name=\\"fiti-pppoe\\"/, 'its undo renames it back');
+  assert.equal((await kitale.answer(`id=${renameId}&state=applied`)).text, 'confirmed');
+  await kitale.answer(`id=${renameId}&state=kept`);
+  assert.equal(pppoe.customerBridgeFor(kitale.location.id), 'fiti-ppp', 'the PPPoE page follows the new name');
+  const renamedLayout = after.replace(/fiti-pppoe/g, 'fiti-ppp');
+  await kitale.poll(renamedLayout);
+  const afterRename = (await topo()).body.changes;
+  assert.equal(afterRename.find((c) => String(c.id) === renameId).status, 'verified');
+  assert.equal(afterRename.find((c) => String(c.id) === id).currentName, 'fiti-ppp');
+  assert.equal(afterRename.find((c) => String(c.id) === id).status, 'verified', 'the renamed bridge still checks out');
+  const blockedByRename = await api(`${base}/network-changes/${id}/undo`, { method: 'POST', token: alpha });
+  assert.equal(blockedByRename.status, 409);
+  assert.match(blockedByRename.body.error, /Undo the rename to fiti-ppp first/);
+  assert.equal((await api(`${base}/network-changes/${renameId}/undo`, { method: 'POST', token: alpha })).status, 200);
+  assert.match((await kitale.poll(renamedLayout)).text, new RegExp(`/system script run fiti-undo-${renameId}`));
+  await kitale.answer(`id=${renameId}&state=undone`);
+  assert.equal(pppoe.customerBridgeFor(kitale.location.id), 'fiti-pppoe', 'undoing the rename brings the old name back');
+
   // Undo one change later.
   assert.equal((await api(`${base}/network-changes/${id}/undo`, { method: 'POST', token: bravo })).status, 404);
   const undo = await api(`${base}/network-changes/${id}/undo`, { method: 'POST', token: alpha });

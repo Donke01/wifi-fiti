@@ -1779,6 +1779,10 @@ app.post('/api/business/locations/:locationId/network-changes/:changeId/undo', n
   const changes = tenant.undoRouterChange({ locationId: String(req.params.locationId), businessId: business.id, changeId: req.params.changeId });
   return changes && { changes };
 }, 'Could not undo this change.'));
+app.post('/api/business/locations/:locationId/network-changes/:changeId/rename', networkChangeRoute((business, req) => {
+  const changes = tenant.renameRouterBridge({ locationId: String(req.params.locationId), businessId: business.id, changeId: req.params.changeId, name: req.body && req.body.name });
+  return changes && { changes };
+}, 'Could not rename this bridge.'));
 
 // Confirmation stores descriptive dashboard metadata only. The tenant layer
 // requires every requested WAN, bridge, Wi-Fi interface and customer port to

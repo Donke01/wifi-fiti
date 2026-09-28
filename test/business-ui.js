@@ -384,3 +384,5 @@ assert.match(html, /\.router-map\.rb-settled,\.rb-settled \.router-port,\.rb-set
 assert.match(html, /\/network-plan\/apply', \{ method: 'POST', body: JSON\.stringify\(\{ confirm: true \}\) \}/, 'applying sends an explicit confirmation');
 assert.match(html, /tick\.addEventListener\('change', function \(\) \{ go\.disabled = !tick\.checked; \}\);/, 'Apply stays disabled until the owner ticks that they read the changes');
 assert.match(html, /undo\.textContent = 'Tap again to undo'/, 'undo needs a second tap');
+assert.match(html, /if \(bridge\.job !== job && \/\^fiti-\(hotspot\|pppoe\)\(-\\d\+\)\?\$\/\.test\(bridge\.name\)\) \{ bridge\.name = ''; bridge\.name = freshName\(job\); \}/, 'switching a job renames a default bridge name, never one the owner typed');
+assert.match(html, /\/network-changes\/' \+ encodeURIComponent\(change\.id\) \+ '\/rename'/, 'a Wi-Fi Fiti bridge can be renamed from the dashboard');
