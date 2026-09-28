@@ -3400,7 +3400,7 @@ function saveRouterPlan({ locationId, businessId, plan }) {
   if (!location) return null;
   if (location.router_kit !== 'universal') throw remoteAccessError('Network mapping is available for routers paired with the universal kit.', 409);
   const layout = routerInventoryForLocation(locationId);
-  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Wait for a fresh layout report from the router (it comes every 30 seconds) before saving the map.', 409);
+  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Your router’s latest report is a few minutes old, so the map can’t be checked yet. A fresh one normally arrives within 30 seconds: keep the router online and tap Save again in a moment.', 409);
   const normalized = validateNetworkPlan(plan, layout);
   upsertRouterPlan.run(locationId, JSON.stringify(normalized));
   return routerPlanForLocation(locationId);
@@ -3436,7 +3436,7 @@ function reviewRouterPlan({ locationId, businessId }) {
   const busy = rc.hasActiveChange(locationId);
   const blockers = review.blockers.slice();
   if (!plan) blockers.push('Save a map first.');
-  if (plan && layout && !fresh) blockers.push('Wait for a fresh layout report from the router before applying.');
+  if (plan && layout && !fresh) blockers.push('Your router’s latest report is a few minutes old. A fresh one normally arrives within 30 seconds: keep the router online and open the review again in a moment.');
   if (busy) blockers.push('A change is already on its way to the router. Wait for it to finish.');
   if (plan && !review.changes.length && !review.blockers.length) blockers.push('Nothing on this map needs changing on the router.');
   return { changes: review.changes.map(({ title, lines, job, target }) => ({ title, lines, job, target })), notes: review.notes, blockers, canApply: !blockers.length };
@@ -3447,7 +3447,7 @@ function applyRouterPlan({ locationId, businessId, confirm }) {
   const plan = routerPlanForLocation(locationId);
   if (!plan) throw remoteAccessError('Save a map first.', 409);
   const layout = routerInventoryForLocation(locationId);
-  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Wait for a fresh layout report from the router before applying.', 409);
+  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Your router’s latest report is a few minutes old. A fresh one normally arrives within 30 seconds: try again in a moment.', 409);
   // The router may have changed since the map was saved: check it again.
   validateNetworkPlan(plan, layout);
   const rc = routerChanges();
@@ -3466,7 +3466,7 @@ function undoRouterChange({ locationId, businessId, changeId }) {
 function renameRouterBridge({ locationId, businessId, changeId, name }) {
   if (!universalLocationFor(locationId, businessId)) return null;
   const layout = routerInventoryForLocation(locationId);
-  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Wait for a fresh layout report from the router before renaming.', 409);
+  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Your router’s latest report is a few minutes old. A fresh one normally arrives within 30 seconds: try the rename again in a moment.', 409);
   return routerChanges().queueRename(locationId, changeId, name, layout, /^[A-Za-z][A-Za-z0-9_-]{0,23}$/);
 }
 function routerChangesForLocation(locationId) { return routerChanges().listChanges(locationId); }

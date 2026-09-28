@@ -474,6 +474,23 @@
 .rb-change-pill.warn{background:#fff3d6;color:#8a5a00}.rb-change-pill.bad{background:#ffe5e8;color:#9b1c2c}.rb-change-pill.off{background:#eef3f8;color:#536b85}
 .rb-undo{margin-top:8px;min-height:34px;padding:6px 12px;font-size:12px}
 .rb-change-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.rb-rename{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.rb-rename .rb-net-name{width:auto;min-width:0;flex:1 1 140px;min-height:34px}.rb-rename .error{flex-basis:100%}
+.patience{margin:10px 0;padding:14px 16px;border:1px solid #cfe0f5;border-radius:16px;background:linear-gradient(135deg,#ffffff,#f1f7ff);box-shadow:0 10px 30px -18px rgba(23,80,160,.45)}
+.patience-top{display:flex;align-items:center;gap:12px}.patience-top>div{flex:1;min-width:0}.patience-top strong{display:block;font-size:15px;color:#10233b}.patience-usual{display:block;margin-top:2px;color:#5a6f86;font-size:12px}
+.patience-clock{flex:none;padding:4px 10px;border-radius:99px;background:#e5efff;color:#1b5fc1;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
+.patience-orb{position:relative;flex:none;width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#8fd3ff,#2b7de0)}
+.patience-orb i{position:absolute;inset:-5px;border-radius:50%;border:2px solid rgba(43,125,224,.35)}
+.patience-steps{display:flex;flex-wrap:wrap;gap:6px 14px;margin:12px 0 4px;padding:0;list-style:none;counter-reset:pstep}
+.patience-steps li{counter-increment:pstep;display:flex;align-items:center;gap:6px;color:#8093a8;font-size:12.5px}
+.patience-steps li::before{content:counter(pstep);display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#e9eff6;color:#6a7f96;font-size:11px;font-weight:800}
+.patience-steps li.done{color:#0f7a57}.patience-steps li.done::before{content:"✓";background:#dff7ec;color:#0f7a57}
+.patience-steps li.now{color:#10233b;font-weight:700}.patience-steps li.now::before{background:#2b7de0;color:#fff}
+.patience-message{margin:8px 0 0;color:#33475e;font-size:13.5px;line-height:1.5;min-height:1.5em}
+.patience-slow{margin:8px 0 0;padding:8px 11px;border-radius:10px;background:#fff7e3;color:#7a5200;font-size:12.5px;line-height:1.45;border:1px solid #f3dca4}
+@media (prefers-reduced-motion:no-preference){.patience-orb i{animation:patiencePulse 2.4s ease-out infinite}.patience-orb i:nth-child(2){animation-delay:.8s}.patience-orb i:nth-child(3){animation-delay:1.6s}.patience-steps li.now::before{animation:patienceBeat 1.6s ease-in-out infinite}.patience-message{animation:patienceFade .6s ease}}
+@media (max-width:520px){.patience{padding:12px 13px}.patience-top{flex-wrap:wrap;row-gap:8px}.patience-top>div{flex:1 1 calc(100% - 46px)}.patience-clock{margin-left:46px}.patience-orb{width:30px;height:30px}}
+@keyframes patiencePulse{0%{transform:scale(.7);opacity:.9}100%{transform:scale(1.6);opacity:0}}
+@keyframes patienceBeat{0%,100%{box-shadow:0 0 0 0 rgba(43,125,224,.45)}50%{box-shadow:0 0 0 6px rgba(43,125,224,0)}}
+@keyframes patienceFade{from{opacity:.2}to{opacity:1}}
 .rb-keep-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:8px 11px;border-radius:10px;background:#eef4ff;border:1px solid #cddcf5}.rb-keep-label{font-size:12px;font-weight:750;color:#1d3f73}.rb-keep-row small{flex-basis:100%;color:#445a74;font-size:12px}
 .rb-keep-chip{background:#1d3f73}.rb-part.rb-kept{outline:2px dashed #7fa6e6;outline-offset:-4px}
 .rb-moves{margin:10px 0 0;padding:8px 11px;border-radius:10px;background:#fff7e3;color:#7a5200;font-size:12.5px;border:1px solid #f3dca4}
@@ -1698,6 +1715,12 @@
           var recovery = el('section', 'connection-recovery'); add(recovery, 'h4', '', 'Still waiting for the router?'); add(recovery, 'p', '', 'Wi-Fi Fiti already retries through its outbound polling link. Do not switch protocols. Review the WAN check, then use a fresh kit only if the router configuration changed.'); var actions = el('div', 'buttons'); setupAction(actions, 'Review WAN preparation', 'secondary', function () { setConnectionPhase(model.location, 'prepare'); renderOnboarding(); }); recovery.appendChild(actions); body.appendChild(recovery);
         }
       }
+      function appendPairingPatience(body, model) {
+        appendPatienceCard(body, { key: 'pair-' + (model.location && model.location.id), title: 'Connecting your router', usual: 'Usually under a minute after you paste the kit',
+          steps: ['Router downloads the kit', 'Router proves it belongs to you', 'First secure check-in'], current: 0,
+          messages: ['Your router is introducing itself to Wi-Fi Fiti…', 'Nothing on your network is being changed while it pairs.', 'Keep the router plugged in and online. This page updates by itself.', 'Almost there. The first secure check-in usually lands within a minute.'],
+          slowAfter: 90, slowText: 'Taking longer than usual? Look at the router terminal: a red error line tells us what went wrong. The router needs internet on its WAN port; run the DHCP preparation step on a freshly reset router.' });
+      }
       function appendConnectionState(body, model) {
         var state = el('div', 'connection-state ' + (!model.paired ? 'waiting' : model.syncHealthy ? '' : 'offline')); var icon = add(state, 'div', 'connection-state-icon', model.syncHealthy ? '✓' : model.paired ? '!' : '◌'); var copy = el('div');
         if (model.syncHealthy) { add(copy, 'h4', '', 'Router verified'); add(copy, 'p', '', 'The router completed a secure sync. Next, Wi-Fi Fiti reads the real ports and Wi-Fi interfaces so you can confirm the map.'); }
@@ -1706,6 +1729,8 @@
         else if (model.paired && routerHealthLabel(model.location)) { add(copy, 'h4', '', 'Router setup needs attention'); add(copy, 'p', '', routerHealthLabel(model.location) + '. Correct the router setting, then leave the kit running; Wi-Fi Fiti will verify the next secure sync automatically.'); }
         else if (model.paired) { add(copy, 'h4', '', 'Router needs to reconnect'); add(copy, 'p', '', 'This router paired before, but no recent secure sync is reaching Wi-Fi Fiti. Restore WAN access and keep the polling script enabled.'); }
         else { add(copy, 'h4', '', 'Waiting for the router'); add(copy, 'p', '', 'Create a kit, paste it into RouterOS, then leave this page open. Wi-Fi Fiti checks the first connection automatically.'); }
+        var savedKit = model.location && getSetups()[String(model.location.id)];
+        var pairingWait = Boolean(savedKit && savedKit.token) && !model.syncHealthy && !model.freshKitRequired && (routerPairingPending(model.location) || !model.paired);
         var actions = el('div', 'buttons');
         if (model.syncHealthy) { var next = setupAction(actions, 'Next: map router', '', function () { confirmFreshOnboardingRouter(next, function (current) { advanceOnboardingStage(current, 3, ''); }); }); }
         else if (model.freshKitRequired) {
@@ -1716,6 +1741,7 @@
         if (!model.syncHealthy && !model.freshKitRequired && (routerPairingPending(model.location) || model.paired)) add(copy, 'p', 'setup-check-note', 'Wi-Fi Fiti checks this router automatically every 5 seconds while this page is open.');
         var error = add(copy, 'div', 'onboarding-error', ''); error.setAttribute('aria-live', 'polite');
         copy.appendChild(actions); state.appendChild(icon); state.appendChild(copy); body.appendChild(state);
+        if (pairingWait) appendPairingPatience(body, model);
       }
       function routerTopologyUrl(location) { return '/api/business/locations/' + encodeURIComponent(location.id) + '/router-topology'; }
       function routerMappingUrl(location) { return '/api/business/locations/' + encodeURIComponent(location.id) + '/router-mapping'; }
@@ -2047,6 +2073,23 @@
       };
       function appendRouterChanges(board, changes, location) {
         var section = el('section', 'rb-changes'); add(section, 'div', 'rb-row-label', 'Changes on the router');
+        var inFlight = changes.filter(function (c) { return /^(queued|sent|confirming|applied|undo-queued|undo-sent)$/.test(c.status); })[0];
+        if (inFlight) {
+          var undoing = /^undo/.test(inFlight.status);
+          var stepIndex = undoing ? (inFlight.status === 'undo-queued' ? 0 : 1) : ({ queued: 0, sent: 1, confirming: 2, applied: 3 })[inFlight.status];
+          var byStatus = {
+            queued: 'Your change is on its way to the router. It picks it up within a few seconds.',
+            sent: 'Your router has the change and is double-checking everything before touching anything.',
+            confirming: 'Change made. The router is proving it can still reach Wi-Fi Fiti before keeping it.',
+            applied: 'Kept. Waiting for the router’s next report to confirm everything is in place.',
+            'undo-queued': 'The undo is on its way to the router.', 'undo-sent': 'The router is putting things back the way they were.'
+          };
+          appendPatienceCard(section, { key: 'change-' + inFlight.id + '-' + inFlight.status, startedAt: inFlight.createdAt,
+            title: (undoing ? 'Undoing ' : 'Applying ') + inFlight.title, usual: 'Usually under a minute; slower routers can take a few',
+            steps: undoing ? ['Sending the undo', 'Router puts things back'] : ['Sending to your router', 'Router checks and applies it', 'Router confirms it is still online', 'Final check of its report'], current: stepIndex,
+            messages: [byStatus[inFlight.status] || 'Working on it…', 'If anything goes wrong, the router puts everything back by itself.', 'You can leave this page. The router finishes on its own and this list updates.', 'Keep the router powered on and online until this says Done.'],
+            slowAfter: 60, slowText: 'Taking a little longer. Slower routers like the hAP lite can need a few minutes. Nothing is broken: if the router cannot finish safely, it undoes the change by itself.' });
+        }
         var busy = changes.some(function (c) { return /^(queued|sent|confirming|undo-queued|undo-sent)$/.test(c.status); });
         // While a change is on its way, follow it every 3 seconds without a reload.
         var stillChecking = busy || changes.some(function (c) { return c.status === 'applied'; });
@@ -2096,6 +2139,49 @@
         });
         board.appendChild(section);
       }
+      // Waiting guides: every wait in setup says what is happening, how long it
+      // usually takes and that nothing is broken. One ticker updates every
+      // card's elapsed time and rotates its reassurance messages.
+      var patienceStarted = {};
+      function patienceSince(key, startedAt) {
+        if (startedAt) { var t = new Date(/(?:Z|[+-]\d\d:?\d\d)$/.test(String(startedAt)) ? startedAt : String(startedAt).replace(' ', 'T') + 'Z').getTime(); if (!Number.isNaN(t)) return t; }
+        if (!patienceStarted[key]) patienceStarted[key] = Date.now();
+        return patienceStarted[key];
+      }
+      function elapsedLabel(ms) { var sec = Math.max(0, Math.floor(ms / 1000)); var m = Math.floor(sec / 60); return m ? m + ' min ' + (sec % 60) + ' s' : sec + ' s'; }
+      function appendPatienceCard(parent, options) {
+        var card = el('section', 'patience'); card.setAttribute('role', 'status'); card.setAttribute('aria-live', 'polite');
+        card.dataset.since = String(patienceSince(options.key, options.startedAt));
+        card.dataset.slowAfter = String(options.slowAfter || 90);
+        var top = el('div', 'patience-top'); var orb = add(top, 'span', 'patience-orb'); orb.setAttribute('aria-hidden', 'true'); add(orb, 'i'); add(orb, 'i'); add(orb, 'i');
+        var heading = el('div'); add(heading, 'strong', '', options.title); add(heading, 'small', 'patience-usual', options.usual || ''); top.appendChild(heading);
+        add(top, 'span', 'patience-clock', ''); card.appendChild(top);
+        if (options.steps && options.steps.length) {
+          var list = el('ol', 'patience-steps');
+          options.steps.forEach(function (step, index) { var item = add(list, 'li', index < options.current ? 'done' : index === options.current ? 'now' : '', step); item.setAttribute('aria-current', index === options.current ? 'step' : 'false'); });
+          card.appendChild(list);
+        }
+        var message = add(card, 'p', 'patience-message', (options.messages || [])[0] || '');
+        message.dataset.messages = JSON.stringify(options.messages || []);
+        var slow = add(card, 'p', 'patience-slow', options.slowText || ''); slow.hidden = true;
+        parent.appendChild(card); tickPatience(); ensurePatienceTicker();
+        return card;
+      }
+      var patienceTicker = null;
+      function tickPatience() {
+        var now = Date.now();
+        document.querySelectorAll('.patience').forEach(function (card) {
+          var elapsed = now - Number(card.dataset.since || now);
+          var clock = card.querySelector('.patience-clock'); if (clock) clock.textContent = elapsedLabel(elapsed);
+          var message = card.querySelector('.patience-message'); var list = []; try { list = JSON.parse(message.dataset.messages || '[]'); } catch (_) {}
+          if (list.length > 1) { var next = list[Math.floor(elapsed / 7000) % list.length]; if (message.textContent !== next) message.textContent = next; }
+          var slow = card.querySelector('.patience-slow'); if (slow && slow.textContent) slow.hidden = elapsed < Number(card.dataset.slowAfter || 90) * 1000;
+        });
+      }
+      function ensurePatienceTicker() {
+        if (patienceTicker) return;
+        patienceTicker = setInterval(function () { if (!document.querySelector('.patience')) { clearInterval(patienceTicker); patienceTicker = null; return; } tickPatience(); }, 1000);
+      }
       function appendRouterInventory(parent, inventory) {
         var panel = el('section', 'router-inventory');
         var head = el('div', 'router-inventory-head'); add(head, 'strong', '', 'Everything on this router');
@@ -2128,6 +2214,13 @@
         var entry = cachedRouterTopology(location); if (routerTopologyNeedsRefresh(location, model)) requestRouterTopology(location, model);
         var snapshot = entry && entry.result; var mapping = snapshot && snapshot.mapping || location.routerMapping || {}; var box = el('section', 'router-map'); add(box, 'h4', '', 'Confirm your router map'); add(box, 'p', '', 'Wi-Fi Fiti reads the router’s real layout first. Confirm which connection is WAN and which ports and Wi-Fi belong to customers.');
         if (!snapshot || !snapshot.topology) {
+          if (!(entry && entry.error)) {
+            appendPatienceCard(box, { key: 'topology-' + location.id, title: 'Reading your router', usual: 'Usually under a minute',
+              steps: ['Router paired', 'Reading its ports and Wi-Fi', 'Showing your routerboard'], current: 1,
+              messages: ['Your router is sending its first report…', 'Nothing on your network is being changed. Wi-Fi Fiti is only reading.', 'Hang in there, your routerboard will appear here by itself.'],
+              slowAfter: 90, slowText: 'Still waiting. Make sure the router has internet on its WAN port; it retries on its own.' });
+            body.appendChild(box); return;
+          }
           var waiting = el('div', 'router-map-status waiting'); add(waiting, 'span', 'map-status-mark', '…'); var waitingCopy = el('div'); add(waitingCopy, 'strong', '', entry && entry.error ? 'Could not read router inventory' : 'Reading router inventory'); add(waitingCopy, 'p', '', entry && entry.error ? entry.error : 'The secure router connection is active. Wi-Fi Fiti will display the router’s ports and Wi-Fi interfaces as soon as its next inventory check arrives.'); waiting.appendChild(waitingCopy); box.appendChild(waiting); var waitingActions = el('div', 'buttons'); var retry = setupAction(waitingActions, entry && entry.error ? 'Try again' : 'Check router map', 'secondary', function () { delete routerTopologyCache[String(location.id)]; requestRouterTopology(location, model); }); box.appendChild(waitingActions); body.appendChild(box); return;
         }
         var topology = snapshot.topology; var isFresh = Boolean(snapshot.inventory && snapshot.inventory.fresh); var status = String(mapping.status || 'needs_confirmation');
@@ -2139,7 +2232,12 @@
         // and what each part already does. Mapping where customers connect is next.
         if (location.router_kit === 'universal') {
           if (snapshot.layout) appendRouterLayoutBoard(box, snapshot.layout, location, snapshot.plan || null, snapshot.changes || []);
-          else { appendRouterPortMap(box, topology, mapping.mapping || null); appendRouterInventory(box, null); }
+          else {
+            appendPatienceCard(box, { key: 'layout-' + location.id, title: 'Reading your router', usual: 'Usually about 30 seconds after pairing',
+              steps: ['Router paired', 'Counting ports, bridges and VLANs', 'Showing your routerboard'], current: 1,
+              messages: ['Your router is counting its ports and bridges…', 'This is read-only: Wi-Fi Fiti is only looking, nothing on your network changes.', 'Checking what already runs there, so none of it gets disturbed.', 'Your routerboard appears here by itself. No need to reload.'],
+              slowAfter: 90, slowText: 'Taking a little longer than usual. Keep the router online; the report retries every 30 seconds by itself.' });
+          }
           body.appendChild(box); return;
         }
         appendRouterPortMap(box, topology, mapping.mapping || null);
