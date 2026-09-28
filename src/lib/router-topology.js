@@ -530,7 +530,30 @@ function validateNetworkPlan(input, layout) {
     const job = String(raw && raw.job || '');
     if (!PLAN_JOBS.has(job)) throw planError(`Choose Hotspot or PPPoE for ${name}.`);
     jobs.push(job);
-    return { interface: name, job, alreadyRunning: job === 'hotspot' ? hotspotOn.has(name) : pppoeOn.has(name) };
+    const alreadyRunning = job === 'hotspot' ? hotspotOn.has(name) : pppoeOn.has(name);
+    // Customer Wi-Fi added to a hotspot that already runs on this bridge: one
+    // free radio (switched off: taken over) or one that is on (the owner's
+    // Wi-Fi keeps working; customers get a second network on it).
+    let wifi;
+    if (raw && raw.wifi) {
+      if (job !== 'hotspot' || !alreadyRunning || item.type !== 'bridge') throw planError(`Customer Wi-Fi can only be added to the bridge that already runs the hotspot.`);
+      // As drawn ({ radio }) or as saved ({ radios: [{ name }] }), checked again before it is applied.
+      const radio = String(raw.wifi.radio || (Array.isArray(raw.wifi.radios) && raw.wifi.radios[0] && raw.wifi.radios[0].name) || '').trim();
+      const radioItem = byName.get(radio);
+      if (!radioItem || !RADIO_TYPES.has(radioItem.type)) throw planError(`${radio || 'That radio'} is not a Wi-Fi radio on this router's latest report.`);
+      // Already on the air in this bridge (a saved map checked again after it
+      // was applied): nothing left to add.
+      const onAir = (item.members || []).some((m) => m === radio || /^fiti-(wlan|wifi)-\d+$/.test(m));
+      if (onAir) return { interface: name, job, alreadyRunning };
+      if (!radioItem.free && !radioItem.shareWifi) throw planError(`${radio} is already in use, so it stays as it is.`);
+      if (keep.includes(radio) || usedPorts.has(radio)) throw planError(`${radio} is already used elsewhere on this map.`);
+      usedPorts.add(radio);
+      const ssid = String(raw.wifi.ssid || '').trim();
+      if (!ssid) throw planError(`Give the customer Wi-Fi on ${name} a name.`);
+      if (!PLAN_SSID.test(ssid)) throw planError('The Wi-Fi name can be up to 32 characters, without quotes, backslashes or $.');
+      wifi = { ssid, radios: [{ name: radio, type: radioItem.type, mode: radioItem.shareWifi ? 'virtual' : 'takeover' }] };
+    }
+    return { interface: name, job, alreadyRunning, ...(wifi ? { wifi } : {}) };
   });
   if (!bridges.length && !existing.length) throw planError('Add a bridge or choose an existing bridge or VLAN first.');
   keep.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));

@@ -447,7 +447,7 @@
 .rb-planner{position:relative;z-index:1;margin-top:4px;padding:16px;border:1px solid rgba(170,200,232,.8);border-radius:18px;background:linear-gradient(160deg,rgba(255,255,255,.92),rgba(238,246,255,.78));box-shadow:inset 0 1px #fff}
 .rb-planner-head strong{display:block;color:var(--ink);font-size:15px}.rb-planner-head small{display:block;margin-top:3px;color:#60768e;font-size:12px;line-height:1.45}
 .rb-planner-tools{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.rb-planner-tools select{width:auto;min-width:220px;min-height:40px}
-.rb-networks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.rb-networks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:12px}
 .rb-net{position:relative;display:grid;gap:10px;padding:12px;border:1.5px solid #cbdced;border-radius:16px;background:#fff;box-shadow:0 10px 24px -16px rgba(26,72,128,.4);transition:box-shadow .25s,border-color .25s,translate .25s}
 .rb-net.job-hotspot{border-color:#9edfc9;background:linear-gradient(165deg,#fff,#effcf6)}.rb-net.job-pppoe{border-color:#c8b9ef;background:linear-gradient(165deg,#fff,#f6f2ff)}
 .rb-net.rb-drop-hover{translate:0 -3px;border-color:#1769d8;box-shadow:0 0 0 3px rgba(23,105,216,.2),0 16px 30px -14px rgba(23,105,216,.5)}
@@ -546,7 +546,7 @@
 .rb-quick-top{display:flex;gap:12px;align-items:flex-start}.rb-quick-top strong{display:block;color:#0b4a33;font-size:15.5px}.rb-quick-top small{display:block;margin-top:3px;color:#2e5f4b;font-size:12.5px;line-height:1.45}
 .rb-quick-icon{flex:none;width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#1fc98a,#0a9d6b);color:#fff;display:grid;place-items:center;font-weight:800;box-shadow:0 8px 18px -8px rgba(10,157,107,.8)}
 .rb-quick-list{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:6px}.rb-quick-list li{display:flex;gap:8px;align-items:baseline;font-size:13.5px;color:#163a2c;line-height:1.45}.rb-quick-list li::before{content:"✓";color:#0a9d6b;font-weight:800}
-.rb-quick .rb-wifi-field{margin-top:12px}.rb-quick-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:14px}.rb-quick-foot small{color:#2e5f4b;font-size:12.5px}
+.rb-tools-note{flex-basis:100%;color:#51607a;font-size:12.5px;line-height:1.45}.rb-quick .rb-wifi-field{margin-top:12px}.rb-quick-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:14px}.rb-quick-foot small{color:#2e5f4b;font-size:12.5px}
 .rb-quick .error:empty{display:none}
 @media (max-width:520px){.rb-quick{padding:14px 13px}.rb-quick-foot button{width:100%}}
 .rb-reserve{margin-top:12px;padding:13px 14px;border-radius:16px;border:1px solid #c9b8ff;background:linear-gradient(135deg,#f5f0ff,#eaf3ff);box-shadow:0 12px 30px -20px rgba(95,60,200,.55)}
@@ -1090,9 +1090,9 @@
         toolbar('sales-section', '<input type="search" placeholder="Search payments…" aria-label="Search payments"><select aria-label="Payment source"><option>All sources</option><option>Mobile Money</option><option>Vouchers</option></select><button type="button" class="secondary" data-export-table="sales">Export</button>');
         toolbar('billing-section', '<span class="export-note">Workspace access is included. Prepaid network-service receipts are retained in the billing module.</span>');
         toolbar('collection-section', '<button type="button" class="secondary" data-jump="collection-section">Add payment gateway</button><span class="export-note">Credentials remain encrypted and are never displayed.</span>');
-        toolbar('analytics-section', '<select aria-label="Analytics location"><option>All locations</option></select><select aria-label="Analytics metric"><option>Devices</option><option>Sessions</option><option>Data usage</option><option>Revenue</option></select><button type="button" class="secondary" data-jump="analytics-section">Open report</button><button type="button" class="secondary" data-export-table="analytics">Export report</button>');
+        toolbar('analytics-section', '<select aria-label="Analytics location"><option value="">All locations</option></select><select aria-label="Analytics metric"><option>Devices</option><option>Sessions</option><option>Data usage</option><option>Revenue</option></select><button type="button" class="secondary" data-jump="analytics-section">Open report</button><button type="button" class="secondary" data-export-table="analytics">Export report</button>');
         toolbar('support-section', '<select aria-label="Support queue"><option>All support cases</option><option>Payment pending</option><option>Never connected</option><option>Expired</option></select><button type="button" class="secondary" data-jump="support-section">Refresh queue</button>');
-        toolbar('customers-section', '<select aria-label="Customer location"><option>All locations</option></select><button type="button" class="secondary" data-export-table="customers">Export customers</button>');
+        toolbar('customers-section', '<select aria-label="Customer location"><option value="">All locations</option></select><button type="button" class="secondary" data-export-table="customers">Export customers</button>');
         toolbar('settings-section', '<button type="button" class="secondary" data-jump="branding-section">General</button><button type="button" class="secondary" data-jump="locations-section">Routers</button><button type="button" class="secondary" data-jump="branding-section">Captive templates</button><button type="button" class="secondary" data-jump="sms-section">SMS</button><button type="button" class="secondary" data-jump="collection-section">Payment gateways</button><button type="button" class="secondary" data-jump="settings-section">Advanced</button>');
         document.querySelectorAll('[data-jump]').forEach(function (button) { button.addEventListener('click', function () { var target = $(button.dataset.jump); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); });
         document.querySelectorAll('[data-export-table]').forEach(function (button) { if (button.dataset.bound) return; button.dataset.bound = '1'; button.addEventListener('click', function () { var kind = button.dataset.exportTable; var rows = []; if (kind === 'analytics') { var snapshot = analyticsSnapshot || {}; rows = [['Date','Location','Customer','Device MAC','Package','Amount (KES)','Status','Payment source','Receipt']].concat((snapshot.report || []).map(function (row) { return [row.created_at || '', row.location_name || '', row.phone || '', row.mac || '', row.package_name || '', row.amount || 0, row.status || '', row.payment_source || '', row.mpesa_receipt || '']; })); if (!rows.length) rows.push(['','','','','','0','No confirmed activity','','']); } else if (kind === 'sales' || kind === 'transactions') { rows = [['Transaction ID','Date','Location','Phone','Device MAC','Package','Amount (KES)','Status','Payment source','M-Pesa receipt','Result']].concat((state.dashboard && state.dashboard.transactions || state.dashboard && state.dashboard.recentPayments || []).map(function (tx) { return [tx.checkout_request_id || '', tx.created_at || '', tx.location_name || '', tx.phone || '', tx.mac || '', tx.package_name || '', tx.amount || 0, tx.status || '', tx.payment_source || '', tx.mpesa_receipt || '', tx.result_desc || '']; })); } else if (kind === 'vouchers') { rows = [['Code','Location','Package','Duration (minutes)','Batch','Status','Redeemed by','Redeemed at']].concat((state.vouchers || []).map(function (voucher) { return [voucher.code || '', voucher.location_name || '', voucher.package_name || '', Math.round(Number(voucher.seconds || 0) / 60), voucher.batch || '', voucherStatusLabel(voucher), voucher.redeemed_by || '', voucher.redeemed_at || '']; })); } else { rows = [['Status','Message'],['empty','No records available for this report']]; } var csv = rows.map(function (row) { return row.map(function (cell) { return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"'; }).join(','); }).join('\n'); var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' }); var url = URL.createObjectURL(blob); var link = document.createElement('a'); link.href = url; link.download = 'wifi-fiti-' + kind + '.csv'; link.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 500); }); });
@@ -2060,7 +2060,7 @@
         var running = (layout.hotspots || [])[0] || null;
         var eligible = items.filter(function (item) { return (item.type === 'bridge' || item.type === 'vlan') && !item.internet; });
         var draftKey = String(location.id); var kept = networkPlanDrafts[draftKey];
-        var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice(), wifi: b.wifi ? { ssid: b.wifi.ssid } : undefined }; }), existing: (savedPlan.existing || []).map(function (e) { return { interface: e.interface, job: e.job }; }), keep: (savedPlan.keep || []).slice() }
+        var draft = kept ? kept.draft : savedPlan ? { bridges: (savedPlan.bridges || []).map(function (b) { return { name: b.name, job: b.job, ports: b.ports.slice(), wifi: b.wifi ? { ssid: b.wifi.ssid } : undefined }; }), existing: (savedPlan.existing || []).map(function (e) { var r = e.wifi && (e.wifi.radios || [])[0]; return { interface: e.interface, job: e.job, wifi: r ? { ssid: e.wifi.ssid, radio: r.name } : undefined }; }), keep: (savedPlan.keep || []).slice() }
           : { bridges: [], existing: running ? [{ interface: running.interface, job: 'hotspot' }] : [], keep: [] };
         if (!draft.keep) draft.keep = [];
         var staleSaved = false;
@@ -2071,7 +2071,20 @@
           var stillThere = draft.existing.filter(function (entry) { var original = (savedPlan.existing || []).find(function (e) { return e.interface === entry.interface; }) || {};
             return byName[entry.interface] && !(entry.job === 'hotspot' && original.alreadyRunning && !(layout.hotspots || []).some(function (h) { return h.interface === entry.interface; })); });
           if (stillThere.length !== draft.existing.length) { draft.existing = stillThere; staleSaved = true; }
+          // A new bridge from the saved map whose change failed, was put back
+          // or undone (and is not on the router) is dropped too, so the map
+          // starts clean and the one-step setup is offered again.
+          var ended = /^(failed|reverted|cancelled|no-answer|undone)$/;
+          var liveBridges = draft.bridges.filter(function (b) {
+            if (byName[b.name]) return true;
+            var last = (changes || []).filter(function (c) { return c.target === b.name && c.kind === 'bridge' && String(c.createdAt || '') >= String(savedPlan.savedAt || ''); })[0];
+            return !(last && ended.test(last.status));
+          });
+          if (liveBridges.length !== draft.bridges.length) { draft.bridges = liveBridges; staleSaved = true; }
         }
+        // Wi-Fi saved for a running hotspot that is already on the router (the
+        // radio is in use now) is shown as done, not offered again.
+        draft.existing.forEach(function (e) { if (e.wifi) { var r = byName[e.wifi.radio]; if (!r || !(r.free || r.shareWifi) || bridgeWifi(e.interface).length) delete e.wifi; } });
         // New maps keep one free Ethernet port for the owner (WinBox by MAC), so
         // customer ports can never lock them out.
         var freeEthers = items.filter(function (item) { return item.physical && item.type === 'ether' && item.free && !item.internet; });
@@ -2083,7 +2096,10 @@
         board.appendChild(panel);
         function jobLabel(job) { return job === 'pppoe' ? 'PPPoE' : 'Hotspot'; }
         function freshName(job) { var base = job === 'pppoe' ? 'fiti-pppoe' : 'fiti-hotspot'; var name = base; var n = 2; while (taken[name] || draft.bridges.some(function (b) { return b.name === name; })) { name = base + '-' + n; n += 1; } return name; }
-        function home(port) { var found = null; draft.bridges.forEach(function (b) { if (b.ports.indexOf(port) >= 0) found = b; }); return found; }
+        function home(port) { var found = null; draft.bridges.forEach(function (b) { if (b.ports.indexOf(port) >= 0) found = b; }); draft.existing.forEach(function (e) { if (e.wifi && e.wifi.radio === port) found = { name: e.interface, job: 'hotspot' }; }); return found; }
+        // A running hotspot bridge that already carries customer Wi-Fi: a radio
+        // or a Wi-Fi Fiti customer network among its members.
+        function bridgeWifi(name) { var b = byName[name] || {}; return (b.members || []).filter(function (m) { return isRadio(byName[m]) || /^fiti-(wlan|wifi)-\d+$/.test(m); }); }
         function plannable(item) { return Boolean(item && (item.free || item.movableFrom || item.shareWifi)); }
         function isRadio(item) { return Boolean(item && (item.type === 'wlan' || item.type === 'wifi')); }
         function defaultSsid() { var business = (state.workspace && state.workspace.business) || {}; return String(business.hotspot_name || business.name || 'Customer WiFi').replace(/["\\$]/g, '').slice(0, 32); }
@@ -2176,10 +2192,17 @@
           panel.appendChild(head);
           var quick = quickSetupCard(); if (quick) panel.appendChild(quick);
           var tools = el('div', 'rb-planner-tools');
-          var addHotspot = add(tools, 'button', 'secondary', '+ Hotspot bridge'); addHotspot.type = 'button';
-          addHotspot.addEventListener('click', function () { draft.bridges.push({ name: freshName('hotspot'), job: 'hotspot', ports: selected ? [selected] : [] }); selected = null; dirty = true; render(); });
-          var addPppoe = add(tools, 'button', 'secondary', '+ PPPoE bridge'); addPppoe.type = 'button';
-          addPppoe.addEventListener('click', function () { draft.bridges.push({ name: freshName('pppoe'), job: 'pppoe', ports: selected ? [selected] : [] }); selected = null; dirty = true; render(); });
+          // One hotspot and one PPPoE network per router: a second one is not
+          // offered (the server refuses it at save, which came too late).
+          var draftHas = function (job) { return draft.bridges.some(function (b) { return b.job === job; }) || draft.existing.some(function (e) { return e.job === job; }); };
+          var hotspotTaken = Boolean(running) || draftHas('hotspot'); var pppoeTaken = draftHas('pppoe');
+          var addHotspot = add(tools, 'button', 'secondary', '+ Hotspot bridge'); addHotspot.type = 'button'; addHotspot.disabled = hotspotTaken;
+          addHotspot.addEventListener('click', function () { if (hotspotTaken) return; draft.bridges.push({ name: freshName('hotspot'), job: 'hotspot', ports: selected ? [selected] : [] }); selected = null; dirty = true; render(); });
+          var addPppoe = add(tools, 'button', 'secondary', '+ PPPoE bridge'); addPppoe.type = 'button'; addPppoe.disabled = pppoeTaken;
+          addPppoe.addEventListener('click', function () { if (pppoeTaken) return; draft.bridges.push({ name: freshName('pppoe'), job: 'pppoe', ports: selected ? [selected] : [] }); selected = null; dirty = true; render(); });
+          if (hotspotTaken || pppoeTaken) add(tools, 'small', 'rb-tools-note', [
+            hotspotTaken ? (running ? 'This router already runs a hotspot on ' + running.interface + '. ' + (draft.existing.some(function (e) { return e.interface === running.interface && e.job === 'hotspot'; }) ? 'Add Wi-Fi to it below instead of a second one.' : 'Use it for hotspot customers (Use an existing bridge) instead of adding a second one.') : 'This map already has a hotspot.') : '',
+            pppoeTaken ? 'This map already has a PPPoE network.' : ''].filter(Boolean).join(' '));
           var available = eligible.filter(function (item) { return !draft.existing.some(function (e) { return e.interface === item.name; }); });
           if (available.length) {
             var pickExisting = el('select', 'rb-existing-pick'); pickExisting.setAttribute('aria-label', 'Existing bridge or VLAN');
@@ -2258,8 +2281,35 @@
             var top = el('div', 'rb-net-top'); add(top, 'span', item.type === 'vlan' ? 'rb-tag mini' : 'rb-chip mini', item.vlanId ? String(item.vlanId) : ''); add(top, 'b', 'rb-net-fixed', entry.interface);
             var removeEntry = add(top, 'button', 'rb-x', '×'); removeEntry.type = 'button'; removeEntry.setAttribute('aria-label', 'Stop using ' + entry.interface); removeEntry.addEventListener('click', function () { draft.existing.splice(index, 1); dirty = true; render(); });
             card.appendChild(top);
-            var jobs = el('div', 'rb-jobs'); ['hotspot', 'pppoe'].forEach(function (job) { var b = add(jobs, 'button', 'rb-job' + (entry.job === job ? ' on' : ''), jobLabel(job)); b.type = 'button'; b.setAttribute('aria-pressed', String(entry.job === job)); b.addEventListener('click', function () { entry.job = job; dirty = true; render(); }); }); card.appendChild(jobs);
+            var jobs = el('div', 'rb-jobs'); ['hotspot', 'pppoe'].forEach(function (job) { var b = add(jobs, 'button', 'rb-job' + (entry.job === job ? ' on' : ''), jobLabel(job)); b.type = 'button'; b.setAttribute('aria-pressed', String(entry.job === job)); b.addEventListener('click', function () { entry.job = job; if (job !== 'hotspot') delete entry.wifi; dirty = true; render(); }); }); card.appendChild(jobs);
             add(card, 'small', 'rb-net-note', runningHere ? 'Already runs a hotspot. Wi-Fi Fiti will use it as it is.' : 'Existing ' + (item.type === 'vlan' ? 'VLAN' : 'bridge') + '. Its ports and settings stay as they are; Wi-Fi Fiti adds the ' + jobLabel(entry.job) + ' service on it.');
+            if (runningHere && item.type === 'bridge') {
+              // Customer Wi-Fi added to the hotspot that already runs here; its
+              // cable ports and customers stay exactly as they are.
+              var onAir = bridgeWifi(entry.interface);
+              var wifiBox = el('div', 'rb-wifi' + (entry.wifi || onAir.length ? ' on' : ''));
+              var wTop = el('div', 'rb-wifi-top'); var wIcon = add(wTop, 'span', 'rb-wifi-icon'); wIcon.setAttribute('aria-hidden', 'true'); add(wIcon, 'i'); add(wIcon, 'i'); add(wIcon, 'i');
+              var wCopy = el('div'); add(wCopy, 'strong', '', entry.wifi || onAir.length ? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'); wTop.appendChild(wCopy); wifiBox.appendChild(wTop);
+              if (onAir.length) {
+                add(wCopy, 'small', '', 'Customers already join this hotspot by Wi-Fi on ' + onAir.join(', ') + '.');
+              } else if (entry.wifi) {
+                var wLabel = el('label', 'rb-wifi-field'); add(wLabel, 'span', '', 'Wi-Fi name customers will see');
+                var wInput = el('input', 'rb-net-name'); wInput.value = entry.wifi.ssid; wInput.maxLength = 32; wInput.setAttribute('aria-label', 'Customer Wi-Fi name'); wLabel.appendChild(wInput); wifiBox.appendChild(wLabel);
+                var wPreview = el('div', 'rb-wifi-preview'); var wBars = add(wPreview, 'span', 'rb-wifi-bars'); wBars.setAttribute('aria-hidden', 'true'); add(wBars, 'i'); add(wBars, 'i'); add(wBars, 'i'); var wName = add(wPreview, 'b', '', entry.wifi.ssid || 'Customer WiFi'); add(wPreview, 'small', '', 'Open network · the login page controls access'); wifiBox.appendChild(wPreview);
+                wInput.addEventListener('click', function (event) { event.stopPropagation(); });
+                wInput.addEventListener('input', function () { entry.wifi.ssid = wInput.value.replace(/["\\$]/g, ''); if (wInput.value !== entry.wifi.ssid) wInput.value = entry.wifi.ssid; wName.textContent = entry.wifi.ssid || 'Customer WiFi'; dirty = true; saveState(); if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Save map'; } });
+                var wRadio = byName[entry.wifi.radio] || {};
+                add(wifiBox, 'small', 'rb-wifi-note', (wRadio.shareWifi ? 'A separate open network on ' + entry.wifi.radio + '. Your own Wi-Fi on it keeps working as it is.' : 'Broadcast on ' + entry.wifi.radio + '. Wi-Fi Fiti turns the radio on when you apply the map.') + ' The hotspot and its cable ports stay as they are, and undo removes only the Wi-Fi.');
+                var wDrop = add(wifiBox, 'button', 'rb-wifi-pick', 'Remove Wi-Fi'); wDrop.type = 'button'; wDrop.addEventListener('click', function (event) { event.stopPropagation(); delete entry.wifi; dirty = true; render(); });
+              } else {
+                var addable = items.filter(function (it) { return isRadio(it) && (it.free || it.shareWifi) && !it.movableFrom && !home(it.name) && draft.keep.indexOf(it.name) < 0; });
+                if (addable.length) {
+                  add(wCopy, 'small', '', 'Let customers join by Wi-Fi as well as by cable.');
+                  var wButtons = el('div', 'rb-wifi-add'); addable.forEach(function (it) { var b = add(wButtons, 'button', 'rb-wifi-pick', '+ Add ' + it.name); b.type = 'button'; b.addEventListener('click', function (event) { event.stopPropagation(); entry.wifi = { ssid: defaultSsid(), radio: it.name }; dirty = true; render(); }); }); wifiBox.appendChild(wButtons);
+                } else add(wCopy, 'small', '', 'No free Wi-Fi radio on this router right now; customers connect by cable.');
+              }
+              card.appendChild(wifiBox);
+            }
             nets.appendChild(card);
           });
           if (!draft.bridges.length && !draft.existing.length) add(nets, 'div', 'rb-net-empty', 'Nothing mapped yet. Add a hotspot or PPPoE bridge above.');
@@ -2357,8 +2407,9 @@
         lost_cloud: 'After the change the router could not reach Wi-Fi Fiti, so it undid it by itself. Check the internet connection and try again.',
         rebooted_start: 'The router restarted just as the change began, and put everything back by itself when it came up. Nothing was changed.',
         rebooted_hotspot: 'The router restarted while building the hotspot, and put everything back by itself when it came up. Its memory may be too tight for a hotspot: check System → Resources in WinBox.',
-        rebooted_wifi: 'The router restarted while adding the customer Wi-Fi, and put everything back by itself when it came up. Try again without Wi-Fi (cable only), or on a router with more memory.',
+        rebooted_wifi: 'The router restarted while adding the customer Wi-Fi, and put everything back by itself when it came up. Try again in a few minutes; if it happens again, this router may not have enough memory for customer Wi-Fi, so use cable only or a router with more memory.',
         rebooted_confirm: 'The router made the change, then restarted before it could confirm, so it put everything back by itself. Try again once it has been up for a few minutes.',
+        hotspot_missing: 'The hotspot is no longer running on that bridge, so the Wi-Fi was not added. Nothing was touched.',
         low_memory: 'The router is short of memory right now, so it stopped before touching anything. Restart the router, wait two minutes, then try again.',
         radio_busy: 'That radio is switched off or connected to another network as a client, so a customer Wi-Fi can\u2019t be added on it. Nothing was touched.',
         previous_failed: 'An earlier change did not go through.', previous_reverted: 'An earlier change was put back.', previous_no_answer: 'An earlier change got no answer.',

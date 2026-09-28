@@ -3452,11 +3452,13 @@ function applyRouterPlan({ locationId, businessId, confirm }) {
   if (!plan) throw remoteAccessError('Save a map first.', 409);
   const layout = routerInventoryForLocation(locationId);
   if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Your router’s latest report is a few minutes old. A fresh one normally arrives within 30 seconds: try again in a moment.', 409);
-  // The router may have changed since the map was saved: check it again.
-  validateNetworkPlan(plan, layout);
+  // The router may have changed since the map was saved: check it again, and
+  // build the changes from that fresh check (e.g. a radio switched on since
+  // then gets a separate network instead of being taken over).
+  const checked = validateNetworkPlan(plan, layout);
   const rc = routerChanges();
   if (rc.hasActiveChange(locationId)) throw remoteAccessError('A change is already on its way to the router. Wait for it to finish.', 409);
-  const review = rc.reviewPlan(plan, layout);
+  const review = rc.reviewPlan(checked, layout);
   if (review.blockers.length) throw remoteAccessError(review.blockers[0], 409);
   if (!review.changes.length) throw remoteAccessError('Nothing on this map needs changing on the router.', 409);
   rc.queueBatch(locationId, review.changes);
