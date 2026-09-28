@@ -417,6 +417,28 @@ assert.match(html, /function appendNetworkPlanner\(/, 'the routerboard carries t
 assert.match(html, /\/network-plan'/, 'the planner saves the map to the network-plan endpoint');
 assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : state === 'free' \? 'Free' : state === 'movable' \? 'Movable' : 'In use'/,
   'every part says whether it is free, in use or carrying the internet');
+// Ready-made portal designs: each sets every option, the server accepts it
+// unchanged, and its accent stays readable on the white cards.
+{
+  const { DatabaseSync } = require('node:sqlite');
+  const catalog = vm.runInNewContext(html.match(/var PORTAL_TEMPLATE_CATALOG = (\[[\s\S]*?\n {6}\]);/)[1]);
+  assert.equal(catalog.length, 15, 'the gallery offers the full set of designs');
+  assert.doesNotMatch(html, /Extended ready-template gallery|extendedCatalog/, 'one gallery list: no second script replaces it and doubles its buttons');
+  assert.equal(new Set(catalog.map((item) => item.id)).size, catalog.length, 'design ids are unique');
+  assert.match(html, /function chooseCatalogItem\(item\) \{[^}]*form\.elements\.fontFamily\.value = item\.fontFamily; form\.elements\.textAlign\.value = item\.textAlign; form\.elements\.packageStyle\.value = item\.packageStyle; form\.elements\.backgroundStyle\.value = item\.backgroundStyle;/,
+    'Use this design sets every option, not only the layout and colour');
+  const handlers = {}; const app = {}; ['get', 'post', 'patch', 'delete'].forEach((method) => { app[method] = (route, handler) => { handlers[method + ' ' + route] = handler; }; });
+  require('../src/lib/tenant-portal-templates').attachTenantPortalTemplateRoutes(app, { businessAuth: () => ({ id: 'biz-catalog' }), db: new DatabaseSync(':memory:') });
+  const call = (key, body) => { let status = 200; let payload; handlers[key]({ body, params: {} }, { status(code) { status = code; return this; }, json(value) { payload = value; return this; }, set() { return this; }, end() { return this; } }); return { status, payload }; };
+  const luminance = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+  for (const item of catalog) {
+    for (const key of ['name', 'description', 'layout', 'accentColor', 'welcomeMessage', 'fontFamily', 'textAlign', 'packageStyle', 'backgroundStyle']) assert.ok(item[key], item.id + ' sets ' + key);
+    const saved = call('post /api/business/portal-templates', Object.assign({}, item, { showPackages: true, showUtilities: true }));
+    assert.equal(saved.status, 201, item.id + ' is accepted by the server: ' + JSON.stringify(saved.payload));
+    for (const key of ['name', 'layout', 'accentColor', 'welcomeMessage', 'fontFamily', 'textAlign', 'packageStyle', 'backgroundStyle']) assert.equal(saved.payload.template[key], item[key], item.id + ' keeps its ' + key);
+    assert.ok(1.05 / (luminance(item.accentColor) + 0.05) >= 4.5, item.id + ' accent keeps 4.5:1 contrast on white');
+  }
+}
 console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');
 assert.match(html, /if \(routerBoardsShown\[boardKey\]\) \{ board\.classList\.add\('rb-settled'\);/, 'redraws do not replay the routerboard entrance motion');
 assert.match(html, /\.router-map\.rb-settled,\.rb-settled \.router-port,\.rb-settled \.rb-net/);
