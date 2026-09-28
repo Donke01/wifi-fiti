@@ -3463,6 +3463,12 @@ function undoRouterChange({ locationId, businessId, changeId }) {
   routerChanges().queueUndo(locationId, Number(changeId));
   return routerChanges().listChanges(locationId);
 }
+function renameRouterBridge({ locationId, businessId, changeId, name }) {
+  if (!universalLocationFor(locationId, businessId)) return null;
+  const layout = routerInventoryForLocation(locationId);
+  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Wait for a fresh layout report from the router before renaming.', 409);
+  return routerChanges().queueRename(locationId, changeId, name, layout, /^[A-Za-z][A-Za-z0-9_-]{0,23}$/);
+}
 function routerChangesForLocation(locationId) { return routerChanges().listChanges(locationId); }
 /** The router's answer about a change; a fully applied map is then cleared. */
 function recordRouterChangeAnswer(location, query) {
@@ -4473,7 +4479,7 @@ function deletePackageForOwner(packageId, businessId) {
 module.exports = {
   deletePackageForOwner, setPaymentDeviceIp, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
-  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, renameRouterBridge, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
