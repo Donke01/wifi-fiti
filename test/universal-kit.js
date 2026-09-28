@@ -113,7 +113,7 @@ for (const forbidden of ['"address"', '"mac"', '"password"', '"secret"', '"token
 // ---- The network map (stage 2: saved plan only) ---------------------------
 const plan = validateNetworkPlan({ bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['wlan1', 'ether3'], wifi: { ssid: 'Guest WiFi' } }],
   existing: [{ interface: 'bridge-tv', job: 'pppoe' }] }, parsed);
-assert.deepEqual(plan, { version: 1, bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether3', 'wlan1'], wifi: { ssid: 'Guest WiFi', radios: [{ name: 'wlan1', type: 'wlan' }] } }],
+assert.deepEqual(plan, { version: 1, bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether3', 'wlan1'], wifi: { ssid: 'Guest WiFi', radios: [{ name: 'wlan1', type: 'wlan', mode: 'virtual' }] } }],
   existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }], moves: [], keep: [] });
 const refuses = (input, pattern, why) => assert.throws(() => validateNetworkPlan(input, parsed), (e) => e.status === 400 && pattern.test(e.message), why);
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether4'] }] }, /already in use/, 'a port in use stays as it is');
@@ -135,7 +135,7 @@ refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether2'] }], keep: ['
 const radioLayout = parseRouterInventory(['fiti-inventory-v2', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|wlan1|wlan|disabled', 'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
 assert.equal(radioLayout.interfaces.find((i) => i.name === 'wlan1').free, true, 'a switched-off radio with no job is free to use');
 assert.deepEqual(validateNetworkPlan({ bridges: [{ name: 'fiti-hotspot', job: 'hotspot', ports: ['wlan1', 'ether2'], wifi: { ssid: 'Sirende WiFi' } }] }, radioLayout).bridges[0].wifi,
-  { ssid: 'Sirende WiFi', radios: [{ name: 'wlan1', type: 'wlan' }] });
+  { ssid: 'Sirende WiFi', radios: [{ name: 'wlan1', type: 'wlan', mode: 'takeover' }] });
 assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'fiti-hotspot', job: 'hotspot', ports: ['wlan1'] }] }, radioLayout), /Give the customer Wi-Fi/, 'a hotspot Wi-Fi needs a name');
 assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'fiti-hotspot', job: 'hotspot', ports: ['wlan1'], wifi: { ssid: 'Bad"Name' } }] }, radioLayout), /without quotes/);
 assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'fiti-pppoe', job: 'pppoe', ports: ['wlan1'], wifi: { ssid: 'x' } }] }, radioLayout), /Wi-Fi can only join a hotspot bridge/, 'PPPoE customers connect by cable');
@@ -300,10 +300,11 @@ async function createBusiness(email, name) {
   const goodPlan = { bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether2', 'wlan1'], wifi: { ssid: 'Guest WiFi', radios: [{ name: 'wlan1', type: 'wlan' }] } }], existing: [] };
   const savedPlan = await api(planEndpoint, { method: 'PUT', token: alpha, body: { plan: goodPlan } });
   assert.equal(savedPlan.status, 200, JSON.stringify(savedPlan.body));
-  assert.deepEqual(savedPlan.body.plan.bridges, goodPlan.bridges);
+  assert.deepEqual(savedPlan.body.plan.bridges, [{ ...goodPlan.bridges[0], wifi: { ssid: 'Guest WiFi', radios: [{ name: 'wlan1', type: 'wlan', mode: 'virtual' }] } }],
+    'a radio that is on gets a separate customer network (the owner\'s Wi-Fi keeps working)');
   assert.equal((await api(planEndpoint, { method: 'PUT', token: alpha, body: { plan: { bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether4'] }] } } })).status, 400, 'a port in use is refused');
   assert.equal((await api(planEndpoint, { method: 'PUT', token: bravo, body: { plan: goodPlan } })).status, 404, 'another business cannot map this router');
-  assert.deepEqual((await api(topologyEndpoint, { token: alpha })).body.plan.bridges, goodPlan.bridges, 'the saved map comes back with the layout');
+  assert.deepEqual((await api(topologyEndpoint, { token: alpha })).body.plan.bridges, savedPlan.body.plan.bridges, 'the saved map comes back with the layout');
   assert.doesNotMatch((await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' })).text,
     NETWORK_CHANGES, 'saving a map changes nothing on the router yet');
   db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now','-2 days') WHERE location_id=?`).run(location.id);

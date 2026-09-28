@@ -381,7 +381,12 @@ assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a
 assert.match(html, /if \(snapshot\.layout\) appendRouterLayoutBoard\(box, snapshot\.layout, location, snapshot\.plan \|\| null, snapshot\.changes \|\| \[\]\);/,
   'a universal-kit router shows its full layout on the routerboard itself');
 assert.match(html, /function appendRouterLayoutBoard\(parent, layout, location, savedPlan, changes\)/);
-assert.match(html, /function plannable\(item\) \{ return Boolean\(item && \(item\.free \|\| item\.movableFrom\)\); \}/, 'only free or movable parts can be planned');
+assert.match(html, /function plannable\(item\) \{ return Boolean\(item && \(item\.free \|\| item\.movableFrom \|\| item\.shareWifi\)\); \}/, 'only free or movable parts, or a radio that can share a customer Wi-Fi, can be planned');
+assert.match(html, /function quickSetupCard\(\)/, 'a router with no hotspot gets a one-step setup');
+assert.match(html, /'Set up in one step'/);
+assert.match(html, /stays yours for managing the router \(WinBox, connect by MAC\)/, 'one step setup keeps a port for the owner');
+assert.match(html, /Your own Wi-Fi keeps working as it is/, 'and says the owner\'s Wi-Fi is left alone');
+assert.match(html, /rebooted_wifi: 'The router restarted while adding the customer Wi-Fi/, 'a restart during a change is explained, not "no answer"');
 assert.match(html, /function appendNetworkPlanner\(/, 'the routerboard carries the network map planner');
 assert.match(html, /\/network-plan'/, 'the planner saves the map to the network-plan endpoint');
 assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : state === 'free' \? 'Free' : state === 'movable' \? 'Movable' : 'In use'/,
@@ -405,4 +410,5 @@ assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit i
 assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');
 assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'\)/, 'every hotspot bridge shows its Wi-Fi panel');
 assert.match(html, /'Wi-Fi can only join a hotspot bridge\. PPPoE customers connect by cable\.'/, 'a radio dropped on a PPPoE bridge is refused with a reason');
-assert.match(html, /goes\.textContent = '📶 can broadcast customer Wi-Fi'/, 'free radios say they can broadcast customer Wi-Fi');
+assert.match(html, /goes\.textContent = item\.shareWifi \? '📶 can add a separate customer Wi-Fi' : '📶 can broadcast customer Wi-Fi'/, 'free radios say they can broadcast customer Wi-Fi');
+assert.match(html, /var radioHint = isRadio\(item\) && \(item\.free \|\| item\.shareWifi\)/, 'a radio already in a Wi-Fi Fiti bridge is not offered again');

@@ -8,20 +8,35 @@ branch and do not put production secrets, router keys, database files, or
 
 ### Where the code is
 
-- `main` is deployed on Railway. It holds everything up to and including the
-  glass kit look and the "Reserve a port for management" card, merge `2c11f7f`.
-- The **`map-wifi`** branch is pushed but **not merged**. Its commit is
-  `04a2983`, "Customer Wi-Fi on hotspot bridges".
-  - The full suite passes on it. `test/ceiling.js` flakes with the clock
-    sometimes; rerun it before assuming a failure.
-  - Still to do before merging:
-    1. Check the Wi-Fi panel in a browser, on desktop and phone widths.
-    2. Test on a real hAP lite: a hotspot bridge with `wlan1` and an SSID.
-       Then check that a phone sees the SSID and gets the login page.
-    3. Undo the change and check that wlan1's old ssid, mode and security
-       profile come back exactly.
-  - Then merge to `main` and push. **Only merge or push to main when the
-    owner says "push".**
+- `main` is deployed on Railway and includes `map-wifi` (PR #10). **Only merge
+  or push to main when the owner says "push".** `test/ceiling.js` flakes with
+  the clock sometimes; rerun it before assuming a failure.
+- **Branch `owner-wifi-quick-setup` (not merged, not yet pushed).** Built
+  after the first hardware test of `map-wifi` on the SIRENDE hAP lite
+  (RouterOS 7.24.1) failed: the owner manages that router over `wlan1`
+  (MAC WinBox over Wi-Fi) though the report showed it "Free"; taking the
+  radio over cut him off, and both applies (13:51, 14:10) ended "No answer".
+  Uptime showed the router **restarted mid-change**; the boot guard undid it.
+  The branch adds:
+  1. **Owner's Wi-Fi kept.** A radio that is on (`shareWifi` in the layout)
+     gets a separate open virtual AP `fiti-wlan-<id>` / `fiti-wifi-<id>` in the
+     customer bridge; the owner's radio is never set or bridged. Only a
+     switched-off radio is taken over (`mode: 'takeover'`). Preflight
+     `radio_busy` if the radio is off or a client. Undo removes the VAP.
+  2. **Restart reports.** The change saves its step in `fiti-step-<id>`; the
+     startup guard runs `fiti-reboot-<id>`: undo, then report
+     `reverted` with `rebooted_start|hotspot|wifi|confirm`, retrying ~3 min.
+  3. **One-step setup** (`quickSetupCard` in business.html) for a router with
+     no hotspot: Wi-Fi name + **Set up** saves and applies one change.
+  4. **Management port auto-reserved** on new maps (last free Ethernet).
+  5. Confirm loop 1 s then every 3 s (26 tries); stale saved "existing"
+     entries are dropped from the draft after an undo.
+  - **Still to prove on the hAP lite:** does adding a virtual AP on top of a
+    running hotspot restart it too (32 MB RAM)? If the dashboard says
+    `rebooted_wifi`, the hAP lite may be too small for hotspot + Wi-Fi on
+    RouterOS 7; try cable-only or a bigger board.
+  - A patch of this branch is saved in the claude.ai project as
+    `claude/patches/owner-wifi-quick-setup.patch` (this session could not push).
 - Working convention:
   - One feature branch per task, pushed with `-u`.
   - Commit messages end with the Co-Authored-By line.
