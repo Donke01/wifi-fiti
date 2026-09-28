@@ -1759,6 +1759,7 @@ app.get('/api/business/locations/:locationId/router-topology', (req, res) => {
   // The universal kit's fuller layout report (every interface and what it is
   // used for) rides alongside the stable map data.
   const locationId = String(req.params.locationId);
+  layoutViewedAt.set(locationId, Date.now());
   res.json({ ...result, layout: tenant.routerInventoryForLocation(locationId), plan: tenant.routerPlanForLocation(locationId), changes: tenant.routerChangesForLocation(locationId) });
 });
 
@@ -4703,16 +4704,25 @@ function tenantRouterScript(location, options = {}) {
   if (layout && (Number(layout.agent) || 1) < INVENTORY_AGENT) {
     const last = inventoryUpdateSentAt.get(location.id) || 0;
     if (Date.now() - last >= 10 * 60_000) { inventoryUpdateSentAt.set(location.id, Date.now()); extra.push(inventoryScriptUpdate()); }
-  } else if (layout && inventoryAgeOver(layout.reportedAt, 25_000)) {
+  } else if (layout && inventoryAgeOver(layout.reportedAt, layoutReportEvery(location.id))) {
     // The layout report is run from the poll reply about every 30 seconds.
     // Reports from the router's own 30-second timer never reached the cloud
     // on the RB951 (the timer and the poller do not share the report), while
     // a report run from the reply always does. The old timer is removed.
     const lastAsk = inventoryRefreshAskedAt.get(location.id) || 0;
-    if (Date.now() - lastAsk >= 25_000) { inventoryRefreshAskedAt.set(location.id, Date.now()); extra.push(INVENTORY_REFRESH_LINE, INVENTORY_TIMER_REMOVE_LINE); }
+    if (Date.now() - lastAsk >= Math.min(25_000, layoutReportEvery(location.id))) { inventoryRefreshAskedAt.set(location.id, Date.now()); extra.push(INVENTORY_REFRESH_LINE, INVENTORY_TIMER_REMOVE_LINE); }
   }
   if (!extra.length) return result;
   return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n') };
+}
+// The layout report is heavy for a small board (a hAP lite at 100% CPU spent
+// much of it listing interfaces and pools). It runs every 25 s only while the
+// owner has the router open in the dashboard (the page asks every few
+// seconds); otherwise every 10 minutes. A change sends its own report.
+const layoutViewedAt = new Map();
+const LAYOUT_VIEW_WINDOW_MS = 2 * 60_000;
+function layoutReportEvery(locationId) {
+  return Date.now() - (layoutViewedAt.get(locationId) || 0) < LAYOUT_VIEW_WINDOW_MS ? 25_000 : 10 * 60_000;
 }
 const portalPendingSince = new Map();
 const PORTAL_FAST_MS = 2 * 60_000;

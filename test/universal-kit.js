@@ -281,6 +281,11 @@ async function createBusiness(email, name) {
   const current = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|4']), contentType: 'text/plain' });
   assert.doesNotMatch(current.text, /system script run fiti-inventory/, 'a fresh report needs no refresh');
   db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now','-3 minutes') WHERE location_id=?`).run(location.id);
+  // Nobody is looking at this router: a 3-minute-old report is left alone
+  // (the report is heavy on small boards); the owner opening it asks for one.
+  const unseen = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
+  assert.doesNotMatch(unseen.text, /system script run fiti-inventory/, 'no frequent layout reports while nobody has the router open');
+  assert.equal((await api(`/api/business/locations/${site}/router-topology`, { token: alpha })).status, 200);
   const stale = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
   assert.match(stale.text, /:do \{ \/system script run fiti-inventory \} on-error=/, 'an old report is refreshed from the poll reply');
   assert.match(stale.text, /\/system scheduler find where name="fiti-inventory" and comment~"Wi-Fi Fiti"/, 'the unused layout timer is removed');
