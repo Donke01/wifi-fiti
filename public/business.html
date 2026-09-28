@@ -491,6 +491,7 @@
 @keyframes patiencePulse{0%{transform:scale(.7);opacity:.9}100%{transform:scale(1.6);opacity:0}}
 @keyframes patienceBeat{0%,100%{box-shadow:0 0 0 0 rgba(43,125,224,.45)}50%{box-shadow:0 0 0 6px rgba(43,125,224,0)}}
 @keyframes patienceFade{from{opacity:.2}to{opacity:1}}
+.kit-choice-options{display:grid;gap:8px;margin-top:8px}.kit-option{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border:1px solid #d3e1f2;border-radius:12px;background:#fff;cursor:pointer}.kit-option input{width:18px;height:18px;min-height:0;margin-top:2px;flex:none}.kit-option strong{display:block;font-size:14px}.kit-option small{display:block;margin-top:3px;color:#5a6f86;font-size:12.5px;font-weight:500;line-height:1.45}.kit-option:has(input:checked){border-color:#2b7de0;background:#f3f8ff;box-shadow:0 0 0 1px #2b7de0 inset}
 .rb-keep-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:8px 11px;border-radius:10px;background:#eef4ff;border:1px solid #cddcf5}.rb-keep-label{font-size:12px;font-weight:750;color:#1d3f73}.rb-keep-row small{flex-basis:100%;color:#445a74;font-size:12px}
 .rb-keep-chip{background:#1d3f73}.rb-part.rb-kept{outline:2px dashed #7fa6e6;outline-offset:-4px}
 .rb-moves{margin:10px 0 0;padding:8px 11px;border-radius:10px;background:#fff7e3;color:#7a5200;font-size:12.5px;border:1px solid #f3dca4}
@@ -1614,14 +1615,17 @@
         // The universal kit is the default: it pairs a router in any state
         // without changing its network, and the owner maps it afterwards. The
         // automatic kit that builds a hotspot itself stays as the fallback.
-        var script = routerBootstrapCommand(saved, false, false, true);
-        var compatibilityScript = routerBootstrapCommand(saved, true, false, true);
-        var standardScript = routerBootstrapCommand(saved);
-        var standardCompatScript = routerBootstrapCommand(saved, true);
+        var fallbackChosen = saved.kitChoice === 'automatic';
+        var script = fallbackChosen ? routerBootstrapCommand(saved) : routerBootstrapCommand(saved, false, false, true);
+        var compatibilityScript = fallbackChosen ? routerBootstrapCommand(saved, true) : routerBootstrapCommand(saved, true, false, true);
+        var standardScript = fallbackChosen ? routerBootstrapCommand(saved, false, false, true) : routerBootstrapCommand(saved);
+        var standardCompatScript = fallbackChosen ? routerBootstrapCommand(saved, true, false, true) : routerBootstrapCommand(saved, true);
         var telemetryTestScript = routerBootstrapCommand(saved, false, true);
         add(box, 'h4', '', script ? 'Secure bootstrap command' : 'Secure bootstrap unavailable');
         if (script) {
-          add(box, 'p', '', 'Paste this complete kit once, as one short command in a new WinBox terminal. It pairs the router as it is — it changes no interface, bridge, VLAN, address, DHCP, PPPoE or firewall setting — then you map where customers connect on the routerboard. On a freshly reset router, run the DHCP preparation step first so it has internet. Your administrator password is never requested.');
+          add(box, 'p', '', fallbackChosen
+            ? 'Paste this complete kit once, as one short command in a new WinBox terminal. The automatic hotspot kit checks the router, then sets up the customer Wi-Fi, bridge and hotspot it needs. Your administrator password is never requested.'
+            : 'Paste this complete kit once, as one short command in a new WinBox terminal. It pairs the router as it is — it changes no interface, bridge, VLAN, address, DHCP, PPPoE or firewall setting — then you map where customers connect on the routerboard. On a freshly reset router, run the DHCP preparation step first so it has internet. Your administrator password is never requested.');
           var command = add(box, 'pre', 'kit-script', script); command.setAttribute('aria-label', 'Secure Wi-Fi Fiti bootstrap command');
         } else {
           add(box, 'p', 'kit-refresh-note', 'Wi-Fi Fiti could not prepare the secure bootstrap. Generate a new kit.');
@@ -1632,19 +1636,22 @@
           if (!window.confirm('Use this only if the router stops with "no trusted CA certificate found". It skips certificate checks for this router. Continue?')) return;
           copyText(compatibilityScript, compatibilityCopy);
         }); compatibilityCopy.disabled = !compatibilityScript;
-        var standardCopy = setupAction(actions, 'Copy automatic hotspot kit (fallback)', 'secondary', function () {
-          if (!window.confirm('The automatic kit builds a hotspot with the Wi-Fi name and ports from the setup form, and can change this router\u2019s bridges and Wi-Fi. Use it only if the connection kit does not work on this router. Continue?')) return;
+        var standardCopy = setupAction(actions, fallbackChosen ? 'Copy connection kit (changes nothing on the router)' : 'Copy automatic hotspot kit (fallback)', 'secondary', function () {
+          if (!fallbackChosen && !window.confirm('The automatic kit builds a hotspot with the Wi-Fi name and ports from the setup form, and can change this router\u2019s bridges and Wi-Fi. Use it only if the connection kit does not work on this router. Continue?')) return;
           copyText(standardScript, standardCopy);
         }); standardCopy.disabled = !standardScript;
-        var standardCompatCopy = setupAction(actions, 'Copy automatic kit (CA compatibility)', 'secondary', function () {
+        var standardCompatCopy = setupAction(actions, fallbackChosen ? 'Copy connection kit (CA compatibility)' : 'Copy automatic kit (CA compatibility)', 'secondary', function () {
           if (!window.confirm('Fallback kit without certificate checks. Use it only if the automatic kit stops with "no trusted CA certificate found". Continue?')) return;
           copyText(standardCompatScript, standardCompatCopy);
         }); standardCompatCopy.disabled = !standardCompatScript;
         var telemetryCopy = setupAction(actions, 'Copy telemetry TEST kit', 'secondary', function () {
           copyText(telemetryTestScript, telemetryCopy);
         }); telemetryCopy.disabled = !telemetryTestScript;
-        add(box, 'small', 'form-note', 'The connection kit works on any router: freshly reset, or already running VLANs, PPPoE or a TV network. An existing hotspot is used as it is.');
-        add(box, 'small', 'form-note', 'Fallback: the automatic hotspot kit sets the router up in one go using the setup form. Use it only if the connection kit does not work.');
+        if (fallbackChosen) add(box, 'small', 'form-note', 'You chose the automatic hotspot kit. The connection kit, which changes nothing on the router, is still available above.');
+        else {
+          add(box, 'small', 'form-note', 'The connection kit works on any router: freshly reset, or already running VLANs, PPPoE or a TV network. An existing hotspot is used as it is.');
+          add(box, 'small', 'form-note', 'Fallback: the automatic hotspot kit sets the router up in one go. To use it with your own Wi-Fi name, choose it when generating the kit.');
+        }
         add(box, 'small', 'form-note', 'CA compatibility is a recovery option only. It disables certificate verification for the download.');
         if (regenerate) setupAction(actions, 'Generate a new kit', 'secondary', regenerate);
         box.appendChild(actions);
@@ -1662,16 +1669,30 @@
         if (storedRouterKitIsStale(saved)) {
           add(box, 'p', 'kit-refresh-note', 'This saved connection kit is out of date and cannot be copied. Generate one fresh kit before configuring the router. Your router has not been changed by this notice.');
         } else {
-          add(box, 'p', '', 'Import one automatic kit. Wi-Fi Fiti detects whether this is an existing Hotspot router or a blank reset router, then keeps or creates only what that path requires.');
+          var introNote = add(box, 'p', 'kit-intro', '');
         }
         var form = el('form'); form.noValidate = true;
-        var modes = el('div', 'simple-kit'); add(modes, 'h4', '', 'Automatic router detection'); add(modes, 'p', '', 'The kit checks RouterOS, board, Wi-Fi stack, WAN port, bridge, Hotspot and Ethernet ports on the router. It then chooses the safe existing-router or fresh-router path for you.'); var autoMode = document.createElement('input'); autoMode.type = 'hidden'; autoMode.name = 'mode'; autoMode.value = 'auto'; form.appendChild(autoMode); form.appendChild(modes);
+        // Which kit: the connection kit (universal, default) changes nothing on
+        // the router and needs no Wi-Fi details; the automatic hotspot kit
+        // (fallback) builds Wi-Fi and a hotspot itself, so only it asks for them.
+        var savedChoice = (getSetups()[String(location.id)] || {}).kitChoice;
+        var kitChoice = savedChoice === 'automatic' ? 'automatic' : 'universal';
+        var modes = el('div', 'simple-kit kit-choice'); add(modes, 'h4', '', 'Choose your kit');
+        var choices = el('div', 'kit-choice-options'); modes.appendChild(choices);
+        function kitOption(value, title, detail) {
+          var label = el('label', 'kit-option'); var radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'kitChoice'; radio.value = value; radio.checked = kitChoice === value;
+          radio.addEventListener('change', function () { if (radio.checked) { kitChoice = value; refreshMode(); } });
+          label.appendChild(radio); var text = el('span'); add(text, 'strong', '', title); add(text, 'small', '', detail); label.appendChild(text); choices.appendChild(label);
+        }
+        kitOption('universal', 'Connection kit (recommended)', 'Works on any router: freshly reset, or already running VLANs, PPPoE or a TV network. Nothing on the router changes. You choose where customers connect on the next screen.');
+        kitOption('automatic', 'Automatic hotspot kit (fallback)', 'Sets up the Wi-Fi, bridge and hotspot in one go. Use it only if the connection kit does not work on this router.');
+        var autoMode = document.createElement('input'); autoMode.type = 'hidden'; autoMode.name = 'mode'; autoMode.value = 'auto'; form.appendChild(autoMode); form.appendChild(modes);
         var fields = el('div', 'fields');
         function inputField(parent, labelText, name, value, options) { var label = el('label'); add(label, 'span', '', labelText); var input = document.createElement('input'); input.name = name; input.value = value || ''; input.type = options && options.type || 'text'; if (options && options.placeholder) input.placeholder = options.placeholder; if (options && options.required) input.required = true; if (options && options.autocomplete) input.autocomplete = options.autocomplete; label.appendChild(input); parent.appendChild(label); return { label: label, input: input }; }
         function selectField(parent, labelText, name, items, value) { var label = el('label'); add(label, 'span', '', labelText); var select = document.createElement('select'); select.name = name; items.forEach(function (item) { var option = document.createElement('option'); option.value = item.value; option.textContent = item.label; select.appendChild(option); }); select.value = value; label.appendChild(select); parent.appendChild(label); return { label: label, input: select }; }
         var profile = selectField(fields, 'MikroTik model', 'modelProfile', [{ value: 'auto', label: 'Detect automatically' }], 'auto'); profile.label.classList.add('hidden'); profile.input.disabled = true;
         var ssid = inputField(fields, 'Customer Wi-Fi name', 'wifiSsid', model.business.hotspot_name || model.business.name || '', { required: true, placeholder: 'My WiFi' });
-        form.appendChild(fields); add(form, 'p', 'router-requirement', 'RouterOS 7 is required. The customer Wi-Fi is open so captive-portal sign-in can appear immediately; HotSpot authentication still controls internet access. Router administrator credentials are never changed.');
+        form.appendChild(fields); var requirement = add(form, 'p', 'router-requirement', '');
 
         var advanced = el('details', 'simple-advanced'); add(advanced, 'summary', '', 'Advanced router settings'); var advancedInner = el('div', 'simple-advanced-inner'); add(advancedInner, 'p', 'form-note', 'Change these only when your router does not use the normal Wi-Fi Fiti defaults.'); var shared = el('div', 'fields');
         inputField(shared, 'Customer bridge', 'customerBridge', location.customer_bridge || 'bridge-hs', { placeholder: 'bridge-hs' }); inputField(shared, 'Hotspot server', 'hotspotServer', location.hotspot_server || 'hotspot1', { placeholder: 'hotspot1' }); advancedInner.appendChild(shared);
@@ -1680,20 +1701,38 @@
         var statics = el('div', 'fields hidden'); statics.classList.add('simple-new-only'); statics.dataset.wanFields = 'static'; inputField(statics, 'Static WAN address', 'staticWanAddress', '', { placeholder: '192.168.1.2/24' }); inputField(statics, 'Static WAN gateway', 'staticWanGateway', '', { placeholder: '192.168.1.1' }); inputField(statics, 'DNS servers', 'dnsServers', '1.1.1.1,8.8.8.8', { placeholder: '1.1.1.1,8.8.8.8' }); advancedInner.appendChild(statics); advanced.appendChild(advancedInner); form.appendChild(advanced);
         var actions = el('div', 'buttons'); var submit = setupAction(actions, 'Generate connection kit', '', function () { form.requestSubmit(); }); form.appendChild(actions); var error = add(form, 'div', 'error', ''); error.setAttribute('aria-live', 'polite'); box.appendChild(form); body.appendChild(box);
         function selectedMode() { return 'auto'; }
-        function refreshMode() { profile.label.classList.add('hidden'); profile.input.disabled = true; [ssid].forEach(function (field) { field.label.classList.remove('hidden'); field.input.disabled = false; }); advanced.classList.add('hidden'); advanced.querySelectorAll('input,select').forEach(function (field) { field.disabled = true; }); }
+        function refreshMode() {
+          var automatic = kitChoice === 'automatic';
+          if (introNote) introNote.textContent = automatic
+            ? 'The automatic hotspot kit detects whether this is an existing Hotspot router or a blank reset router, then keeps or creates only what that path requires.'
+            : 'This kit connects your router to Wi-Fi Fiti without changing anything on it. Next, you’ll see all of its ports on the routerboard and choose where hotspot and PPPoE customers connect.';
+          requirement.textContent = automatic
+            ? 'RouterOS 7 is required. The customer Wi-Fi is open so captive-portal sign-in can appear immediately; HotSpot authentication still controls internet access. Router administrator credentials are never changed.'
+            : 'RouterOS 7 is required. On a freshly reset router, run the DHCP preparation step first so it has internet. Router administrator credentials are never changed.';
+          submit.textContent = automatic ? 'Generate automatic hotspot kit' : 'Generate connection kit'; delete submit.dataset.label;
+          ssid.label.classList.toggle('hidden', !automatic); ssid.input.disabled = !automatic;
+          profile.label.classList.add('hidden'); profile.input.disabled = true; advanced.classList.add('hidden'); advanced.querySelectorAll('input,select').forEach(function (field) { field.disabled = true; }); }
         refreshMode();
         form.addEventListener('submit', function (event) {
           event.preventDefault(); error.textContent = ''; var payload = values(form); var mode = selectedMode(); var selectedProfile = routerProfiles[payload.modelProfile] || routerProfiles['hap-lite'];
           var replacing = Boolean(location.last_successful_sync_at);
-          var confirmation = replacing
-            ? 'Create an automatic replacement kit? The current router keeps serving customers until the new kit completes its secure check-in. The kit may configure a fresh/reset router.'
-            : 'Create this automatic kit? It may configure a fresh/reset router after checking the device. Do not run it on a router that serves customers unless you intend to replace that setup.';
-          if (!window.confirm(confirmation)) return;
+          var automatic = kitChoice === 'automatic';
+          var confirmation = automatic
+            ? (replacing
+              ? 'Create an automatic replacement kit? The current router keeps serving customers until the new kit completes its secure check-in. The kit may configure a fresh/reset router.'
+              : 'Create this automatic kit? It may configure a fresh/reset router after checking the device. Do not run it on a router that serves customers unless you intend to replace that setup.')
+            : (replacing
+              ? 'Create a new connection kit for a replacement router? The current router keeps serving customers until the new one completes its secure check-in.'
+              : '');
+          if (confirmation && !window.confirm(confirmation)) return;
+          // The connection kit ignores Wi-Fi details; the server still keeps the
+          // automatic kit ready as a fallback, named after the business.
+          if (!automatic) payload.wifiSsid = String(model.business.hotspot_name || model.business.name || location.name || 'WiFi').replace(/["\\$\r\n]/g, '').slice(0, 32) || 'WiFi';
           payload.mode = mode; payload.routerOsVersion = '7'; payload.name = location.name; payload.routerName = location.router_name || location.router_model || ''; payload.customerBridge = payload.customerBridge || 'bridge-hs'; payload.hotspotServer = payload.hotspotServer || 'hotspot1'; payload.wanInterface = payload.wanInterface || 'ether1'; payload.customerSubnet = payload.customerSubnet || '10.5.50.0/24'; payload.wifiInterface = selectedProfile.wifi; payload.customerPorts = selectedProfile.ports;
           payload.autoRouterConfirmed = 'yes';
           if (replacing) payload.replaceRouter = 'yes';
           payload.modelProfile = 'auto'; payload.routerModel = ''; payload.wifiInterface = ''; payload.customerPorts = '';
-          setBusy(submit, true, 'Creating…'); api('/api/business/locations/' + encodeURIComponent(location.id) + '/router-setup', { method: 'POST', body: JSON.stringify(payload) }).then(function (result) { clearFreshRouterSetup(location); saveSetup(result.location, result.portalUrl, result.setup); setConnectionPhase(result.location, 'install'); mergeLocation(result.location); rememberOnboardingLocation((state.workspace && state.workspace.business) || {}, result.location); return load(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(submit, false); });
+          setBusy(submit, true, 'Creating…'); api('/api/business/locations/' + encodeURIComponent(location.id) + '/router-setup', { method: 'POST', body: JSON.stringify(payload) }).then(function (result) { clearFreshRouterSetup(location); saveSetup(result.location, result.portalUrl, result.setup); var kits = getSetups(); if (kits[String(result.location.id)]) { kits[String(result.location.id)].kitChoice = automatic ? 'automatic' : 'universal'; saveSetups(kits); } setConnectionPhase(result.location, 'install'); mergeLocation(result.location); rememberOnboardingLocation((state.workspace && state.workspace.business) || {}, result.location); return load(); }).catch(function (err) { error.textContent = err.message; }).finally(function () { setBusy(submit, false); });
         });
       }
       function appendCustomerPortalSetup(body, model) {

@@ -221,8 +221,11 @@ assert.match(onboardingRenderer[0], /appendSimpleRouterSetup\(connectBody, model
   'the focused journey mounts one compact router-kit screen');
 assert.match(onboardingRenderer[0], /phase === 'prepare'/,
   'only the preparation page is rendered before the owner explicitly continues');
-assert.match(html, /Automatic router detection/,
-  'the focused journey lets the router kit choose the safe setup path');
+assert.match(html, /add\(modes, 'h4', '', 'Choose your kit'\)/,
+  'the focused journey lets the owner choose the kit, with the connection kit first');
+assert.match(html, /kitOption\('universal', 'Connection kit \(recommended\)'/, 'the connection kit is the recommended choice');
+assert.match(html, /ssid\.label\.classList\.toggle\('hidden', !automatic\); ssid\.input\.disabled = !automatic;/, 'the Wi-Fi name is asked only for the automatic hotspot kit');
+assert.match(html, /if \(!automatic\) payload\.wifiSsid = /, 'the connection kit still generates a valid fallback kit without asking for Wi-Fi');
 assert.match(html, /payload\.modelProfile = 'auto'/,
   'the focused journey does not ask customers to guess a board profile');
 assert.match(html, /payload\.autoRouterConfirmed = 'yes'/,
@@ -258,7 +261,7 @@ assert.match(html, /Copy connection kit/,
   'owners can copy the single secure connection kit directly');
 assert.match(html, /Use this only if the router stops with "no trusted CA certificate found"\. It skips certificate checks for this router\. Continue\?/,
   'the CA recovery kit requires an explicit security acknowledgement before copying');
-assert.match(html, /var script = routerBootstrapCommand\(saved, false, false, true\);/, 'the universal kit is the default connection kit');
+assert.match(html, /var script = fallbackChosen \? routerBootstrapCommand\(saved\) : routerBootstrapCommand\(saved, false, false, true\);/, 'the universal kit is the default connection kit unless the owner chose the fallback');
 assert.match(html, /Copy automatic hotspot kit \(fallback\)/, 'the automatic kit stays available as the fallback');
 assert.doesNotMatch(html, /Download full kit|Download \\.rsc|Show full RouterOS kit \(fallback\)/,
   'the customer onboarding view does not expose downloads or fallback scripts');
