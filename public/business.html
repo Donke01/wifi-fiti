@@ -2380,7 +2380,7 @@
             applied: 'Kept. Waiting for the router’s next report to confirm everything is in place.',
             'undo-queued': 'The undo is on its way to the router.', 'undo-sent': 'The router is putting things back the way they were.'
           };
-          appendPatienceCard(section, { key: 'change-' + inFlight.id + '-' + inFlight.status, startedAt: inFlight.createdAt,
+          appendPatienceCard(section, { key: 'change-' + inFlight.id + '-' + inFlight.status, startedAt: undoing ? (inFlight.updatedAt || inFlight.createdAt) : inFlight.createdAt,
             title: (undoing ? 'Undoing ' : 'Applying ') + inFlight.title, usual: 'Usually under a minute; slower routers can take a few',
             steps: undoing ? ['Sending the undo', 'Router puts things back'] : ['Sending to your router', 'Router checks and applies it', 'Router confirms it is still online', 'Final check of its report'], current: stepIndex,
             messages: [byStatus[inFlight.status] || 'Working on it…', 'If anything goes wrong, the router puts everything back by itself.', 'You can leave this page. The router finishes on its own and this list updates.', 'Keep the router powered on and online until this says Done.'],
@@ -2390,14 +2390,21 @@
         // While a change is on its way, follow it every 3 seconds without a reload.
         var stillChecking = busy || changes.some(function (c) { return c.status === 'applied'; });
         if (changeFollowTimer) { clearTimeout(changeFollowTimer); changeFollowTimer = null; }
+        // A tab in the background or a map being edited only postpones the
+        // next check; following never stops until the change has settled
+        // (it used to stop for good, leaving "Undoing…" on screen after the
+        // router had long finished).
         if (stillChecking) {
-          changeFollowTimer = setTimeout(function () {
-            changeFollowTimer = null; if (!token || document.visibilityState === 'hidden') return;
+          var followChange = function () {
+            changeFollowTimer = null; if (!token) return;
+            if (document.visibilityState === 'hidden') { changeFollowTimer = setTimeout(followChange, 3000); return; }
             api(routerTopologyUrl(location)).then(function (result) {
               routerTopologyCache[String(location.id)] = { result: result, error: '', fetchedAt: Date.now() };
-              if (!plannerInUse()) renderOnboarding();
-            }).catch(function () {});
-          }, 3000);
+              if (plannerInUse()) { if (!changeFollowTimer) changeFollowTimer = setTimeout(followChange, 3000); }
+              else renderOnboarding();
+            }).catch(function () { if (!changeFollowTimer) changeFollowTimer = setTimeout(followChange, 5000); });
+          };
+          changeFollowTimer = setTimeout(followChange, 3000);
         }
         changes.slice(0, 8).forEach(function (change) {
           var info = ROUTER_CHANGE_STATUS[change.status] || ['off', change.status];

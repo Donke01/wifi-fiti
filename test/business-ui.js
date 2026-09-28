@@ -416,6 +416,9 @@ assert.match(html, /!home\(item\.name\) && item\.free && !item\.movableFrom; \}\
 assert.match(html, /The router is working on it now; follow it under Changes on the router above\./, 'the saved-map note never says nothing changed while a change runs');
 assert.match(html, /var busyOnRouter = \(changes \|\| \[\]\)\.some\(function \(c\) \{ return \/\^\(queued\|sent\|confirming\|applied\|undo-queued\|undo-sent\)\$\/\.test\(c\.status\); \}\);/, 'Review and apply stays hidden until the change is settled');
 assert.match(html, /low_memory: 'The router is short of memory/);
+assert.match(html, /if \(document\.visibilityState === 'hidden'\) \{ changeFollowTimer = setTimeout\(followChange, 3000\); return; \}/, 'a background tab postpones following a change, never stops it');
+assert.match(html, /if \(plannerInUse\(\)\) \{ if \(!changeFollowTimer\) changeFollowTimer = setTimeout\(followChange, 3000\); \}/, 'editing the map postpones following a change, never stops it');
+assert.match(html, /startedAt: undoing \? \(inFlight\.updatedAt \|\| inFlight\.createdAt\) : inFlight\.createdAt/, 'an undo is timed from when it started');
 assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit is shown as one console');
 assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');
 assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'\)/, 'every hotspot bridge shows its Wi-Fi panel');
