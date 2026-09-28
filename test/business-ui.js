@@ -315,7 +315,8 @@ const context = vm.createContext({
   onboardingModel: () => ({}), onboardingFlowState: () => ({ active: false }),
   advanceOnboardingStage() {}, renderLocations() {}, downloadRouterScript() {},
 });
-for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerCaTrustLines',
+vm.runInContext(html.match(/var ROUTER_ROOT_PINS = \[[^\]]*\];/)[0], context);
+for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps', 'routerCertificateFix',
   'routerBootstrapCommand', 'storedRouterKitHasScript', 'storedRouterKitIsCurrent', 'storedRouterKitIsStale',
   'appendRouterInstaller', 'appendSimpleRouterSetup', 'renderPairingKits', 'showRouterSetup']) {
   const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
@@ -341,7 +342,8 @@ for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', ''
       assert.match(copiedCommand, /check-certificate=yes/,
         screen + ' keeps certificate verification enabled in the standard bootstrap');
       assert.match(copiedCommand, /&vlan=1/, screen + ' copies the universal kit by default');
-      assert.match(copiedCommand, /\/certificate import/, screen + ' carries the embedded CA roots, so older routers pair first time');
+      assert.ok(copiedCommand.length < 500, screen + ' copies a short connection kit');
+      assert.ok(nodes.some(node => node.tagName === 'button' && node.textContent === 'Copy certificate fix'), screen + ' offers the certificate fix for routers without CAs');
       const fallback = nodes.find(node => node.tagName === 'button' && node.textContent === 'Copy automatic hotspot kit (fallback)');
       assert.ok(fallback, screen + ' offers the automatic kit as a fallback');
     }
@@ -358,25 +360,23 @@ assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a
   const setup = { ...savedKits[uiLocation.id], setup: { ...(savedKits[uiLocation.id].setup || {}), loader: true } };
   const universal = context.routerBootstrapCommand(setup, false, false, true);
   assert.match(universal, /&vlan=1/);
-  assert.match(universal, /\/certificate import file-name="fiti-ca-1\.pem"/, 'the universal command installs the signing roots, for boards without built-in CAs');
-  assert.ok(universal.indexOf('/certificate import') < universal.indexOf('/tool fetch'), 'the roots are installed before the first HTTPS download');
-  assert.match(universal, /check-certificate=yes/, 'and certificate checks stay on');
-  assert.doesNotMatch(context.routerBootstrapCommand(setup, true, false, true), /\/certificate import/, 'the CA-compatibility command is unchanged');
+  assert.ok(universal.length < 500, 'the connection kit is a short paste (' + universal.length + ' characters)');
+  assert.doesNotMatch(universal, /BEGIN CERTIFICATE|router-roots/, 'no certificates in the main command');
+  assert.match(universal, /check-certificate=yes dst-path="fiti\.rsc"; \/import fiti\.rsc$/, 'download securely, then run it');
+  const fix = context.routerCertificateFix();
+  assert.ok(fix.length < 1200, 'the certificate fix is a short second paste (' + fix.length + ' characters)');
+  assert.match(fix, /\/router-roots\.pem" check-certificate=no dst-path="fiti-roots\.pem"/, 'the public roots file needs no CA to download');
+  assert.doesNotMatch(fix, /X-WiFi-Fiti-Router|loc-installer-test/, 'the certificate fix sends no router credential');
+  assert.match(fix, /else=\{ \/certificate remove \$c \}/, 'any certificate that does not match a pinned fingerprint is removed');
+  assert.doesNotMatch(context.routerBootstrapCommand(setup, true, false, true), /router-roots/, 'the CA-compatibility command is unchanged');
 }
-// The embedded roots are exactly Mozilla's (via Node's trust store), and
-// the RouterOS text decodes back to each certificate unchanged.
+// The pinned fingerprints are exactly those of Mozilla's roots (via Node's
+// trust store), so only the genuine certificates are ever trusted.
 {
   const tls = require('node:tls'); const crypto = require('node:crypto');
-  const lines = context.routerCaTrustLines();
-  assert.equal(lines.length, 4);
-  for (const [cn, line] of [['ISRG Root X1', lines[0]], ['ISRG Root X2', lines[1]], ['GTS Root R1', lines[2]], ['GTS Root R4', lines[3]]]) {
-    assert.match(line, new RegExp('common-name="' + cn + '"'));
-    const encoded = line.match(/contents="([^"]*)"/)[1];
-    const decoded = encoded.replace(/\\n/g, '\n');
-    const official = tls.rootCertificates.find((pem) => new crypto.X509Certificate(pem).subject.includes('CN=' + cn));
-    assert.equal(decoded.trim(), official.trim(), cn + ' is the genuine root certificate');
-    assert.doesNotMatch(line, /\$/, 'no RouterOS variable expansion in the certificate text');
-  }
+  const pins = html.match(/var ROUTER_ROOT_PINS = \[([^\]]*)\];/)[1].match(/[0-9a-f]{64}/g);
+  const expected = ['ISRG Root X1', 'ISRG Root X2', 'GTS Root R1', 'GTS Root R4'].map((cn) => new crypto.X509Certificate(tls.rootCertificates.find((pem) => new crypto.X509Certificate(pem).subject.split('\n').includes('CN=' + cn))).fingerprint256.replace(/:/g, '').toLowerCase());
+  assert.deepEqual(pins, expected, 'each pin is the genuine root certificate');
 }
 assert.match(html, /if \(snapshot\.layout\) appendRouterLayoutBoard\(box, snapshot\.layout, location, snapshot\.plan \|\| null, snapshot\.changes \|\| \[\]\);/,
   'a universal-kit router shows its full layout on the routerboard itself');

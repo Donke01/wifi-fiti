@@ -195,6 +195,7 @@ async function createBusiness(email, name) {
   const universalKit = await api(`/api/router/v1/bootstrap?site=${site}&vlan=1`, { routerToken: location.routerToken });
   assert.equal(universalKit.status, 200, universalKit.text);
   assert.match(universalKit.text, /UNIVERSAL KIT \(TEST\)/, 'the fourth kit slot is now the universal kit');
+  assert.match(universalKit.text, /\/file remove \[find where name="fiti\.rsc"\]/, 'the downloaded kit removes its own file');
   assert.doesNotMatch(universalKit.text, NETWORK_CHANGES);
   assert.doesNotMatch(universalKit.text, /Kitale WiFi|SafeWifiPass9/, 'none of the automatic kit\'s Wi-Fi settings are applied');
   const standardKit = await api(`/api/router/v1/bootstrap?site=${site}`, { routerToken: location.routerToken });
@@ -212,6 +213,12 @@ async function createBusiness(email, name) {
   assert.match(compatInstaller.text, /awaiting-map/);
   assert.match(compatInstaller.text, /&kit=universal/);
   assert.doesNotMatch(compatInstaller.text, /check-certificate=yes/, 'its poller syncs without certificate checks, like the standard compatibility installer');
+  const roots = await api('/router-roots.pem');
+  assert.equal(roots.status, 200);
+  const { X509Certificate } = require('node:crypto');
+  const servedRoots = roots.text.split(/(?=-----BEGIN CERTIFICATE-----)/).filter((p) => p.trim()).map((pem) => new X509Certificate(pem));
+  assert.deepEqual(servedRoots.map((c) => c.subject.split('\n').find((l) => l.startsWith('CN='))), ['CN=ISRG Root X1', 'CN=ISRG Root X2', 'CN=GTS Root R1', 'CN=GTS Root R4'],
+    'the public roots file holds exactly the four roots the connection kit pins');
   const served = await api('/tenant-router-install-universal.rsc');
   assert.equal(served.status, 200);
   assert.equal(served.text, installer);

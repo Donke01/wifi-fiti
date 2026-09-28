@@ -458,6 +458,21 @@ app.get('/tenant-router-install-telemetry-test.rsc', (req, res) => {
     res.type('text/plain').send(telemetryTestRouterKit(source));
   } catch (_) { res.status(404).type('text/plain').send('# telemetry test installer unavailable\n'); }
 });
+// The roots Wi-Fi Fiti's certificates chain to, for routers that have no
+// built-in CA store (the hAP lite). Public and served without a certificate
+// check on the router's side; the connection kit accepts only these exact
+// certificates, by SHA-256 fingerprint, so a tampered copy is never trusted.
+const ROUTER_ROOT_NAMES = ['ISRG Root X1', 'ISRG Root X2', 'GTS Root R1', 'GTS Root R4'];
+const ROUTER_ROOTS_PEM = (() => {
+  const tls = require('node:tls'); const { X509Certificate } = require('node:crypto');
+  return ROUTER_ROOT_NAMES.map((cn) => tls.rootCertificates.find((pem) => new X509Certificate(pem).subject.split('\n').includes('CN=' + cn)))
+    .filter(Boolean).map((pem) => pem.trim() + '\n').join('');
+})();
+app.get('/router-roots.pem', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.type('text/plain').send(ROUTER_ROOTS_PEM);
+});
+
 // Universal kit installer (test slot): the stable installer, transformed to
 // pair a router without changing its network. Only the universal kit uses it.
 app.get('/tenant-router-install-universal.rsc', (req, res) => {
