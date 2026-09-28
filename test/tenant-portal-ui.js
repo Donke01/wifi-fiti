@@ -9,6 +9,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '../public/tenant-portal.html'), 'utf8');
+assert.match(html, /#buy > \.copy\{display:none\}\n\s*#buy > \.copy\.owner-message\{display:block;text-align:center\}/, 'only an owner-written message shows above the packages');
+assert.match(html, /body\[data-portal-background="midnight"\] \.brand-name\{color:#fff\}/, 'the business name stays readable on the midnight background');
 const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(match => match[1]);
 assert.equal(scripts.length, 1, 'exercise the actual portal application script');
 const originTime = Date.parse('2026-09-05T12:00:00Z');
@@ -195,6 +197,7 @@ async function test(name, callback) {
     assert.equal(page.element('brand').textContent, 'Lakeview Internet');
     assert.equal(page.element('location').textContent, 'Kisumu Main');
     assert.equal(page.element('portal-message').textContent, 'Fast Wi-Fi for Lakeview guests.');
+    assert.equal(page.element('portal-message').classList.contains('owner-message'), true, 'a message the owner wrote is shown');
     assert.equal(page.element('brand-logo').src, '/media/logo/biz-test');
     assert.equal(page.cssVariables.get('--blue'), '#19A974');
     assert.equal(page.cssVariables.get('--aqua'), '#19A974');
@@ -206,6 +209,7 @@ async function test(name, callback) {
     await page.flush();
     assert.equal(page.count('/config'), 1);
     assert.equal(page.element('brand').textContent, 'Test WiFi');
+    assert.equal(page.element('portal-message').classList.contains('owner-message'), false, 'the default payment line stays hidden');
   });
 
   await test('saved payment resumes across refresh and remains on the waiting page beyond five seconds', async () => {

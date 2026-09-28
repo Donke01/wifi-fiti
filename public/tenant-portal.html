@@ -23,6 +23,8 @@
     h1,h2,h3{color:var(--ink)}h1{font-size:clamp(28px,8vw,37px);letter-spacing:-.06em}.copy,.section-copy,.expiry,.waiting p{color:var(--muted)}
     .plans{gap:11px}.plan{cursor:pointer;color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px rgba(32,57,86,.035);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}.plan:hover,.plan:focus-visible{border-color:#8fb7e8;background:#f8fbff;box-shadow:0 8px 18px rgba(32,57,86,.10);transform:translateY(-1px)}.plan:active{transform:translateY(0)}.plan.active{border-color:var(--blue);background:#eef5ff;box-shadow:inset 0 0 0 2px #c8ddf8,0 8px 18px rgba(23,105,216,.10)}.plan-title{color:var(--ink)}.plan-detail{display:none}.price{color:var(--blue)}
     #buy > .copy{display:none}
+    #buy > .copy.owner-message{display:block;text-align:center}
+    body[data-portal-align="left"] #buy > .copy.owner-message{text-align:left}
     label{color:#47617e}input{color:var(--ink);border-color:#cdd9e8;background:#fff;box-shadow:inset 0 1px 2px #193d7108}input::placeholder{color:#91a0b3}
     .primary{color:#fff;background:linear-gradient(110deg,#1157ba,#1769d8 55%,#3187e6);box-shadow:0 12px 25px #1769d826}.secondary{color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px #193d7108}.text-button{color:var(--blue)}
     .mpesa-button{color:#31ad4b;background:#fff;border:2px solid #37b957;box-shadow:0 10px 22px rgba(33,163,73,.16);gap:0;white-space:nowrap}.mpesa-button:hover{background:#f4fff6;border-color:#1e9b46}.mpesa-word{display:inline-flex;align-items:center;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;font-size:24px;font-weight:950;letter-spacing:-.06em;line-height:1}.mpesa-logo{width:34px;height:43px;flex:none;margin:0 1px}.mpesa-button .mpesa-label{margin-right:12px;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;font-size:19px;font-weight:900;letter-spacing:-.02em}
@@ -114,6 +116,8 @@
     body[data-portal-font="condensed"]{font-family:"Arial Narrow","Roboto Condensed",Inter,sans-serif}
     body[data-portal-font="mono"]{font-family:"IBM Plex Mono",ui-monospace,monospace}
     body[data-portal-background="midnight"]{background:radial-gradient(circle at 90% 0,#7c5cfa36,transparent 28rem),#090b1c}
+    /* The name and location sit on the page background, so they need light text on midnight. */
+    body[data-portal-background="midnight"] .brand-name{color:#fff}body[data-portal-background="midnight"] .brand-location{color:#c9d4ff}
     body[data-portal-background="paper"]{background:linear-gradient(145deg,#fff,#edf4fb)}
     body[data-portal-background="sunset"]{background:radial-gradient(circle at 10% 0,#ffb06c66,transparent 28rem),linear-gradient(145deg,#fff8f1,#fff)}
     body[data-portal-background="mint"]{background:radial-gradient(circle at 90% 0,#72e0be70,transparent 28rem),linear-gradient(145deg,#f2fffb,#fff)}
@@ -271,6 +275,9 @@
       }
       if (branding.message) message('portal-message', branding.message);
       if (template.welcomeMessage) message('portal-message', template.welcomeMessage);
+      // The default payment line stays hidden; a message the owner wrote
+      // (Branding or the published template) is shown.
+      $('portal-message').classList.toggle('owner-message', Boolean(branding.message || template.welcomeMessage));
       if (template.layout) document.body.dataset.portalLayout = template.layout;
       if (template.fontFamily) document.body.dataset.portalFont = template.fontFamily;
       if (template.textAlign) document.body.dataset.portalAlign = template.textAlign;
