@@ -2662,9 +2662,14 @@ function routerMappingForLocation(location) {
   // hide both the old snapshot and the old confirmation until the pending
   // token has completed its receipt and a new inventory has arrived.
   if (hasLivePendingRouterPairing(location)) return waitingForRouterInventory();
+  // Universal-kit routers are mapped on the routerboard, not by the old
+  // confirmation: once the router serves customers (a hotspot runs, or the
+  // owner's own hotspot is billed) the map is done.
+  if (universalRouterServed(location)) return { status: 'confirmed', mappedBy: 'universal', inventoryReportedAt: null, inventoryUpdatedAt: null, confirmedAt: null, mapping: null, canConfirm: false };
   const snapshot = topologySnapshot(routerTopologyByLocation.get(location.id));
   if (!snapshot) return waitingForRouterInventory();
   const fresh = topologyFreshAt(snapshot.lastReportedAt);
+
   const row = routerMappingByLocation.get(location.id);
   const mapping = confirmedMapping(row, snapshot.topology);
   // Older deployments fingerprinted transient link state. If the owner's
@@ -3391,6 +3396,12 @@ function recordRouterInventory(locationId, inventory) {
 }
 // Required lazily: the module prepares statements on tables created above.
 function routerChanges() { return require('./router-changes'); }
+function universalRouterServed(location) {
+  if (!location || location.router_kit !== 'universal' || !location.router_setup_verified_at) return false;
+  const health = String(location.router_setup_health || '');
+  if (health === 'awaiting-map') { try { return Boolean(routerChanges().liveAdopt(location.id)); } catch (_) { return false; } }
+  return health !== '';
+}
 const upsertRouterPlan = db.prepare(`INSERT INTO tenant_router_plans (location_id, plan_json, saved_at) VALUES (?, ?, datetime('now'))
   ON CONFLICT(location_id) DO UPDATE SET plan_json=excluded.plan_json, saved_at=excluded.saved_at`);
 const routerPlanRow = db.prepare(`SELECT plan_json, saved_at FROM tenant_router_plans WHERE location_id=?`);

@@ -437,6 +437,9 @@ assert.match(html, /'golive-finish'[\s\S]{0,300}Go to my dashboard[\s\S]{0,300}c
 assert.match(html, /s\.error === 'needs_permission'/, 'an older kit is told to paste the kit again');
 assert.match(html, /The file holds your router passwords/, 'backup warning');
 assert.match(html, /input\.value = toolCustomerInput/, 'the customer box keeps its text while the page refreshes');
+assert.match(html, /el\('button', '', 'Router map'\)[\s\S]{0,300}openRouterMap\(location\)/, 'every universal router has a Router map button on the Routers page');
+assert.match(html, /model\.mappingConfirmed && onboardingFlowState\(model\)\.active && !\(model\.location && model\.location\.router_kit === 'universal'\)/, 'an open universal map is not closed under the owner');
+assert.match(html, /model\.needsRouterMapping \|\| universalMapOpen\(model\)/, 'an open map keeps refreshing');
 assert.match(html, /renderOverviewInsights\(\); renderGoLiveOverview\(\);/, 'and on Overview');
 assert.match(html, /\}, busy \? 5000 : 20000\);/, 'fast only while a purchase is happening');
 assert.match(html, /if \(document\.visibilityState === 'hidden'\) \{ scheduleGoLive\(\); return; \}/, 'no checks from a hidden tab');
