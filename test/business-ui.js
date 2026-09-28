@@ -391,3 +391,9 @@ assert.match(html, /tick\.addEventListener\('change', function \(\) \{ go\.disab
 assert.match(html, /undo\.textContent = 'Tap again to undo'/, 'undo needs a second tap');
 assert.match(html, /if \(bridge\.job !== job && \/\^fiti-\(hotspot\|pppoe\)\(-\\d\+\)\?\$\/\.test\(bridge\.name\)\) \{ bridge\.name = ''; bridge\.name = freshName\(job\); \}/, 'switching a job renames a default bridge name, never one the owner typed');
 assert.match(html, /\/network-changes\/' \+ encodeURIComponent\(change\.id\) \+ '\/rename'/, 'a Wi-Fi Fiti bridge can be renamed from the dashboard');
+assert.match(html, /function appendPatienceCard\(parent, options\)/, 'every setup wait uses one guided waiting card');
+assert.match(html, /title: 'Connecting your router'/, 'pairing says what is happening while the router connects');
+assert.match(html, /title: 'Reading your router'/, 'the first layout report has a reassuring wait');
+assert.match(html, /'Router checks and applies it', 'Router confirms it is still online', 'Final check of its report'/, 'a change in flight shows its steps');
+assert.match(html, /If anything goes wrong, the router puts everything back by itself\./, 'owners are told a failed change is undone automatically');
+assert.match(html, /savedKit && savedKit\.token/, 'the pairing card only appears once a kit exists');
