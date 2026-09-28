@@ -428,6 +428,15 @@ assert.match(html, /undo removes only the Wi-Fi\./);
 assert.match(html, /hotspot_missing: 'The hotspot is no longer running on that bridge/);
 assert.match(html, /<select aria-label="Analytics location"><option value="">All locations<\/option><\/select>/, 'All locations sends no location filter');
 assert.match(html, /<select aria-label="Customer location"><option value="">All locations<\/option><\/select>/, 'All locations shows every customer');
+// Go live (stage 4): one card from a set-up router to the first paying customer.
+assert.match(html, /function appendGoLive\(parent, location, options\)/);
+assert.match(html, /'\/api\/business\/locations\/' \+ encodeURIComponent\(locationId\) \+ '\/go-live'/, 'the card reads the same checks a purchase uses');
+assert.match(html, /api\('\/api\/business\/packages\/starter', \{ method: 'POST', body: '\{\}' \}\)/, 'starter packages in one tap');
+assert.match(html, /if \(snapshot\.layout && \(snapshot\.layout\.hotspots \|\| \[\]\)\.length\) appendGoLive\(box, location\);/, 'shown on the map once a hotspot runs');
+assert.match(html, /renderOverviewInsights\(\); renderGoLiveOverview\(\);/, 'and on Overview');
+assert.match(html, /\}, busy \? 5000 : 20000\);/, 'fast only while a purchase is happening');
+assert.match(html, /if \(document\.visibilityState === 'hidden'\) \{ scheduleGoLive\(\); return; \}/, 'no checks from a hidden tab');
+assert.match(html, /localStorage\.setItem\('fiti_golive_done:' \+ id, '1'\)/, 'the celebration shows once');
 assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit is shown as one console');
 assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');
 assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'\)/, 'every hotspot bridge shows its Wi-Fi panel');

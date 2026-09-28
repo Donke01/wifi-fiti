@@ -2548,6 +2548,87 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
   }
 });
 
+// ---- Go live (stage 4): from a set-up router to the first paying customer --
+// One read-only answer, from the same checks a real purchase uses, so the
+// owner's checklist can never say "ready" while a customer would be refused.
+function goLiveStatus(location) {
+  const business = db.businessById.get(location.business_id);
+  const layout = location.router_kit === 'universal' ? tenant.routerInventoryForLocation(location.id) : null;
+  // The router must be checking in (it switches customers on) and running a
+  // hotspot Wi-Fi Fiti serves: its own, or the one the kit adopted.
+  const health = String(location.router_setup_health || '');
+  const syncedAt = Date.parse(String(location.last_successful_sync_at || '').replace(' ', 'T') + 'Z');
+  const online = Number.isFinite(syncedAt) && Date.now() - syncedAt < 5 * 60_000;
+  const served = /^(ready|portal-missing)$/.test(health)
+    || (location.router_kit === 'universal' && Boolean(layout && (layout.hotspots || []).some((h) => h.name === 'fiti-hotspot')));
+  const hotspotOn = Boolean(location.router_setup_verified_at) && online && served;
+  const hotspotNote = !online ? 'Your router has not checked in for a few minutes. Check its power and internet connection.'
+    : !served ? 'Map your router first: set up the hotspot on the map.' : 'Customers can join and see your login page.';
+  const trial = trialLimited(location);
+  const packages = tenant.packagesForLocation.all(location.id);
+  const sellable = packages.filter((p) => !trial || (p.price <= TRIAL_LIMITS.maxPackagePriceKes && p.seconds <= TRIAL_LIMITS.maxPackageHours * 3600));
+  // How money reaches the owner, as /pay decides it.
+  let collection = { ready: true, provider: 'fiti', note: 'Wi-Fi Fiti collects the payments for you.' };
+  const selected = paymentIntegrations.summary(location.business_id).selected;
+  if (selected === 'tuma') {
+    let own = null; let broken = false;
+    try { own = tumaTenants.credentialsFor(location.business_id); } catch (_) { broken = true; }
+    if (broken) collection = { ready: false, provider: 'tuma', note: 'Reconnect your Tuma payout account.' };
+    else if (!tuma.callbackConfigured() || (!own && !tuma.configured())) collection = { ready: false, provider: 'tuma', note: 'Tuma is selected but not set up yet.' };
+    else collection = { ready: true, provider: 'tuma', note: own ? 'Payments go straight to your Tuma payout account.' : 'Payments are collected through Wi-Fi Fiti’s Tuma account and paid out to you.' };
+  } else if (location.collection_mode === 'own') {
+    let creds = null; try { creds = tenant.paymentCredentials(location.business_id); } catch (_) { creds = null; }
+    collection = creds ? { ready: true, provider: 'own', note: 'Payments go to your own M-Pesa PayBill or Till.' }
+      : { ready: false, provider: 'own', note: 'Finish connecting your own M-Pesa PayBill or Till.' };
+  }
+  // Why a purchase would be refused, told to the owner (the customer-facing
+  // wording says "ask the operator"), with what fixes it.
+  const phoneBlock = ownerPhoneBlock(location);
+  const serviceBlock = serviceBilling.hotspotSaleBlock(location, { renewing: true });
+  const feeBlock = tumaFee.salesBlock(location.business_id);
+  let blocked = null; let fix = collection.ready ? null : 'payments';
+  if (phoneBlock) { blocked = phoneBlock; fix = 'verify_phone'; }
+  else if (String(location.billing_status || '').toLowerCase() === 'suspended') { blocked = 'Your Wi-Fi Fiti account is paused, so customers can’t buy yet. Contact Wi-Fi Fiti support.'; fix = null; }
+  else if (serviceBlock) { blocked = 'Your hotspot subscription needs renewing before customers can buy. Renew it in Billing & payments.'; fix = 'payments'; }
+  else if (feeBlock) { blocked = 'The Tuma fee is overdue, so new sales are paused. Pay it in Billing & payments.'; fix = 'payments'; }
+  else if (hotspotCapacityBlock(location, false)) { blocked = trialLimited(location) ? `Your free trial allows ${TRIAL_LIMITS.maxHotspotUsers} customers online at once, and it is full right now. New customers can buy once someone's time ends, or subscribe for more.` : 'Your hotspot is full right now: new customers can buy once someone\u2019s time ends, or raise your plan in Billing & payments.'; fix = 'payments'; }
+  const sale = tenant.latestSale(location.id);
+  return {
+    locationId: location.id,
+    portalUrl: portalUrlForLocation(location),
+    trial,
+    trialLimits: trial ? { maxPriceKes: TRIAL_LIMITS.maxPackagePriceKes, maxHours: TRIAL_LIMITS.maxPackageHours, maxPackages: TRIAL_LIMITS.maxPackages } : null,
+    hotspot: { ready: hotspotOn, online, note: hotspotNote },
+    packages: { ready: sellable.length > 0, count: packages.length, sellable: sellable.length, cheapest: sellable.length ? sellable.reduce((a, b) => (a.price <= b.price ? a : b)) : null },
+    portal: { ready: true, customised: Boolean(business && (business.portal_name || business.brand_logo_path)), name: (business && (business.portal_name || business.name)) || '' },
+    payments: { ready: collection.ready && !blocked, provider: collection.provider, note: blocked || collection.note, blocked: Boolean(blocked), fix },
+    paying: tenant.paymentInProgress(location.id),
+    sale: sale ? { packageName: sale.packageName, amount: sale.amount, receipt: sale.receipt, paidAt: sale.paidAt, connected: Boolean(sale.connectedAt), connectedAt: sale.connectedAt, problem: sale.provisionError && !sale.provisioned ? sale.provisionError : null, count: sale.count } : null,
+    // Live once any paid customer has been switched on, not only the latest.
+    live: tenant.firstCustomerConnected(location.id),
+  };
+}
+app.get('/api/business/locations/:locationId/go-live', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const owned = tenant.locationForBusiness.get(String(req.params.locationId), business.id);
+  if (!owned) return res.status(404).json({ error: 'Location not found.' });
+  // The same location record a customer's purchase is checked against.
+  const location = tenant.locationById.get(owned.id);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(goLiveStatus(location));
+});
+// Ready-made packages for an owner with none yet: they can edit or remove
+// them. Inside the free trial's limits while the trial lasts.
+app.post('/api/business/packages/starter', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  if (db.packagesForBusiness.all(business.id).length) return res.status(409).json({ error: 'You already have packages. Edit them in Packages.', packages: db.packagesForBusiness.all(business.id) });
+  const starter = trialLimited(business)
+    ? [{ name: '30 minutes', price: 1, hours: 0.5 }, { name: '2 hours', price: 2, hours: 2 }, { name: '1 day', price: 3, hours: 24 }]
+    : [{ name: '1 hour', price: 10, hours: 1 }, { name: '1 day', price: 50, hours: 24 }, { name: '1 week', price: 250, hours: 24 * 7 }];
+  for (const p of starter) db.addBusinessPackage.run({ businessId: business.id, name: p.name, price: p.price, seconds: Math.round(p.hours * 3600), rateLimit: null });
+  res.status(201).json({ packages: db.packagesForBusiness.all(business.id) });
+});
+
 app.post('/api/tenant/:locationId/pay', async (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const salesBlocked = businessCanSell(location);

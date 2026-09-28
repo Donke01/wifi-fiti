@@ -546,6 +546,18 @@
 .rb-quick-top{display:flex;gap:12px;align-items:flex-start}.rb-quick-top strong{display:block;color:#0b4a33;font-size:15.5px}.rb-quick-top small{display:block;margin-top:3px;color:#2e5f4b;font-size:12.5px;line-height:1.45}
 .rb-quick-icon{flex:none;width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#1fc98a,#0a9d6b);color:#fff;display:grid;place-items:center;font-weight:800;box-shadow:0 8px 18px -8px rgba(10,157,107,.8)}
 .rb-quick-list{margin:12px 0 0;padding:0;list-style:none;display:grid;gap:6px}.rb-quick-list li{display:flex;gap:8px;align-items:baseline;font-size:13.5px;color:#163a2c;line-height:1.45}.rb-quick-list li::before{content:"✓";color:#0a9d6b;font-weight:800}
+.golive{margin:12px 0;padding:15px 16px;border-radius:18px;border:1px solid #bfe6d2;background:linear-gradient(135deg,#f3fff8,#eef6ff);box-shadow:0 14px 34px -22px rgba(20,120,80,.55)}
+.golive.is-live{border-color:#8fd9b0;background:linear-gradient(135deg,#e8fff1,#fff8e6)}
+.golive-top{display:flex;align-items:flex-start;gap:12px}.golive-top strong{display:block;color:#0d3b28;font-size:16px}.golive-top small{display:block;margin-top:3px;color:#355a48;font-size:13px;line-height:1.45}
+.golive-badge{flex:none;display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#1db980,#0e8f62);color:#fff;font-weight:800;box-shadow:0 8px 18px -8px rgba(14,143,98,.8)}
+.golive.is-live .golive-badge{background:linear-gradient(135deg,#ffb938,#f07b12)}
+.golive-steps{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
+.golive-step{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border-radius:12px;background:rgba(255,255,255,.78);border:1px solid #dcebe3}
+.golive-step b{display:block;color:#15324a;font-size:14px}.golive-step small{display:block;margin-top:2px;color:#4a6072;font-size:12.5px;line-height:1.45}
+.golive-mark{flex:none;display:grid;place-items:center;width:22px;height:22px;margin-top:1px;border-radius:50%;border:2px solid #b9cbd8;color:#fff;font-size:12px;font-weight:800}
+.golive-step.done .golive-mark{background:#18a86f;border-color:#18a86f}.golive-step.warn .golive-mark{background:#f0a020;border-color:#f0a020}
+.golive-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.golive-actions button{min-height:34px;padding:6px 13px;font-size:13px}
+.golive-wait{margin:10px 0 0;color:#4a6072;font-size:13px}
 .rb-tools-note{flex-basis:100%;color:#51607a;font-size:12.5px;line-height:1.45}.rb-quick .rb-wifi-field{margin-top:12px}.rb-quick-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:14px}.rb-quick-foot small{color:#2e5f4b;font-size:12.5px}
 .rb-quick .error:empty{display:none}
 @media (max-width:520px){.rb-quick{padding:14px 13px}.rb-quick-foot button{width:100%}}
@@ -950,7 +962,7 @@
       function showOrganisationSetup(business) { closeRouterDraftModal(); $('welcome').classList.add('hidden'); $('dashboard').classList.add('hidden'); $('organisation-setup').classList.remove('hidden'); var form = $('organisation-form'); if (business) { if (!form.elements.organisationName.value) form.elements.organisationName.value = business.name || ''; if (!form.elements.phone.value) form.elements.phone.value = business.owner_phone || ''; if (!form.elements.hotspotName.value) form.elements.hotspotName.value = business.hotspot_name || ''; } }
       function showDashboard() { $('welcome').classList.add('hidden'); $('organisation-setup').classList.add('hidden'); $('dashboard').classList.remove('hidden'); installPppoeNavLink(); renderHotspotPicker(); installOverviewControls(); }
       var moduleSections = {
-        overview: ['overview', 'metrics', 'overview-insights-section', 'onboarding-section'],
+        overview: ['overview', 'overview-golive', 'metrics', 'overview-insights-section', 'onboarding-section'],
         onboarding: ['onboarding-section'],
         routers: ['router-observability-section', 'locations-section', 'location-setup-section'],
         'router-setup': ['router-setup-section', 'location-setup-section'],
@@ -999,6 +1011,18 @@
         var metrics = document.querySelector('#dashboard .metrics'); if (!metrics || document.querySelector('.overview-controls')) return;
         var controls = document.createElement('div'); controls.className = 'overview-controls toolbar-row'; controls.innerHTML = '<label><span class="hidden">Overview period</span><select id="overview-period" aria-label="Overview period"><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="90d">Last 90 days</option></select></label><label><span class="hidden">Sales source</span><select id="overview-source" aria-label="Sales source"><option value="all">All</option><option value="mobile">Mobile Money</option><option value="vouchers">Printed Vouchers</option><option value="account">My account</option></select></label><button type="button" class="secondary" id="overview-refresh">Refresh overview</button><span class="export-note" id="overview-range-note">Showing the selected period</span>';
         metrics.parentNode.insertBefore(controls, metrics); controls.querySelector('#overview-period').addEventListener('change', function (event) { salesPeriod = event.currentTarget.value; api('/api/business/dashboard?period=' + encodeURIComponent(salesPeriod)).then(function (dashboard) { state.dashboard = dashboard; renderSales(); $('overview-range-note').textContent = 'Overview refreshed'; }).catch(function (error) { $('workspace-error').textContent = error.message; }); }); controls.querySelector('#overview-source').addEventListener('change', function () { $('overview-range-note').textContent = 'Source filter: ' + this.options[this.selectedIndex].text; }); controls.querySelector('#overview-refresh').addEventListener('click', function (event) { var button = event.currentTarget; setBusy(button, true, 'Refreshing…'); api('/api/business/dashboard?period=' + encodeURIComponent(salesPeriod)).then(function (dashboard) { state.dashboard = dashboard; renderSales(); $('overview-range-note').textContent = 'Updated just now'; }).catch(function (error) { $('workspace-error').textContent = error.message; }).finally(function () { setBusy(button, false); }); });
+      }
+      // Overview: the go-live card for the first set-up router, until its first
+      // customer is connected (then it celebrates once and steps aside).
+      function renderGoLiveOverview() {
+        var existing = $('overview-golive'); if (existing) existing.remove();
+        var locations = ((state.workspace && state.workspace.locations) || []).filter(function (l) { return l.router_setup_verified_at && !l.archived_at; });
+        if (!locations.length) return;
+        var hero = $('overview'); if (!hero || !hero.parentNode) return;
+        var holder = document.createElement('div'); holder.id = 'overview-golive'; holder.dataset.module = 'overview'; holder.className = 'overview-golive';
+        hero.parentNode.insertBefore(holder, hero.nextSibling);
+        var card = appendGoLive(holder, locations[0], { hideWhenLive: true }); if (!card) { holder.remove(); return; }
+        if (moduleView && moduleView !== 'overview') holder.classList.add('module-hidden');
       }
       function renderOverviewInsights() {
         var metrics = document.querySelector('#dashboard .metrics'); if (!metrics) return; var section = $('overview-insights-section'); if (!section) { section = document.createElement('section'); section.className = 'overview-insights'; section.id = 'overview-insights-section'; section.dataset.module = 'overview'; metrics.parentNode.insertBefore(section, metrics.nextSibling); section.classList.toggle('module-hidden', moduleView !== 'overview'); section.classList.toggle('module-active', moduleView === 'overview'); }
@@ -1131,7 +1155,7 @@
         if (model && onboardingFlowState(model).active) { setSequentialOnboarding(true); moduleView = 'onboarding'; return; }
         moduleView = requested; var dashboard = $('dashboard'); if (!dashboard) return; dashboard.classList.add('module-view');
         var targets = moduleSections[requested] || moduleSections.overview;
-        document.querySelectorAll('#dashboard .content>.hero,#dashboard .content>.metrics,#dashboard .content>.section,#dashboard .content>#overview-insights-section,#dashboard .content>.overview-controls').forEach(function (node) { var visible = targets.indexOf(node.id) !== -1 || (node.classList.contains('overview-controls') && requested === 'overview'); node.classList.toggle('module-hidden', !visible); node.classList.toggle('module-active', visible); });
+        document.querySelectorAll('#dashboard .content>.hero,#dashboard .content>.metrics,#dashboard .content>.section,#dashboard .content>#overview-insights-section,#dashboard .content>#overview-golive,#dashboard .content>.overview-controls').forEach(function (node) { var visible = targets.indexOf(node.id) !== -1 || (node.classList.contains('overview-controls') && requested === 'overview'); node.classList.toggle('module-hidden', !visible); node.classList.toggle('module-active', visible); });
         document.querySelectorAll('.nav [data-module], .brand[data-module]').forEach(function (button) { var current = button.dataset.module === requested || (requested === 'routers' && button.dataset.module === 'routers'); if (button.tagName === 'BUTTON') { if (current) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); } });
         // Each page the owner opens gets its own history entry, so the
         // browser's Back button returns to the previous dashboard page
@@ -2010,6 +2034,97 @@
         if (item.fitiBuilt) add(port, 'small', 'rb-on', 'built by Wi-Fi Fiti');
         return port;
       }
+      // ---- Go live (stage 4): from a set-up router to the first paying customer.
+      // One card, filled from /go-live (the same checks a real purchase uses),
+      // refreshed every 5 seconds while it is on screen and not live yet, so
+      // the owner watches their test purchase go "Paid → Connected" by itself.
+      var goLiveStatus = {}; var goLiveTimer = null; var goLiveFetching = {}; var goLiveSeenThisVisit = {};
+      function goLiveGoTo(module) {
+        if (state.workspace) { var m = onboardingModel(); if (onboardingFlowState(m).active) leaveOnboarding(m); }
+        activateDashboardModule(module); try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { window.scrollTo(0, 0); }
+      }
+      function refreshGoLive(locationId) {
+        if (!token || goLiveFetching[locationId]) return;
+        goLiveFetching[locationId] = true;
+        api('/api/business/locations/' + encodeURIComponent(locationId) + '/go-live').then(function (status) {
+          var was = goLiveStatus[locationId];
+          // The owner watched it happen: keep the celebration for this visit.
+          if (was && was.status && !was.status.live && status.live) goLiveSeenThisVisit[locationId] = true;
+          goLiveStatus[locationId] = { status: status, at: Date.now(), liveAt: status.live ? ((was && was.liveAt) || Date.now()) : null };
+          document.querySelectorAll('[data-golive="' + locationId + '"]').forEach(function (node) { drawGoLive(node, locationId); });
+        }).catch(function () {}).finally(function () { goLiveFetching[locationId] = false; scheduleGoLive(); });
+      }
+      function scheduleGoLive() {
+        if (goLiveTimer) return;
+        // Every 5 s while a purchase is happening (or just done), else every 20 s.
+        var busy = [].slice.call(document.querySelectorAll('[data-golive]')).some(function (n) { var e = goLiveStatus[n.getAttribute('data-golive')]; var st = e && e.status; return !st || st.paying || (st.sale && !st.sale.connected) || (st.live && Date.now() - (e.liveAt || 0) < 60000); });
+        goLiveTimer = setTimeout(function () {
+          goLiveTimer = null;
+          var cards = [].slice.call(document.querySelectorAll('[data-golive]')).filter(function (n) { return n.isConnected && n.offsetParent !== null; });
+          if (!cards.length && document.querySelector('[data-golive]')) { scheduleGoLive(); return; }
+          if (!cards.length) return;
+          if (document.visibilityState === 'hidden') { scheduleGoLive(); return; }
+          var ids = {}; cards.forEach(function (n) { var id = n.getAttribute('data-golive'); var entry = goLiveStatus[id]; if (!entry || !entry.status || !entry.status.live || Date.now() - (entry.liveAt || 0) < 60000) ids[id] = true; });
+          Object.keys(ids).forEach(refreshGoLive);
+        }, busy ? 5000 : 20000);
+      }
+      function appendGoLive(parent, location, options) {
+        var id = String(location.id); var entry = goLiveStatus[id];
+        if (options && options.hideWhenLive) {
+          var celebrated = false; try { celebrated = localStorage.getItem('fiti_golive_done:' + id) === '1'; } catch (_) {}
+          // Shown until live; once live it stays for this visit, then steps aside.
+          if (celebrated && !goLiveSeenThisVisit[id]) return null;
+        }
+        var card = el('section', 'golive'); card.setAttribute('data-golive', id); card.setAttribute('aria-label', 'Go live');
+        if (options && options.before) parent.insertBefore(card, options.before); else parent.appendChild(card);
+        drawGoLive(card, id);
+        if (!entry || Date.now() - entry.at > 4000) refreshGoLive(id); else scheduleGoLive();
+        return card;
+      }
+      function drawGoLive(card, id) {
+        var entry = goLiveStatus[id]; var st = entry && entry.status; card.replaceChildren();
+        var top = el('div', 'golive-top'); var badge = add(top, 'span', 'golive-badge', st && st.live ? '★' : '▶'); badge.setAttribute('aria-hidden', 'true');
+        var head = el('div'); add(head, 'strong', '', st && st.live ? 'You’re live!' : 'Go live: your first paying customer');
+        add(head, 'small', '', st && st.live ? 'Your first customer paid and was switched on by the router. Sales now show under Sales and Customers.' : 'Four quick checks, then buy a package from your own phone to see it all work.');
+        top.appendChild(head); card.appendChild(top);
+        if (!st) { add(card, 'p', 'golive-wait', 'Checking your setup…'); return; }
+        var list = el('ol', 'golive-steps');
+        function step(done, title, text, actions, warn) {
+          var li = el('li', 'golive-step' + (done ? ' done' : warn ? ' warn' : ''));
+          add(li, 'span', 'golive-mark', done ? '✓' : warn ? '!' : '');
+          var body = el('div'); add(body, 'b', '', title); if (text) add(body, 'small', '', text);
+          if (actions && actions.length) { var row = el('div', 'golive-actions'); actions.forEach(function (a) { var b = add(row, 'button', a.primary ? '' : 'secondary', a.label); b.type = 'button'; b.addEventListener('click', function () { a.run(b); }); }); body.appendChild(row); }
+          li.appendChild(body); list.appendChild(li);
+        }
+        step(st.hotspot.ready, 'Hotspot running on your router', st.hotspot.note || (st.hotspot.ready ? 'Customers can join and see your login page.' : 'Map your router first: set up the hotspot on the map.'), null, !st.hotspot.ready);
+        var cheap = st.packages.cheapest;
+        if (!st.packages.count) {
+          step(false, 'Packages customers can buy', st.trial ? 'None yet. Add three ready-made ones inside your free trial’s limits (up to KES ' + st.trialLimits.maxPriceKes + ', up to ' + st.trialLimits.maxHours + ' hours). You can change them any time.' : 'None yet. Add three ready-made ones (1 hour, 1 day, 1 week). You can change the prices any time.',
+            [{ label: 'Add starter packages', primary: true, run: function (b) { setBusy(b, true, 'Adding…'); api('/api/business/packages/starter', { method: 'POST', body: '{}' }).then(function (result) { try { updatePackages(result.packages || []); } catch (_) {} refreshGoLive(id); }).catch(function (error) { setBusy(b, false); if (error.status === 409) { goLiveGoTo('packages'); return; } var note = add(b.parentNode, 'small', 'error', error.message); note.setAttribute('role', 'alert'); }); } },
+             { label: 'Make my own', run: function () { goLiveGoTo('packages'); } }], true);
+        } else if (!st.packages.ready) {
+          step(false, 'Packages customers can buy', 'Your packages are above the free trial’s limits (up to KES ' + st.trialLimits.maxPriceKes + ' and ' + st.trialLimits.maxHours + ' hours), so customers can’t buy them yet. Add a cheaper one, or subscribe to lift the limits.', [{ label: 'Edit packages', run: function () { goLiveGoTo('packages'); } }], true);
+        } else {
+          step(true, 'Packages customers can buy', st.packages.sellable + (st.packages.sellable === 1 ? ' package' : ' packages') + ' on sale. Cheapest: ' + cheap.name + ' for ' + kes(cheap.price) + '.', [{ label: 'Edit packages', run: function () { goLiveGoTo('packages'); } }]);
+        }
+        step(true, 'Your login page', 'Customers see “' + (st.portal.name || 'your business') + '”' + (st.portal.customised ? '.' : ' with the standard look. Add your logo and colours whenever you like.'),
+          [{ label: 'See it', run: function () { window.open(st.portalUrl, '_blank', 'noopener'); } }, { label: 'Change the look', run: function () { goLiveGoTo('branding'); } }]);
+        var payFix = st.payments.ready ? null : st.payments.fix === 'verify_phone'
+          ? [{ label: 'Verify my phone', primary: true, run: function () { if (window.FitiActions && window.FitiActions.open) window.FitiActions.open({ action: 'verify_phone' }); else goLiveGoTo('overview'); } }]
+          : st.payments.fix === 'payments' ? [{ label: 'Open Billing & payments', primary: true, run: function () { goLiveGoTo('payments'); } }] : null;
+        step(st.payments.ready, 'Getting paid', st.payments.note, payFix, !st.payments.ready);
+        var ready = st.hotspot.ready && st.packages.ready && st.payments.ready; var sale = st.sale;
+        if (st.live) step(true, 'First customer connected', 'Paid ' + kes(sale.amount) + ' for ' + sale.packageName + (sale.receipt ? ' (M-Pesa ' + sale.receipt + ')' : '') + ' and switched on ' + when(sale.connectedAt) + '.');
+        else if (sale && sale.problem) step(false, 'First sale', 'Paid ' + kes(sale.amount) + ', but the router has not switched the customer on yet: ' + sale.problem + ' Open Transactions to retry.', [{ label: 'Open Transactions', run: function () { goLiveGoTo('transactions'); } }], true);
+        else if (sale) step(false, 'First sale', 'Paid ' + kes(sale.amount) + ' for ' + sale.packageName + '. Your router is switching the customer on now…');
+        else if (st.paying) step(false, 'First sale', 'A customer is paying right now. Waiting for M-Pesa to confirm…');
+        else step(false, 'Test it with your own phone', ready ? 'Join your customer Wi-Fi on your phone, open any website, and buy ' + (cheap ? cheap.name + ' for ' + kes(cheap.price) : 'the cheapest package') + '. This card updates by itself: paid, then connected.' : 'Finish the steps above first.',
+          ready ? [{ label: 'Open the login page', primary: true, run: function () { window.open(st.portalUrl, '_blank', 'noopener'); } }] : null);
+        card.appendChild(list);
+        card.classList.toggle('is-live', Boolean(st.live));
+        // Celebrated once: on later visits the Overview card steps aside.
+        if (st.live) { goLiveSeenThisVisit[id] = true; try { localStorage.setItem('fiti_golive_done:' + id, '1'); } catch (_) {} }
+      }
       function appendRouterLayoutBoard(parent, layout, location, savedPlan, changes) {
         var items = layout.interfaces || [];
         var physical = items.filter(function (item) { return item.physical; });
@@ -2585,6 +2700,7 @@
         // Universal-kit routers: the routerboard shows everything on the router
         // and what each part already does. Mapping where customers connect is next.
         if (location.router_kit === 'universal') {
+          if (snapshot.layout && (snapshot.layout.hotspots || []).length) appendGoLive(box, location);
           if (snapshot.layout) appendRouterLayoutBoard(box, snapshot.layout, location, snapshot.plan || null, snapshot.changes || []);
           else {
             appendPatienceCard(box, { key: 'layout-' + location.id, title: 'Reading your router', usual: 'Usually about 30 seconds after pairing',
@@ -3163,7 +3279,7 @@
         showDashboard(); $('business-name').textContent = business.name || 'Your business'; $('business-email').textContent = business.email || ''; $('copyright-business-name').textContent = business.name || 'Your business'; $('copyright-support').textContent = business.support_phone ? ' · Help: ' + business.support_phone : ''; $('hero-plan').textContent = planName(business.plan) + ' plan · ' + (business.collection_mode === 'fiti' ? 'Wi-Fi Fiti collection' : 'Own payment collection'); $('hero-message').textContent = activeLocations.length ? 'Your workspace has ' + plural(activeLocations.length, 'location') + '. Keep packages clear for customers and make sure each router checks in.' : 'Start with a location, save its secure pairing kit, then add customer packages for your Wi‑Fi service.';
         $('locations-count').textContent = activeLocations.length; $('packages-count').textContent = packages.length; $('active-count').textContent = active; $('locations-foot').textContent = online ? plural(online, 'router') + ' online' : activeLocations.length ? 'Awaiting router check-in' : 'Ready to set up'; $('packages-foot').textContent = packages.length ? 'Available across your business' : 'Add your first time plan'; $('active-foot').textContent = data.note || 'Measured at paired locations'; $('sidebar-plan-name').textContent = plan.trialUnlimited ? '7-day trial' : 'Prepaid services'; $('sidebar-plan-detail').textContent = plan.trialUnlimited ? '1 router · unlimited resources' : serviceLine().short;
         $('plan-choice').value = business.plan || 'starter'; $('collection-choice').value = business.collection_mode || 'own'; $('plan-summary').textContent = plan.trialUnlimited ? 'Seven-day trial · one router · unlimited customer devices, PPPoE and SMS access. No charge until the trial ends.' : serviceLine().long; $('collection-note').textContent = business.collection_mode === 'fiti' ? 'Wi-Fi Fiti collection applies a 5% platform fee to each completed customer payment. The sales balance subtracts the exact recorded fee; any provider charges are separate.' : 'With your own Till / PayBill, Wi-Fi Fiti does not charge a Wi‑Fi sales fee. You can connect verified Daraja credentials below.';
-        renderPairingKits(); renderLocations(); renderRouterObservability(); renderPackages(); renderVoucherChoices(); renderPaymentCollection(); renderBillingCheckout(); installNetworkServiceBilling(); renderBranding(); renderOnboarding(); renderSmsModule(); renderOverviewInsights(); installCardNavigation(); installControlEnhancements(); loadAnalytics().catch(function () {}); loadCustomers(); loadSmsModule(); activateDashboardModule(moduleView, { silent: true });
+        renderPairingKits(); renderLocations(); renderRouterObservability(); renderPackages(); renderVoucherChoices(); renderPaymentCollection(); renderBillingCheckout(); installNetworkServiceBilling(); renderBranding(); renderOnboarding(); renderSmsModule(); renderOverviewInsights(); renderGoLiveOverview(); installCardNavigation(); installControlEnhancements(); loadAnalytics().catch(function () {}); loadCustomers(); loadSmsModule(); activateDashboardModule(moduleView, { silent: true });
       }
       function load() {
         if (!token) { clearOnboardingPolling(); showWelcome(); return Promise.resolve(); }
