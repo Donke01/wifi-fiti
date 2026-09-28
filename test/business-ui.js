@@ -104,6 +104,8 @@ assert.match(html, /router_sync_healthy/,
   'go-live progression requires a fresh successful router sync');
 assert.match(html, /function beginFreshRouterPairing\(model\)/,
   'returning to onboarding explicitly starts a fresh pairing rather than trusting a prior sync');
+assert.match(html, /function beginFreshRouterPairing\(model\) \{[\s\S]*?if \(routerPairingPending\(location\) \|\| !routerSuccessfullyPaired\(location\)\) \{ setConnectionPhase\(location, 'install'\); advanceOnboardingStage\(model, 2, 'connect'\); return; \}\n\s*requireFreshRouterSetup\(location\); forgetSetup\(location\.id\);/,
+  'a router that verified before still needs a fresh kit; one that never connected keeps its saved kit');
 assert.match(html, /function startRouterSetupAgain\(location\) \{[\s\S]*?requireFreshRouterSetup\(location\);[\s\S]*?forgetSetup\(location\.id\)/,
   'the visible Start router setup again action suppresses a prior verified state before the new kit is issued');
 assert.match(html, /var freshKitRequired = Boolean\(location && !routerPairingPending\(location\) && freshRouterSetupRequired\(location\)\)/,

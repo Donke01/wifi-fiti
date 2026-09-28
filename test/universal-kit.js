@@ -49,6 +49,7 @@ function decodeScriptSource(text, marker) {
 const kit = buildUniversalRouterKit({ location: { id: 'loc-universal-test' }, token: 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',
   appUrl: 'https://cloud.wififiti.co.ke', portalUrl: 'https://kitale.wififiti.co.ke' });
 assert.match(kit, /UNIVERSAL KIT \(TEST\)/);
+assert.match(kit, /paste the DHCP command from the setup page \(Give it internet first\)/, 'a router without internet is pointed to the setup page\'s DHCP command');
 assert.doesNotMatch(kit, NETWORK_CHANGES, 'the universal kit changes no interface, VLAN, address, DHCP, PPPoE or firewall');
 assert.match(kit, /\/tenant-router-install-universal\.rsc/);
 assert.doesNotMatch(kit, /\/tenant-router-install\.rsc/, 'it never pulls the stable installer that requires a Hotspot');

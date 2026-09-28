@@ -940,7 +940,7 @@ function buildRouterSetup({ location, token, appUrl, portalUrl, input }) {
 
 /*
  * Universal kit (test slot). One kit for a router in any state: a freshly
- * reset router that only has internet from the DHCP preparation step, or a
+ * reset router that only has internet from the setup page's DHCP command, or a
  * router already running VLANs, PPPoE (including PPPoE internet over a VLAN),
  * a TV network or its own Hotspot. It PAIRS ONLY: it changes no interface,
  * bridge, VLAN, address, DHCP, PPPoE or firewall setting. A router that
@@ -963,7 +963,7 @@ function universalPreviewLines() {
     ':local fitiUHotspots 0; :do { :set fitiUHotspots [:len [/ip hotspot find]] } on-error={}',
     ':local fitiUPppoe 0; :do { :set fitiUPppoe [:len [/interface pppoe-server server find]] } on-error={}',
     ':put "Wi-Fi Fiti universal kit: pairing only. Your interfaces, VLANs, PPPoE, DHCP and firewall are not changed."',
-    ':if ($fitiUWan = "") do={ :put "No internet connection detected yet. On a reset router, run the DHCP preparation step first. Pairing will keep retrying every 15 seconds." } else={ :put ("Internet: " . $fitiUWan . " (" . $fitiUWanKind . ")") }',
+    ':if ($fitiUWan = "") do={ :put "No internet connection detected yet. On a reset router, paste the DHCP command from the setup page (Give it internet first). Pairing will keep retrying every 15 seconds." } else={ :put ("Internet: " . $fitiUWan . " (" . $fitiUWanKind . ")") }',
     ':put ("Found: " . $fitiUVlans . " VLAN(s), " . $fitiUBridges . " bridge(s), " . $fitiUPppoe . " PPPoE server(s), " . $fitiUHotspots . " Hotspot(s)")',
     ':if ($fitiUHotspots = 1) do={ :put "Your existing Hotspot will be used as it is." }',
     ':if ($fitiUHotspots != 1) do={ :put "After pairing, open the Wi-Fi Fiti dashboard to map where customers connect." }',
