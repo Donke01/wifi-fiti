@@ -3430,9 +3430,19 @@ function universalLocationFor(locationId, businessId) {
   if (location.router_kit !== 'universal') throw remoteAccessError('Network mapping is available for routers paired with the universal kit.', 409);
   return location;
 }
+// Billing an owner's hotspot happens once: while the router still awaits its
+// map and nothing adopted is live. Afterwards a saved "adopt" is ignored, so
+// later changes on the map are never blocked or doubled by it.
+function withoutServedAdopt(plan, location) {
+  if (!plan || !Array.isArray(plan.existing) || !plan.existing.some((e) => e && e.adopt)) return plan;
+  const served = String(location.router_setup_health || '') !== 'awaiting-map' || routerChanges().liveAdopt(location.id);
+  if (!served) return plan;
+  return { ...plan, existing: plan.existing.map((e) => { if (!e || !e.adopt) return e; const { adopt, ...rest } = e; return rest; }) };
+}
 function reviewRouterPlan({ locationId, businessId }) {
-  if (!universalLocationFor(locationId, businessId)) return null;
-  const plan = routerPlanForLocation(locationId);
+  const location = universalLocationFor(locationId, businessId);
+  if (!location) return null;
+  const plan = withoutServedAdopt(routerPlanForLocation(locationId), location);
   const layout = routerInventoryForLocation(locationId);
   const fresh = Boolean(layout && topologyFreshAt(layout.reportedAt));
   const rc = routerChanges();
@@ -3446,9 +3456,10 @@ function reviewRouterPlan({ locationId, businessId }) {
   return { changes: review.changes.map(({ title, lines, job, target }) => ({ title, lines, job, target })), notes: review.notes, blockers, canApply: !blockers.length };
 }
 function applyRouterPlan({ locationId, businessId, confirm }) {
-  if (!universalLocationFor(locationId, businessId)) return null;
+  const location = universalLocationFor(locationId, businessId);
+  if (!location) return null;
   if (confirm !== true) throw remoteAccessError('Confirm the changes first.', 400);
-  const plan = routerPlanForLocation(locationId);
+  const plan = withoutServedAdopt(routerPlanForLocation(locationId), location);
   if (!plan) throw remoteAccessError('Save a map first.', 409);
   const layout = routerInventoryForLocation(locationId);
   if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Your router’s latest report is a few minutes old. A fresh one normally arrives within 30 seconds: try again in a moment.', 409);

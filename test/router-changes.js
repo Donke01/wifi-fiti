@@ -36,6 +36,76 @@ function blank(extra = []) {
     'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', ...extra, 'fiti-inventory-end'].join('\n') + '\n';
 }
 
+// ---- Adopt: bill a hotspot the owner already runs ---------------------------
+{
+  require('../src/lib/tenant');
+  const rc = require('../src/lib/router-changes');
+  const { validateNetworkPlan } = require('../src/lib/router-topology');
+  const own = parseRouterInventory(['fiti-inventory-v2', 'inv|agent|6', 'inv|system|routeros|7.24.2', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up',
+    'inv|if|bridge-own|bridge|up', 'inv|bport|bridge-own|ether2', 'inv|addr|bridge-own', 'inv|dhcp-server|bridge-own|enabled', 'inv|hotspot|hotspot1|bridge-own',
+    'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
+  const plan = validateNetworkPlan({ existing: [{ interface: 'bridge-own', job: 'hotspot', adopt: true }] }, own);
+  assert.deepEqual(plan.existing[0].adopt, { hotspot: 'hotspot1' });
+  assert.throws(() => validateNetworkPlan({ existing: [{ interface: 'bridge-own', job: 'pppoe', adopt: true }] }, own), /does not run a hotspot to bill/);
+  const change = rc.reviewPlan(plan, own).changes[0];
+  assert.equal(change.kind, 'adopt'); assert.equal(change.title, 'bridge-own · Bill hotspot "hotspot1"');
+  assert.match(change.lines.join(' '), /Keep your hotspot "hotspot1" on bridge-own exactly as it is/);
+  const script = rc.applyScript(change, 61, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke', portalHost: 'shop.wififiti.co.ke' });
+  assert.doesNotMatch(script, /\/ip hotspot (add|remove|set)|\/ip address add|\/ip pool add|\/ip dhcp-server add|\/interface bridge (add|port)|\/ip firewall/, 'nothing about the owner\'s hotspot is rebuilt');
+  assert.match(script, /:if \(\[:len \[\/ip hotspot find where name="hotspot1" and interface="bridge-own"\]\] != 1\) do=\{ :set fitiWhy "hotspot_missing" \}/);
+  assert.match(script, /:if \(\[:len \[\/file get \$f contents\]\] != \[\/file get \$f size\]\) do=\{ :set fitiWhy "login_backup_failed" \}/, 'a login page that cannot be read in full is never overwritten');
+  const backup = script.indexOf('/file add name=($fitiDir . "/login-before-wifi-fiti.html") contents=[/file get $fitiLogin contents]');
+  assert.ok(backup > 0 && backup < script.indexOf(':set fitiHotspotServer "hotspot1"'), 'the owner\'s login page is saved before Wi-Fi Fiti serves the hotspot');
+  assert.match(script, /walled-garden add dst-host="shop\.wififiti\.co\.ke" comment="Wi-Fi Fiti change 61"/);
+  assert.match(script, /:set fitiPortalAppliedHost ""/, 'the login page refresh runs again for this hotspot');
+  const undo = rc.undoLines(change, 61).join('\n');
+  assert.ok(undo.indexOf(':set fitiHotspotServer ""') < undo.indexOf('/file set $l contents=[/file get $k contents]'), 'billing stops before the login page goes back');
+  assert.match(undo, /:if \(!\$fitiBack\) do=\{ :error "fiti-undo-incomplete" \}/, 'the undo is incomplete until the owner\'s login page is back');
+  assert.match(undo, /\/ip hotspot profile set \[find where name=\$p\] dns-name=\$n/);
+  assert.doesNotMatch(undo, /\/ip hotspot remove|\/ip hotspot profile remove/, 'the owner\'s hotspot keeps running');
+  // Checks added after review: RouterOS 7 only; enabled; password login; not
+  // shared; backup verified; no login page before means none after undo;
+  // the portal's walled-garden entry is removed only if this change added it.
+  const v6 = parseRouterInventory(['fiti-inventory-v2', 'inv|agent|6', 'inv|system|routeros|6.49.8', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up',
+    'inv|if|bridge-own|bridge|up', 'inv|bport|bridge-own|ether2', 'inv|hotspot|hotspot1|bridge-own', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
+  assert.throws(() => validateNetworkPlan({ existing: [{ interface: 'bridge-own', job: 'hotspot', adopt: true }] }, v6), /needs RouterOS 7/);
+  assert.match(script, /disabled\] = true\) do=\{ :set fitiWhy "hotspot_disabled" \}/);
+  assert.match(script, /login-by\]\] ~ "http-pap"\)\) do=\{ :set fitiWhy "login_pap_missing" \}/);
+  assert.match(script, /:if \(\(\$p2 = \$fitiAdoptProf\) \|\| \(\$d2 = \$d\)\) do=\{ :set fitiWhy "hotspot_shared" \}/);
+  assert.ok(script.indexOf(':local fitiAdoptProf ""') < script.indexOf(':set fitiAdoptProf [/ip hotspot get'), 'the profile is read into a variable both check blocks can see');
+  assert.match(script, /contents\] != \[\/file get \$fitiLogin contents\]\) do=\{ :do \{ \/file remove \[find where name=\(\$fitiDir \. "\/login-before-wifi-fiti\.html"\)\] \} on-error=\{\}; :error "fiti-adopt-backup" \}/, 'a bad copy is deleted before stopping');
+  assert.match(undo, /\[:tostr \[:len \[\/file get \$k contents\]\]\] = \$fitiSize\)\) do=\{/, 'only a complete copy is ever put back');
+  assert.match(script, /html-directory-override\]\]\] > 0\) do=\{ :set fitiWhy "login_override" \}/);
+  assert.match(undo, /:if \(\(\$fitiHad = "0"\) && \(\[:len \$l\] = 1\)\) do=\{ :do \{ \/file remove \$l \}/, 'no login page before: none after undo');
+  assert.match(undo, /:if \(\[\/system script get \[find where name="fiti-adopt-61-wg"\] source\] = "0"\) do=\{ \/ip hotspot walled-garden remove \[find where comment="Wi-Fi Fiti customer portal"\] \}/);
+  assert.ok(undo.indexOf('/system script remove [find where name="fiti-map"]') < undo.indexOf(':set fitiHotspotServer ""'), 'the boot copy goes before the live globals');
+  assert.match(undo, /:local fitiDir ""; :do \{ :set fitiDir/, 'safe to run again: nothing saved means nothing to put back');
+}
+
+// ---- Customer Wi-Fi channel ("More Wi-Fi options") --------------------------
+{
+  require('../src/lib/tenant');
+  const rc = require('../src/lib/router-changes');
+  const { validateNetworkPlan } = require('../src/lib/router-topology');
+  const radioLayout = (state, extra = []) => parseRouterInventory(['fiti-inventory-v2', 'inv|agent|6', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', `inv|if|wlan1|wlan|${state}`,
+    'inv|radio|wlan1|2ghz', 'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', ...extra, 'fiti-inventory-end'].join('\n'));
+  const off = radioLayout('disabled');
+  assert.equal(off.interfaces.find((i) => i.name === 'wlan1').band, '2ghz', 'the report says which band each radio uses');
+  const plan = validateNetworkPlan({ bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['ether2', 'wlan1'], wifi: { ssid: 'Shop', channel: 6 } }] }, off);
+  assert.deepEqual([plan.bridges[0].wifi.channel, plan.bridges[0].wifi.frequency], [6, 2437]);
+  assert.equal(validateNetworkPlan({ bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['wlan1'], wifi: { ssid: 'Shop' } }] }, off).bridges[0].wifi.channel, undefined, 'Automatic by default');
+  assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['wlan1'], wifi: { ssid: 'Shop', channel: 36 } }] }, off), /Choose Automatic or one of channels 1, 6, 11/);
+  assert.throws(() => validateNetworkPlan({ bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['wlan1'], wifi: { ssid: 'Shop', channel: 6 } }] }, radioLayout('up')), /follows your own Wi-Fi/, 'a shared radio keeps the owner\'s channel');
+  const change = rc.reviewPlan(plan, off).changes[0];
+  assert.match(change.lines.join(' '), /on channel 6/);
+  const script = rc.applyScript(change, 51, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke' });
+  assert.ok(script.indexOf('name="fiti-radio-51-wlan1-freq" source=[:tostr [/interface wireless get [find where name="wlan1"] frequency]]') < script.indexOf('frequency=2437 disabled=no'), 'the old channel is saved before it changes');
+  const undo = rc.undoLines(change, 51).join('\n');
+  assert.match(undo, /:local f \[\/system script get \[find where name="fiti-radio-51-wlan1-freq"\] source\]; \/interface wireless set \[find where name="wlan1"\] frequency=\$f/, 'undo puts the old channel back');
+  assert.match(undo, /remove \[find where name="fiti-radio-51-wlan1-freq"\]/);
+  assert.doesNotMatch(rc.applyScript(rc.reviewPlan(validateNetworkPlan({ bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['wlan1'], wifi: { ssid: 'Shop' } }] }, off), off).changes[0], 52, { wan: 'ether1' }), /frequency/, 'Automatic leaves the channel alone');
+}
+
 // ---- Two internet connections (main + backup / load-shared) --------------
 {
   require('../src/lib/tenant');
@@ -253,7 +323,16 @@ function blank(extra = []) {
   // Blockers instead of risky guesses.
   const blocked = rc.reviewPlan({ bridges: [], existing: [{ interface: 'bridge-hs', job: 'pppoe' }, { interface: 'vlan9', job: 'pppoe' }], moves: [] },
     parseRouterInventory(rb951(['inv|if|vlan9|vlan|up', 'inv|vlan|vlan9|9|ether3'])));
-  assert.match(blocked.blockers.join(' '), /PPPoE on the VLAN vlan9 is coming next/);
+  // PPPoE on a VLAN (customers delivered tagged on one cable): its own change,
+  // pointing Wi-Fi Fiti's PPPoE server at the VLAN; undo points it back.
+  const vlanChange = blocked.changes.find((c) => c.target === 'vlan9');
+  assert.ok(vlanChange, 'a VLAN can carry PPPoE customers');
+  assert.equal(vlanChange.job, 'pppoe');
+  const vlanScript = rc.applyScript(vlanChange, 41, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke' });
+  assert.match(vlanScript, /:if \(\[:len \[\/interface find where name="vlan9"\]\] != 1\) do=\{ :set fitiWhy "interface_missing" \}/);
+  assert.match(vlanScript, /\/interface pppoe-server server set \[find where comment="Wi-Fi Fiti PPPoE"\] interface="vlan9"/);
+  assert.match(rc.undoLines(vlanChange, 41).join('\n'), /fiti-prev-41/, 'undo puts the PPPoE server back where it was');
+  assert.doesNotMatch(vlanScript, /\/interface bridge add|\/interface vlan (add|set|remove)/, 'the VLAN itself is not touched');
   const busyBridge = rc.reviewPlan({ bridges: [], existing: [{ interface: 'bridge-own', job: 'hotspot' }], moves: [] },
     parseRouterInventory(blank(['inv|if|bridge-own|bridge|up', 'inv|addr|bridge-own'])));
   assert.match(busyBridge.blockers[0], /already has its own IP address or DHCP server/);
@@ -496,6 +575,32 @@ async function pairedUniversal(token, name, report) {
     assert.equal(blocked.status, 409); assert.match(blocked.body.error, /Undo the Wi-Fi added to fiti-hotspot first/);
     assert.equal((await api(`${shopBase}/network-changes/${wifiChange.id}/undo`, { method: 'POST', token: charlie })).status, 200, 'the Wi-Fi alone can be undone');
     assert.match((await shop.poll('')).text, new RegExp(`/system script run fiti-undo-${wifiChange.id}`));
+
+  // Adopt, end to end: an owner's own hotspot billed by Wi-Fi Fiti.
+  {
+    const delta = await createBusiness('changes-delta@example.test', 'Changes Delta', '0712000104');
+    const ownLayout = (extra = []) => ['fiti-inventory-v2', 'inv|agent|6', 'inv|system|routeros|7.24.2', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up',
+      'inv|if|bridge-own|bridge|up', 'inv|bport|bridge-own|ether2', 'inv|addr|bridge-own', 'inv|dhcp-server|bridge-own|enabled', 'inv|hotspot|hotspot1|bridge-own',
+      'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', ...extra, 'fiti-inventory-end'].join('\n') + '\n';
+    const cafe = await pairedUniversal(delta, 'Cafe', ownLayout());
+    const cafeBase = `/api/business/locations/${cafe.site}`;
+    assert.equal((await api(`${cafeBase}/network-plan`, { method: 'PUT', token: delta, body: { plan: { existing: [{ interface: 'bridge-own', job: 'hotspot', adopt: true }] } } })).status, 200);
+    const applied = await api(`${cafeBase}/network-plan/apply`, { method: 'POST', token: delta, body: { confirm: true } });
+    assert.equal(applied.status, 200, JSON.stringify(applied.body));
+    const adoptChange = applied.body.changes.find((c) => c.kind === 'adopt');
+    assert.ok(adoptChange);
+    assert.match((await cafe.poll('')).text, /:set fitiHotspotServer "hotspot1"/);
+    assert.equal((await cafe.answer(`id=${adoptChange.id}&state=applied`)).text, 'confirmed');
+    await cafe.answer(`id=${adoptChange.id}&state=kept`);
+    await cafe.poll(ownLayout());
+    assert.equal((await api(`${cafeBase}/router-topology`, { token: delta })).body.changes.find((c) => c.id === adoptChange.id).status, 'verified');
+    // Once billed, the saved "adopt" is ignored: a later map change never repeats it.
+    assert.equal((await api(`${cafeBase}/network-plan`, { method: 'PUT', token: delta, body: { plan: { existing: [{ interface: 'bridge-own', job: 'hotspot', adopt: true }] } } })).status, 200);
+    const again = await api(`${cafeBase}/network-plan/apply`, { method: 'POST', token: delta, body: { confirm: true } });
+    assert.equal(again.status, 409, 'nothing to do: the hotspot is already billed');
+    assert.equal((await api(`${cafeBase}/network-changes/${adoptChange.id}/undo`, { method: 'POST', token: delta })).status, 200);
+    assert.match((await cafe.poll('')).text, new RegExp(`/system script run fiti-undo-${adoptChange.id}`));
+  }
 
   // Go live (stage 4): from a set-up router to the first paying customer.
   {

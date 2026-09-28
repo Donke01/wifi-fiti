@@ -205,7 +205,8 @@ function customerBridgeFor(locationId) {
   if (applied) confirmed = applied;
   const fallback = location.router_kit === 'universal' ? '' : String(location.customer_bridge || '');
   const bridge = (confirmed || fallback).trim();
-  return /^[A-Za-z0-9_-]{1,32}$/.test(bridge) ? bridge : '';
+  // A bridge or a VLAN (VLAN names may contain dots, e.g. ether2.100).
+  return /^[A-Za-z0-9_.-]{1,32}$/.test(bridge) ? bridge : '';
 }
 function hasSubscribers(locationId) {
   return Boolean(db.prepare(`SELECT 1 FROM pppoe_users WHERE location_id=? LIMIT 1`).get(locationId));
@@ -262,7 +263,8 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
     const defaultProfile = upserts[0].profile;
     lines.push([
       ':do {',
-      `  :if ([:len [/interface bridge find where name=${bridge}]] != 1) do={ :set fitiPppReason "bridge_missing"; :error "bridge" }`,
+      // The customer network: a bridge, or a VLAN mapped for PPPoE.
+      `  :if ([:len [/interface find where name=${bridge}]] != 1) do={ :set fitiPppReason "bridge_missing"; :error "bridge" }`,
       `  :if ([:len [/ip address find where address~"^10\\\\.250\\\\.${octet}\\\\."]] > 0) do={ :set fitiPppReason "subnet_clash"; :error "subnet" }`,
       '  :set fitiPppReason "setup_failed"',
       `  :if ([:len [/ip pool find where name="fiti-pppoe-pool"]] > 0) do={ /ip pool set [find where name="fiti-pppoe-pool"] ranges="${subnet.pool}" } else={ /ip pool add name="fiti-pppoe-pool" ranges="${subnet.pool}" comment="Wi-Fi Fiti PPPoE isolated subnet" }`,

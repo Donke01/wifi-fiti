@@ -110,7 +110,32 @@ A guided path from a set-up router to the first paying customer.
   - Buttons open Packages, Branding, Payments, Transactions, or the login
     page.
 
-Left for later: band/channel choice for customer Wi-Fi, and a hardware test
+### Map: advanced changes (branch `map-advanced`)
+
+- **Adopt an owner's hotspot** (kind/job `adopt`).
+  - `existing[].adopt` on the bridge that runs a hotspot not named
+    `fiti-hotspot`, while the router is awaiting its map.
+  - Nothing about the hotspot is rebuilt. The poller is pointed at it
+    (fiti-map, globals), the cloud and portal hosts are added to the walled
+    garden, and the portal refresh is forced so Wi-Fi Fiti's login page
+    replaces theirs.
+  - Saved first: `login.html` to `login-before-wifi-fiti.html`, the
+    profile's `dns-name`, and the fiti-globals on-event. The preflight
+    refuses (`login_backup_failed`) if the login page can't be read in full.
+  - Undo stops billing first, restores the login page (the undo is
+    incomplete until it is back), then dns-name and the walled garden.
+  - Bridges only. `/file add` needs RouterOS 7.
+- **PPPoE on a VLAN:** an existing VLAN can take the PPPoE job; the PPPoE
+  setup accepts any interface.
+- **Wi-Fi channel:** "More Wi-Fi options" on a radio Wi-Fi Fiti takes over.
+  - The report (agent 6) sends `inv|radio|<if>|2ghz|5ghz`.
+  - Channels: 1/6/11 or 36–48/149–161. The frequency is saved before it
+    changes and put back by undo. Automatic leaves it alone.
+  - A shared radio follows the owner's channel.
+- **Not yet tested on hardware:** adopt (no router with an owner hotspot to
+  hand) and the RouterOS 7 `wifi`-package channel path.
+
+Left for later: a hardware test
 of the RouterOS 7 `wifi` package (hAP ax etc.; code exists, untested).
 
 ### Other work merged today (all live)

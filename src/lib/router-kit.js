@@ -216,7 +216,7 @@ const UNIVERSAL_INSTALLER = 'tenant-router-install-universal.rsc';
 // Bump when the layout report changes; paired routers are updated in place.
 // 4: the in-place update sets policy=read,test explicitly (RouterOS 7 cleared
 // it on the RB951, so the 30-second timer's reports came back empty).
-const INVENTORY_AGENT = 5;
+const INVENTORY_AGENT = 6;
 function inventoryScriptLines() {
   const safe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-';
   const add = (expr) => `:if ($fitiInvLines < 190) do={ :set fitiInvOut ($fitiInvOut . ${expr} . "\\n"); :set fitiInvLines ($fitiInvLines + 1) }`;
@@ -264,6 +264,9 @@ function inventoryScriptLines() {
     // Default routes, one by one (an inactive backup may have no gateway to
     // read): "10.0.0.1%ether2" or a bare interface name.
     `:do { :foreach r in=[/ip route find where dst-address=0.0.0.0/0 and disabled=no] do={ :do { :local g [:tostr [/ip route get $r immediate-gw]]; :local ifc ""; :local pc [:find $g "%"]; :if ([:typeof $pc] != "nil") do={ :set ifc [:pick $g ($pc + 1) [:len $g]] } else={ :if ([:len [/interface find where name=$g]] = 1) do={ :set ifc $g } }; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|wans|" . $ifc . "|static")')} } } on-error={} } } on-error={}`,
+    // Each radio's band, so the map offers the right Wi-Fi channels. Agent 6.
+    `:do { :foreach w in=[/interface wireless find] do={ :local nm [/interface wireless get $w name]; :local bd [:tostr [/interface wireless get $w band]]; :local b ""; :if ($bd ~ "^2ghz") do={ :set b "2ghz" }; :if ($bd ~ "^5ghz") do={ :set b "5ghz" }; :if (([$fitiInvSafe $nm]) && ([:len $b] > 0)) do={ ${add('("inv|radio|" . $nm . "|" . $b)')} } } } on-error={}`,
+    `:do { :foreach w in=[/interface wifi find] do={ :local nm [/interface wifi get $w name]; :local bd ""; :do { :set bd [:tostr [/interface wifi get $w channel.band]] } on-error={}; :local b ""; :if ($bd ~ "^2ghz") do={ :set b "2ghz" }; :if ($bd ~ "^5ghz") do={ :set b "5ghz" }; :if (([$fitiInvSafe $nm]) && ([:len $b] > 0)) do={ ${add('("inv|radio|" . $nm . "|" . $b)')} } } } on-error={}`,
     `:do { :foreach m in=[/interface list member find where list="WAN"] do={ :local ifc [:tostr [/interface list member get $m interface]]; :if ([$fitiInvSafe $ifc]) do={ ${add('("inv|wanlist|WAN|" . $ifc)')} } } } on-error={}`,
     `:if ($fitiInvSkipped > 0) do={ ${add('("inv|skipped|" . $fitiInvSkipped)')} }`,
     ':set fitiInventory ($fitiInvOut . "fiti-inventory-end\\n")',

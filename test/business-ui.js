@@ -437,6 +437,14 @@ assert.match(html, /renderOverviewInsights\(\); renderGoLiveOverview\(\);/, 'and
 assert.match(html, /\}, busy \? 5000 : 20000\);/, 'fast only while a purchase is happening');
 assert.match(html, /if \(document\.visibilityState === 'hidden'\) \{ scheduleGoLive\(\); return; \}/, 'no checks from a hidden tab');
 assert.match(html, /localStorage\.setItem\('fiti_golive_done:' \+ id, '1'\)/, 'the celebration shows once');
+// Map: adopt an owner's hotspot, PPPoE on a VLAN, Wi-Fi channel.
+assert.match(html, /'Bill this hotspot with Wi-Fi Fiti'/, 'an owner\'s own hotspot can be billed as it is');
+assert.match(html, /String\(location\.router_setup_health \|\| ''\) === 'awaiting-map'/, 'offered only while Wi-Fi Fiti is not billing it yet');
+assert.match(html, /adopt: e\.adopt \? true : undefined/, 'a saved adoption survives a redraw');
+assert.match(html, /function appendWifiOptions\(panel, radioItem, wifi\)/);
+assert.match(html, /if \(!radioItem \|\| radioItem\.shareWifi \|\| !WIFI_CHANNELS\[radioItem\.band\]\) return;/, 'a channel only for a radio Wi-Fi Fiti takes over, with a known band');
+assert.match(html, /add\(more, 'summary', '', 'More Wi-Fi options'\)/);
+assert.match(html, /login_backup_failed: /);
 assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit is shown as one console');
 assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');
 assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'\)/, 'every hotspot bridge shows its Wi-Fi panel');

@@ -301,6 +301,19 @@ const INVENTORY_STATES = new Set(['up', 'down', 'disabled']);
 const WAN_KINDS = new Set(['pppoe', 'dhcp', 'static']);
 const PHYSICAL_TYPES = new Set(['ether', 'wlan', 'wifi', 'wireless']);
 const RADIO_TYPES = new Set(['wlan', 'wifi']);
+// Customer Wi-Fi channels the owner may pick (non-overlapping ones), by band,
+// with their centre frequencies in MHz. "auto" leaves the radio as it is.
+const WIFI_CHANNELS = { '2ghz': { 1: 2412, 6: 2437, 11: 2462 }, '5ghz': { 36: 5180, 40: 5200, 44: 5220, 48: 5240, 149: 5745, 153: 5765, 157: 5785, 161: 5805 } };
+function planChannel(raw, radioItem, where) {
+  const value = raw == null || raw === '' ? 'auto' : String(raw).trim().toLowerCase();
+  if (value === 'auto') return 'auto';
+  if (radioItem.shareWifi) throw planError(`The channel on ${radioItem.name} follows your own Wi-Fi there. Leave the customer Wi-Fi on Automatic.`);
+  const table = WIFI_CHANNELS[radioItem.band];
+  if (!table) throw planError(`Wi-Fi Fiti does not know which band ${radioItem.name} uses yet. Leave the channel on Automatic for ${where}.`);
+  const channel = Number(value);
+  if (!table[channel]) throw planError(`Choose Automatic or one of channels ${Object.keys(table).join(', ')} for ${radioItem.name}.`);
+  return channel;
+}
 // The separate customer Wi-Fi a change adds on top of a radio (see router-changes).
 const VIRTUAL_RADIO = /^fiti-(?:wlan|wifi)-\d+$/;
 
@@ -312,7 +325,7 @@ function parseRouterInventory(rawBody) {
   if (lines.indexOf(INVENTORY_BEGIN, start + 1) >= 0) throw topologyError('Duplicate router inventory report.');
   const end = lines.indexOf(INVENTORY_END, start + 1);
   if (end < 0 || end - start - 1 > INVENTORY_LIMITS.lines) throw topologyError('Incomplete router inventory report.');
-  const inv = { version: 2, agent: 1, routerosVersion: null, board: null, wan: null, wans: [], wanList: [], skipped: 0,
+  const inv = { version: 2, agent: 1, routerosVersion: null, board: null, wan: null, wans: [], wanList: [], radioBands: new Map(), skipped: 0,
     interfaces: new Map(), vlans: [], bridgePorts: [], pppoeClients: [], pppoeServers: [],
     addressed: new Set(), dhcpServers: [], dhcpClients: [], hotspots: [], fitiBridges: new Set() };
   const tok = (value, label) => safeToken(value, label);
@@ -348,6 +361,7 @@ function parseRouterInventory(rawBody) {
       case 'hotspot': inv.hotspots.push({ name: tok(f[2], 'Hotspot name'), interface: tok(f[3], 'Hotspot interface') }); break;
       case 'wan': inv.wan = { interface: tok(f[2], 'WAN interface'), kind: WAN_KINDS.has(f[3]) ? f[3] : 'static' }; break;
       case 'wans': { const name = tok(f[2], 'WAN interface'); if (!inv.wans.some((w) => w.interface === name) && inv.wans.length < 8) inv.wans.push({ interface: name, kind: WAN_KINDS.has(f[3]) ? f[3] : 'static' }); break; }
+      case 'radio': if (f[3] === '2ghz' || f[3] === '5ghz') inv.radioBands.set(tok(f[2], 'radio'), f[3]); break;
       case 'wanlist': if (f[2] === 'WAN') { const name = tok(f[3], 'WAN list member'); if (!inv.wanList.includes(name) && inv.wanList.length < 8) inv.wanList.push(name); } break;
       case 'skipped': inv.skipped = Math.max(0, Math.min(999, Math.floor(Number(f[2]) || 0))); break;
       default: break; // newer agents may add records; ignore what this server does not know
@@ -426,6 +440,7 @@ function describeInventory(inv) {
       // bridge: WinBox connects by MAC over it). Customers then get a second,
       // separate network on it and the owner's Wi-Fi is left exactly as it is.
       shareWifi: radio && physical && !internet.has(item.name) && item.state !== 'disabled' && !movableFrom,
+      ...(radio && inv.radioBands.has(item.name) ? { band: inv.radioBands.get(item.name) } : {}),
     };
   }).sort((a, b) => Number(b.physical) - Number(a.physical) || a.name.localeCompare(b.name, undefined, { numeric: true }));
   return {
@@ -525,6 +540,8 @@ function validateNetworkPlan(input, layout) {
       // A radio that is on gets a second network for customers (the owner's
       // Wi-Fi keeps working); only a switched-off radio is taken over.
       wifi = { ssid, radios: radios.map((port) => { const item = byName.get(port); return { name: port, type: item.type, mode: item.shareWifi ? 'virtual' : 'takeover' }; }) };
+      const channel = radios.length === 1 ? planChannel(raw && raw.wifi && raw.wifi.channel, byName.get(radios[0]), name) : 'auto';
+      if (channel !== 'auto') { wifi.channel = channel; wifi.frequency = WIFI_CHANNELS[byName.get(radios[0]).band][channel]; }
     }
     return { name, job, ports: ports.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), ...(wifi ? { wifi } : {}) };
   });
@@ -539,6 +556,16 @@ function validateNetworkPlan(input, layout) {
     seenExisting.add(name);
     const job = String(raw && raw.job || '');
     if (!PLAN_JOBS.has(job)) throw planError(`Choose Hotspot or PPPoE for ${name}.`);
+    if (item.type === 'vlan') {
+      // Walk every layer (a VLAN on a VLAN) down to the port it rides on.
+      const parentOf = new Map((layout.vlans || []).map((v) => [v.name, v.parent]));
+      let cursor = parentOf.get(name); const seen = new Set([name]);
+      while (cursor && !seen.has(cursor)) {
+        seen.add(cursor);
+        if ((byName.get(cursor) || {}).internet) throw planError(`${name} runs over ${cursor}, which carries your internet connection. Customers can't be served on it.`);
+        cursor = parentOf.get(cursor);
+      }
+    }
     jobs.push(job);
     const alreadyRunning = job === 'hotspot' ? hotspotOn.has(name) : pppoeOn.has(name);
     // Customer Wi-Fi added to a hotspot that already runs on this bridge: one
@@ -562,8 +589,22 @@ function validateNetworkPlan(input, layout) {
       if (!ssid) throw planError(`Give the customer Wi-Fi on ${name} a name.`);
       if (!PLAN_SSID.test(ssid)) throw planError('The Wi-Fi name can be up to 32 characters, without quotes, backslashes or $.');
       wifi = { ssid, radios: [{ name: radio, type: radioItem.type, mode: radioItem.shareWifi ? 'virtual' : 'takeover' }] };
+      const channel = planChannel(raw.wifi.channel, radioItem, name);
+      if (channel !== 'auto') { wifi.channel = channel; wifi.frequency = WIFI_CHANNELS[radioItem.band][channel]; }
     }
-    return { interface: name, job, alreadyRunning, ...(wifi ? { wifi } : {}) };
+    // Billing a hotspot the owner already runs (not one Wi-Fi Fiti built):
+    // their hotspot, users and settings stay; the login page and payments
+    // become Wi-Fi Fiti's.
+    let adopt;
+    if (raw && (raw.adopt === true || (raw.adopt && typeof raw.adopt === 'object'))) {
+      const hsName = hotspotOn.get(name);
+      if (job !== 'hotspot' || !alreadyRunning || !hsName) throw planError(`${name} does not run a hotspot to bill.`);
+      if (item.type !== 'bridge') throw planError(`Wi-Fi Fiti can bill a hotspot that runs on a bridge. The hotspot on ${name} runs on a ${item.type}.`);
+      // Keeping the owner's login page safe needs RouterOS 7 file handling.
+      if (!/^7\./.test(String(layout.routerosVersion || ''))) throw planError('Billing a hotspot you already run needs RouterOS 7 on the router. Upgrade RouterOS, then try again.');
+      if (hsName !== 'fiti-hotspot') adopt = { hotspot: hsName };
+    }
+    return { interface: name, job, alreadyRunning, ...(wifi ? { wifi } : {}), ...(adopt ? { adopt } : {}) };
   });
   if (!bridges.length && !existing.length) throw planError('Add a bridge or choose an existing bridge or VLAN first.');
   keep.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -602,4 +643,5 @@ module.exports = {
   parseRouterInventory,
   describeInventory,
   validateNetworkPlan,
+  WIFI_CHANNELS,
 };
