@@ -3483,6 +3483,20 @@ const paymentInProgressStmt = db.prepare(`SELECT 1 FROM tenant_transactions WHER
   AND ((status = 'pending' AND created_at >= datetime('now', '-3 minutes'))
     OR (status = 'paid' AND provisioned = 0 AND updated_at >= datetime('now', '-3 minutes'))) LIMIT 1`);
 function paymentInProgress(locationId) { return Boolean(paymentInProgressStmt.get(String(locationId))); }
+// The latest paid sale at a location and whether the router has switched that
+// customer on (its login job acknowledged), for the owner's go-live check.
+const latestSaleStmt = db.prepare(`SELECT t.checkout_request_id AS id, t.package_name AS packageName, t.amount, t.mpesa_receipt AS receipt,
+    t.updated_at AS paidAt, t.provisioned, t.provision_error AS provisionError, j.acked_at AS connectedAt
+  FROM tenant_transactions t LEFT JOIN tenant_jobs j ON j.id = t.provisioning_job_id
+  WHERE t.location_id = ? AND t.status = 'paid' ORDER BY t.updated_at DESC LIMIT 1`);
+const paidSalesCountStmt = db.prepare(`SELECT COUNT(*) AS n FROM tenant_transactions WHERE location_id = ? AND status = 'paid'`);
+const connectedSaleStmt = db.prepare(`SELECT 1 FROM tenant_transactions t JOIN tenant_jobs j ON j.id = t.provisioning_job_id
+  WHERE t.location_id = ? AND t.status = 'paid' AND j.acked_at IS NOT NULL LIMIT 1`);
+function firstCustomerConnected(locationId) { return Boolean(connectedSaleStmt.get(String(locationId))); }
+function latestSale(locationId) {
+  const row = latestSaleStmt.get(String(locationId));
+  return row ? { ...row, provisioned: Boolean(row.provisioned), count: paidSalesCountStmt.get(String(locationId)).n } : null;
+}
 function routerChangesForLocation(locationId) { return routerChanges().listChanges(locationId); }
 /** The router's answer about a change; a fully applied map is then cleared. */
 function recordRouterChangeAnswer(location, query) {
@@ -4491,7 +4505,7 @@ function deletePackageForOwner(packageId, businessId) {
 }
 
 module.exports = {
-  paymentInProgress, jobPaymentTiming,
+  paymentInProgress, jobPaymentTiming, latestSale, firstCustomerConnected,
   deletePackageForOwner, setPaymentDeviceIp, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, renameRouterBridge, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,

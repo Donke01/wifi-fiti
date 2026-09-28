@@ -496,6 +496,50 @@ async function pairedUniversal(token, name, report) {
     assert.equal(blocked.status, 409); assert.match(blocked.body.error, /Undo the Wi-Fi added to fiti-hotspot first/);
     assert.equal((await api(`${shopBase}/network-changes/${wifiChange.id}/undo`, { method: 'POST', token: charlie })).status, 200, 'the Wi-Fi alone can be undone');
     assert.match((await shop.poll('')).text, new RegExp(`/system script run fiti-undo-${wifiChange.id}`));
+
+  // Go live (stage 4): from a set-up router to the first paying customer.
+  {
+    const charlieToken = charlie;
+    const shopId = shop.location.id;
+    const goLive = async () => { const r = await api(`/api/business/locations/${encodeURIComponent(shopId)}/go-live`, { token: charlieToken }); assert.equal(r.status, 200, JSON.stringify(r.body)); return r.body; };
+    let g = await goLive();
+    assert.equal(g.hotspot.ready, true, 'the hotspot runs on the router');
+    assert.equal(g.packages.count, 0); assert.equal(g.packages.ready, false);
+    assert.equal(g.live, false); assert.equal(g.sale, null);
+    assert.equal(g.trial, true); assert.equal(g.trialLimits.maxPriceKes, 3);
+    assert.ok(g.portalUrl, 'the owner can open their login page');
+    assert.equal(typeof g.payments.ready, 'boolean'); assert.ok(g.payments.note);
+    assert.equal((await api(`/api/business/locations/${encodeURIComponent(shopId)}/go-live`, { token: bravo })).status, 404, 'another business cannot read it');
+    const starter = await api('/api/business/packages/starter', { method: 'POST', token: charlieToken, body: {} });
+    assert.equal(starter.status, 201, JSON.stringify(starter.body));
+    assert.deepEqual(starter.body.packages.map((p) => [p.name, p.price]).sort(), [['1 day', 3], ['2 hours', 2], ['30 minutes', 1]], 'starter packages stay inside the free trial');
+    assert.ok(starter.body.packages.every((p) => p.seconds <= 24 * 3600));
+    assert.equal((await api('/api/business/packages/starter', { method: 'POST', token: charlieToken, body: {} })).status, 409, 'never added twice');
+    g = await goLive();
+    assert.equal(g.packages.ready, true); assert.equal(g.packages.sellable, 3);
+    assert.deepEqual([g.packages.cheapest.name, g.packages.cheapest.price], ['30 minutes', 1]);
+    // A test purchase: paid, then the router switches the customer on.
+    const pkg = starter.body.packages.find((p) => p.price === 1);
+    const jobId = Number(db.prepare(`INSERT INTO tenant_jobs (location_id, username, password, profile, total_seconds, mac) VALUES (?, 'u1', 'p1', 'standard', 1800, 'AA:BB:CC:00:00:99')`).run(shopId).lastInsertRowid);
+    db.prepare(`INSERT INTO tenant_transactions (checkout_request_id, business_id, location_id, phone, package_id, package_name, amount, seconds, mac, status, mpesa_receipt, provisioning_job_id)
+      VALUES ('golive-1', ?, ?, '254700000001', ?, '30 minutes', 1, 1800, 'AA:BB:CC:00:00:99', 'paid', 'TST123', ?)`).run(shop.location.business_id || db.prepare('SELECT business_id FROM locations WHERE id=?').get(shopId).business_id, shopId, pkg.id, jobId);
+    g = await goLive();
+    assert.equal(g.live, false, 'paid but not switched on yet');
+    assert.equal(g.sale.amount, 1); assert.equal(g.sale.receipt, 'TST123'); assert.equal(g.sale.connected, false);
+    db.prepare(`UPDATE tenant_jobs SET acked_at=datetime('now') WHERE id=?`).run(jobId);
+    g = await goLive();
+    assert.equal(g.live, true, 'live once the router has switched the first customer on');
+    assert.equal(g.sale.connected, true); assert.equal(g.sale.count, 1);
+    // A newer sale still waiting (e.g. an offline claim) does not undo "live".
+    db.prepare(`INSERT INTO tenant_transactions (checkout_request_id, business_id, location_id, phone, package_id, package_name, amount, seconds, mac, status, mpesa_receipt, updated_at)
+      VALUES ('golive-2', ?, ?, '254700000002', ?, '30 minutes', 1, 1800, 'CLAIM:x', 'paid', 'TST124', datetime('now','+1 minute'))`).run(db.prepare('SELECT business_id FROM locations WHERE id=?').get(shopId).business_id, shopId, pkg.id);
+    g = await goLive();
+    assert.equal(g.live, true, 'still live'); assert.equal(g.sale.receipt, 'TST124'); assert.equal(g.sale.count, 2);
+    // A router that stopped checking in is not ready to switch customers on.
+    db.prepare(`UPDATE locations SET last_successful_sync_at=datetime('now','-10 minutes') WHERE id=?`).run(shopId);
+    g = await goLive();
+    assert.equal(g.hotspot.ready, false); assert.equal(g.hotspot.online, false); assert.match(g.hotspot.note, /has not checked in/);
+  }
   }
 
   // Deleting a router removes its change history.

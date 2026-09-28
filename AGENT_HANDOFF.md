@@ -88,6 +88,28 @@ On `stage3-finish` (not live yet):
    - Older (agent 4) reports keep the single-WAN rules. Routers get the new
      report script automatically (every 10 min while their agent is older).
 
+### Stage 4 (go live): branch `go-live`
+
+A guided path from a set-up router to the first paying customer.
+
+- **Server:** `GET /api/business/locations/:id/go-live`
+  (`goLiveStatus` in server.js).
+  - It uses the same checks a real `/pay` does: hotspot running, packages
+    sellable within trial limits, how payments are collected
+    (Tuma/own/Wi-Fi Fiti), `businessCanSell` blocks, a payment in progress,
+    and the latest paid sale with whether its login job was acknowledged.
+  - `live` means the first customer was switched on.
+  - `POST /api/business/packages/starter` adds 3 ready-made packages when
+    there are none: 30 min/KES 1, 2 h/KES 2, 1 day/KES 3 on the trial;
+    1 h/KES 10, 1 day/KES 50, 1 week/KES 250 otherwise.
+- **Dashboard:** `appendGoLive` / `drawGoLive` / `renderGoLiveOverview`.
+  - The card sits above the routerboard once a hotspot runs, and at the top
+    of Overview until the first customer is connected.
+  - It refreshes every 5 s while visible and not live, so the owner watches
+    the test purchase go "Paid → switching on → You're live!".
+  - Buttons open Packages, Branding, Payments, Transactions, or the login
+    page.
+
 Left for later: band/channel choice for customer Wi-Fi, and a hardware test
 of the RouterOS 7 `wifi` package (hAP ax etc.; code exists, untested).
 
