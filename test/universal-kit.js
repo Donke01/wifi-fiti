@@ -309,6 +309,10 @@ async function createBusiness(email, name) {
   const workspace = await api('/api/business/me', { token: alpha });
   assert.equal(workspace.body.locations[0].router_kit, 'universal');
   assert.equal(workspace.body.locations[0].router_setup_health, 'awaiting-map');
+  assert.notEqual(workspace.body.locations[0].routerMapping.status, 'confirmed', 'not mapped yet: the dashboard offers "Map router"');
+  db.prepare(`UPDATE locations SET router_setup_health='ready' WHERE id=?`).run(location.id);
+  assert.equal((await api('/api/business/me', { token: alpha })).body.locations[0].routerMapping.status, 'confirmed', 'a hotspot runs: the map is done, no more "Map router"');
+  db.prepare(`UPDATE locations SET router_setup_health='awaiting-map' WHERE id=?`).run(location.id);
 
   // The owner saves a map; it is checked against the router's report.
   const planEndpoint = `/api/business/locations/${site}/network-plan`;
