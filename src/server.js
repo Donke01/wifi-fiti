@@ -4691,6 +4691,9 @@ function tenantRouterScript(location, options = {}) {
     });
     if (change) extra.push(change);
   } catch (error) { console.error('[router changes] could not build a change:', error.message); }
+  // A change is the heaviest thing a small router runs, and it sends its own
+  // layout report when it finishes, so nothing else rides along with it.
+  if (extra.length) return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n') };
   if (layout && (Number(layout.agent) || 1) < INVENTORY_AGENT) {
     const last = inventoryUpdateSentAt.get(location.id) || 0;
     if (Date.now() - last >= 10 * 60_000) { inventoryUpdateSentAt.set(location.id, Date.now()); extra.push(inventoryScriptUpdate()); }

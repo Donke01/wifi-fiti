@@ -412,6 +412,10 @@ assert.match(html, /'Router checks and applies it', 'Router confirms it is still
 assert.match(html, /If anything goes wrong, the router puts everything back by itself\./, 'owners are told a failed change is undone automatically');
 assert.match(html, /savedKit && savedKit\.token/, 'the pairing card only appears once a kit exists');
 assert.match(html, /add\(reserveCopy, 'strong', '', 'Reserve a port for management'\)/, 'the map offers a visible card to reserve a port for management');
+assert.match(html, /!home\(item\.name\) && item\.free && !item\.movableFrom; \}\);/, 'only a truly free port can be reserved, never one carrying customers');
+assert.match(html, /The router is working on it now; follow it under Changes on the router above\./, 'the saved-map note never says nothing changed while a change runs');
+assert.match(html, /var busyOnRouter = \(changes \|\| \[\]\)\.some\(function \(c\) \{ return \/\^\(queued\|sent\|confirming\|applied\|undo-queued\|undo-sent\)\$\/\.test\(c\.status\); \}\);/, 'Review and apply stays hidden until the change is settled');
+assert.match(html, /low_memory: 'The router is short of memory/);
 assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit is shown as one console');
 assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');
 assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'\)/, 'every hotspot bridge shows its Wi-Fi panel');
