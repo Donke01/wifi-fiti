@@ -316,7 +316,7 @@ const context = vm.createContext({
   advanceOnboardingStage() {}, renderLocations() {}, downloadRouterScript() {},
 });
 vm.runInContext(html.match(/var ROUTER_ROOT_PINS = \[[^\]]*\];/)[0], context);
-for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps', 'routerCertificateFix',
+for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps', 'routerCertificateFix', 'routerClockFix',
   'routerBootstrapCommand', 'storedRouterKitHasScript', 'storedRouterKitIsCurrent', 'storedRouterKitIsStale',
   'appendRouterInstaller', 'appendSimpleRouterSetup', 'renderPairingKits', 'showRouterSetup']) {
   const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
@@ -369,6 +369,12 @@ assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a
   assert.doesNotMatch(fix, /X-WiFi-Fiti-Router|loc-installer-test/, 'the certificate fix sends no router credential');
   assert.match(fix, /else=\{ \/certificate remove \$c \}/, 'any certificate that does not match a pinned fingerprint is removed');
   assert.doesNotMatch(context.routerBootstrapCommand(setup, true, false, true), /router-roots/, 'the CA-compatibility command is unchanged');
+  const clockFix = context.routerClockFix();
+  assert.ok(clockFix.length < 900, 'the clock fix is a short paste (' + clockFix.length + ' characters)');
+  assert.match(clockFix, /\/router-time" check-certificate=no output=user as-value\]->"data"\)/, 'the time is read as data, never run');
+  assert.doesNotMatch(clockFix, /X-WiFi-Fiti-Router|\/import|:parse|:execute/, 'the clock fix sends no router credential and runs nothing it downloads');
+  assert.match(clockFix, /:if \(\$now != \$day\) do=\{ \/system clock set date=\$day time=\[:pick \$r 11 19\]/, 'the clock is set only when the date is wrong and the reply looks like a date');
+  assert.match(clockFix, /\[a-z\]\[a-z\]\[a-z\]\/\[0-3\]\[0-9\]\/20\[0-9\]\[0-9\]\\\$"\)\) do=\{ :error "bad reply" \}/, 'a reply that is not exactly a date is refused');
 }
 // The pinned fingerprints are exactly those of Mozilla's roots (via Node's
 // trust store), so only the genuine certificates are ever trusted.
@@ -406,6 +412,10 @@ assert.match(html, /'Router checks and applies it', 'Router confirms it is still
 assert.match(html, /If anything goes wrong, the router puts everything back by itself\./, 'owners are told a failed change is undone automatically');
 assert.match(html, /savedKit && savedKit\.token/, 'the pairing card only appears once a kit exists');
 assert.match(html, /add\(reserveCopy, 'strong', '', 'Reserve a port for management'\)/, 'the map offers a visible card to reserve a port for management');
+assert.match(html, /!home\(item\.name\) && item\.free && !item\.movableFrom; \}\);/, 'only a truly free port can be reserved, never one carrying customers');
+assert.match(html, /The router is working on it now; follow it under Changes on the router above\./, 'the saved-map note never says nothing changed while a change runs');
+assert.match(html, /var busyOnRouter = \(changes \|\| \[\]\)\.some\(function \(c\) \{ return \/\^\(queued\|sent\|confirming\|applied\|undo-queued\|undo-sent\)\$\/\.test\(c\.status\); \}\);/, 'Review and apply stays hidden until the change is settled');
+assert.match(html, /low_memory: 'The router is short of memory/);
 assert.match(html, /box\.classList\.add\('kit-console'\)/, 'the connection kit is shown as one console');
 assert.match(html, /\.sequential-onboarding \.overview-controls\{display:none!important\}/, 'overview filters stay out of the setup guide');
 assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer Wi-Fi' : 'Add Wi-Fi to this hotspot'\)/, 'every hotspot bridge shows its Wi-Fi panel');

@@ -853,6 +853,23 @@
       function routerCertificateFix() {
         return ':do { [:parse "/certificate settings set builtin-trust-store=all"] } on-error={}; ' + routerRootTrustSteps(window.location.origin) + '; :put "Certificates added. Now paste the connection kit again."';
       }
+      // Only when the kit stops with "cert not valid (before: …)": the router's
+      // clock is behind (a reset hAP lite often starts weeks back), so every
+      // certificate looks not valid yet. Reads the time from /router-time (no
+      // credential sent, the reply is only checked as a date, never run) and
+      // sets the clock only when the date is wrong.
+      function routerClockFix() {
+        var timeUrl = rosQuote(window.location.origin + '/router-time');
+        var shape = '^20[0-9][0-9]-[01][0-9]-[0-3][0-9] [0-2][0-9]:[0-5][0-9]:[0-5][0-9] [a-z][a-z][a-z]/[0-3][0-9]/20[0-9][0-9]\\$';
+        return [
+          ':put "Checking the router clock..."',
+          ':do { :local r ([/tool fetch url="' + timeUrl + '" check-certificate=no output=user as-value]->"data"); :local now [/system clock get date]; :local day [:pick $r 0 10]; ' +
+            ':if ([:typeof [:find $now "/"]] = "num") do={ :set day [:pick $r 20 [:len $r]] }; ' +
+            ':if (!($r ~ "' + shape + '")) do={ :error "bad reply" }; ' +
+            ':if ($now != $day) do={ /system clock set date=$day time=[:pick $r 11 19]; :put ("Clock was " . $now . ", now " . $day . ". Paste the connection kit again.") } else={ :put "The clock is right. Paste the connection kit again." } ' +
+            '} on-error={ :put "Could not reach Wi-Fi Fiti to check the clock. Check the internet cable, then try again." }'
+        ].join('; ');
+      }
       function routerBootstrapCommand(setup, compatibility) {
         var telemetryTest = arguments[2];
         var vlanTest = arguments[3];
@@ -1748,6 +1765,11 @@
           var fixText = routerCertificateFix(); var fixPre = add(fix, 'pre', 'kit-script', fixText); fixPre.setAttribute('aria-label', 'Certificate fix command');
           var fixActions = el('div', 'buttons'); var fixCopy = setupAction(fixActions, 'Copy certificate fix', 'secondary', function () { copyText(fixText, fixCopy); }); fix.appendChild(fixActions);
           box.appendChild(fix);
+          var clock = el('details', 'cert-fix'); add(clock, 'summary', '', 'If the router says “cert not valid (before: …)”');
+          add(clock, 'p', '', 'The router’s clock is behind, so the secure download looks “too early”. This often happens after a reset. Paste this once: it reads today’s date from Wi-Fi Fiti and fixes the clock, then paste the connection kit again. It sends nothing secret.');
+          var clockText = routerClockFix(); var clockPre = add(clock, 'pre', 'kit-script', clockText); clockPre.setAttribute('aria-label', 'Clock fix command');
+          var clockActions = el('div', 'buttons'); var clockCopy = setupAction(clockActions, 'Copy clock fix', 'secondary', function () { copyText(clockText, clockCopy); }); clock.appendChild(clockActions);
+          box.appendChild(clock);
         }
         var more = el('details', 'kit-more'); add(more, 'summary', '', 'More kit options');
         function moreOption(label, detail, onClick, disabled) { var row = el('div', 'kit-more-row'); var button = setupAction(row, label, 'secondary', function () { onClick(button); }); button.disabled = Boolean(disabled); add(row, 'small', '', detail); actions.appendChild(row); return button; }
@@ -2168,8 +2190,10 @@
           }
           panel.appendChild(tools);
           // A port reserved for the owner: never put in a customer bridge, so
-          // WinBox always has a way in. Always visible, as its own card.
-          var keepable = items.filter(function (item) { return item.physical && item.type === 'ether' && !item.internet && draft.keep.indexOf(item.name) < 0 && !home(item.name) && (item.free || item.movableFrom); });
+          // WinBox always has a way in. Always visible, as its own card. Only
+          // truly free ports are offered: one already carrying customers (even
+          // in a bridge Wi-Fi Fiti built) is not a way in for the owner.
+          var keepable = items.filter(function (item) { return item.physical && item.type === 'ether' && !item.internet && draft.keep.indexOf(item.name) < 0 && !home(item.name) && item.free && !item.movableFrom; });
           var reserve = el('section', 'rb-reserve' + (draft.keep.length ? ' has-port' : '')); reserve.setAttribute('aria-label', 'Reserve a port for management');
           var reserveTop = el('div', 'rb-reserve-top'); var badge = add(reserveTop, 'span', 'rb-reserve-icon', ''); badge.setAttribute('aria-hidden', 'true');
           var reserveCopy = el('div'); add(reserveCopy, 'strong', '', 'Reserve a port for management');
@@ -2245,8 +2269,15 @@
           if (leaving.length) add(panel, 'p', 'rb-moves', 'Moving: ' + leaving.join(', ') + '. Devices plugged in there will join the new bridge instead.');
           var foot = el('div', 'rb-planner-foot');
           var save = add(foot, 'button', '', dirty || !savedPlan ? 'Save map' : 'Map saved'); save.type = 'button'; save.disabled = !dirty && Boolean(savedPlan); saveButton = save;
-          var note = add(foot, 'span', 'form-note', savedPlan && !dirty ? 'Saved ' + when(savedPlan.savedAt) + '. Applying it to the router is the next step; nothing has changed on the router.' : 'Saving only records the map. Nothing on the router changes yet.');
-          var busyOnRouter = (changes || []).some(function (c) { return /^(queued|sent|undo-queued|undo-sent)$/.test(c.status); });
+          // The note follows what the router is doing, so an owner never reads
+          // "nothing has changed" while a change is running or already done.
+          var busyOnRouter = (changes || []).some(function (c) { return /^(queued|sent|confirming|applied|undo-queued|undo-sent)$/.test(c.status); });
+          var appliedSince = savedPlan && (changes || []).some(function (c) { return c.status === 'verified' && String(c.createdAt || '') >= String(savedPlan.savedAt || ''); });
+          var noteText = dirty || !savedPlan ? 'Saving only records the map. Nothing on the router changes yet.'
+            : busyOnRouter ? 'Saved ' + when(savedPlan.savedAt) + '. The router is working on it now; follow it under Changes on the router above.'
+            : appliedSince ? 'Saved ' + when(savedPlan.savedAt) + ' and done on the router.'
+            : 'Saved ' + when(savedPlan.savedAt) + '. Applying it to the router is the next step; nothing has changed on the router.';
+          var note = add(foot, 'span', 'form-note', noteText);
           if (savedPlan && !dirty && !busyOnRouter) {
             var reviewButton = add(foot, 'button', 'secondary rb-review-open', 'Review and apply'); reviewButton.type = 'button';
             reviewButton.addEventListener('click', function () { openPlanReview(panel, location, reviewButton); });
@@ -2328,6 +2359,7 @@
         rebooted_hotspot: 'The router restarted while building the hotspot, and put everything back by itself when it came up. Its memory may be too tight for a hotspot: check System → Resources in WinBox.',
         rebooted_wifi: 'The router restarted while adding the customer Wi-Fi, and put everything back by itself when it came up. Try again without Wi-Fi (cable only), or on a router with more memory.',
         rebooted_confirm: 'The router made the change, then restarted before it could confirm, so it put everything back by itself. Try again once it has been up for a few minutes.',
+        low_memory: 'The router is short of memory right now, so it stopped before touching anything. Restart the router, wait two minutes, then try again.',
         radio_busy: 'That radio is switched off or connected to another network as a client, so a customer Wi-Fi can\u2019t be added on it. Nothing was touched.',
         previous_failed: 'An earlier change did not go through.', previous_reverted: 'An earlier change was put back.', previous_no_answer: 'An earlier change got no answer.',
         no_answer: 'The router did not answer. It may be offline, or it may have put the change back. Check its next report.',

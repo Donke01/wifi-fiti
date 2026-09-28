@@ -111,6 +111,8 @@ function blank(extra = []) {
   assert.match(wifiReview.changes[0].lines.join(' '), /Turn on wlan1 and broadcast the open Wi-Fi "Sirende WiFi"/);
   const wifiScript = rc.applyScript(wifiReview.changes[0], 11, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke' });
   assert.match(wifiScript, /:if \(\[:len \[\/interface wireless find where name="wlan1"\]\] != 1\) do=\{ :set fitiWhy "radio_missing" \}/, 'the radio must still be there');
+  assert.match(wifiScript, /:while \(\(\[\/system resource get free-memory\] < 3145728\) && \(\$fitiWait < 15\)\) do=\{/, 'the change waits for free memory first');
+  assert.ok(wifiScript.indexOf('"low_memory"') < wifiScript.indexOf('/system script add name="fiti-undo-11"'), 'a router short of memory stops before anything is written');
   assert.ok(wifiScript.indexOf('name="fiti-radio-11-wlan1-ssid" source=') < wifiScript.indexOf('/interface wireless set [find where name="wlan1"] mode=ap-bridge'), 'the radio\'s old settings are kept before it changes');
   assert.ok(wifiScript.indexOf('/ip hotspot add name="fiti-hotspot"') < wifiScript.indexOf('/interface wireless set [find where name="wlan1"] mode=ap-bridge'), 'the radio turns on only once the hotspot is ready');
   assert.match(wifiScript, /mode=ap-bridge ssid="Sirende WiFi" security-profile="fiti-open-11" disabled=no/);
@@ -330,7 +332,11 @@ async function pairedUniversal(token, name, report) {
     bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['ether2', 'wlan1'], wifi: { ssid: 'Hap WiFi' } }, { name: 'fiti-ppp', job: 'pppoe', ports: ['ether3'] }] } } })).status, 200);
   const two = await api(`${hapBase}/network-plan/apply`, { method: 'POST', token: bravo, body: { confirm: true } });
   assert.deepEqual(two.body.changes.map((c) => c.job).reverse(), ['hotspot', 'pppoe'], 'the hotspot is applied first');
-  const hsReply = await hap.poll(blank());
+  // A change travels alone: no layout report rides along (small routers
+  // restarted when both ran at once); the change sends its own when done.
+  db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now','-1 minutes') WHERE location_id=?`).run(hap.location.id);
+  const hsReply = await hap.poll('');
+  assert.doesNotMatch(hsReply.text, /:do \{ \/system script run fiti-inventory \} on-error=\{ :log warning "fiti: layout report failed; it will retry" \}/, 'no layout report in the same reply as a change');
   const hsId = (hsReply.text.match(/# Wi-Fi Fiti network change (\d+)/) || [])[1];
   assert.match(hsReply.text, /\/ip hotspot add name="fiti-hotspot" interface="fiti-hs"/);
   await hap.answer(`id=${hsId}&state=failed&reason=no_free_subnet`);

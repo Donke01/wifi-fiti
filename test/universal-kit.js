@@ -61,6 +61,9 @@ assert.throws(() => buildUniversalRouterKit({ location: { id: 'bad id' }, token:
 // ---- The installer ------------------------------------------------------
 const stable = fs.readFileSync(path.join(__dirname, '..', 'public', 'tenant-router-install.rsc'), 'utf8');
 const installer = universalInstaller(stable);
+assert.match(installer, /:if \(\[\/system ntp client get enabled\] != true\) do=\{/, 'time sync is switched on only when it is off');
+assert.match(installer, /servers=time\.google\.com,pool\.ntp\.org/, 'RouterOS 7 time servers');
+assert.match(installer, /server-dns-names=time\.google\.com,pool\.ntp\.org/, 'older RouterOS time servers');
 assert.match(installer, /UNIVERSAL KIT INSTALLER/);
 assert.match(installer, /awaiting-map/);
 assert.match(installer, /&kit=universal/);
@@ -228,6 +231,11 @@ async function createBusiness(email, name) {
   const servedRoots = roots.text.split(/(?=-----BEGIN CERTIFICATE-----)/).filter((p) => p.trim()).map((pem) => new X509Certificate(pem));
   assert.deepEqual(servedRoots.map((c) => c.subject.split('\n').find((l) => l.startsWith('CN='))), ['CN=ISRG Root X1', 'CN=ISRG Root X2', 'CN=GTS Root R1', 'CN=GTS Root R4'],
     'the public roots file holds exactly the four roots the connection kit pins');
+  // A router with a wrong clock reads today's date here (public, no credential).
+  const clock = await api('/router-time');
+  assert.equal(clock.status, 200);
+  assert.match(clock.text, /^20\d\d-[01]\d-[0-3]\d [0-2]\d:[0-5]\d:[0-5]\d [a-z]{3}\/[0-3]\d\/20\d\d$/, 'RouterOS 7 date, time, then the older RouterOS date');
+  assert.ok(Math.abs(Date.parse(clock.text.slice(0, 19).replace(' ', 'T') + 'Z') - Date.now()) < 60000, 'the time is now, in UTC');
   const served = await api('/tenant-router-install-universal.rsc');
   assert.equal(served.status, 200);
   assert.equal(served.text, installer);

@@ -489,6 +489,11 @@ function applyScript(change, id, context) {
   if (change.job === 'pppoe') {
     lines.push(':if ([:len [/interface pppoe-server server find where comment="Wi-Fi Fiti PPPoE"]] > 1) do={ :set fitiWhy "pppoe_ambiguous" }');
   }
+  // Small boards (a hAP lite has 32 MB) restarted at the very start of a
+  // change when memory ran short. Wait up to 15 s for room, else stop cleanly
+  // with a reason the owner can act on instead of a restart.
+  lines.push(`:local fitiWait 0; :while (([/system resource get free-memory] < ${LOW_MEMORY_BYTES}) && ($fitiWait < 15)) do={ :set fitiWait ($fitiWait + 1); :delay 1s }`);
+  lines.push(`:if (([:len $fitiWhy] = 0) && ([/system resource get free-memory] < ${LOW_MEMORY_BYTES})) do={ :set fitiWhy "low_memory" }`);
   lines.push(`:if ([:len $fitiWhy] > 0) do={ ${reportFetch(`&id=${id}&state=failed&reason=" . $fitiWhy . "`)}; :error "fiti-change-preflight" }`);
   // 2. The undo is on the router before anything changes, with a guard that
   //    runs it if the router restarts before the cloud confirms.
@@ -751,8 +756,10 @@ function nextScript(location, context, now = Date.now()) {
   return script;
 }
 
+// Free memory a change needs before it starts (3 MiB).
+const LOW_MEMORY_BYTES = 3 * 1024 * 1024;
 const REASONS = new Set(['radio_missing', 'not_fiti_bridge', 'already_delivered', 'name_taken', 'port_changed', 'port_in_use', 'bridge_would_empty', 'vlan_filtering', 'interface_missing',
-  'interface_in_use', 'wan_missing', 'hotspot_exists', 'no_free_subnet', 'subnet_check_failed', 'pppoe_ambiguous', 'router_rejected', 'undo_incomplete', 'radio_busy']);
+  'interface_in_use', 'wan_missing', 'hotspot_exists', 'no_free_subnet', 'subnet_check_failed', 'pppoe_ambiguous', 'router_rejected', 'undo_incomplete', 'radio_busy', 'low_memory']);
 // "The router restarted while …": the step a change had reached.
 const REBOOT_REASONS = new Set(['rebooted_start', 'rebooted_hotspot', 'rebooted_wifi', 'rebooted_confirm']);
 /** The router's answer about a change. Returns the reply body. */
