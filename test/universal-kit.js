@@ -84,7 +84,7 @@ for (const menu of ['ethernet', 'wireless', 'wifi', 'bridge', 'vlan', 'pppoe-cli
 assert.match(inventorySource, /inv\|agent\|6/);
 assert.match(inventorySource, /inv\|wans\|/, 'every internet connection is reported, not only the main one');
 assert.match(inventorySource, /\/interface list member find where list=\\?"WAN\\?"/, 'with the router\'s WAN list');
-const pollerSource = decodeScriptSource(installer, 'name=fiti-poll policy=read,write,ftp,test,policy source="');
+const pollerSource = decodeScriptSource(installer, 'name=fiti-poll policy=read,write,ftp,reboot,test,policy,sensitive source="');
 assert.match(pollerSource, /:global fitiInventory/);
 assert.match(pollerSource, /:set report \(\$report \. \$fitiInventory\)/, 'the poller sends the layout report with its sync');
 assert.ok(braces(pollerSource));

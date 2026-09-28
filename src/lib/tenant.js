@@ -3469,6 +3469,7 @@ function applyRouterPlan({ locationId, businessId, confirm }) {
   const checked = validateNetworkPlan(plan, layout);
   const rc = routerChanges();
   if (rc.hasActiveChange(locationId)) throw remoteAccessError('A change is already on its way to the router. Wait for it to finish.', 409);
+  if (require('./router-tools').restartPending(locationId)) throw remoteAccessError('The router is about to restart from Router tools. Apply the map once it is back online.', 409);
   const review = rc.reviewPlan(checked, layout);
   if (review.blockers.length) throw remoteAccessError(review.blockers[0], 409);
   if (!review.changes.length) throw remoteAccessError('Nothing on this map needs changing on the router.', 409);

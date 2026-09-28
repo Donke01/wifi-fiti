@@ -15,6 +15,7 @@ const { fulfil } = require('./lib/fulfil');
 const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup, buildUniversalRouterKit } = require('./lib/router-setup');
 const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topology');
 const routerChanges = require('./lib/router-changes');
+const routerTools = require('./lib/router-tools');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { sendEmail, verificationEmail } = require('./lib/email');
@@ -431,6 +432,7 @@ app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
 // ahead of urlencoded(), which otherwise consumes RouterOS fetch payloads
 // before the exact versioned report can be validated.
 app.use('/api/router/support-enroll', express.text({ type: '*/*', limit: '2kb' }));
+app.use('/api/router/tool', express.text({ type: '*/*', limit: '16kb' }));
 // The self-hosted VPN gateway is the only trusted machine that needs a
 // larger, peer-state JSON report. Register its parser before the normal API
 // parser so an intentionally bounded gateway snapshot does not share the
@@ -2617,6 +2619,46 @@ app.get('/api/business/locations/:locationId/go-live', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json(goLiveStatus(location));
 });
+// ---- Router tools: run and follow from the dashboard --------------------
+function toolLocation(req, res) {
+  const business = businessAuth(req, res); if (!business) return null;
+  const location = tenant.locationForBusiness.get(String(req.params.locationId), business.id);
+  if (!location) { res.status(404).json({ error: 'Location not found.' }); return null; }
+  if (!location.router_setup_verified_at) { res.status(409).json({ error: 'Pair this router first: tools run on a router that is checking in.' }); return null; }
+  return location;
+}
+// A customer check: what Wi-Fi Fiti knows (package, payment) next to what the
+// router sees for that device.
+function customerAccount(locationId, mac) {
+  const sub = tenant.subscriptionByMac.get(locationId, mac);
+  if (!sub) return null;
+  const expires = Date.parse(String(sub.expires_at).replace(' ', 'T') + 'Z');
+  const pay = db.db.prepare(`SELECT package_name AS packageName, amount, status, mpesa_receipt AS receipt, updated_at AS at FROM tenant_transactions WHERE location_id=? AND mac=? ORDER BY updated_at DESC LIMIT 1`).get(locationId, mac);
+  return { phone: String(sub.payer_phone || '').replace(/^(\d{3})\d+(\d{3})$/, '$1•••$2'), expiresAt: sub.expires_at, hasTime: Number.isFinite(expires) && expires > Date.now(), active: Boolean(sub.is_active), lastPayment: pay || null };
+}
+app.get('/api/business/locations/:locationId/tools', (req, res) => {
+  const location = toolLocation(req, res); if (!location) return;
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ runs: routerTools.listTools(location.id).map((run) => (run.tool === 'customer' && run.args.mac ? { ...run, account: customerAccount(location.id, run.args.mac) } : run)) });
+});
+app.post('/api/business/locations/:locationId/tools', (req, res) => {
+  const location = toolLocation(req, res); if (!location) return;
+  const tool = String(req.body && req.body.tool || '');
+  const args = { ...(req.body || {}) };
+  // A phone number that bought a package here finds that customer's device.
+  if (tool === 'customer' && args.phone && !args.mac) {
+    const phone = mpesa.normalizePhone(args.phone);
+    const sub = phone && db.db.prepare(`SELECT mac FROM tenant_subscriptions WHERE location_id=? AND payer_phone=? AND mac NOT LIKE 'CLAIM:%' ORDER BY updated_at DESC LIMIT 1`).get(location.id, phone);
+    if (!sub) return res.status(404).json({ error: 'No package was bought with that number at this location. Try the device’s MAC address instead.' });
+    args.mac = sub.mac;
+  }
+  try {
+    const synced = Date.parse(String(location.last_successful_sync_at || '').replace(' ', 'T') + 'Z');
+    const run = routerTools.queueTool(location.id, tool, args, { busyChange: location.router_kit === 'universal' && routerChanges.hasActiveChange(location.id), online: Number.isFinite(synced) && Date.now() - synced < 5 * 60_000 });
+    res.status(201).json({ run, runs: routerTools.listTools(location.id) });
+  } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not start that tool.' }); }
+});
+
 // Ready-made packages for an owner with none yet: they can edit or remove
 // them. Inside the free trial's limits while the trial lasts.
 app.post('/api/business/packages/starter', (req, res) => {
@@ -4634,6 +4676,28 @@ app.get('/api/router/change', (req, res) => {
   res.type('text/plain').send(tenant.recordRouterChangeAnswer(location, req.query));
 });
 
+// ---- Router tools (dashboard "Tools"): the router's answers -------------
+function toolRouter(req, res) {
+  const location = tenant.authenticateRouter(String(req.query.site || ''), req.get('X-WiFi-Fiti-Router'), 'header');
+  if (!location) { res.status(403).type('text/plain').send('forbidden'); return null; }
+  if (location.router_pairing_auth !== 'active' || !location.router_setup_verified_at) { res.status(409).type('text/plain').send('not-paired'); return null; }
+  return location;
+}
+app.post('/api/router/tool', (req, res) => {
+  const location = toolRouter(req, res); if (!location) return;
+  res.type('text/plain').send(routerTools.recordAnswer(location, req.query.id, typeof req.body === 'string' ? req.body : ''));
+});
+// The speed test's download: random bytes (never compressible), only for a
+// paired router, never cached.
+const SPEED_TEST_BYTES = crypto.randomBytes(routerTools.SPEED_BYTES);
+app.get('/api/router/speed-test', (req, res) => {
+  const location = toolRouter(req, res); if (!location) return;
+  if (!routerTools.allowSpeedDownload(location.id)) return res.status(429).type('text/plain').send('no speed test running');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Encoding', 'identity');
+  res.type('application/octet-stream').send(SPEED_TEST_BYTES);
+});
+
 app.post('/api/router/support-enroll', (req, res) => {
   const locationId = String(req.query.site || '');
   const location = tenant.authenticateRouter(locationId, req.get('X-WiFi-Fiti-Router'), 'header');
@@ -4764,7 +4828,10 @@ function tenantOpenWifiScript(location) {
 // not need a re-pairing. Support-control replies stay narrow and never carry it.
 const inventoryUpdateSentAt = new Map();
 function tenantRouterScript(location, options = {}) {
-  const result = tenantRouterScriptCore(location, options);
+  const core = tenantRouterScriptCore(location, options);
+  const result = withRouterTool(location, core);
+  // A reply that carries a tool carries no network change as well.
+  if (result !== core && result.script !== core.script) return result;
   if (location.router_kit !== 'universal' || (result.supportEmitted && result.supportEmitted.length)) return result;
   const extra = [];
   const layout = tenant.routerInventoryForLocation(location.id);
@@ -4809,6 +4876,15 @@ function layoutReportEvery(locationId) {
 }
 const portalPendingSince = new Map();
 const PORTAL_FAST_MS = 2 * 60_000;
+// A tool the owner started rides along with the next ordinary reply.
+function withRouterTool(location, result) {
+  if (!location.router_setup_verified_at || location.router_pairing_auth === 'pending' || (result.supportEmitted && result.supportEmitted.length)) return result;
+  // A network change travels alone (small routers); the tool waits for it.
+  if (location.router_kit === 'universal' && routerChanges.hasActiveChange(location.id)) return result;
+  let script = '';
+  try { script = routerTools.nextToolScript(location); } catch (error) { console.error('[router tools] could not build a tool:', error.message); }
+  return script ? { ...result, script: [result.script, script].filter(Boolean).join('\n') } : result;
+}
 const inventoryRefreshAskedAt = new Map();
 const INVENTORY_REFRESH_LINE = ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }';
 // The separate 30-second layout timer is no longer used; the poll reply runs
@@ -4860,7 +4936,8 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
   // A customer paying right now: be polling every second before the payment
   // lands, so their login is on the router about a second after it is paid.
   const paying = tenant.paymentInProgress(location.id);
-  const fastPoll = Boolean(jobs.length || deployment || portalFast || changeInFlight || paying);
+  const toolWaiting = routerTools.hasQueuedTool(location.id);
+  const fastPoll = Boolean(jobs.length || deployment || portalFast || changeInFlight || paying || toolWaiting);
   const pollTuning = controls.length ? '' : tenantPollTuningScript(fastPoll ? 1 : 5);
   // Opening a Wi-Fi (removing its password) is only for the stable kit, which
   // built that Wi-Fi for customers. A universal-kit router's Wi-Fi may be the

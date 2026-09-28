@@ -602,6 +602,73 @@ async function pairedUniversal(token, name, report) {
     assert.match((await cafe.poll('')).text, new RegExp(`/system script run fiti-undo-${adoptChange.id}`));
   }
 
+  // Router tools: queued from the dashboard, run from the poll reply, answered
+  // by the router with its token.
+  {
+    const echo = await createBusiness('changes-echo@example.test', 'Changes Echo', '0712000105');
+    const box = await pairedUniversal(echo, 'Box', blank());
+    const toolsUrl = `/api/business/locations/${box.site}/tools`;
+    assert.equal((await api(toolsUrl, { token: bravo })).status, 404, 'another business cannot use them');
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'format-disk' } })).status, 400, 'only known tools');
+    const started = await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'health' } });
+    assert.equal(started.status, 201, JSON.stringify(started.body));
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'log' } })).status, 409, 'one tool at a time');
+    const reply = await box.poll('');
+    const toolId = (reply.text.match(/# Wi-Fi Fiti tool (\d+): health/) || [])[1];
+    assert.ok(toolId, 'the tool rides the poll reply');
+    assert.match(reply.text, /interval=1s disabled=no/, 'the router checks in fast while a tool waits');
+    assert.match(reply.text, /\/api\/router\/tool\?site=" \. \$fitiSite \. "&id=\d+"\) check-certificate=\$fitiCk http-method=post http-data=\$fitiOut/);
+    assert.match(reply.text, /:local fitiCk "yes"/, 'verified TLS unless the poller itself is the compatibility kit');
+    assert.doesNotMatch(reply.text, /check-certificate=no/, 'never an unverified retry');
+    assert.doesNotMatch((await box.poll('')).text, /# Wi-Fi Fiti tool/, 'sent once');
+    const answerUrl = `/api/router/tool?site=${box.site}&id=${toolId}`;
+    assert.equal((await api(answerUrl, { method: 'POST', body: 'uptime=1h2m\ncpu=37\n', contentType: 'text/plain' })).status, 403, 'only the router may answer');
+    assert.equal((await api(answerUrl, { method: 'POST', routerToken: box.location.routerToken, body: 'uptime=1h2m\ncpu=37\nfree=6.2MiB\ntotal=32.0MiB\nversion=7.24.1 (stable)\nboard=hAP lite\nhdd=6.8MiB\nhotspot_users=3\n', contentType: 'text/plain' })).text, 'ok');
+    let runs = (await api(toolsUrl, { token: echo })).body.runs;
+    assert.equal(runs[0].status, 'done');
+    assert.deepEqual([runs[0].summary.cpu, runs[0].summary.freeMemory, runs[0].summary.totalMemory, runs[0].summary.board, runs[0].summary.hotspotUsers], [37, Math.round(6.2 * 1048576), 32 * 1048576, 'hAP lite', 3]);
+    // Speed test: the download is only for the router, and is timed.
+    assert.equal((await api(`/api/router/speed-test?site=${box.site}`)).status, 403);
+    assert.equal((await api(`/api/router/speed-test?site=${box.site}`, { routerToken: box.location.routerToken })).status, 429, 'no speed test running: no download');
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'speed' } })).status, 201);
+    const speedReply = (await box.poll('')).text;
+    assert.match(speedReply, /:execute/, 'the download runs in the background');
+    const blob = await api(`/api/router/speed-test?site=${box.site}`, { routerToken: box.location.routerToken });
+    assert.equal(blob.status, 200); assert.ok(blob.text.length > 1000000, 'a real 2 MB download');
+    assert.equal((await api(`/api/router/speed-test?site=${box.site}`, { routerToken: box.location.routerToken })).status, 200, 'one retry allowed');
+    assert.equal((await api(`/api/router/speed-test?site=${box.site}`, { routerToken: box.location.routerToken })).status, 429, 'but not a third');
+    const speedId = (speedReply.match(/tool (\d+): speed/) || [])[1];
+    assert.equal((await api(`/api/router/tool?site=${box.site}&id=${speedId}`, { method: 'POST', routerToken: box.location.routerToken, body: 'error=download_failed\nping_ok=4\n', contentType: 'text/plain' })).text, 'ok');
+    runs = (await api(toolsUrl, { token: echo })).body.runs;
+    assert.equal(runs[0].summary.downloadFailed, true); assert.equal(runs[0].summary.pingOk, 4, 'the ping is kept when the download failed');
+    const tools = require('../src/lib/router-tools');
+    assert.equal(tools._test.seconds('2s340ms'), 2.34); assert.equal(tools._test.seconds('00:00:04'), 4); assert.equal(tools._test.bytes('2048KiB'), 2097152);
+    // A customer by phone must have bought here; the restart needs a confirm.
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'customer', phone: '0799000000' } })).status, 404);
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'customer', mac: 'not-a-mac' } })).status, 400);
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'reboot' } })).status, 400, 'a restart must be confirmed');
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'reboot', confirm: true } })).status, 201);
+    const restart = await box.poll('');
+    assert.match(restart.text, /error=needs_permission/, 'an older kit without the reboot permission is told plainly');
+    assert.match(restart.text, /:if \(\$fitiOut = "state=restarting\\n"\) do=\{ :execute/, 'it restarts only when allowed');
+    assert.ok(restart.text.indexOf('/api/router/tool?site=') < restart.text.indexOf(':execute ":delay 5s; /system reboot"'), 'it answers first, then restarts');
+    // A router that never answers does not block the page for ever.
+    db.prepare(`UPDATE tenant_router_tools SET updated_at=datetime('now','-5 minutes') WHERE status='sent'`).run();
+    runs = (await api(toolsUrl, { token: echo })).body.runs;
+    assert.equal(runs[0].status, 'failed'); assert.equal(runs[0].summary.error, 'no_answer', 'a router that went quiet is shown as not answering');
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'customer', mac: 'aabbcc112233' } })).status, 201, 'a MAC without separators is fine');
+    const custReply = (await box.poll('')).text;
+    assert.match(custReply, /mac-address="AA:BB:CC:11:22:33"/);
+    db.prepare(`UPDATE tenant_router_tools SET status='done' WHERE status IN ('queued','sent')`).run();
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'backup' } })).status, 201, 'the next tool can run');
+    assert.match((await box.poll('')).text, /needs_permission[\s\S]*system backup save/, 'the backup checks its permission first');
+    db.prepare(`UPDATE tenant_router_tools SET status='done' WHERE status IN ('queued','sent')`).run();
+    // A router that has not checked in for minutes is not sent a tool.
+    db.prepare(`UPDATE locations SET last_successful_sync_at=datetime('now','-10 minutes') WHERE id=?`).run(box.site);
+    assert.equal((await api(toolsUrl, { method: 'POST', token: echo, body: { tool: 'health' } })).status, 409, 'offline routers are refused');
+    db.prepare(`UPDATE locations SET last_successful_sync_at=datetime('now') WHERE id=?`).run(box.site);
+  }
+
   // Go live (stage 4): from a set-up router to the first paying customer.
   {
     const charlieToken = charlie;
