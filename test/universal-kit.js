@@ -212,6 +212,12 @@ async function createBusiness(email, name) {
   assert.match(compatInstaller.text, /awaiting-map/);
   assert.match(compatInstaller.text, /&kit=universal/);
   assert.doesNotMatch(compatInstaller.text, /check-certificate=yes/, 'its poller syncs without certificate checks, like the standard compatibility installer');
+  const roots = await api('/router-roots.pem');
+  assert.equal(roots.status, 200);
+  const { X509Certificate } = require('node:crypto');
+  const servedRoots = roots.text.split(/(?=-----BEGIN CERTIFICATE-----)/).filter((p) => p.trim()).map((pem) => new X509Certificate(pem));
+  assert.deepEqual(servedRoots.map((c) => c.subject.split('\n').find((l) => l.startsWith('CN='))), ['CN=ISRG Root X1', 'CN=ISRG Root X2', 'CN=GTS Root R1', 'CN=GTS Root R4'],
+    'the public roots file holds exactly the four roots the connection kit pins');
   const served = await api('/tenant-router-install-universal.rsc');
   assert.equal(served.status, 200);
   assert.equal(served.text, installer);
