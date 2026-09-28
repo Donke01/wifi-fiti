@@ -316,7 +316,7 @@ const context = vm.createContext({
   advanceOnboardingStage() {}, renderLocations() {}, downloadRouterScript() {},
 });
 vm.runInContext(html.match(/var ROUTER_ROOT_PINS = \[[^\]]*\];/)[0], context);
-for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps', 'routerCertificateFix',
+for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps', 'routerCertificateFix', 'routerClockFix',
   'routerBootstrapCommand', 'storedRouterKitHasScript', 'storedRouterKitIsCurrent', 'storedRouterKitIsStale',
   'appendRouterInstaller', 'appendSimpleRouterSetup', 'renderPairingKits', 'showRouterSetup']) {
   const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
@@ -369,6 +369,12 @@ assert.equal(stale.children.length, 0, 'a shared installer panel cannot expose a
   assert.doesNotMatch(fix, /X-WiFi-Fiti-Router|loc-installer-test/, 'the certificate fix sends no router credential');
   assert.match(fix, /else=\{ \/certificate remove \$c \}/, 'any certificate that does not match a pinned fingerprint is removed');
   assert.doesNotMatch(context.routerBootstrapCommand(setup, true, false, true), /router-roots/, 'the CA-compatibility command is unchanged');
+  const clockFix = context.routerClockFix();
+  assert.ok(clockFix.length < 900, 'the clock fix is a short paste (' + clockFix.length + ' characters)');
+  assert.match(clockFix, /\/router-time" check-certificate=no output=user as-value\]->"data"\)/, 'the time is read as data, never run');
+  assert.doesNotMatch(clockFix, /X-WiFi-Fiti-Router|\/import|:parse|:execute/, 'the clock fix sends no router credential and runs nothing it downloads');
+  assert.match(clockFix, /:if \(\$now != \$day\) do=\{ \/system clock set date=\$day time=\[:pick \$r 11 19\]/, 'the clock is set only when the date is wrong and the reply looks like a date');
+  assert.match(clockFix, /\[a-z\]\[a-z\]\[a-z\]\/\[0-3\]\[0-9\]\/20\[0-9\]\[0-9\]\\\$"\)\) do=\{ :error "bad reply" \}/, 'a reply that is not exactly a date is refused');
 }
 // The pinned fingerprints are exactly those of Mozilla's roots (via Node's
 // trust store), so only the genuine certificates are ever trusted.

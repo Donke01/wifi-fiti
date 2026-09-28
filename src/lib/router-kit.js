@@ -326,6 +326,18 @@ function universalInstaller(source) {
     '\\n  :if ([:len \\$fitiInventory] > 0) do={ :set report (\\$report . \\$fitiInventory); :set fitiInventory \\"\\" }\\r\\\n\\n  :local fitiHealth \\"ready\\"\\r\\\n', 'poller inventory');
   out = replaceOnce(out, '\n:put ""\n:put "Business router paired. Polling is active (2s)."\n', [
     '',
+    '# --- Keep the clock right ---------------------------------------------',
+    '# Boards without a clock battery (hAP lite) wake from a power cut with an',
+    '# old date, and then every secure check fails. Time sync is switched on only',
+    '# when it is off; an owner\'s own time servers are left as they are.',
+    ':do {',
+    '  :if ([/system ntp client get enabled] != true) do={',
+    '    :do { :local f [:parse "/system ntp client set enabled=yes servers=time.google.com,pool.ntp.org"]; $f } on-error={',
+    '      :do { :local g [:parse "/system ntp client set enabled=yes server-dns-names=time.google.com,pool.ntp.org"]; $g } on-error={ :log warning "fiti: could not switch on time sync" }',
+    '    }',
+    '  }',
+    '} on-error={}',
+    '',
     '# --- Router layout report (read-only) --------------------------------',
     '/system script remove [find name="fiti-inventory"]',
     '/system script add name=fiti-inventory policy=read,test ' + routerScriptSource(inventoryScriptLines()),

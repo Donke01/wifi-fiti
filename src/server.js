@@ -472,6 +472,18 @@ app.get('/router-roots.pem', (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.type('text/plain').send(ROUTER_ROOTS_PEM);
 });
+// The current UTC time for a router whose clock is wrong (a reset hAP lite
+// often starts weeks behind, so every certificate looks "not valid yet").
+// Public, no credential: "2026-09-28 12:50:05 sep/28/2026" — the RouterOS 7
+// date, the time, then the older RouterOS date format.
+app.get('/router-time', (req, res) => {
+  const now = new Date();
+  const iso = now.toISOString();
+  const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const legacy = `${months[now.getUTCMonth()]}/${iso.slice(8, 10)}/${iso.slice(0, 4)}`;
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('text/plain').send(`${iso.slice(0, 10)} ${iso.slice(11, 19)} ${legacy}`);
+});
 
 // Universal kit installer (test slot): the stable installer, transformed to
 // pair a router without changing its network. Only the universal kit uses it.
