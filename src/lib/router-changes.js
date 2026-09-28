@@ -40,7 +40,7 @@ function safe(name) { if (!SAFE.test(String(name || ''))) throw changeError('Une
 const ros = (value) => '"' + String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/[\r\n]/g, ' ') + '"';
 // Escape RouterOS source for a quoted string (a script body or :execute).
 const src = (lines) => '"' + lines.join('\r\n').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '"';
-const jobLabel = (job) => (job === 'pppoe' ? 'PPPoE' : 'Hotspot');
+const jobLabel = (job) => (job === 'pppoe' ? 'PPPoE' : job === 'wifi' ? 'Wi-Fi' : 'Hotspot');
 
 function parseSqlTime(value) {
   let text = String(value || '').trim().replace(' ', 'T');
@@ -59,11 +59,12 @@ function reviewPlan(plan, layout) {
   const running = (layout && layout.hotspots || [])[0] || null;
   const pppoeNow = (layout && layout.pppoeServers || []).map((s) => s.interface);
   const wan = layout && layout.wan && layout.wan.interface;
+  const wanText = [...new Set([wan, ...((layout && layout.wans) || []).map((w) => w.interface)].filter(Boolean))].join(' or ');
   const changes = []; const blockers = []; const notes = [];
   const moves = new Map((plan && plan.moves || []).map((m) => [m.interface, m.from]));
   const hotspotLines = (target, created) => [
     created ? `Start a new hotspot (${HOTSPOT_NAME}) on ${target}, with its own private network (the first free one from 10.5.50.0/24 to 10.5.59.0/24) and DHCP.` : `Start a hotspot (${HOTSPOT_NAME}) on ${target}, with its own private network and DHCP.`,
-    `Hotspot customers on ${target} get internet through ${wan}, can reach only the login page and DNS on the router, and can't open router settings.`,
+    `Hotspot customers on ${target} get internet through ${wanText}, can reach only the login page and DNS on the router, and can't open router settings.`,
     'Customer billing, the login page and vouchers then run on this hotspot.',
   ];
   const pppoeLines = (target) => [
@@ -98,7 +99,24 @@ function reviewPlan(plan, layout) {
   for (const entry of plan && plan.existing || []) {
     const item = byName.get(entry.interface) || {};
     if (entry.job === 'hotspot') {
-      if (entry.alreadyRunning || (running && running.interface === entry.interface)) { notes.push(`${entry.interface} already runs a hotspot. It stays exactly as it is.`); continue; }
+      if (entry.alreadyRunning || (running && running.interface === entry.interface)) {
+        const radio = entry.wifi && entry.wifi.radios[0];
+        const radioNow = radio && byName.get(radio.name);
+        const onAir = (item.members || []).filter((m) => ['wlan', 'wifi'].includes((byName.get(m) || {}).type) || /^fiti-(wlan|wifi)-\d+$/.test(m));
+        if (radio && onAir.length) { notes.push(`${entry.interface} already runs a hotspot with customer Wi-Fi. It stays exactly as it is.`); continue; }
+        if (radio && (!radioNow || !(radioNow.free || radioNow.shareWifi))) { blockers.push(`${radio.name} is no longer free on the router, so the Wi-Fi can't be added. Refresh the map and choose again.`); continue; }
+        if (entry.wifi) {
+          // Only the Wi-Fi is new: the running hotspot and its ports stay as they are.
+          changes.push({ kind: 'wifi', target: entry.interface, job: 'wifi', ports: [], moves: [], wifi: entry.wifi,
+            title: `${entry.interface} · Wi-Fi "${entry.wifi.ssid}"`, lines: [
+              `Keep the hotspot on ${entry.interface} and its ports exactly as they are.`,
+              isVirtual(radio)
+                ? `Add a separate open Wi-Fi "${entry.wifi.ssid}" on ${radio.name} and put it in ${entry.interface}. Your own Wi-Fi on ${radio.name} keeps working exactly as it is.`
+                : `Turn on ${radio.name}, broadcast the open Wi-Fi "${entry.wifi.ssid}" and put it in ${entry.interface}. Customers join it freely; the login page controls internet access.`,
+            ] });
+        } else notes.push(`${entry.interface} already runs a hotspot. It stays exactly as it is.`);
+        continue;
+      }
       const usage = item.usage || [];
       if (usage.some((u) => /^(Has an IP address|DHCP server|Hotspot )/.test(u))) {
         blockers.push(`${entry.interface} already has its own IP address or DHCP server, so Wi-Fi Fiti won't start a hotspot there. Put free ports into a new hotspot bridge instead.`); continue;
@@ -153,7 +171,9 @@ function undoLines(change, id) {
     lines.push(`:do { /system scheduler remove [find where name="fiti-revert-${id}"] } on-error={}`);
     return lines;
   }
+  if (change.kind === 'wifi') for (const radio of change.wifi.radios.filter((r) => !isVirtual(r))) lines.push(`:do { /interface bridge port remove [find where interface="${safe(radio.name)}"] } on-error={}`);
   lines.push(...radioUndoLines(change, id));
+  if (change.kind === 'wifi') for (const radio of change.wifi.radios.filter((r) => !isVirtual(r))) lines.push(`:if ([:len [/interface bridge port find where interface="${safe(radio.name)}"]] > 0) do={ :error "fiti-undo-incomplete" }`);
   if (change.job === 'pppoe') {
     lines.push(`:do { :local p [/system script get [find where name="fiti-prev-${id}"] source]; :if ([:len $p] > 0) do={ /interface pppoe-server server set [find where comment="Wi-Fi Fiti PPPoE"] interface=$p } else={ :foreach s in=[/interface pppoe-server server find where comment="Wi-Fi Fiti PPPoE" and interface="${target}"] do={ /interface pppoe-server server set $s disabled=yes } } } on-error={}`);
   }
@@ -189,6 +209,7 @@ function undoLines(change, id) {
     lines.push(`:if (([:len [/ip hotspot find where profile="fiti-hs-${id}"]] > 0) || ([:len [/ip address find where comment="${tag}"]] > 0)) do={ :error "fiti-undo-incomplete" }`);
   }
   lines.push(...radioUndoCheckLines(change, id));
+  lines.push(...radioUndoCleanupLines(change, id));
   for (const leftover of ['prev', 'prevdns', 'prevboot']) lines.push(`:do { /system script remove [find where name="fiti-${leftover}-${id}"] } on-error={}`);
   lines.push(`:do { /system scheduler remove [find where name="fiti-revert-${id}"] } on-error={}`);
   return lines;
@@ -281,7 +302,13 @@ function radioUndoLines(change, id) {
     }
   }
   lines.push(`:do { /interface wireless security-profiles remove [find where name="fiti-open-${id}"] } on-error={}`);
-  for (const radio of change.wifi.radios || []) {
+  return lines;
+}
+// The saved radio settings go only once the undo is proven, so a retry can
+// still restore them.
+function radioUndoCleanupLines(change, id) {
+  const lines = [];
+  for (const radio of (change.wifi && change.wifi.radios) || []) {
     if (isVirtual(radio)) continue;
     for (const field of ['ssid', 'mode', 'sec', 'off']) lines.push(`:do { /system script remove [find where name="${radioKey(id, radio.name, field)}"] } on-error={}`);
   }
@@ -289,8 +316,14 @@ function radioUndoLines(change, id) {
 }
 // The undo is complete only once the customer network is gone.
 function radioUndoCheckLines(change, id) {
-  return ((change.wifi && change.wifi.radios) || []).filter(isVirtual)
-    .map((radio) => `:if ([:len [/interface find where name="${virtualRadioName(radio, id)}"]] > 0) do={ :error "fiti-undo-incomplete" }`);
+  const lines = [];
+  for (const radio of (change.wifi && change.wifi.radios) || []) {
+    if (isVirtual(radio)) { lines.push(`:if ([:len [/interface find where name="${virtualRadioName(radio, id)}"]] > 0) do={ :error "fiti-undo-incomplete" }`); continue; }
+    // A taken-over radio is back to its saved on/off state.
+    const r = safe(radio.name); const menu = radio.type === 'wlan' ? 'wireless' : 'wifi';
+    lines.push(`:do { :local back true; :do { :local d [/system script get [find where name="${radioKey(id, r, 'off')}"] source]; :if ([:tostr [/interface ${menu} get [find where name="${r}"] disabled]] != $d) do={ :set back false } } on-error={}; :if (!$back) do={ :error "fiti-undo-incomplete" } }`);
+  }
+  return lines;
 }
 
 // Masks for prefix lengths 0-24: an existing network overlaps a candidate /24
@@ -349,10 +382,28 @@ function subnetPreflightLines() {
   ];
 }
 
-function hotspotApplyLines(change, id, { wan, cloudHost, portalHost, pppoeNet }) {
+// Every internet connection the hotspot's customers may leave by: the main
+// one, any other line (backup or load-shared) and, when the router keeps a
+// "WAN" interface list that holds the main line, that list itself (it also
+// covers a line added later).
+function internetSides({ wan, wans, wanList }) {
+  const all = [...new Set([wan, ...(Array.isArray(wans) ? wans : [])].filter(Boolean))].map(safe);
+  const list = Array.isArray(wanList) && wanList.includes(wan) ? wanList.map(safe) : [];
+  return { all, useList: list.length > 0, outside: list.length ? all.filter((w) => !list.includes(w)) : all };
+}
+function hotspotApplyLines(change, id, { wan, wans, wanList, cloudHost, portalHost, pppoeNet }) {
   const tag = `Wi-Fi Fiti change ${id}`;
   const target = safe(change.target);
-  const out = safe(wan);
+  safe(wan);
+  const sides = internetSides({ wan, wans, wanList });
+  const dnsDrops = [
+    ...(sides.useList ? ['in-interface-list=WAN'] : []),
+    ...sides.outside.map((w) => `in-interface="${w}"`),
+  ].flatMap((match) => [`chain=input ${match} protocol=udp dst-port=53 action=drop`, `chain=input ${match} protocol=tcp dst-port=53 action=drop`]);
+  const nats = [
+    ...(sides.useList ? ['out-interface-list=WAN'] : []),
+    ...sides.outside.map((w) => `out-interface="${w}"`),
+  ];
   const net = '("10.5." . $fitiNet . ".0/24")';
   const gw = '("10.5." . $fitiNet . ".1")';
   // Every rule goes directly before the first ordinary input rule, in its
@@ -366,8 +417,7 @@ function hotspotApplyLines(change, id, { wan, cloudHost, portalHost, pppoeNet })
     ':do { :local s [/ip firewall filter find where chain=input dynamic=no]; :if ([:len $s] > 0) do={ :set fitiAnchor [:pick $s 0] } } on-error={}',
     // The router's DNS answers hotspot customers, never the internet side:
     // these drops exist before DNS is opened.
-    rule(`chain=input in-interface="${out}" protocol=udp dst-port=53 action=drop`),
-    rule(`chain=input in-interface="${out}" protocol=tcp dst-port=53 action=drop`),
+    ...dnsDrops.map(rule),
     // Customers may reach only DNS, DHCP and the login page on the router.
     // 64872-64875 are where RouterOS itself serves the hotspot login.
     rule(`chain=input in-interface="${target}" protocol=tcp dst-port=53,80,443,64872-64875 action=accept`),
@@ -378,7 +428,7 @@ function hotspotApplyLines(change, id, { wan, cloudHost, portalHost, pppoeNet })
     `/ip dhcp-server add name="fiti-dhcp-${id}" interface="${target}" address-pool="fiti-pool-${id}" lease-time=1h disabled=no comment="${tag}"`,
     `/ip dhcp-server network add address=${net} gateway=${gw} dns-server=${gw} comment="${tag}"`,
     '/ip dns set allow-remote-requests=yes',
-    `/ip firewall nat add chain=srcnat src-address=${net} out-interface="${out}" action=masquerade comment="${tag}"`,
+    ...nats.map((match) => `/ip firewall nat add chain=srcnat src-address=${net} ${match} action=masquerade comment="${tag}"`),
     `/ip firewall mangle add chain=postrouting out-interface="${target}" action=change-ttl new-ttl=set:1 passthrough=yes comment="${tag}"`,
   ];
   if (pppoeNet && /^10\.250\.\d{1,3}\.0\/24$/.test(pppoeNet)) {
@@ -459,10 +509,30 @@ function applyScript(change, id, context) {
   } else {
     lines.push(`:if ([:len [/interface find where name="${safe(change.target)}"]] != 1) do={ :set fitiWhy "interface_missing" }`);
   }
+  if (change.kind === 'wifi') {
+    // The hotspot bridge must still be a plain bridge running the hotspot; a
+    // radio taken over must still be free.
+    const t = safe(change.target);
+    lines.push(`:if ([:len [/interface bridge find where name="${t}"]] != 1) do={ :set fitiWhy "interface_missing" }`);
+    lines.push(`:if ([:len [/ip hotspot find where interface="${t}"]] = 0) do={ :set fitiWhy "hotspot_missing" }`);
+    lines.push(`:do { :if ([/interface bridge get [find where name="${t}"] vlan-filtering] = true) do={ :set fitiWhy "vlan_filtering" } } on-error={}`);
+    for (const radio of change.wifi.radios.filter((r) => !isVirtual(r))) {
+      lines.push(`:if ([:len [/interface bridge port find where interface="${safe(radio.name)}"]] > 0) do={ :set fitiWhy "port_changed" }`);
+      lines.push(...portFreeChecks(radio.name));
+    }
+  }
   for (const radio of (change.wifi && change.wifi.radios) || []) {
     const menu = radio.type === 'wlan' ? 'wireless' : 'wifi';
     const r = safe(radio.name);
     lines.push(`:if ([:len [/interface ${menu} find where name="${r}"]] != 1) do={ :set fitiWhy "radio_missing" }`);
+    if (!isVirtual(radio) && !(change.moves || []).some((m) => m.interface === radio.name)) {
+      // Only a switched-off radio is taken over: one switched on since the map
+      // was drawn may be carrying the owner's own Wi-Fi. (A radio moved out of
+      // a Wi-Fi Fiti bridge is already a customer radio, so it stays on.)
+      lines.push(radio.type === 'wlan'
+        ? `:do { :if ([/interface wireless get [find where name="${r}"] disabled] != true) do={ :set fitiWhy "radio_busy" } } on-error={ :set fitiWhy "radio_missing" }`
+        : `:do { :if ([/interface wifi get [find where name="${r}"] disabled] != true) do={ :set fitiWhy "radio_busy" } } on-error={ :set fitiWhy "radio_missing" }`);
+    }
     if (isVirtual(radio)) {
       // The owner's radio must still be on and serving as an access point;
       // a second network cannot ride on a radio that is off or a client.
@@ -475,7 +545,8 @@ function applyScript(change, id, context) {
   }
   if (change.job === 'hotspot') {
     lines.push(
-      `:if ([:len [/interface find where name="${safe(context.wan)}"]] != 1) do={ :set fitiWhy "wan_missing" }`,
+      ...internetSides(context).all.map((w) => `:if ([:len [/interface find where name="${w}"]] != 1) do={ :set fitiWhy "wan_missing" }`),
+      ...(internetSides(context).useList ? [':if ([:len [/interface list find where name="WAN"]] != 1) do={ :set fitiWhy "wan_missing" }'] : []),
       ':if ([:len [/ip hotspot find]] > 0) do={ :set fitiWhy "hotspot_exists" }',
       `:if ([:len [/ip pool find where name="fiti-pool-${id}"]] > 0) do={ :set fitiWhy "name_taken" }`,
       `:do { :if (([:len [/system script find where name="fiti-map"]] > 0) && (!([/system script get [find where name="fiti-map"] comment] ~ "^Wi-Fi Fiti change"))) do={ :set fitiWhy "name_taken" } } on-error={}`,
@@ -519,6 +590,7 @@ function applyScript(change, id, context) {
   }
   if (change.job === 'hotspot') { body.push(step('hotspot')); body.push(...hotspotApplyLines(change, id, context)); }
   if (change.wifi) { body.push(step('wifi')); body.push(...radioApplyLines(change, id)); }
+  if (change.kind === 'wifi') for (const radio of change.wifi.radios.filter((r) => !isVirtual(r))) body.push(`/interface bridge port add bridge="${safe(change.target)}" interface="${safe(radio.name)}"`);
   if (change.job === 'pppoe') {
     body.push(
       ':local fitiPrev ""; :do { :set fitiPrev [/interface pppoe-server server get [find where comment="Wi-Fi Fiti PPPoE"] interface] } on-error={}',
@@ -671,6 +743,7 @@ function listChanges(locationId) {
       change.currentName = currentName(locationId, row.target, row.id);
       change.canRename = ['applied', 'verified', 'mismatch'].includes(row.status);
     }
+    if (row.kind === 'wifi') change.currentName = currentName(locationId, row.target, row.id);
     return change;
   });
 }
@@ -696,11 +769,12 @@ function queueUndo(locationId, id) {
   if (newer) throw changeError(`Undo the newer ${jobLabel(row.job)} change first.`, 409);
   // A newer change that moved a port out of this bridge must be undone first,
   // or its port would have no bridge to go back to.
-  const later = db.prepare(`SELECT spec_json, target FROM tenant_router_changes WHERE location_id=? AND id>? AND status IN ('applied','verified','mismatch')`).all(locationId, row.id);
+  const later = db.prepare(`SELECT id, spec_json, target, kind FROM tenant_router_changes WHERE location_id=? AND id>? AND status IN ('applied','verified','mismatch')`).all(locationId, row.id);
   for (const other of later) {
     let spec = {}; try { spec = JSON.parse(other.spec_json); } catch (_) {}
     if ((spec.moves || []).some((m) => m.from === row.target)) throw changeError(`Undo ${other.target} first: it took a port from ${row.target}.`, 409);
     if (spec.from === row.target) throw changeError(`Undo the rename to ${other.target} first.`, 409);
+    if (other.kind === 'wifi' && row.kind === 'bridge' && currentName(locationId, other.target, other.id) === currentName(locationId, row.target, row.id)) throw changeError(`Undo the Wi-Fi added to ${other.target} first.`, 409);
   }
   setStatus.run({ id: row.id, status: 'undo-queued', reason: null });
   return publicChange(changeById.get(id, locationId));
@@ -759,7 +833,7 @@ function nextScript(location, context, now = Date.now()) {
 // Free memory a change needs before it starts (3 MiB).
 const LOW_MEMORY_BYTES = 3 * 1024 * 1024;
 const REASONS = new Set(['radio_missing', 'not_fiti_bridge', 'already_delivered', 'name_taken', 'port_changed', 'port_in_use', 'bridge_would_empty', 'vlan_filtering', 'interface_missing',
-  'interface_in_use', 'wan_missing', 'hotspot_exists', 'no_free_subnet', 'subnet_check_failed', 'pppoe_ambiguous', 'router_rejected', 'undo_incomplete', 'radio_busy', 'low_memory']);
+  'interface_in_use', 'wan_missing', 'hotspot_exists', 'no_free_subnet', 'subnet_check_failed', 'pppoe_ambiguous', 'router_rejected', 'undo_incomplete', 'radio_busy', 'low_memory', 'hotspot_missing']);
 // "The router restarted while …": the step a change had reached.
 const REBOOT_REASONS = new Set(['rebooted_start', 'rebooted_hotspot', 'rebooted_wifi', 'rebooted_confirm']);
 /** The router's answer about a change. Returns the reply body. */
@@ -798,7 +872,7 @@ function routerAnswer(location, query) {
 function matchesLayout(row, layout) {
   let spec = {}; try { spec = JSON.parse(row.spec_json); } catch (_) {}
   // A bridge renamed later is checked under its current name.
-  const name = row.kind === 'bridge' ? currentName(row.location_id, row.target, row.id) : row.target;
+  const name = row.kind === 'bridge' || row.kind === 'wifi' ? currentName(row.location_id, row.target, row.id) : row.target;
   const item = (layout.interfaces || []).find((i) => i.name === name);
   let ok = Boolean(item);
   if (ok && row.kind === 'rename') ok = !(layout.interfaces || []).some((i) => i.name === spec.from);
@@ -807,6 +881,7 @@ function matchesLayout(row, layout) {
     const shared = new Map(((spec.wifi && spec.wifi.radios) || []).filter(isVirtual).map((r) => [r.name, virtualRadioName(r, row.id)]));
     ok = (spec.ports || []).every((p) => (item.members || []).includes(shared.get(p) || p));
   }
+  if (ok && row.kind === 'wifi') ok = ((spec.wifi && spec.wifi.radios) || []).every((r) => (item.members || []).includes(isVirtual(r) ? virtualRadioName(r, row.id) : r.name));
   if (ok && row.job === 'hotspot') ok = (layout.hotspots || []).some((h) => h.interface === name && h.name === HOTSPOT_NAME);
   return ok;
 }

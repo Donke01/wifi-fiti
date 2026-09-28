@@ -81,7 +81,9 @@ assert.doesNotMatch(inventorySource, /dynamic=no/, 'the generic interface find (
 for (const menu of ['ethernet', 'wireless', 'wifi', 'bridge', 'vlan', 'pppoe-client', 'lte', 'wireguard']) {
   assert.match(inventorySource, new RegExp(`\\[/interface ${menu} find\\]`), `interfaces are listed from the ${menu} menu`);
 }
-assert.match(inventorySource, /inv\|agent\|4/);
+assert.match(inventorySource, /inv\|agent\|5/);
+assert.match(inventorySource, /inv\|wans\|/, 'every internet connection is reported, not only the main one');
+assert.match(inventorySource, /\/interface list member find where list=\\?"WAN\\?"/, 'with the router\'s WAN list');
 const pollerSource = decodeScriptSource(installer, 'name=fiti-poll policy=read,write,ftp,test,policy source="');
 assert.match(pollerSource, /:global fitiInventory/);
 assert.match(pollerSource, /:set report \(\$report \. \$fitiInventory\)/, 'the poller sends the layout report with its sync');
@@ -278,7 +280,7 @@ async function createBusiness(email, name) {
   assert.equal(db.prepare('SELECT COUNT(*) n FROM tenant_jobs WHERE location_id=? AND delivered_at IS NULL').get(location.id).n, 1, 'the held job is still queued');
 
   // A current router whose own timer's reports stop arriving is asked for one.
-  const current = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|4']), contentType: 'text/plain' });
+  const current = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|5']), contentType: 'text/plain' });
   assert.doesNotMatch(current.text, /system script run fiti-inventory/, 'a fresh report needs no refresh');
   db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now','-3 minutes') WHERE location_id=?`).run(location.id);
   // Nobody is looking at this router: a 3-minute-old report is left alone
@@ -295,7 +297,7 @@ async function createBusiness(email, name) {
   assert.doesNotMatch(stale.text, /name="fiti-inventory"\] source=/, 'without resending the script');
   const soon = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
   assert.doesNotMatch(soon.text, /system script run fiti-inventory/, 'at most once a minute');
-  await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|4']), contentType: 'text/plain' });
+  await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: layout(['inv|agent|5']), contentType: 'text/plain' });
 
   // The owner sees the layout; another business cannot.
   const topologyEndpoint = `/api/business/locations/${site}/router-topology`;

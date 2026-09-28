@@ -4691,6 +4691,8 @@ function tenantRouterScript(location, options = {}) {
   try {
     const change = routerChanges.nextScript(location, {
       wan: layout && layout.wan && layout.wan.interface,
+      wans: ((layout && layout.wans) || []).map((w) => w.interface),
+      wanList: (layout && layout.wanList) || [],
       cloudHost: publicHostname(),
       portalHost: edgeHostname(location.portal_hostname),
       pppoeNet: (() => { try { return pppoe.pppoeSubnetForLocation(location.id).network; } catch (_) { return null; } })(),

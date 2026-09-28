@@ -36,6 +36,45 @@ function blank(extra = []) {
     'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', ...extra, 'fiti-inventory-end'].join('\n') + '\n';
 }
 
+// ---- Two internet connections (main + backup / load-shared) --------------
+{
+  require('../src/lib/tenant');
+  const rc = require('../src/lib/router-changes');
+  const twoWan = (extra = []) => ['fiti-inventory-v2', 'inv|agent|5', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|ether4|ether|up',
+    'inv|if|pppoe-out1|pppoe-out|up', 'inv|pppoe-client|pppoe-out1|ether2', 'inv|addr|ether1', 'inv|dhcp-client|ether1|bound',
+    'inv|wan|ether1|dhcp', 'inv|wans|ether1|dhcp', 'inv|wans|pppoe-out1|pppoe', ...extra, 'fiti-inventory-end'].join('\n') + '\n';
+  const layout = parseRouterInventory(twoWan());
+  assert.deepEqual(layout.wans.map((w) => w.interface), ['ether1', 'pppoe-out1'], 'both lines are reported, the main one first');
+  const byName = Object.fromEntries(layout.interfaces.map((i) => [i.name, i]));
+  assert.ok(byName.ether1.internet && byName['pppoe-out1'].internet && byName.ether2.internet, 'both lines and the port under the backup are internet, so they stay locked');
+  assert.ok(!byName.ether2.free, 'the backup line\'s port is never offered to customers');
+  assert.match(byName['pppoe-out1'].usage.join(' '), /Internet connection/);
+  const plan = { bridges: [{ name: 'fiti-hs', job: 'hotspot', ports: ['ether3'] }], existing: [], moves: [] };
+  const review = rc.reviewPlan(plan, layout);
+  assert.match(review.changes[0].lines.join(' '), /get internet through ether1 or pppoe-out1/);
+  const ctx = { wan: 'ether1', wans: layout.wans.map((w) => w.interface), wanList: layout.wanList, cloudHost: 'cloud.wififiti.co.ke' };
+  const script = rc.applyScript(review.changes[0], 31, ctx);
+  for (const w of ['ether1', 'pppoe-out1']) {
+    assert.match(script, new RegExp(`/ip firewall nat add chain=srcnat src-address=\\("10\\.5\\." \\. \\$fitiNet \\. "\\.0/24"\\) out-interface="${w}" action=masquerade`), `customers are shared out through ${w} too (failover)`);
+    assert.match(script, new RegExp(`chain=input in-interface="${w}" protocol=udp dst-port=53 action=drop`), `the router's DNS is closed on ${w}`);
+    assert.match(script, new RegExp(`:if \\(\\[:len \\[/interface find where name="${w}"\\]\\] != 1\\) do=\\{ :set fitiWhy "wan_missing" \\}`));
+  }
+  assert.match(rc.undoLines(review.changes[0], 31).join('\n'), /\/ip firewall nat remove \[find where comment="Wi-Fi Fiti change 31"\]/, 'undo removes every rule the change added');
+  // A router with a "WAN" list holding the main line: the rules follow the
+  // list (a line added later is covered), plus any line outside the list.
+  const listed = parseRouterInventory(twoWan(['inv|if|lte1|lte|up', 'inv|wans|lte1|static', 'inv|wanlist|WAN|ether1', 'inv|wanlist|WAN|pppoe-out1']));
+  const listScript = rc.applyScript(rc.reviewPlan(plan, listed).changes[0], 32, { wan: 'ether1', wans: listed.wans.map((w) => w.interface), wanList: listed.wanList, cloudHost: 'cloud.wififiti.co.ke' });
+  assert.match(listScript, /out-interface-list=WAN action=masquerade/);
+  assert.match(listScript, /chain=input in-interface-list=WAN protocol=tcp dst-port=53 action=drop/);
+  assert.match(listScript, /out-interface="lte1" action=masquerade/, 'a line outside the list is covered on its own');
+  assert.doesNotMatch(listScript, /out-interface="ether1"|out-interface="pppoe-out1"/, 'lines in the list are covered by the list');
+  assert.match(listScript, /:if \(\[:len \[\/interface list find where name="WAN"\]\] != 1\) do=\{ :set fitiWhy "wan_missing" \}/);
+  // An older report (agent 4) with only the main line keeps today's rules.
+  const old = rc.applyScript(review.changes[0], 33, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke' });
+  assert.match(old, /out-interface="ether1" action=masquerade/);
+  assert.doesNotMatch(old, /pppoe-out1|interface-list/);
+}
+
 // ---- Scripts: order of safety steps, and nothing unexpected --------------
 {
   require('../src/lib/tenant');
@@ -118,6 +157,52 @@ function blank(extra = []) {
   assert.match(wifiScript, /mode=ap-bridge ssid="Sirende WiFi" security-profile="fiti-open-11" disabled=no/);
   const wifiUndo = rc.undoLines(wifiReview.changes[0], 11).join('\n');
   assert.match(wifiUndo, /\/interface wireless set \[find where name="wlan1"\] ssid=\$s mode=\$m security-profile=\$p disabled=\(\$d = "true"\)/, 'undo puts the radio back exactly');
+
+  // Wi-Fi added to a hotspot that already runs (a cable-only one-step setup):
+  // only the radio changes; the hotspot and its cable ports stay as they are.
+  {
+    const { validateNetworkPlan } = require('../src/lib/router-topology');
+    const cableOnly = parseRouterInventory(['fiti-inventory-v2', 'inv|agent|4', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|wlan1|wlan|disabled',
+      'inv|if|fiti-hotspot|bridge|up', 'inv|fiti-bridge|fiti-hotspot', 'inv|bport|fiti-hotspot|ether2', 'inv|addr|fiti-hotspot', 'inv|dhcp-server|fiti-hotspot|enabled',
+      'inv|hotspot|fiti-hotspot|fiti-hotspot', 'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
+    const saved = validateNetworkPlan({ existing: [{ interface: 'fiti-hotspot', job: 'hotspot', wifi: { ssid: 'Shop WiFi', radio: 'wlan1' } }], keep: ['ether3'] }, cableOnly);
+    assert.deepEqual(saved.existing[0], { interface: 'fiti-hotspot', job: 'hotspot', alreadyRunning: true, wifi: { ssid: 'Shop WiFi', radios: [{ name: 'wlan1', type: 'wlan', mode: 'takeover' }] } });
+    assert.throws(() => validateNetworkPlan({ existing: [{ interface: 'fiti-hotspot', job: 'pppoe', wifi: { ssid: 'x', radio: 'wlan1' } }] }, cableOnly), /bridge that already runs the hotspot/);
+    assert.throws(() => validateNetworkPlan({ existing: [{ interface: 'fiti-hotspot', job: 'hotspot', wifi: { ssid: 'x', radio: 'ether3' } }] }, cableOnly), /not a Wi-Fi radio/);
+    const addWifi = rc.reviewPlan(saved, cableOnly);
+    assert.equal(addWifi.changes.length, 1);
+    assert.equal(addWifi.changes[0].kind, 'wifi');
+    assert.equal(addWifi.changes[0].title, 'fiti-hotspot · Wi-Fi "Shop WiFi"');
+    assert.match(addWifi.changes[0].lines.join(' '), /Keep the hotspot on fiti-hotspot and its ports exactly as they are/);
+    const addScript = rc.applyScript(addWifi.changes[0], 21, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke' });
+    assert.doesNotMatch(addScript, /\/ip hotspot add|\/interface bridge add|\/ip address add|\/ip pool add/, 'the running hotspot is not rebuilt');
+    assert.match(addScript, /:if \(\[:len \[\/ip hotspot find where interface="fiti-hotspot"\]\] = 0\) do=\{ :set fitiWhy "hotspot_missing" \}/, 'the hotspot must still be running there');
+    assert.match(addScript, /:if \(\[:len \[\/interface bridge port find where interface="wlan1"\]\] > 0\) do=\{ :set fitiWhy "port_changed" \}/, 'the radio must still be free');
+    assert.ok(addScript.indexOf('name="fiti-radio-21-wlan1-ssid" source=') < addScript.indexOf('/interface wireless set [find where name="wlan1"] mode=ap-bridge'), 'the radio settings are saved first');
+    assert.match(addScript, /\/interface bridge port add bridge="fiti-hotspot" interface="wlan1"/);
+    const addUndo = rc.undoLines(addWifi.changes[0], 21).join('\n');
+    assert.match(addUndo, /\/interface bridge port remove \[find where interface="wlan1"\]/);
+    assert.match(addUndo, /\/interface wireless set \[find where name="wlan1"\] ssid=\$s mode=\$m security-profile=\$p disabled=\(\$d = "true"\)/, 'undo puts the radio back exactly');
+    assert.doesNotMatch(addUndo, /\/ip hotspot remove|\/interface bridge remove/, 'undo leaves the hotspot running');
+    // Once the Wi-Fi is on the router, the saved map does not add it again.
+    const withWifi = parseRouterInventory(['fiti-inventory-v2', 'inv|agent|4', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|wlan1|wlan|up',
+      'inv|if|fiti-hotspot|bridge|up', 'inv|fiti-bridge|fiti-hotspot', 'inv|bport|fiti-hotspot|ether2', 'inv|bport|fiti-hotspot|wlan1', 'inv|addr|fiti-hotspot', 'inv|dhcp-server|fiti-hotspot|enabled',
+      'inv|hotspot|fiti-hotspot|fiti-hotspot', 'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
+    // Only a switched-off radio is taken over, checked on the router too; the
+    // undo proves the radio is back before dropping its saved settings.
+    assert.match(addScript, /:do \{ :if \(\[\/interface wireless get \[find where name="wlan1"\] disabled\] != true\) do=\{ :set fitiWhy "radio_busy" \} \} on-error=\{ :set fitiWhy "radio_missing" \}/);
+    assert.ok(addUndo.indexOf('source]; :if ([:tostr [/interface wireless get [find where name="wlan1"] disabled]] != $d)') < addUndo.indexOf('/system script remove [find where name="fiti-radio-21-wlan1-ssid"]'),
+      'the saved radio settings stay until the radio is proven back');
+    // A map saved while the radio was off, applied after the owner switched it
+    // on: checked again, it becomes a separate network, never a takeover.
+    const nowOn = parseRouterInventory(['fiti-inventory-v2', 'inv|agent|4', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|wlan1|wlan|up',
+      'inv|if|fiti-hotspot|bridge|up', 'inv|fiti-bridge|fiti-hotspot', 'inv|bport|fiti-hotspot|ether2', 'inv|addr|fiti-hotspot', 'inv|dhcp-server|fiti-hotspot|enabled',
+      'inv|hotspot|fiti-hotspot|fiti-hotspot', 'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', 'fiti-inventory-end'].join('\n'));
+    assert.equal(validateNetworkPlan(saved, nowOn).existing[0].wifi.radios[0].mode, 'virtual');
+    const again = rc.reviewPlan(saved, withWifi);
+    assert.equal(again.changes.length, 0, 'Wi-Fi already on the router is not added twice');
+    assert.match(again.notes.join(' '), /already runs a hotspot with customer Wi-Fi/);
+  }
   assert.ok(wifiUndo.indexOf('interface wireless set') < wifiUndo.indexOf('bridge remove'), 'the radio is restored before its bridge goes');
 
   // A radio that is on is the owner's Wi-Fi: customers get a separate
@@ -382,6 +467,36 @@ async function pairedUniversal(token, name, report) {
     wifi: { ssid: 'V', radios: [{ name: 'wlan1', type: 'wlan', mode: 'virtual' }] } }), 'applied', null).lastInsertRowid);
   rcm.recheck(hap.location.id, parseRouterInventory(blank([`inv|if|fiti-v|bridge|up`, `inv|if|fiti-wlan-${vRow}|wlan|up`, 'inv|bport|fiti-v|ether2', `inv|bport|fiti-v|fiti-wlan-${vRow}`, 'inv|hotspot|fiti-hotspot|fiti-v'])));
   assert.equal(db.prepare('SELECT status FROM tenant_router_changes WHERE id=?').get(vRow).status, 'verified');
+
+  // Wi-Fi added to a hotspot that already runs, end to end; the hotspot's own
+  // change cannot be undone while the Wi-Fi added to it is still there.
+  {
+    const charlie = await createBusiness('changes-charlie@example.test', 'Changes Charlie', '0712000103');
+    const cableOnly = (extra = []) => ['fiti-inventory-v2', 'inv|agent|4', 'inv|if|ether1|ether|up', 'inv|if|ether2|ether|up', 'inv|if|ether3|ether|up', 'inv|if|wlan1|wlan|disabled',
+      'inv|if|fiti-hotspot|bridge|up', 'inv|fiti-bridge|fiti-hotspot', 'inv|bport|fiti-hotspot|ether2', 'inv|addr|fiti-hotspot', 'inv|dhcp-server|fiti-hotspot|enabled',
+      'inv|hotspot|fiti-hotspot|fiti-hotspot', 'inv|dhcp-client|ether1|bound', 'inv|wan|ether1|dhcp', ...extra, 'fiti-inventory-end'].join('\n') + '\n';
+    const shop = await pairedUniversal(charlie, 'Shop', cableOnly());
+    const shopBase = `/api/business/locations/${shop.site}`;
+    const hsRow = Number(db.prepare(`INSERT INTO tenant_router_changes (location_id, batch_id, seq, kind, target, job, spec_json, status) VALUES (?, 'bh', 0, 'bridge', 'fiti-hotspot', 'hotspot', ?, 'verified')`)
+      .run(shop.location.id, JSON.stringify({ title: 'fiti-hotspot · Hotspot', ports: ['ether2'], moves: [] })).lastInsertRowid);
+    const put = await api(`${shopBase}/network-plan`, { method: 'PUT', token: charlie, body: { plan: { existing: [{ interface: 'fiti-hotspot', job: 'hotspot', wifi: { ssid: 'Shop WiFi', radio: 'wlan1' } }], keep: ['ether3'] } } });
+    assert.equal(put.status, 200, JSON.stringify(put.body));
+    const applied = await api(`${shopBase}/network-plan/apply`, { method: 'POST', token: charlie, body: { confirm: true } });
+    assert.equal(applied.status, 200, JSON.stringify(applied.body));
+    const wifiChange = applied.body.changes.find((c) => c.kind === 'wifi');
+    assert.ok(wifiChange, 'the Wi-Fi is its own change');
+    const sent = await shop.poll('');
+    assert.match(sent.text, /\/interface bridge port add bridge="fiti-hotspot" interface="wlan1"/);
+    assert.equal((await shop.answer(`id=${wifiChange.id}&state=applied`)).text, 'confirmed');
+    await shop.answer(`id=${wifiChange.id}&state=kept`);
+    await shop.poll(cableOnly(['inv|bport|fiti-hotspot|wlan1']).replace('inv|if|wlan1|wlan|disabled', 'inv|if|wlan1|wlan|up'));
+    const after = (await api(`${shopBase}/router-topology`, { token: charlie })).body.changes;
+    assert.equal(after.find((c) => c.id === wifiChange.id).status, 'verified', 'the radio in the hotspot bridge verifies the change');
+    const blocked = await api(`${shopBase}/network-changes/${hsRow}/undo`, { method: 'POST', token: charlie });
+    assert.equal(blocked.status, 409); assert.match(blocked.body.error, /Undo the Wi-Fi added to fiti-hotspot first/);
+    assert.equal((await api(`${shopBase}/network-changes/${wifiChange.id}/undo`, { method: 'POST', token: charlie })).status, 200, 'the Wi-Fi alone can be undone');
+    assert.match((await shop.poll('')).text, new RegExp(`/system script run fiti-undo-${wifiChange.id}`));
+  }
 
   // Deleting a router removes its change history.
   assert.equal((await api(`${hapBase}`, { method: 'DELETE', token: bravo, body: { confirm: 'DELETE' } })).status, 200);
