@@ -287,6 +287,11 @@ async function pairedUniversal(token, name, report) {
   const retryId = (retry.text.match(/# Wi-Fi Fiti network change (\d+)/) || [])[1];
   db.prepare(`UPDATE tenant_router_changes SET updated_at=datetime('now','-5 minutes') WHERE id=?`).run(Number(retryId));
   await hap.poll(blank());
+  assert.equal((await api(`${hapBase}/router-topology`, { token: bravo })).body.changes.find((c) => String(c.id) === retryId).status, 'sent',
+    'still waiting after 5 minutes: the router may still be trying to confirm');
+  assert.equal((await hap.answer(`id=${retryId}&state=applied`)).text, 'confirmed', 'a slow router is still confirmed');
+  db.prepare(`UPDATE tenant_router_changes SET status='sent', updated_at=datetime('now','-9 minutes') WHERE id=?`).run(Number(retryId));
+  await hap.poll(blank());
   const timedOut = (await api(`${hapBase}/router-topology`, { token: bravo })).body.changes.find((c) => String(c.id) === retryId);
   assert.equal(timedOut.status, 'no-answer');
 
