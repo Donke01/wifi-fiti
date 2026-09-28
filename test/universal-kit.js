@@ -72,6 +72,7 @@ const inventorySource = decodeScriptSource(installer, 'name=fiti-inventory polic
 assert.equal(inventorySource, inventoryScriptLines().join('\r\n') + '\r\n', 'the layout report is embedded exactly');
 assert.doesNotMatch(inventorySource, NETWORK_CHANGES, 'the layout report is read-only');
 assert.match(inventorySource, /\/interface bridge find where comment~"Wi-Fi Fiti"\]/, 'the report names the bridges Wi-Fi Fiti built');
+assert.doesNotMatch(installer, /scheduler add name=fiti-inventory/, 'no separate layout timer: the poll reply runs the report');
 assert.ok(braces(inventorySource));
 assert.doesNotMatch(inventorySource, /dynamic=no/, 'the generic interface find (returns only bridges on RouterOS 7.24) is not used');
 for (const menu of ['ethernet', 'wireless', 'wifi', 'bridge', 'vlan', 'pppoe-client', 'lte', 'wireguard']) {
@@ -255,6 +256,10 @@ async function createBusiness(email, name) {
   db.prepare(`UPDATE tenant_router_inventory SET reported_at=datetime('now','-3 minutes') WHERE location_id=?`).run(location.id);
   const stale = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
   assert.match(stale.text, /:do \{ \/system script run fiti-inventory \} on-error=/, 'an old report is refreshed from the poll reply');
+  assert.match(stale.text, /\/system scheduler find where name="fiti-inventory" and comment~"Wi-Fi Fiti"/, 'the unused layout timer is removed');
+  assert.match(stale.text, /:if \(\(\[\/system scheduler get \$fitiPollSchedulerId interval\] != \[:totime "(1s|5s)"\]\) \|\| \(\[\/system scheduler get \$fitiPollSchedulerId disabled\] = true\)\) do=\{ \/system scheduler set/,
+    'the poll timer is only changed when it differs, so the router log stays quiet');
+  assert.doesNotMatch(stale.text, /^\s*\/system scheduler set \$fitiPollSchedulerId interval=\d+s disabled=no\s*$/m, 'never an unconditional set on every sync');
   assert.doesNotMatch(stale.text, /name="fiti-inventory"\] source=/, 'without resending the script');
   const soon = await api(query('&kit=universal'), { method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain' });
   assert.doesNotMatch(soon.text, /system script run fiti-inventory/, 'at most once a minute');

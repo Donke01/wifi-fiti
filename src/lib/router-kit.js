@@ -329,12 +329,9 @@ function universalInstaller(source) {
     '# --- Router layout report (read-only) --------------------------------',
     '/system script remove [find name="fiti-inventory"]',
     '/system script add name=fiti-inventory policy=read,test ' + routerScriptSource(inventoryScriptLines()),
+    // The cloud runs the report from its poll replies (about every 30 s);
+    // no separate timer, whose reports never reached the poller.
     '/system scheduler remove [find name="fiti-inventory"]',
-    ':local fitiInventoryStartDate [/system clock get date]',
-    ':local fitiInventoryStartTime [/system clock get time]',
-    '/system scheduler add name=fiti-inventory start-date=$fitiInventoryStartDate start-time=$fitiInventoryStartTime interval=30s disabled=no \\',
-    '  policy=read,test on-event="/system script run fiti-inventory" \\',
-    '  comment="Wi-Fi Fiti: report router layout (read-only)"',
     ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }',
     '',
     ':put ""',
