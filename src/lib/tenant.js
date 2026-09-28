@@ -341,6 +341,23 @@ db.exec(`
     plan_json   TEXT NOT NULL,
     saved_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  -- Stage 3: the queue of network changes a saved map became, one per bridge
+  -- or existing interface, with where each one got to on the router.
+  CREATE TABLE IF NOT EXISTS tenant_router_changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    location_id TEXT NOT NULL REFERENCES locations(id),
+    batch_id    TEXT NOT NULL,
+    seq         INTEGER NOT NULL,
+    kind        TEXT NOT NULL,
+    target      TEXT NOT NULL,
+    job         TEXT NOT NULL,
+    spec_json   TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    reason      TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS tenant_router_changes_location ON tenant_router_changes(location_id, status);
   CREATE TABLE IF NOT EXISTS tenant_router_inventory (
     location_id    TEXT PRIMARY KEY REFERENCES locations(id),
     inventory_json TEXT NOT NULL,
@@ -1088,6 +1105,7 @@ const deleteRouterTopology = db.prepare(`DELETE FROM tenant_router_topologies WH
 const deleteRouterTelemetryForLocation = db.prepare(`DELETE FROM tenant_router_telemetry WHERE location_id=?`);
 const deleteRouterInventoryForLocation = db.prepare(`DELETE FROM tenant_router_inventory WHERE location_id=?`);
 const deleteRouterPlanForLocation = db.prepare(`DELETE FROM tenant_router_plans WHERE location_id=?`);
+const deleteRouterChangesForLocation = db.prepare(`DELETE FROM tenant_router_changes WHERE location_id=?`);
 const deleteRouterDevicesForLocation = db.prepare(`DELETE FROM tenant_router_devices WHERE location_id=?`);
 // A location may be discarded only while it is a genuinely unused setup
 // draft. Most tenant tables intentionally do not use cascading foreign keys:
@@ -3363,8 +3381,12 @@ const routerInventoryRow = db.prepare(`SELECT inventory_json, reported_at FROM t
 function recordRouterInventory(locationId, inventory) {
   if (!inventory || typeof inventory !== 'object') return null;
   upsertRouterInventory.run(locationId, JSON.stringify(inventory));
+  // Every report re-checks the changes applied from the owner's map.
+  try { routerChanges().recheck(locationId, inventory); } catch (_) { /* never block a sync */ }
   return inventory;
 }
+// Required lazily: the module prepares statements on tables created above.
+function routerChanges() { return require('./router-changes'); }
 const upsertRouterPlan = db.prepare(`INSERT INTO tenant_router_plans (location_id, plan_json, saved_at) VALUES (?, ?, datetime('now'))
   ON CONFLICT(location_id) DO UPDATE SET plan_json=excluded.plan_json, saved_at=excluded.saved_at`);
 const routerPlanRow = db.prepare(`SELECT plan_json, saved_at FROM tenant_router_plans WHERE location_id=?`);
@@ -3392,6 +3414,63 @@ function deleteRouterPlan({ locationId, businessId }) {
   if (!locationForBusiness.get(locationId, businessId)) return null;
   clearRouterPlan.run(locationId);
   return true;
+}
+/*
+ * Stage 3: review the saved map, apply it, undo a change. Every step is
+ * owner-scoped and re-checked against a fresh layout report, so a router that
+ * changed since the map was saved is never sent a stale plan.
+ */
+function universalLocationFor(locationId, businessId) {
+  const location = locationForBusiness.get(locationId, businessId);
+  if (!location) return null;
+  if (location.router_kit !== 'universal') throw remoteAccessError('Network mapping is available for routers paired with the universal kit.', 409);
+  return location;
+}
+function reviewRouterPlan({ locationId, businessId }) {
+  if (!universalLocationFor(locationId, businessId)) return null;
+  const plan = routerPlanForLocation(locationId);
+  const layout = routerInventoryForLocation(locationId);
+  const fresh = Boolean(layout && topologyFreshAt(layout.reportedAt));
+  const rc = routerChanges();
+  const review = plan && layout ? rc.reviewPlan(plan, layout) : { changes: [], blockers: [], notes: [] };
+  const busy = rc.hasActiveChange(locationId);
+  const blockers = review.blockers.slice();
+  if (!plan) blockers.push('Save a map first.');
+  if (plan && layout && !fresh) blockers.push('Wait for a fresh layout report from the router before applying.');
+  if (busy) blockers.push('A change is already on its way to the router. Wait for it to finish.');
+  if (plan && !review.changes.length && !review.blockers.length) blockers.push('Nothing on this map needs changing on the router.');
+  return { changes: review.changes.map(({ title, lines, job, target }) => ({ title, lines, job, target })), notes: review.notes, blockers, canApply: !blockers.length };
+}
+function applyRouterPlan({ locationId, businessId, confirm }) {
+  if (!universalLocationFor(locationId, businessId)) return null;
+  if (confirm !== true) throw remoteAccessError('Confirm the changes first.', 400);
+  const plan = routerPlanForLocation(locationId);
+  if (!plan) throw remoteAccessError('Save a map first.', 409);
+  const layout = routerInventoryForLocation(locationId);
+  if (!layout || !topologyFreshAt(layout.reportedAt)) throw remoteAccessError('Wait for a fresh layout report from the router before applying.', 409);
+  // The router may have changed since the map was saved: check it again.
+  validateNetworkPlan(plan, layout);
+  const rc = routerChanges();
+  if (rc.hasActiveChange(locationId)) throw remoteAccessError('A change is already on its way to the router. Wait for it to finish.', 409);
+  const review = rc.reviewPlan(plan, layout);
+  if (review.blockers.length) throw remoteAccessError(review.blockers[0], 409);
+  if (!review.changes.length) throw remoteAccessError('Nothing on this map needs changing on the router.', 409);
+  rc.queueBatch(locationId, review.changes);
+  return rc.listChanges(locationId);
+}
+function undoRouterChange({ locationId, businessId, changeId }) {
+  if (!universalLocationFor(locationId, businessId)) return null;
+  routerChanges().queueUndo(locationId, Number(changeId));
+  return routerChanges().listChanges(locationId);
+}
+function routerChangesForLocation(locationId) { return routerChanges().listChanges(locationId); }
+/** The router's answer about a change; a fully applied map is then cleared. */
+function recordRouterChangeAnswer(location, query) {
+  const rc = routerChanges();
+  const reply = rc.routerAnswer(location, query);
+  const row = db.prepare('SELECT batch_id FROM tenant_router_changes WHERE id=? AND location_id=?').get(Number(query.id), location.id);
+  if (row && rc.batchSettled(location.id, row.batch_id)) clearRouterPlan.run(location.id);
+  return reply;
 }
 function routerInventoryForLocation(locationId) {
   const row = routerInventoryRow.get(locationId);
@@ -3710,6 +3789,7 @@ function deleteLocationForOwner({ locationId, businessId, confirm }) {
     deleteRouterTelemetryForLocation.run(locationId);
     deleteRouterInventoryForLocation.run(locationId);
     deleteRouterPlanForLocation.run(locationId);
+    deleteRouterChangesForLocation.run(locationId);
     deleteRouterDevicesForLocation.run(locationId);
     deleteVpnPeerForLocation.run(locationId);
     deleteRemoteSupportControlsForLocation.run(locationId);
@@ -3788,7 +3868,7 @@ function deleteOffboardedLocation(locationId, businessId, knownLocation) {
   db.exec('BEGIN IMMEDIATE');
   try {
     deleteMappedDeploymentsForLocation.run(locationId); deleteRouterMapping.run(locationId); deleteRouterTopology.run(locationId);
-    deleteRouterTelemetryForLocation.run(locationId); deleteRouterDevicesForLocation.run(locationId); deleteRouterInventoryForLocation.run(locationId); deleteRouterPlanForLocation.run(locationId);
+    deleteRouterTelemetryForLocation.run(locationId); deleteRouterDevicesForLocation.run(locationId); deleteRouterInventoryForLocation.run(locationId); deleteRouterPlanForLocation.run(locationId); deleteRouterChangesForLocation.run(locationId);
     deleteVpnPeerForLocation.run(locationId); deleteRemoteSupportControlsForLocation.run(locationId); deleteRemoteAccessEventsForLocation.run(locationId);
     deleteRemoteAccessForLocation.run(locationId); deleteProvisioningJobsForLocation.run(locationId); deleteDevicesForLocation.run(locationId);
     deletePortalDomainsForLocation.run(locationId); deleteLocationForBusiness.run(locationId, businessId); db.exec('COMMIT');
@@ -4393,7 +4473,7 @@ function deletePackageForOwner(packageId, businessId) {
 module.exports = {
   deletePackageForOwner, setPaymentDeviceIp, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
-  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
