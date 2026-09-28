@@ -540,6 +540,7 @@ assert.ok(newKit.script.indexOf('/file remove [find where name="fiti-tenant-inst
 assert.ok(newKit.script.indexOf('Fresh Wi-Fi Fiti cloud installer was not downloaded') < newKit.script.indexOf('/import file-name="fiti-tenant-install.rsc"'),
   'the retry verifies that a fresh file exists before it imports anything');
 assert.doesNotMatch(newKit.script, /\/system reset-configuration|\/ip service|\/user add/);
+assert.match(installer, /interval=1s disabled=no \\\n  policy=read,write,ftp,test,policy on-event=":if \(\[:len \[\/system script job find where script=\\"fiti-poll\\"\]\] = 0\) do=\{ \/system script run fiti-poll \}"/, 'a new sync never starts while the last is running');
 assert.match(installer, /:local fitiPollStartDate \[\/system clock get date\][\s\S]*\/system scheduler add name=fiti-poll start-date=\$fitiPollStartDate start-time=\$fitiPollStartTime interval=1s disabled=no/,
   'the installed polling agent starts from the router clock after every reboot');
 assert.match(installer, /RouterOS device mode blocks a required Wi-Fi Fiti feature/,

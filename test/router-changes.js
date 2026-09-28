@@ -249,6 +249,8 @@ async function pairedUniversal(token, name, report) {
   // The next poll carries the change; the one after waits for the answer.
   const delivered = await kitale.poll(rb951());
   assert.match(delivered.text, /interval=1s disabled=no/, 'the router checks in every second while a change is in flight');
+  assert.match(delivered.text, /:if \(\[:typeof \[:find \[\/system scheduler get \$fitiPollSchedulerId on-event\] "script job find"\]\] = "nil"\) do=\{ \/system scheduler set \$fitiPollSchedulerId on-event=":if \(\[:len \[\/system script job find where script=\\"fiti-poll\\"\]\] = 0\) do=\{ \/system script run fiti-poll \}" \}/,
+    'installed routers get the one-sync-at-a-time guard, set only once');
   const id = (delivered.text.match(/# Wi-Fi Fiti network change (\d+)/) || [])[1];
   assert.ok(id, 'the change is in the poll reply');
   assert.match(delivered.text, /\/interface bridge add name="fiti-pppoe"/);
