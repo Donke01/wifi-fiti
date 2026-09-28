@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Pay for your internet</title>
+<!-- Self-contained on purpose: an expired customer's router lets this page
+     through and nothing else, so no outside fonts or scripts. -->
+<style>
+:root{color-scheme:light;--ink:#132742;--muted:#5b6d86;--line:#dce5f0;--bg:#f6f8fc;--card:#fff;--blue:#1769d8;--blue-soft:#eef4fd;--blue-ink:#16427f;
+  --good:#127a55;--good-soft:#e6f6ef;--good-ink:#0e5f43;--warn-soft:#fff4dc;--warn-ink:#6b4500;--warn-line:#f0d48f;--bad-soft:#fdecef;--bad-ink:#8c2238}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+main{max-width:460px;margin:0 auto;padding:16px 16px 40px}
+header.brand{display:flex;align-items:center;gap:10px;padding:4px 2px 14px}
+.logo{width:36px;height:36px;border-radius:11px;background:var(--blue);display:grid;place-items:center;overflow:hidden;flex:none}
+.logo img{width:100%;height:100%;object-fit:cover}
+.brand strong{display:block;font-size:16px;font-weight:800}.brand small{display:block;color:var(--muted);font-size:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:0 14px 34px -26px rgba(32,57,86,.5)}
+.stack{display:flex;flex-direction:column;gap:12px}
+h1{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.01em}
+h2{margin:0;font-size:16px}
+p{margin:0}
+.muted{color:var(--muted)}.small{font-size:13px}
+label.field{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:650}
+input[type=text],input[type=tel],input[inputmode]{height:48px;padding:0 14px;border:1.5px solid #c8d5e6;border-radius:12px;font:inherit;font-size:16px;color:var(--ink);background:#fff;width:100%}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #9cc2f5;outline-offset:2px}
+button,.button{min-height:48px;border:0;border-radius:14px;background:var(--blue);color:#fff;font:inherit;font-size:16px;font-weight:800;cursor:pointer;padding:0 18px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+button:disabled{background:#9fb4d0;cursor:not-allowed}
+button.ghost,.button.ghost{background:#fff;color:var(--ink);border:1.5px solid #c8d5e6;font-size:14px;font-weight:700;min-height:44px}
+a{color:var(--blue)}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:750;white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good-ink)}.pill.warn{background:var(--warn-soft);color:var(--warn-ink)}.pill.bad{background:var(--bad-soft);color:var(--bad-ink)}.pill.info{background:var(--blue-soft);color:var(--blue-ink)}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.fact{background:var(--bg);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.fact span{font-size:11px;color:var(--muted)}.fact strong{font-size:14px;overflow-wrap:anywhere}
+.fact.credit{background:var(--good-soft)}.fact.credit span{color:var(--good)}.fact.credit strong{color:var(--good-ink)}
+.choice{display:flex;align-items:center;justify-content:flex-start;gap:12px;width:100%;min-height:58px;padding:10px 14px;border-radius:14px;border:1.5px solid var(--line);background:#fff;color:var(--ink);text-align:left;font-size:14px;font-weight:600;cursor:pointer}
+.choice[aria-pressed=true]{border-color:var(--blue);background:var(--blue-soft)}
+.choice:disabled{background:#f3f6fa;color:var(--muted);cursor:default}.choice:disabled .dot{visibility:hidden}
+.wide{width:100%}
+.choice .dot{flex:none;width:18px;height:18px;border-radius:50%;border:2px solid #b7c6da;display:grid;place-items:center}
+.choice[aria-pressed=true] .dot{border-color:var(--blue)}.choice[aria-pressed=true] .dot::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--blue)}
+.choice b{display:block;font-size:14px}.choice small{display:block;color:var(--muted);font-size:12px;font-weight:500}
+.choice .price{margin-left:auto;text-align:right;font-weight:800;white-space:nowrap}
+.note{padding:12px 14px;border-radius:14px;background:var(--blue-soft);color:var(--blue-ink);font-size:13px}
+.note.warn{background:var(--warn-soft);color:var(--warn-ink);border:1px solid var(--warn-line)}
+.note.bad{background:var(--bad-soft);color:var(--bad-ink)}
+.note.good{background:var(--good-soft);color:var(--good-ink)}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.tabs button{min-height:40px;flex:none;border-radius:999px;font-size:13px;padding:0 14px;background:#fff;color:var(--ink);border:1.5px solid var(--line);font-weight:700}
+.tabs button[aria-selected=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+.lines{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+.lines div{display:flex;justify-content:space-between;gap:12px;padding:10px 14px;font-size:13px;border-top:1px solid #edf2f8}
+.lines div:first-child{border-top:0}.lines span{color:var(--muted)}.lines strong{text-align:right}
+.center{text-align:center;align-items:center}
+.spinner{width:56px;height:56px;border-radius:50%;border:5px solid #d6e4f7;border-top-color:var(--blue);animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:3s}}
+.tick{width:60px;height:60px;border-radius:50%;background:var(--good);display:grid;place-items:center}
+.check{display:flex;align-items:center;gap:10px;min-height:44px;font-size:13px;font-weight:600}
+.check input{width:20px;height:20px;accent-color:var(--blue)}
+.receipt{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid #edf2f8;font-size:13px}
+.receipt:first-child{border-top:0}.receipt b{display:block;font-size:14px}
+footer{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <header class="brand">
+    <div class="logo" id="logo" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16.2a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1"/></svg></div>
+    <div><strong id="brand-name">Home internet</strong><small>Pay for your internet</small></div>
+  </header>
+  <div id="app" class="stack" aria-live="polite"><div class="card muted">Loading…</div></div>
+  <footer id="footer"></footer>
+</main>
+<script>
+(function () {
+  'use strict';
+  var parts = location.pathname.split('/').filter(Boolean); // pay, code, username
+  var code = parts[1] || '';
+  var username = parts[2] ? decodeURIComponent(parts[2]) : '';
+  var query = new URLSearchParams(location.search);
+  var accountKey = query.get('k') || '';
+  try { if (!accountKey && username) accountKey = sessionStorage.getItem('fiti-k:' + code + ':' + username) || ''; } catch (e) {}
+  var app = document.getElementById('app');
+  var info = null; var data = null; var tab = 'pay'; var pollTimer = null;
+  var form = { choice: 'due', other: '', phone: '', notify: true, plan: null, timing: 'now', useCredit: true, boost: null };
+
+  function h(tag, attrs, children) {
+    var el = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = v;
+      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : v);
+    });
+    (children || []).forEach(function (c) { if (c !== null && c !== undefined && c !== false) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+    return el;
+  }
+  function kes(n) { return 'KES ' + Math.round(Number(n) || 0).toLocaleString('en-KE'); }
+  function day(iso) { return iso ? new Date(iso).toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' }) : '—'; }
+  function speed(p) { return p ? (p.downloadRate + ' down · ' + p.uploadRate + ' up') : ''; }
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { 'Content-Type': 'application/json' };
+    if (opts.status) headers['X-WiFi-Fiti-Portal'] = opts.status;
+    return fetch(path, { method: opts.method || 'GET', headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) { if (!r.ok) { var e = new Error(b.error || 'Something went wrong. Please try again.'); e.body = b; e.status = r.status; throw e; } return b; }); });
+  }
+  function base() { return '/api/pppoe-pay/' + encodeURIComponent(code); }
+  function accountPath(suffix) { return base() + '/account/' + encodeURIComponent(username) + (suffix || ''); }
+  function saveKey(token) {
+    if (!token) return; accountKey = token;
+    try { sessionStorage.setItem('fiti-k:' + code + ':' + username, token); } catch (e) {}
+  }
+  function render(nodes) { app.textContent = ''; nodes.forEach(function (n) { if (n) app.appendChild(n); }); }
+  function errorBox(message) { return h('div', { class: 'note bad', role: 'alert', text: message }); }
+
+  var STATUS = {
+    paid: ['Paid up', 'good'], due: ['Due soon', 'warn'], grace: ['Ended · grace days', 'warn'], expired: ['Ended', 'bad'],
+    awaiting_payment: ['Not started yet', 'info'], no_expiry: ['Active', 'good'], disabled: ['Switched off', 'bad'],
+  };
+
+  // ---- Start ----------------------------------------------------------
+  api(base()).then(function (b) {
+    info = b;
+    document.getElementById('brand-name').textContent = b.business.name;
+    document.title = 'Pay · ' + b.business.name;
+    if (b.business.logoUrl) { var logo = document.getElementById('logo'); logo.textContent = ''; logo.appendChild(h('img', { src: b.business.logoUrl, alt: '' })); }
+    var foot = document.getElementById('footer');
+    if (b.business.supportPhone) foot.appendChild(h('span', {}, ['Need help? Call ' + b.business.name + ' on ', h('a', { href: 'tel:' + b.business.supportPhone.replace(/\s/g, ''), text: b.business.supportPhone })]));
+    if (username) loadAccount(); else findScreen();
+  }).catch(function (e) { render([errorBox(e.message)]); });
+
+  function findScreen(message) {
+    var input = h('input', { type: 'text', id: 'account', autocapitalize: 'none', autocomplete: 'off', spellcheck: 'false', placeholder: 'e.g. jane.w', value: username || '' });
+    function go(ev) {
+      ev.preventDefault();
+      var value = input.value.trim(); if (!value) { input.focus(); return; }
+      username = value; accountKey = '';
+      try { accountKey = sessionStorage.getItem('fiti-k:' + code + ':' + username) || ''; } catch (e) {}
+      history.pushState(null, '', '/pay/' + encodeURIComponent(code) + '/' + encodeURIComponent(username));
+      loadAccount();
+    }
+    render([
+      h('form', { class: 'card stack', onsubmit: go }, [
+        h('h1', { text: 'Pay for internet' }),
+        h('p', { class: 'muted', text: 'Your own account, or someone else’s: family, a tenant, or your shop.' }),
+        h('label', { class: 'field', for: 'account' }, ['Account number', input]),
+        h('p', { class: 'small muted', text: 'It is the PPPoE username, the one in your SMS reminders.' }),
+        message ? errorBox(message) : null,
+        h('button', { type: 'submit', text: 'Find account' }),
+      ]),
+      info && info.payBill ? payBillNote(null) : null,
+    ]);
+    input.focus();
+  }
+  window.addEventListener('popstate', function () { location.reload(); });
+
+  function loadAccount() {
+    render([h('div', { class: 'card muted', text: 'Finding ' + username + '…' })]);
+    var suffix = accountKey ? '?k=' + encodeURIComponent(accountKey) : '';
+    api(accountPath(suffix)).then(function (b) {
+      data = b;
+      if (b.private) saveKey(b.token || accountKey);
+      else if (accountKey) { accountKey = ''; }
+      if (!form.phone && b.private && b.account.phone) form.phone = '';
+      tab = 'pay'; draw();
+    }).catch(function (e) { if (e.status === 404) findScreen(e.message); else render([errorBox(e.message)]); });
+  }
+
+  // ---- Account --------------------------------------------------------
+  function accountCard() {
+    var a = data.account;
+    var st = STATUS[a.status] || [a.status, 'info'];
+    var who = data.private ? (a.name || '') : (a.maskedName || '');
+    return h('section', { class: 'card stack', 'aria-label': 'Account' }, [
+      h('div', { class: 'row', style: 'align-items:flex-start;justify-content:space-between' }, [
+        h('div', { style: 'flex:1;min-width:0' }, [
+          h('span', { class: 'small muted', text: 'Account number' }),
+          h('div', { style: 'font-size:21px;font-weight:800;overflow-wrap:anywhere', text: a.username }),
+          h('span', { class: 'small muted', text: [who, a.plan ? a.plan.name : ''].filter(Boolean).join(' · ') }),
+        ]),
+        h('div', { style: 'flex:none' }, [h('span', { class: 'pill ' + st[1], text: st[0] })]),
+      ]),
+      a.billed ? h('div', { class: 'facts' }, [
+        h('div', { class: 'fact' }, [h('span', { text: 'Price' }), h('strong', { text: kes(a.price) }), h('span', { text: 'per ' + a.periodDays + ' days' })]),
+        h('div', { class: 'fact' }, [h('span', { text: a.status === 'grace' ? 'Stays on until' : 'Paid until' }), h('strong', { text: a.status === 'grace' ? day(a.accessUntil) : a.paidUntil ? day(a.paidUntil) : 'Not yet' })]),
+        h('div', { class: 'fact credit' }, [h('span', { text: 'Credit' }), h('strong', { text: kes(a.credit) })]),
+      ]) : h('p', { class: 'note', text: 'This account is not set up for online payments. Please ask ' + info.business.name + '.' }),
+      a.installDue ? h('p', { class: 'note warn', text: 'Installation fee still due: ' + kes(a.installDue) + '. It is paid first, then your internet days.' }) : null,
+      data.private && a.nextPlan ? h('p', { class: 'note', text: 'Moves to ' + a.nextPlan.name + ' (' + kes(a.nextPlan.price) + ') at your next renewal.' }) : null,
+      data.private && a.boost ? h('p', { class: 'note good', text: 'Speed boost to ' + a.boost.profile.name + ' until ' + new Date(a.boost.until).toLocaleString('en-KE', { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Nairobi' }) + '.' }) : null,
+    ]);
+  }
+
+  function draw(message) {
+    if (data.needsPhone) return verifyScreen(true);
+    var a = data.account;
+    var nodes = [accountCard()];
+    if (info.paused) nodes.push(h('div', { class: 'note warn', role: 'status' }, [h('b', { text: info.paused })]));
+    if (message) nodes.push(message);
+    // While the provider is paused nothing can be paid; receipts stay open.
+    if (info.paused && tab !== 'receipts') tab = data.private ? 'receipts' : 'none';
+    if (data.private) {
+      var tabs = info.paused ? [] : [['pay', 'Pay']];
+      if (!info.paused && info.features.changePlan && (a.plans || []).length > 1) tabs.push(['plan', 'Change plan']);
+      if (!info.paused && info.features.boosts && (a.boosts || []).length) tabs.push(['boost', 'Boost speed']);
+      tabs.push(['receipts', 'Receipts']);
+      nodes.push(h('div', { class: 'tabs', role: 'tablist' }, tabs.map(function (t) {
+        return h('button', { type: 'button', role: 'tab', 'aria-selected': String(tab === t[0]), text: t[1], onclick: function () { tab = t[0]; draw(); } });
+      })));
+    }
+    if (tab === 'plan') nodes.push(planPanel());
+    else if (tab === 'boost') nodes.push(boostPanel());
+    else if (tab === 'receipts') nodes.push(receiptsPanel());
+    else if (tab === 'pay' && a.billed) nodes.push(payPanel());
+    nodes.push(h('div', { class: 'row' }, [
+      h('a', { class: 'button ghost', href: '/pay/' + encodeURIComponent(code), text: 'Pay for someone else' }),
+      !data.private ? h('button', { type: 'button', class: 'ghost', text: 'This is my account', onclick: function () { verifyScreen(false); } }) : null,
+    ]));
+    render(nodes);
+  }
+
+  function verifyScreen(required) {
+    var input = h('input', { type: 'tel', id: 'verify-phone', autocomplete: 'tel', placeholder: '07xx xxx xxx' });
+    var box = h('div');
+    function go(ev) {
+      ev.preventDefault(); box.textContent = '';
+      api(accountPath('/verify'), { method: 'POST', body: { phone: input.value } }).then(function (b) {
+        saveKey(b.token); data = { private: true, account: b.account }; tab = 'pay'; draw();
+      }).catch(function (e) { box.appendChild(errorBox(e.message)); });
+    }
+    render([
+      h('form', { class: 'card stack', onsubmit: go }, [
+        h('h1', { text: username }),
+        h('p', { class: 'muted', text: required ? 'Enter the phone number on this account to pay for it.' : 'Enter the phone number on this account to see receipts, change plan or boost your speed.' }),
+        h('label', { class: 'field', for: 'verify-phone' }, ['Phone number on the account', input]), box,
+        h('button', { type: 'submit', text: 'Continue' }),
+        !required ? h('button', { type: 'button', class: 'ghost', text: 'Back', onclick: function () { draw(); } }) : null,
+      ]),
+      h('a', { class: 'button ghost', href: '/pay/' + encodeURIComponent(code), text: 'A different account' }),
+    ]);
+    input.focus();
+  }
+
+  // ---- Pay ------------------------------------------------------------
+  function payPlan(amount) {
+    var a = data.account; var total = (a.credit || 0) + amount; var install = a.installDue || 0;
+    var toInstall = Math.min(install, total); var rest = total - toInstall;
+    if (!amount) return 'Type the amount you want to pay.';
+    if (install > toInstall) return kes(toInstall) + ' goes to the installation fee. ' + kes(install - toInstall + a.price) + ' more starts your internet.';
+    var periods = Math.floor(rest / a.price); var left = rest - periods * a.price;
+    if (!periods) return kes(rest) + ' will be kept as credit. ' + kes(a.price - rest) + ' more adds ' + a.periodDays + ' days.';
+    var withinAccess = a.paidUntil && (a.status === 'paid' || a.status === 'due' || a.status === 'grace');
+    var from = withinAccess ? new Date(a.paidUntil).getTime() : Date.now();
+    var until = new Date(from + periods * a.periodDays * 86400000).toISOString();
+    return (install ? 'Installation fee paid. ' : '') + 'Internet paid until ' + day(until) + (left ? '. ' + kes(left) + ' stays as credit for next time.' : '.');
+  }
+  function payPanel() {
+    var a = data.account;
+    var due = a.amountDue || 0;
+    var opts = [
+      { id: 'due', title: due ? 'Renew for ' + a.periodDays + ' days' : 'Pay ahead ' + a.periodDays + ' days', sub: due && a.credit ? 'Your ' + kes(a.credit) + ' credit covers the rest' : '', amount: due || a.price },
+      { id: 'two', title: 'Renew for ' + (a.periodDays * 2) + ' days', sub: '', amount: (due || a.price) + a.price },
+      { id: 'other', title: 'Another amount', sub: 'Anything short of a full plan is kept as credit', amount: null },
+    ];
+    var chosen = opts.filter(function (o) { return o.id === form.choice; })[0] || opts[0];
+    var amount = chosen.id === 'other' ? (parseInt(form.other, 10) || 0) : chosen.amount;
+    var preview = h('div', { class: 'note', text: payPlan(amount) });
+    var payButton = h('button', { type: 'submit', class: 'wide', text: 'Pay ' + kes(amount) + ' with M-Pesa' });
+    var otherInput = h('input', { inputmode: 'numeric', id: 'other-amount', placeholder: 'e.g. 500', value: form.other });
+    otherInput.addEventListener('input', function () {
+      otherInput.value = otherInput.value.replace(/\D/g, '').slice(0, 6); form.other = otherInput.value;
+      var n = parseInt(form.other, 10) || 0; preview.textContent = payPlan(n); payButton.textContent = 'Pay ' + kes(n) + ' with M-Pesa';
+    });
+    var phone = h('input', { type: 'tel', id: 'phone', autocomplete: 'tel', placeholder: '07xx xxx xxx', value: form.phone });
+    phone.addEventListener('input', function () { form.phone = phone.value; });
+    var box = h('div');
+    function submit(ev) {
+      ev.preventDefault(); box.textContent = '';
+      var n = form.choice === 'other' ? (parseInt(form.other, 10) || 0) : chosen.amount;
+      if (!n) { otherInput.focus(); return; }
+      startPrompt({ purpose: 'pay', amount: n, phone: form.phone, notify: form.notify }, box);
+    }
+    return h('form', { class: 'stack', onsubmit: submit }, [
+      h('h2', { text: 'How much do you want to pay?' }),
+      h('div', { class: 'stack', role: 'group', 'aria-label': 'Amount' }, opts.map(function (o) {
+        return h('button', { type: 'button', class: 'choice', 'aria-pressed': String(o.id === form.choice), onclick: function () { form.choice = o.id; draw(); } }, [
+          h('span', { class: 'dot', 'aria-hidden': 'true' }),
+          h('span', {}, [h('b', { text: o.title }), o.sub ? h('small', { text: o.sub }) : null]),
+          o.amount != null ? h('span', { class: 'price', text: kes(o.amount) }) : null,
+        ]);
+      })),
+      form.choice === 'other' ? h('label', { class: 'field', for: 'other-amount' }, ['Amount in KES', otherInput]) : null,
+      preview,
+      h('label', { class: 'field', for: 'phone' }, [data.private ? 'M-Pesa number' : 'Your M-Pesa number', phone]),
+      !data.private ? h('label', { class: 'check' }, [h('input', { type: 'checkbox', checked: form.notify, onchange: function (e) { form.notify = e.target.checked; } }), 'Text them that I paid']) : null,
+      box, h('div', {}, [payButton]),
+      info.payBill ? payBillNote(a.username) : null,
+    ]);
+  }
+  function payBillNote(account) {
+    var pb = info.payBill;
+    return h('p', { class: 'small muted center', style: 'text-align:center' }, [
+      'Or use PayBill ', h('b', { text: pb.shortcode }), ', account ', h('b', { text: account ? (pb.accountPrefix || '') + account : 'your account number' }),
+    ]);
+  }
+
+  // ---- Change plan ------------------------------------------------------
+  function planPanel() {
+    var a = data.account; var current = a.currentPlan || {};
+    var perDay = function (p) { return p.price / Math.max(1, p.periodDays); };
+    var plans = a.plans || [];
+    if (!form.plan || form.plan === current.id) form.plan = (plans.filter(function (p) { return p.id !== current.id; })[0] || {}).id;
+    var target = plans.filter(function (p) { return p.id === form.plan; })[0];
+    var faster = target && perDay(target) > perDay(current);
+    var canNow = faster && (a.status === 'paid' || a.status === 'due');
+    var timing = canNow ? form.timing : 'renewal';
+    var lines = h('div', { class: 'lines' }, [h('div', {}, [h('span', { text: 'Working it out…' })])]);
+    var go = h('button', { type: 'button', class: 'wide', disabled: true, text: 'Choose a plan' });
+    var box = h('div');
+    if (target) {
+      api(accountPath('/quote'), { method: 'POST', body: { k: accountKey, profileId: target.id, timing: timing, useCredit: form.useCredit } }).then(function (b) {
+        var q = b.quote; lines.textContent = '';
+        var rows = q.timing === 'now'
+          ? [['Difference for ' + q.daysLeft + ' days', kes(q.difference)], ['Paid from credit', q.fromCredit ? '− ' + kes(q.fromCredit) : '—'], ['To pay now', kes(q.payNow)], ['Renewal on ' + day(q.renewal.at), kes(q.renewal.amount)]]
+          : [['Until ' + day(q.renewal.at), current.name + ', as now'], ['From ' + day(q.renewal.at), target.name], ['Renewal on ' + day(q.renewal.at), kes(q.renewal.amount)]];
+        rows.forEach(function (r) { lines.appendChild(h('div', {}, [h('span', { text: r[0] }), h('strong', { text: r[1] })])); });
+        go.disabled = false;
+        go.textContent = q.timing === 'now' ? (q.payNow ? 'Pay ' + kes(q.payNow) + ' and upgrade' : 'Upgrade now, covered by credit') : 'Switch on ' + day(q.renewal.at);
+        go.onclick = function () {
+          box.textContent = '';
+          if (q.timing === 'now' && q.payNow) return startPrompt({ purpose: 'upgrade', profileId: target.id, timing: 'now', useCredit: form.useCredit, phone: form.phone }, box, true);
+          go.disabled = true;
+          api(accountPath('/pay'), { method: 'POST', body: { k: accountKey, purpose: 'upgrade', profileId: target.id, timing: q.timing, useCredit: form.useCredit } }).then(function (r) {
+            data.account = r.account; tab = 'pay';
+            draw(h('div', { class: 'note good', role: 'status', text: r.scheduled ? target.name + ' starts at your next renewal.' : 'You are on ' + target.name + ' now. Your connection restarts once to pick up the new speed.' }));
+          }).catch(function (e) { go.disabled = false; box.appendChild(errorBox(e.message)); });
+        };
+      }).catch(function (e) { lines.textContent = ''; lines.appendChild(h('div', {}, [h('span', { text: e.message })])); });
+    }
+    var phone = h('input', { type: 'tel', id: 'plan-phone', autocomplete: 'tel', placeholder: '07xx xxx xxx', value: form.phone });
+    phone.addEventListener('input', function () { form.phone = phone.value; });
+    return h('div', { class: 'stack' }, [
+      h('h2', { text: 'Choose a plan' }),
+      h('div', { class: 'stack', role: 'group', 'aria-label': 'Plans' }, plans.map(function (p) {
+        var isCurrent = p.id === current.id;
+        return h('button', { type: 'button', class: 'choice', disabled: isCurrent, 'aria-pressed': String(p.id === form.plan), onclick: function () { form.plan = p.id; draw(); } }, [
+          h('span', { class: 'dot', 'aria-hidden': 'true' }),
+          h('span', {}, [h('b', { text: p.name }), h('small', { text: speed(p) })]),
+          h('span', { class: 'price' }, [kes(p.price), h('small', { text: isCurrent ? 'Your plan' : '/ ' + p.periodDays + ' days' })]),
+        ]);
+      })),
+      faster ? h('div', { class: 'row', role: 'group', 'aria-label': 'When should it start?' }, [
+        h('button', { type: 'button', class: 'choice', disabled: !canNow, 'aria-pressed': String(timing === 'now'), onclick: function () { form.timing = 'now'; draw(); } }, [h('span', {}, [h('b', { text: 'Right away' }), h('small', { text: canNow ? 'Pay the difference for the days left' : 'Renew first' })])]),
+        h('button', { type: 'button', class: 'choice', 'aria-pressed': String(timing === 'renewal'), onclick: function () { form.timing = 'renewal'; draw(); } }, [h('span', {}, [h('b', { text: 'At renewal' }), h('small', { text: 'Nothing extra now' })])]),
+      ]) : (target ? h('p', { class: 'small muted', text: 'A cheaper plan starts when you next renew, so days you have paid for are never lost.' }) : null),
+      timing === 'now' && faster && a.credit ? h('label', { class: 'check' }, [h('input', { type: 'checkbox', checked: form.useCredit, onchange: function (e) { form.useCredit = e.target.checked; draw(); } }), 'Use my ' + kes(a.credit) + ' credit first']) : null,
+      target ? lines : null,
+      timing === 'now' && faster ? h('label', { class: 'field', for: 'plan-phone' }, ['M-Pesa number', phone]) : null,
+      timing === 'now' && faster ? h('p', { class: 'small muted', text: 'Your connection restarts once to pick up the new speed. It takes a few seconds.' }) : null,
+      box, go,
+      a.nextPlan ? h('button', { type: 'button', class: 'ghost', text: 'Keep my current plan instead', onclick: function () {
+        api(accountPath('/pay'), { method: 'POST', body: { k: accountKey, purpose: 'upgrade', profileId: current.id, timing: 'renewal' } }).then(function (r) { data.account = r.account; draw(); }).catch(function (e) { box.appendChild(errorBox(e.message)); });
+      } }) : null,
+    ]);
+  }
+
+  // ---- Boost ------------------------------------------------------------
+  function boostPanel() {
+    var a = data.account; var boosts = a.boosts || [];
+    if (!form.boost) form.boost = (boosts[0] || {}).id;
+    var chosen = boosts.filter(function (b) { return b.id === form.boost; })[0];
+    var box = h('div');
+    var phone = h('input', { type: 'tel', id: 'boost-phone', autocomplete: 'tel', placeholder: '07xx xxx xxx', value: form.phone });
+    phone.addEventListener('input', function () { form.phone = phone.value; });
+    var ok = a.status === 'paid' || a.status === 'due' || a.status === 'no_expiry';
+    return h('form', { class: 'stack', onsubmit: function (ev) { ev.preventDefault(); box.textContent = ''; startPrompt({ purpose: 'boost', profileId: chosen.id, phone: form.phone }, box, true); } }, [
+      h('h2', { text: 'Boost your speed for 24 hours' }),
+      h('p', { class: 'small muted', text: 'For a match, a big download or guests. Your own plan comes back by itself after 24 hours.' }),
+      h('div', { class: 'stack', role: 'group', 'aria-label': 'Boosts' }, boosts.map(function (b) {
+        return h('button', { type: 'button', class: 'choice', 'aria-pressed': String(b.id === form.boost), onclick: function () { form.boost = b.id; draw(); } }, [
+          h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', {}, [h('b', { text: b.name }), h('small', { text: speed(b) })]), h('span', { class: 'price', text: kes(b.boostPrice) }),
+        ]);
+      })),
+      ok ? null : h('p', { class: 'note warn', text: 'Renew your internet first, then boost it.' }),
+      h('label', { class: 'field', for: 'boost-phone' }, ['M-Pesa number', phone]),
+      box, h('button', { type: 'submit', class: 'wide', disabled: !ok || !chosen, text: chosen ? 'Pay ' + kes(chosen.boostPrice) + ' and boost' : 'Boost' }),
+    ]);
+  }
+
+  // ---- Receipts -----------------------------------------------------------
+  function receiptsPanel() {
+    var list = data.account.receipts || [];
+    var method = { mpesa: 'M-Pesa', paybill: 'PayBill', cash: 'Cash', mpesa_owner: 'M-Pesa to provider', bank: 'Bank', credit: 'From credit', owner: 'Provider' };
+    return h('section', { class: 'card', 'aria-label': 'Receipts' }, list.length ? list.map(function (r) {
+      return h('div', { class: 'receipt' }, [
+        h('div', {}, [h('b', { text: r.what }), h('span', { class: 'muted', text: day(r.at) + ' · ' + (method[r.method] || r.method) + (r.receipt ? ' · ' + r.receipt : '') })]),
+        h('strong', { style: r.reversed ? 'text-decoration:line-through' : '', text: r.amount ? kes(r.amount) : '—' }),
+      ]);
+    }) : [h('p', { class: 'muted', text: 'No payments yet.' })]);
+  }
+
+  // ---- M-Pesa prompt ------------------------------------------------------
+  function startPrompt(body, box, privateOnly) {
+    if (!body.phone || body.phone.replace(/\D/g, '').length < 9) { box.appendChild(errorBox('Enter your M-Pesa number, e.g. 0712 345 678.')); return; }
+    if (privateOnly || data.private) body.k = accountKey;
+    api(accountPath('/pay'), { method: 'POST', body: body }).then(function (r) {
+      if (r.applied || r.scheduled) { data.account = r.account; tab = 'pay'; return draw(); }
+      waiting(r);
+    }).catch(function (e) {
+      if (e.body && e.body.code === 'provider_paused') { info.paused = e.message; return draw(); }
+      box.appendChild(errorBox(e.message));
+    });
+  }
+  function waiting(r) {
+    var cancelled = false;
+    render([h('section', { class: 'card stack center', style: 'padding:30px 20px' }, [
+      h('div', { class: 'spinner', role: 'img', 'aria-label': 'Waiting' }),
+      h('h1', { text: 'Check your phone' }),
+      h('p', { class: 'muted', text: 'An M-Pesa prompt for ' + kes(r.amount) + ' was sent to ' + r.phoneDisplay + '. Enter your PIN to finish.' }),
+      h('button', { type: 'button', class: 'ghost', text: 'Back', onclick: function () { cancelled = true; clearTimeout(pollTimer); loadAccount(); } }),
+    ])]);
+    var started = Date.now();
+    (function poll() {
+      if (cancelled) return;
+      api(base() + '/status/' + encodeURIComponent(r.checkoutRequestId), { status: r.statusToken }).then(function (s) {
+        if (s.status === 'paid') return paid(r, s);
+        if (s.status === 'failed') return failed(s.reason || 'The payment did not go through.');
+        if (Date.now() - started > 150000) return failed('No answer from M-Pesa yet. If money left your phone, it will still reach your account: check your receipts in a few minutes.');
+        pollTimer = setTimeout(poll, 3000);
+      }).catch(function () { pollTimer = setTimeout(poll, 4000); });
+    })();
+  }
+  function paid(r, s) {
+    var receipt = s.receipt || {};
+    var back = s.account && s.account.status !== 'expired' && data.account && (data.account.status === 'expired' || data.account.status === 'awaiting_payment');
+    render([h('section', { class: 'card stack center', style: 'padding:30px 20px' }, [
+      h('div', { class: 'tick', 'aria-hidden': 'true' }, [svgTick()]),
+      h('h1', { text: 'Payment received' }),
+      h('p', { class: 'muted', text: kes(r.amount) + (receipt.receipt ? ' · M-Pesa ' + receipt.receipt : '') }),
+      h('div', { class: 'lines', style: 'width:100%;text-align:left' }, [
+        h('div', {}, [h('span', { text: 'For' }), h('strong', { text: username })]),
+        h('div', {}, [h('span', { text: 'What it did' }), h('strong', { text: receipt.what || 'Applied' })]),
+        h('div', {}, [h('span', { text: 'Credit now' }), h('strong', { text: kes(receipt.creditAfter) })]),
+      ]),
+      back ? h('p', { class: 'small muted', text: 'The internet comes back within a minute. If it does not, switch the router off and on again.' }) : null,
+      h('button', { type: 'button', style: 'width:100%', text: 'Done', onclick: function () { loadAccount(); } }),
+    ])]);
+  }
+  function failed(reason) {
+    render([h('section', { class: 'card stack' }, [
+      errorBox(reason),
+      h('button', { type: 'button', text: 'Try again', onclick: function () { loadAccount(); } }),
+    ])]);
+  }
+  function svgTick() {
+    var ns = 'http://www.w3.org/2000/svg'; var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('width', '30'); svg.setAttribute('height', '30'); svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', '#fff'); svg.setAttribute('stroke-width', '2.6');
+    var p = document.createElementNS(ns, 'path'); p.setAttribute('d', 'M5 12.5l4.5 4.5L19 7.5'); svg.appendChild(p); return svg;
+  }
+})();
+</script>
+</body>
+</html>

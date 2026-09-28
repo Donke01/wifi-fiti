@@ -5,6 +5,7 @@
 const crypto = require('node:crypto');
 const { db } = require('./db');
 const tenant = require('./tenant');
+const config = require('../config');
 
 const key = () => process.env.TENANT_SECRETS_KEY ? crypto.createHash('sha256').update(process.env.TENANT_SECRETS_KEY).digest() : null;
 function encrypt(value) {
@@ -79,6 +80,22 @@ for (const statement of [
   `ALTER TABLE pppoe_users ADD COLUMN max_sessions INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE pppoe_users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE pppoe_users ADD COLUMN locked_until TEXT`,
+  // Customer billing (see pppoe-billing.js): a price per plan, prepaid days
+  // and credit per subscriber, 24-hour speed boosts, and a reconnect flag so a
+  // new speed reaches a customer who is already online.
+  `ALTER TABLE pppoe_profiles ADD COLUMN price INTEGER`,
+  `ALTER TABLE pppoe_profiles ADD COLUMN period_days INTEGER NOT NULL DEFAULT 30`,
+  `ALTER TABLE pppoe_profiles ADD COLUMN boost_price INTEGER`,
+  `ALTER TABLE pppoe_profiles ADD COLUMN self_service INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE pppoe_users ADD COLUMN phone TEXT`,
+  `ALTER TABLE pppoe_users ADD COLUMN full_name TEXT`,
+  `ALTER TABLE pppoe_users ADD COLUMN paid_until TEXT`,
+  `ALTER TABLE pppoe_users ADD COLUMN credit INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE pppoe_users ADD COLUMN install_fee_due INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE pppoe_users ADD COLUMN next_profile_id TEXT`,
+  `ALTER TABLE pppoe_users ADD COLUMN boost_profile_id TEXT`,
+  `ALTER TABLE pppoe_users ADD COLUMN boost_until TEXT`,
+  `ALTER TABLE pppoe_jobs ADD COLUMN reconnect INTEGER NOT NULL DEFAULT 0`,
 ]) { try { db.exec(statement); } catch (_) {} }
 db.exec(`CREATE TABLE IF NOT EXISTS pppoe_security_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, business_id TEXT NOT NULL, location_id TEXT,
@@ -100,7 +117,7 @@ function profileCreate({ businessId, name, downloadRate, uploadRate, maxSessions
   db.prepare(`INSERT INTO pppoe_audit(business_id,action,reference,details_json) VALUES(?,?,?,?)`).run(b, 'profile_created', row.id, JSON.stringify({ name: n }));
   return row;
 }
-function profilesFor(businessId) { return db.prepare(`SELECT id,business_id,name,download_rate,upload_rate,active,max_sessions,session_timeout_seconds,idle_timeout_seconds,created_at,updated_at FROM pppoe_profiles WHERE business_id=? ORDER BY name`).all(business(businessId)); }
+function profilesFor(businessId) { return db.prepare(`SELECT id,business_id,name,download_rate,upload_rate,active,max_sessions,session_timeout_seconds,idle_timeout_seconds,price,period_days,boost_price,self_service,created_at,updated_at FROM pppoe_profiles WHERE business_id=? ORDER BY name`).all(business(businessId)); }
 function userCreate({ businessId, locationId = null, profileId, username, secret, serviceName = 'pppoe', expiresAt = null, maxSessions = 1 }) {
   const b = business(businessId); const u = String(username || '').trim(); const s = String(secret || '');
   if (!/^[A-Za-z0-9._@-]{3,96}$/.test(u)) throw new Error('Invalid PPPoE username.');
@@ -134,7 +151,9 @@ function routersFor(businessId) {
     health: row.last_seen_at ? { status: row.health_status, activeSessions: row.active_sessions, lastSeenAt: row.last_seen_at } : null }));
 }
 function revokeExpiredForLocation(locationId) {
-  const rows = db.prepare(`SELECT u.*,p.business_id FROM pppoe_users u JOIN pppoe_profiles p ON p.id=u.profile_id WHERE u.location_id=? AND u.status='active' AND u.expires_at IS NOT NULL AND u.expires_at<=datetime('now')`).all(locationId);
+  // julianday() compares ISO (…T…Z) and SQLite times correctly; a plain
+  // string comparison would keep an account on for most of its last day.
+  const rows = db.prepare(`SELECT u.*,p.business_id FROM pppoe_users u JOIN pppoe_profiles p ON p.id=u.profile_id WHERE u.location_id=? AND u.status='active' AND u.expires_at IS NOT NULL AND julianday(u.expires_at)<=julianday('now')`).all(locationId);
   for (const row of rows) {
     db.prepare(`UPDATE pppoe_users SET status='expired',updated_at=datetime('now') WHERE id=? AND status='active'`).run(row.id);
     try { jobFor({ businessId: row.business_id, userId: row.id, action: 'revoke', locationId }); } catch (_) {}
@@ -159,7 +178,13 @@ function clearUserLock({ businessId, userId }) {
   if (user.location_id) jobFor({ businessId: b, userId, action: 'upsert', locationId: user.location_id });
   return { unlocked: true };
 }
-function jobFor({ businessId, userId, action = 'upsert', locationId = null }) {
+/**
+ * Queue one router job for a subscriber. `reconnect` also drops the live
+ * session after the change, so a new speed (plan change, boost) or leaving
+ * the expired pay-page profile takes effect at once: the customer's router
+ * redials within seconds.
+ */
+function jobFor({ businessId, userId, action = 'upsert', locationId = null, reconnect = false }) {
   const b = business(businessId); const user = db.prepare(`SELECT * FROM pppoe_users WHERE id=? AND business_id=?`).get(userId, b);
   if (!user) throw new Error('PPPoE user was not found.');
   const targetLocation = locationId || user.location_id;
@@ -169,10 +194,17 @@ function jobFor({ businessId, userId, action = 'upsert', locationId = null }) {
   const actionName = expired ? 'revoke' : String(action); if (!['upsert', 'revoke'].includes(actionName)) throw new Error('Invalid PPPoE action.');
   const idem = `${userId}:${actionName}`;
   const existing = db.prepare(`SELECT * FROM pppoe_jobs WHERE business_id=? AND idempotency_key=?`).get(b, idem);
-  if (existing && ['queued', 'delivered'].includes(existing.status)) return existing;
-  const row = db.prepare(`INSERT INTO pppoe_jobs(id,business_id,location_id,user_id,action,idempotency_key) VALUES(?,?,?,?,?,?)
-    ON CONFLICT(business_id,idempotency_key) DO UPDATE SET status='queued',attempts=0,next_attempt_at=datetime('now'),last_error=NULL,updated_at=datetime('now') RETURNING *`)
-    .get(id('pjob'), b, targetLocation, userId, actionName, idem);
+  const kick = reconnect ? 1 : 0;
+  if (existing && existing.status === 'queued') {
+    if (kick && !existing.reconnect) db.prepare(`UPDATE pppoe_jobs SET reconnect=1,updated_at=datetime('now') WHERE id=?`).run(existing.id);
+    return { ...existing, reconnect: existing.reconnect || kick };
+  }
+  // A job already on its way carries the old state; one that must reconnect
+  // (a new speed) is sent again with the current state instead.
+  if (existing && existing.status === 'delivered' && !kick) return existing;
+  const row = db.prepare(`INSERT INTO pppoe_jobs(id,business_id,location_id,user_id,action,idempotency_key,reconnect) VALUES(?,?,?,?,?,?,?)
+    ON CONFLICT(business_id,idempotency_key) DO UPDATE SET status='queued',attempts=0,next_attempt_at=datetime('now'),last_error=NULL,reconnect=excluded.reconnect,location_id=excluded.location_id,updated_at=datetime('now') RETURNING *`)
+    .get(id('pjob'), b, targetLocation, userId, actionName, idem, kick);
   db.prepare(`INSERT INTO pppoe_audit(business_id,location_id,action,reference,details_json) VALUES(?,?,?,?,?)`).run(b, targetLocation, `job_${actionName}`, row.id, '{}');
   return row;
 }
@@ -208,6 +240,60 @@ function customerBridgeFor(locationId) {
   // A bridge or a VLAN (VLAN names may contain dots, e.g. ether2.100).
   return /^[A-Za-z0-9_.-]{1,32}$/.test(bridge) ? bridge : '';
 }
+/**
+ * The pay page an expired customer is sent to, when the owner turned that on
+ * (PPPoE billing settings). Null when it is off or billing was never set up.
+ */
+function expiredPageFor(locationId) {
+  try {
+    const row = db.prepare(`SELECT s.pay_code FROM pppoe_billing_settings s JOIN locations l ON l.business_id=s.business_id
+      WHERE l.id=? AND s.expired_page=1`).get(locationId);
+    if (!row || !/^[a-z0-9]{4,16}$/.test(String(row.pay_code))) return null;
+    const host = new URL(config.domains.appUrl).hostname;
+    if (!/^[a-z0-9.-]{1,253}$/i.test(host)) return null;
+    return { host, target: `${host}/pay/${row.pay_code}` };
+  } catch (_) { return null; } // billing tables not created yet
+}
+/**
+ * Router-wide pieces of the expired pay page, idempotent:
+ *  - the "fiti-expired" PPP profile puts a session in an address list;
+ *  - that list may reach only DNS and the pay page's host (walled garden);
+ *  - plain web requests from it are redirected by the router's web proxy
+ *    to the pay page, so phones behind the customer's router show it.
+ * If any piece fails (e.g. the owner already runs a web proxy on another
+ * port), expired customers are simply cut off as before.
+ */
+function expiredPageSetup(subnet, page) {
+  const tag = 'Wi-Fi Fiti PPPoE expired';
+  // Each rule goes to the top of its chain, so they are added last-first.
+  const top = (menu, args) => `:if ([:len [${menu} find]] > 0) do={ ${menu} add ${args} place-before=0 } else={ ${menu} add ${args} }`;
+  const run = (command) => `:local fitiRun [:parse "${command.replace(/"/g, '\\"')}"]; $fitiRun`;
+  return [
+    ':local fitiPppExpiredOk false',
+    ':do {',
+    `  :if ([:len [/ppp profile find where name="fiti-expired"]] = 0) do={ /ppp profile add name="fiti-expired" local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" rate-limit="512k/512k" dns-server=1.1.1.1,8.8.8.8 only-one=yes comment="${tag}" } else={ /ppp profile set [find where name="fiti-expired"] local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" }`,
+    `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${page.host}" comment="${tag}" }`,
+    `  :if ([:len [/ip firewall filter find where comment="${tag}"]] = 0) do={`,
+    `    ${top('/ip firewall filter', `chain=forward action=drop src-address-list="fiti-pppoe-expired" comment="${tag}"`)}`,
+    `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" protocol=udp dst-port=53 comment="${tag}"`)}`,
+    `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" protocol=tcp dst-port=53 comment="${tag}"`)}`,
+    `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" dst-address-list="fiti-pay-host" comment="${tag}"`)}`,
+    `    ${top('/ip firewall filter', `chain=input action=accept src-address-list="fiti-pppoe-expired" protocol=tcp dst-port=8089 comment="${tag}"`)}`,
+    `    ${top('/ip firewall filter', `chain=input action=accept src-address-list="fiti-pppoe-expired" protocol=udp dst-port=53 comment="${tag}"`)}`,
+    '  }',
+    `  :if ([:len [/ip firewall nat find where comment="${tag}"]] = 0) do={ ${top('/ip firewall nat', `chain=dstnat action=redirect to-ports=8089 protocol=tcp dst-port=80 src-address-list="fiti-pppoe-expired" dst-address-list=!fiti-pay-host comment="${tag}"`)} }`,
+    // Never take over a web proxy the owner already runs on another port.
+    '  :if ([/ip proxy get enabled]) do={ :if ([/ip proxy get port] != 8089) do={ :error "proxy_in_use" } } else={ /ip proxy set enabled=yes port=8089 }',
+    `  :if ([:len [/ip proxy access find where comment="${tag}"]] = 0) do={`,
+    // RouterOS 7 says action=redirect action-data=…; 6 says action=deny redirect-to=….
+    `    :do { ${run(`/ip proxy access add src-address=${subnet.network} action=redirect action-data="${page.target}" comment="${tag}"`)} } on-error={ ${run(`/ip proxy access add src-address=${subnet.network} action=deny redirect-to="${page.target}" comment="${tag}"`)} }`,
+    // Nobody else may use the proxy.
+    `    ${run(`/ip proxy access add action=deny comment="${tag}"`)}`,
+    '  }',
+    '  :set fitiPppExpiredOk true',
+    '} on-error={ :log warning "fiti: PPPoE pay page setup failed; expired customers are cut off instead" }',
+  ].join('\n');
+}
 function hasSubscribers(locationId) {
   return Boolean(db.prepare(`SELECT 1 FROM pppoe_users WHERE location_id=? LIMIT 1`).get(locationId));
 }
@@ -223,9 +309,11 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
   const bridgeName = customerBridgeFor(locationId);
   const subnet = pppoeSubnetForLocation(locationId);
   const octet = subnet.gateway.split('.')[2];
-  const jobs = bridgeName ? db.prepare(`SELECT j.*,u.username,u.secret_ciphertext,u.profile_id,u.status user_status,p.name profile_name,p.download_rate,p.upload_rate
+  // A live 24-hour boost runs the subscriber on the boost plan's speed.
+  const jobs = bridgeName ? db.prepare(`SELECT j.*,u.username,u.secret_ciphertext,p.id profile_id,u.status user_status,p.name profile_name,p.download_rate,p.upload_rate
     ,u.expires_at user_expires_at,u.locked_until user_locked_until,u.max_sessions user_max_sessions,p.session_timeout_seconds,p.idle_timeout_seconds
-    FROM pppoe_jobs j JOIN pppoe_users u ON u.id=j.user_id JOIN pppoe_profiles p ON p.id=u.profile_id
+    FROM pppoe_jobs j JOIN pppoe_users u ON u.id=j.user_id
+    JOIN pppoe_profiles p ON p.id=(CASE WHEN u.boost_profile_id IS NOT NULL AND julianday(u.boost_until)>julianday('now') THEN u.boost_profile_id ELSE u.profile_id END)
     WHERE j.location_id=? AND j.status IN ('queued','delivered') AND j.next_attempt_at<=datetime('now') ORDER BY j.created_at LIMIT 50`).all(locationId) : [];
   const wantHealth = bridgeName && hasSubscribers(locationId) && (jobs.length || now - (lastHealthAsk.get(locationId) || 0) >= HEALTH_INTERVAL_MS);
   if (!jobs.length && !wantHealth) return '';
@@ -235,6 +323,10 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
   const lines = ['# Wi-Fi Fiti PPPoE automation', ':local fitiPppOk ""', ':local fitiPppFail ""', ':local fitiPppReason ""', ':local fitiPppInfra false'];
   const upserts = [];
   const ids = [];
+  // Expired customers can be kept on a pay-page-only profile instead of being
+  // cut off completely (owner setting, off by default).
+  const expiredPage = expiredPageFor(locationId);
+  let expiredUsed = false;
   for (const job of jobs) {
     const expired = job.user_expires_at && Date.parse(String(job.user_expires_at)) <= now;
     const locked = job.user_locked_until && Date.parse(String(job.user_locked_until)) > now;
@@ -245,17 +337,30 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
     ids.push(job.id);
     const user = ros(job.username); const profile = ros(`fiti-${job.profile_id}`);
     const ok = `:set fitiPppOk ($fitiPppOk . "${job.id},")`; const fail = `:set fitiPppFail ($fitiPppFail . "${job.id},")`;
+    const kick = `:foreach fitiPppActive in=[/ppp active find where name=${user}] do={ /ppp active remove $fitiPppActive }`;
+    if (revoke && expiredPage && job.user_status === 'expired' && !locked) {
+      // Paid time is over: the login keeps working, but only on the expired
+      // profile, which reaches nothing except the pay page. Paying moves it
+      // back to its own profile (and reconnects it) on the next poll.
+      expiredUsed = true;
+      lines.push(`:if ($fitiPppExpiredOk) do={ :do { :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] profile="fiti-expired" disabled=no }; ${kick}; ${ok} } on-error={ ${fail} } } else={ :do { :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] disabled=yes }; ${kick}; ${ok} } on-error={ ${fail} } }`);
+      continue;
+    }
     if (revoke) {
       // Disabling the secret stops new logins; removing the active session
       // cuts a subscriber who is still connected.
-      lines.push(`:do { :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] disabled=yes }; :foreach fitiPppActive in=[/ppp active find where name=${user}] do={ /ppp active remove $fitiPppActive }; ${ok} } on-error={ ${fail} }`);
+      lines.push(`:do { :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] disabled=yes }; ${kick}; ${ok} } on-error={ ${fail} }`);
       continue;
     }
     const sessionTimeout = Math.min(604800, Math.max(0, Number(job.session_timeout_seconds) || 0));
     const idleTimeout = Math.min(86400, Math.max(60, Number(job.idle_timeout_seconds) || 900));
     const profileArgs = `rate-limit=${ros(routerRate(job.download_rate, job.upload_rate))} local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" dns-server=1.1.1.1,8.8.8.8 only-one=yes idle-timeout=${idleTimeout}s${sessionTimeout ? ` session-timeout=${sessionTimeout}s` : ''}`;
-    upserts.push({ profile, line: `:if ($fitiPppInfra) do={ :do { :if ([:len [/ppp profile find where name=${profile}]] > 0) do={ /ppp profile set [find where name=${profile}] ${profileArgs} } else={ /ppp profile add name=${profile} ${profileArgs} comment="Wi-Fi Fiti PPPoE" }; :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${profile} disabled=no } else={ /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${profile} disabled=no comment="Wi-Fi Fiti PPPoE" }; ${ok} } on-error={ ${fail} } } else={ ${fail} }` });
+    // A changed speed only applies to a new session, so a reconnect job
+    // drops the live one; the customer's router redials within seconds.
+    const reconnect = job.reconnect ? ` ${kick};` : '';
+    upserts.push({ profile, line: `:if ($fitiPppInfra) do={ :do { :if ([:len [/ppp profile find where name=${profile}]] > 0) do={ /ppp profile set [find where name=${profile}] ${profileArgs} } else={ /ppp profile add name=${profile} ${profileArgs} comment="Wi-Fi Fiti PPPoE" }; :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${profile} disabled=no } else={ /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${profile} disabled=no comment="Wi-Fi Fiti PPPoE" };${reconnect} ${ok} } on-error={ ${fail} } } else={ ${fail} }` });
   }
+  if (expiredUsed) lines.splice(5, 0, expiredPageSetup(subnet, expiredPage));
   if (upserts.length) {
     // Router-wide setup the subscribers depend on. It runs once per batch and
     // is idempotent. If it fails, every subscriber in the batch is reported
@@ -331,7 +436,12 @@ function activeUserCount(businessId) {
     AND (expires_at IS NULL OR julianday(expires_at) > julianday('now'))`).get(businessId).n;
 }
 
-function attachPppoeRoutes(app, { businessAuth, subscriptionBlock = null }) {
+/**
+ * `userExtras` (optional): { check(body), apply(user, checked) } — billing
+ * details for a new subscriber (phone, name, installation fee), checked
+ * before the subscriber is created and applied right after.
+ */
+function attachPppoeRoutes(app, { businessAuth, subscriptionBlock = null, userExtras = null }) {
   const operator = handler => (req, res) => {
     const current = businessAuth(req, res); if (!current) return;
     try { return handler(req, res, current.id || current.business_id, current); } catch (error) { return res.status(error.status || 400).json({ error: error.message, ...(error.needs ? { needs: error.needs } : {}) }); }
@@ -349,7 +459,13 @@ function attachPppoeRoutes(app, { businessAuth, subscriptionBlock = null }) {
   };
   app.get('/api/business/pppoe', operator((req, res, b) => res.json({ profiles: profilesFor(b), users: usersFor(b, req.query.locationId || null), routers: routersFor(b) })));
   app.post('/api/business/pppoe/profiles', operator((req, res, b) => res.status(201).json({ profile: profileCreate({ businessId: b, name: req.body?.name, downloadRate: req.body?.downloadRate, uploadRate: req.body?.uploadRate, maxSessions: req.body?.maxSessions, sessionTimeoutSeconds: req.body?.sessionTimeoutSeconds, idleTimeoutSeconds: req.body?.idleTimeoutSeconds }) })));
-  app.post('/api/business/pppoe/users', operator((req, res, b, current) => guard(current, true) || res.status(201).json({ user: userCreate({ businessId: b, locationId: req.body?.locationId, profileId: req.body?.profileId, username: req.body?.username, secret: req.body?.secret, serviceName: req.body?.serviceName, expiresAt: req.body?.expiresAt, maxSessions: req.body?.maxSessions }) })));
+  app.post('/api/business/pppoe/users', operator((req, res, b, current) => {
+    guard(current, true);
+    const checked = userExtras ? userExtras.check(req.body || {}) : null;
+    let user = userCreate({ businessId: b, locationId: req.body?.locationId, profileId: req.body?.profileId, username: req.body?.username, secret: req.body?.secret, serviceName: req.body?.serviceName, expiresAt: req.body?.expiresAt, maxSessions: req.body?.maxSessions });
+    if (userExtras) user = userExtras.apply(user, checked);
+    return res.status(201).json({ user });
+  }));
   app.post('/api/business/pppoe/users/:userId/provision', operator((req, res, b, current) => guard(current, false) || res.status(202).json({ job: jobFor({ businessId: b, userId: req.params.userId, action: req.body?.action || 'upsert', locationId: req.body?.locationId }) })));
   app.post('/api/business/pppoe/users/:userId/lock', operator((req, res, b) => res.json(setUserLock({ businessId: b, userId: req.params.userId, minutes: req.body?.minutes }))));
   app.post('/api/business/pppoe/users/:userId/unlock', operator((req, res, b) => res.json(clearUserLock({ businessId: b, userId: req.params.userId }))));

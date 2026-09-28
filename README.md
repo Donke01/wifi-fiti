@@ -191,6 +191,60 @@ the platform has set `TENANT_SECRETS_KEY` and its supplied credentials pass
 verification. Sandbox settings are for testing; they do not collect real
 money.
 
+### PPPoE customer payments
+
+PPPoE subscribers pay the business for their own internet (code:
+`src/lib/pppoe-billing.js`; owner page `/pppoe.html`; customer page
+`/pay/<code>/<username>`).
+
+- **Prices on plans.** Each PPPoE plan (profile) can have a price per period
+  (30 days by default) and a 24-hour boost price. A plan without a price
+  keeps the old behaviour: the owner manages access and expiry by hand.
+- **Account number = PPPoE username.** Customers pay with an M-Pesa prompt
+  from the pay page, or by PayBill with their username as the account number
+  (needs PayBill/C2B reconciliation set up; an account prefix is honoured).
+  The owner records cash, money sent to their own number, or a bank transfer.
+  All of it goes through one function, `applyPayment`.
+- **Credit.** A short or extra payment is kept as credit. Credit adds up and
+  becomes whole periods by itself as soon as it covers the plan.
+- **Installation fee.** Paid first, before any days. A subscriber on a priced
+  plan with no "paid until" date waits for the first payment; the login goes
+  to the router once it is in.
+- **Grace days** (owner setting, 0–7, default 3). Access ends grace days
+  after the paid days end. Paying during grace continues from the old date,
+  so grace is borrowed, not free; paying after access ended starts from the
+  payment.
+- **Plan changes.** Faster plan: now, for the difference in daily price over
+  the days left (credit first), or from the next renewal. Cheaper plan: from
+  the next renewal, so paid days are never refunded. A new speed drops the
+  live PPPoE session so the customer's router redials at the new speed.
+- **24-hour boosts** onto a faster plan with a boost price; the normal plan
+  comes back by itself.
+- **Pay for someone else.** Anyone can pay an account by typing its number and
+  sees only a masked name, the plan, its paid-until date and the amount due. The owner can turn
+  this off; then the phone number on the account is needed. The customer's
+  own link (in every SMS) carries a private key (`k`) that opens receipts,
+  plan changes and boosts. Lookups, phone checks and prompts are rate-limited.
+- **Reminders** by SMS (the tenant's FitiSignal credits): 3 days before, on
+  the day, and once when the paid days end. Receipts by SMS after each payment.
+- **Owner's plan lapsed** (PPPoE + Static IP with Wi-Fi Fiti ended past its
+  grace): prompts are refused, and a PayBill payment is turned back by the
+  C2B validation URL, which only works where Safaricom has switched validation
+  on for that PayBill. Money that still arrives (PayBill without validation,
+  cash) is kept as credit and becomes days once the owner renews.
+- **Money handling.** Pay-page prompts use the same rail as hotspot sales
+  (`pushTenantPrompt`: the tenant's Tuma, own Daraja, or Wi-Fi Fiti collection
+  with its 5% fee) and are recorded in `tenant_transactions` with the device
+  `PPPOE:<user id>`, so callbacks, verification, receipts, payouts and sales
+  totals are shared. M-Pesa reversals take back the days and credit a payment
+  gave.
+- **Expired pay page** (owner setting, off by default, **not yet tested on a
+  router**): instead of disabling an ended customer, the router moves them to a
+  `fiti-expired` PPP profile that reaches only DNS and the pay page's host, and
+  its web proxy (port 8089) redirects plain web requests to the pay page. It
+  never takes over a web proxy the owner already runs on another port; if any
+  step fails, the customer is cut off as before.
+
 ### Pairing-token safety
 
 Each location receives a high-entropy router token exactly once: when the
