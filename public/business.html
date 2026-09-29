@@ -256,7 +256,11 @@
       .portal-template-preview-wrap{min-width:0}.portal-template-paybill-note{margin:8px 2px 0;color:#58728c}.portal-template-paybill-note:empty{display:none}
       .portal-template-creator{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr);gap:18px;padding:18px;border:1px solid #d8e7f4;border-radius:18px;background:linear-gradient(135deg,#f8fbff,#f1fbfa);margin-bottom:18px}
       .portal-template-presets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:0 0 15px}
-      .portal-template-preset{padding:12px;border:1px solid #d4e2ef;border-radius:13px;color:#2e4d6d;background:#fff;text-align:left;box-shadow:0 5px 16px #193d7108}
+      .portal-template-preset{display:block;padding:12px;border:1px solid #d4e2ef;border-radius:13px;color:#2e4d6d;background:#fff;text-align:left;box-shadow:0 5px 16px #193d7108}
+      /* The global input rule makes every input a full-width 47px field; the
+         two "Show …" choices are plain checkboxes beside their labels. */
+      .portal-template-creator label.check{display:flex;align-items:center;gap:9px;min-height:44px;margin:0 0 11px;cursor:pointer}
+      .portal-template-creator label.check input{flex:none;width:20px;height:20px;min-height:0;margin:0;padding:0;border-radius:5px;box-shadow:none;accent-color:#1769d8;cursor:pointer}
       .portal-template-preset:hover{border-color:#75b9eb;background:#f8fcff;transform:translateY(-1px)}
       .portal-template-preset strong{display:block;color:#132742;font-size:13px}.portal-template-preset small{display:block;margin-top:4px;color:#6a8198;font-size:11px;line-height:1.35}
       .portal-template-preview{min-height:420px;padding:0;overflow:hidden;border:1px solid #c8dced;border-radius:16px;background:#f6f8fc;box-shadow:0 15px 28px #193d7119}.portal-template-preview iframe{display:block;width:100%;height:560px;border:0;background:#f6f8fc}
