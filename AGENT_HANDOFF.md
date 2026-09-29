@@ -9,15 +9,21 @@ branch and do not put production secrets, router keys, database files, or
 Nothing below is merged. Each task has its own branch from `main` `7c5befe`
 and its own PR. Merge only when Don says "push".
 
+**Day session, 29 Sep:** task 1 was redone and pushed as PR #18. The loose
+ends listed for #13–#16 were fixed on their own branches, so each PR updated.
+Every branch passes `npm test` and `git diff --check`, and the UI changes
+were checked in Chromium at 390 and 1280 px. The PR bodies have the details.
+A trial merge of #18 with #13 is clean and passes `npm test`.
+
 ### Branches and PRs
 
 | Task | Branch | PR | State |
 |---|---|---|---|
-| 1 Security | `security-fixes-2` (see below) | none yet | **Written but not pushed or tested** |
-| 2 Real data | `dashboard-real-data` | #14 | Pushed, `npm test` green, Chromium 390/1280 |
-| 3 Flow fixes | `flow-fixes` | #13 | Pushed, `npm test` green, Chromium 390/1280 |
-| 4 Dashboard flow | `dashboard-flow` | #16 | Pushed, `npm test` green (ceiling.js flaked, passed alone), Chromium 390/1280 |
-| 5 Team accounts | `team-accounts` | #15 | Pushed, `npm test` green, Chromium 390/1280 |
+| 1 Security | `security-fixes-2` | #18 | Pushed `1e0b584`, `npm test` green, Chromium 390/1280 |
+| 2 Real data | `dashboard-real-data` | #14 | Loose ends fixed `d43aa58`, `npm test` green, Chromium 390/1280 |
+| 3 Flow fixes | `flow-fixes` | #13 | Loose ends fixed `51a6973`, `npm test` green, Chromium 360/390/1280 |
+| 4 Dashboard flow | `dashboard-flow` | #16 | Loose ends fixed `f41059d`, `npm test` green, Chromium 390/1280 |
+| 5 Team accounts | `team-accounts` | #15 | Loose ends fixed `f6a93a4`, `npm test` green, Chromium 390/1280 |
 | Handoff | `handoff-overnight` | this file | |
 
 Each PR body lists its changes, tests, decisions and loose ends in full.
@@ -26,20 +32,21 @@ Each PR body lists its changes, tests, decisions and loose ends in full.
 - #14, #16 and #15 all change `public/business.html` heavily, so expect conflicts.
 - #14 fills the placeholders #16 left: Account & limits, support search and the router card.
 - #16 hides the placeholder Team page, which #15 replaces with the real one.
-- After #16 and #15 are both in: add #16's new tab section ids (for example `remote-section`) to `SECTIONS` in `public/team.js`. `test/business-ui.js` fails until each section has a permission.
+- After #16 and #15 are both in: add #16's new section ids to `SECTIONS` in `public/team.js`: `remote-section`, `receipts-section` and `tickets-section` (Settings → Receipts & help). Receipts should be owner only (`billing`) and tickets need `support`. `test/business-ui.js` fails until each section has a permission. #15's route table in `src/lib/team.js` already covers `/operations/billing` (owner) and `/operations/tickets` (`support`).
 - Rerun `npm test` and the Chromium check after each merge.
 
-### Task 1 (security): not pushed
+### Task 1 (security): PR #18
 
-The overnight session was blocked from running any shell command partway
-through (an auto-mode safety check), so it could not run `npm test`, commit
-or push. The changes exist only as uncommitted edits on a local branch
-`security-fixes` in that session's container, which may have been reclaimed.
-If they are gone, redo them from this list. They are small.
+The overnight edits were lost with that session's container, so the day
+session redid them from this list. They are on `security-fixes-2` (PR #18).
+The older remote `security-fixes` (8103e5d, 27 Sep) is untouched.
 
-Push them to `security-fixes-2`, not `security-fixes`: a remote
-`security-fixes` (8103e5d, 27 Sep) already exists from an earlier audit.
-Don't overwrite it.
+Also in #18: admin confirmations need `ADMIN_PASSWORD`, and there is no
+"CONFIRM" fallback. The new `src/lib/admin/confirm.js` hashes both sides
+and compares them in constant time. The admin token compare works the same
+way. With the password unset, dangerous admin actions answer 503.
+**Set `ADMIN_PASSWORD` on Railway before merging #18.** The PPPoE admin
+table also scrolls sideways on a phone now.
 
 1. **Old single-site portal off.**
    - New env `LEGACY_SITE_ENABLED` (default off), read per request by `legacySiteEnabled()`.
@@ -75,8 +82,7 @@ Don't overwrite it.
    - PPPoE owner routes (business-scoped) and public pay routes (rate-limited)
    - sales, telemetry and PPPoE date comparisons
 6. **Left:**
-   - With `ADMIN_PASSWORD` unset, admin confirmations fall back to the phrase "CONFIRM". It still needs the admin token first, but it is a publicly known word.
-   - The admin password compare in `admin-control-plane.js` isn't constant-time.
+   - `adminOk` accepts `ADMIN_PASSWORD || ADMIN_TOKEN` as the admin token. So when `ADMIN_PASSWORD` is set, the token and the confirmation are the same secret. This was not changed, because it could lock the desk out. Don should decide.
    - The voucher and claim per-location failure budgets let someone block entry at one location for about 10 min (a deliberate trade-off).
    - Not every one of the ~128 migrations was read.
    - `test/devices.js` and `test/features.js` (not in `npm test`) rely on MAC lookups before a poll.
@@ -112,20 +118,16 @@ Don't overwrite it.
 - **Don:** rotate the Daraja sandbox key, and replace the `MIKROTIK_*` placeholders and `MPESA_ENV` on Railway.
 - **Don:** hardware tests; see "Next steps" in the 28 Sep handover below.
 - **Don:** decide on `changes.diff`. It was not touched.
-- Payouts/disbursements (left for now). Plan receipts and support tickets live in `operations.html`, which #16 no longer links. They need a home, perhaps under Settings.
+- **Don:** set `ADMIN_PASSWORD` on Railway (#18). If any router still uses the old single-site portal, set `LEGACY_SITE_ENABLED=true` until it has been moved.
+- Payouts/disbursements (left for now). They are still only in the unlinked `operations.html`. Plan receipts and support tickets now live in Settings → Receipts & help (#16).
 - **#13:**
-  - Step 2 can still show "Generate connection kit" above the offline card.
-  - The dashboard preview never shows the PayBill tile.
-  - A TV linked before the change can't buy its own package and has no remove button in the portal.
+  - The dashboard preview of the portal on a phone is slightly wider than its frame. This was already the case before #13; the real portal is fine.
+  - "Remove this TV" shows only on the phone whose browser holds that package.
 - **#14:**
-  - Router card data appears only after the owner runs Router health; only the telemetry test kit sends telemetry on its own.
-  - A health check with an empty CPU value shows 0%.
-- **#16:** server messages say "in Billing & payments" without "Settings →".
-- **#15:**
-  - `pppoe.html` and `operations.html` screens aren't role-gated; the server still protects their data.
-  - The Technician's customer check still shows the last payment amount.
-  - The Attendant's sales card still says "In selected period".
-  - The invite email hasn't been sent through real Resend.
+  - Uptime, CPU and memory still need Router health or the telemetry test kit, because normal check-ins don't carry them.
+  - Older kits send no RouterOS version or board.
+- **#16:** SMS and email reminders say "Settings > Billing & payments". The arrow is left out on purpose, because it would make an SMS Unicode, which costs more per message.
+- **#15:** the invite email hasn't been sent through real Resend.
 - **Firefox:** nothing overnight was checked in Firefox.
 
 ## Handover — 28 Sep 2026, night
