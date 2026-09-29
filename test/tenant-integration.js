@@ -663,6 +663,23 @@ async function main() {
     assert.equal(query.body.BusinessShortCode, '654321');
   });
 
+  await test('the customer portal offers PayBill only where a PayBill payment is matched automatically', async () => {
+    // bravo collects with its own Daraja shortcode (previous test): that alone
+    // does not reconcile a manual PayBill payment, so no PayBill is offered.
+    assert.equal((await api(endpoint(bravo.location, 'config'))).body.paybill, null);
+    assert.equal((await api(endpoint(alpha.location, 'config'))).body.paybill, null);
+    const saved = await api('/api/business/integrations/c2b', { method: 'POST', token: alpha.token,
+      body: { shortcode: '600555', locationId: alpha.location.id, accountPrefix: 'WF' } });
+    assert.equal(saved.status, 201, JSON.stringify(saved.body));
+    assert.deepEqual((await api(endpoint(alpha.location, 'config'))).body.paybill, { shortcode: '600555', accountPrefix: 'WF' });
+    // The PayBill credits packages at the location it was registered for only.
+    database.prepare("UPDATE business_c2b_settings SET location_id='another-location' WHERE shortcode='600555'").run();
+    assert.equal((await api(endpoint(alpha.location, 'config'))).body.paybill, null);
+    database.prepare('UPDATE business_c2b_settings SET location_id=?, active=0 WHERE shortcode=?').run(alpha.location.id, '600555');
+    assert.equal((await api(endpoint(alpha.location, 'config'))).body.paybill, null, 'a paused PayBill is not offered');
+    database.prepare("DELETE FROM business_c2b_settings WHERE shortcode='600555'").run();
+  });
+
   await test('a phone package expires through router sync without generating repeated revoke jobs', async () => {
     const granted = await voucher(alpha, 'AA:BB:CC:00:00:50', '254712000050');
     const deviceRequest = { phone: '0712000050', subscriptionId: granted.subscriptionId,
@@ -670,6 +687,9 @@ async function main() {
     // A TV needs its own package now; it can no longer ride on a phone's.
     const added = await api(endpoint(alpha.location, 'devices/add'), { method: 'POST', body: deviceRequest });
     assert.equal(added.status, 402, JSON.stringify(added.body));
+    assert.match(added.body.error, /Buy for TV/, 'older cached portals are pointed to Buy for TV');
+    assert.equal(database.prepare('SELECT COUNT(*) AS n FROM tenant_devices WHERE subscription_id=?').get(granted.subscriptionId).n, 0,
+      'nothing is linked to the phone package');
     const wrongPassword = await api(endpoint(alpha.location, 'devices/remove'), { method: 'POST',
       body: { ...deviceRequest, password: 'NOTMINE' } });
     assert.equal(wrongPassword.status, 403);

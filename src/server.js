@@ -2477,14 +2477,19 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
     support_phone: location.support_phone, brand_primary_color: location.brand_primary_color,
     brand_logo_path: location.brand_logo_path, portal_message: location.portal_message,
   }, { assetOrigin });
-  const payment = tenant.paymentConnectionSummary.get(location.business_id);
+  // PayBill is offered only where a manual payment is matched automatically:
+  // an active C2B PayBill registered for this location (the phone number, after
+  // any account prefix, is the account). A Daraja STK shortcode alone is not
+  // reconciled, and a Till has no account number.
+  const c2b = db.db.prepare('SELECT shortcode, account_prefix, location_id FROM business_c2b_settings WHERE business_id=? AND active=1').get(location.business_id);
+  const paybill = c2b && c2b.location_id === location.id ? { shortcode: c2b.shortcode, accountPrefix: c2b.account_prefix || '' } : null;
   const portalTemplate = db.db.prepare(`SELECT id,name,layout,accent_color,welcome_message,show_packages,show_utilities,font_family,text_align,package_style,background_style
     FROM tenant_portal_templates WHERE business_id=? AND active=1 ORDER BY updated_at DESC LIMIT 1`).get(location.business_id) || null;
   res.json({ location: { id: location.id, name: location.name, businessName: branding.name },
     portalUrl: portalUrlForLocation(location), branding,
     template: portalTemplate ? { id: portalTemplate.id, name: portalTemplate.name, layout: portalTemplate.layout, accentColor: portalTemplate.accent_color, welcomeMessage: portalTemplate.welcome_message, showPackages: Boolean(portalTemplate.show_packages), showUtilities: Boolean(portalTemplate.show_utilities), fontFamily: portalTemplate.font_family || 'modern', textAlign: portalTemplate.text_align || 'center', packageStyle: portalTemplate.package_style || 'stacked', backgroundStyle: portalTemplate.background_style || 'aurora' } : null,
     packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone,
-    paybill: payment ? { shortcode: payment.shortcode, transactionType: payment.transaction_type } : null });
+    paybill });
 });
 
 app.get('/api/tenant/:locationId/session', (req, res) => {
@@ -3069,29 +3074,11 @@ app.post('/api/tenant/:locationId/devices/list', (req, res) => {
   res.json({ subscriptions, maxDevicesPerSubscription: 1 });
 });
 
+// A TV buys its own package ("Buy for TV" on the portal); a TV can no longer
+// ride on a phone's package. Older cached portals may still call this.
 app.post('/api/tenant/:locationId/devices/add', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
-  return res.status(402).json({ error: 'TV access requires a separate package. Choose Buy for TV.' });
-  const phone = mpesa.normalizePhone(req.body && req.body.phone);
-  const subscriptionId = String(req.body && req.body.subscriptionId || '');
-  const mac = deviceMac(req.body && req.body.mac);
-  const password = String(req.body && req.body.password || '');
-  const label = String(req.body && req.body.label || 'TV').replace(/[^\w \-]/g, '').trim().slice(0, 24) || 'TV';
-  if (!phone || !subscriptionId || !mac || !password) {
-    return res.status(400).json({ error: 'Enter the package WiFi password and a complete TV MAC address.' });
-  }
-  const added = tenant.addTvDevice({ locationId: location.id, payerPhone: phone, subscriptionId, password, mac, label });
-  if (added.error === 'subscription' || added.error === 'password') {
-    return res.status(403).json({ error: 'That package or WiFi password is not correct.' });
-  }
-  if (added.error === 'expired') return res.status(402).json({ error: 'This package has ended. Buy time before connecting a TV.' });
-  if (added.error === 'same-device') return res.status(400).json({ error: 'Use the MAC address of the TV or streaming device, not the phone already using this package.' });
-  if (added.error === 'owned') return res.status(409).json({ error: 'That device is already attached to another customer package.' });
-  if (added.error === 'limit') return res.status(409).json({
-    error: `This package already has ${added.device.label || 'a TV'} connected. Remove it before adding another device.`,
-    device: { mac: added.device.mac, label: added.device.label },
-  });
-  res.json({ status: 'pending', provisioningJobId: added.provisioningJobId, mac: added.mac, label: added.label });
+  res.status(402).json({ error: 'TV access requires a separate package. Choose Buy for TV.' });
 });
 
 app.post('/api/tenant/:locationId/devices/remove', (req, res) => {

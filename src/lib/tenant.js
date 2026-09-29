@@ -1627,13 +1627,6 @@ const pendingPaymentForPhone = db.prepare(`
 const deviceByMac = db.prepare(`SELECT * FROM tenant_devices WHERE location_id=? AND mac=?`);
 const deviceForSubscription = db.prepare(`SELECT * FROM tenant_devices WHERE location_id=? AND subscription_id=?`);
 const devicesForSubscription = db.prepare(`SELECT * FROM tenant_devices WHERE location_id=? AND subscription_id=? ORDER BY created_at`);
-const addDevice = db.prepare(`
-  INSERT INTO tenant_devices (location_id, mac, subscription_id, label)
-  VALUES (@locationId, @mac, @subscriptionId, @label)
-`);
-const updateDevice = db.prepare(`
-  UPDATE tenant_devices SET label=@label WHERE location_id=@locationId AND mac=@mac AND subscription_id=@subscriptionId
-`);
 const removeDevice = db.prepare(`
   DELETE FROM tenant_devices WHERE location_id=@locationId AND mac=@mac AND subscription_id=@subscriptionId
 `);
@@ -4114,28 +4107,6 @@ function transferSubscription({ locationId, payerPhone, subscriptionId, password
   return { ...subscription, mac, provisioningJobId: Number(job.lastInsertRowid) };
 }
 
-function addTvDevice({ locationId, payerPhone, subscriptionId, password, mac, label, profile = 'standard' }) {
-  const subscription = subscriptionForPayer.get(subscriptionId, locationId, payerPhone);
-  if (!subscription) return { error: 'subscription' };
-  const expected = Buffer.from(subscription.password);
-  const supplied = Buffer.from(String(password || '').toUpperCase());
-  if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) return { error: 'password' };
-  const expiry = new Date(subscription.expires_at.replace(' ', 'T') + 'Z').getTime();
-  if (!Number.isFinite(expiry) || expiry <= Date.now()) return { error: 'expired' };
-  if (subscription.mac === mac) return { error: 'same-device' };
-  if (subscriptionByMac.get(locationId, mac)) return { error: 'owned' };
-  const existingMac = deviceByMac.get(locationId, mac);
-  if (existingMac && existingMac.subscription_id !== subscription.id) return { error: 'owned' };
-  const existingDevice = deviceForSubscription.get(locationId, subscription.id);
-  if (existingDevice && existingDevice.mac !== mac) return { error: 'limit', device: existingDevice };
-  if (existingDevice) updateDevice.run({ locationId, mac, subscriptionId, label });
-  else addDevice.run({ locationId, mac, subscriptionId, label });
-  meterDevice.run(subscription.business_id, mac);
-  const job = insertJob.run({ locationId, username: `${subscription.router_username}-tv`, password: subscription.password,
-    profile, totalSeconds: subscription.total_seconds, rateLimit: subscription.rate_limit, mac, ip: null, action: 'upsert' });
-  return { subscription, mac, label, provisioningJobId: Number(job.lastInsertRowid) };
-}
-
 function removeTvDevice({ locationId, payerPhone, subscriptionId, password, mac }) {
   const subscription = subscriptionForPayer.get(subscriptionId, locationId, payerPhone);
   if (!subscription) return false;
@@ -4546,7 +4517,7 @@ module.exports = {
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, latestPaidTransactionForSubscription, setSubscriptionMac,
   grantSubscription, provisionPaidTransaction, createPaymentClaim, claimPaymentDevice, recordUsage, expiredSubscriptions, activeMeter,
   insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
-  transferSubscription, addTvDevice, removeTvDevice, deviceForSubscription, devicesForSubscription,
+  transferSubscription, removeTvDevice, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,
   issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions,
   paymentConnectionSummary, savePaymentConnection, paymentCredentials,

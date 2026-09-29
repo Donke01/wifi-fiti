@@ -11,6 +11,9 @@ const vm = require('node:vm');
 const html = fs.readFileSync(path.join(__dirname, '../public/tenant-portal.html'), 'utf8');
 assert.match(html, /#buy > \.copy\{display:none\}\n\s*#buy > \.copy\.owner-message\{display:block;text-align:center\}/, 'only an owner-written message shows above the packages');
 assert.match(html, /body\[data-portal-background="midnight"\] \.brand-name\{color:#fff\}/, 'the business name stays readable on the midnight background');
+assert.match(html, /body\[data-portal-align="left"\] :is\(\.brand,#buy > h1,\.recovery-jump\)\{text-align:left\}/,
+  'a left-aligned design aligns the business name, heading and message alike');
+assert.match(html, /body\[data-portal-align="left"\] \.brand-mark\{margin-left:0;margin-right:0\}/, 'and the logo');
 const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(match => match[1]);
 assert.equal(scripts.length, 1, 'exercise the actual portal application script');
 const originTime = Date.parse('2026-09-05T12:00:00Z');
@@ -324,6 +327,67 @@ async function test(name, callback) {
     assert.equal(JSON.parse(page.localData.get(storagePrefix + '_session')), 'new-browser-capability');
     assert.equal(page.count('/pay'), 0);
     assert.deepEqual(page.navigations, []);
+  });
+
+  await test('Lipa na PayBill is hidden when the business has no PayBill', async () => {
+    const page = createPage();
+    await page.flush();
+    assert.equal(page.visible('open-paybill'), false, 'no PayBill tile without a PayBill');
+    assert.equal(page.visible('paybill-section'), false);
+    assert.equal(page.element('buy').classList.contains('no-paybill'), true, 'the voucher tile fills the empty row');
+    assert.match(html, /#buy\.no-paybill #open-voucher\{grid-column:1\/-1\}/);
+  });
+
+  await test('Lipa na PayBill shows the business PayBill and its account number', async () => {
+    const config = { location: { businessName: 'Test WiFi', name: 'Test location' },
+      packages: [{ id: 1, name: 'One hour', price: 20, seconds: 3600 }] };
+    const plain = createPage({ config: { ...config, paybill: { shortcode: '600555', accountPrefix: '' } } });
+    await plain.flush();
+    assert.equal(plain.visible('open-paybill'), true);
+    assert.equal(plain.element('buy').classList.contains('no-paybill'), false);
+    await plain.click('open-paybill');
+    assert.equal(plain.visible('paybill-section'), true);
+    assert.equal(plain.element('paybill-details').textContent, 'PayBill number: 600555 · Account number: your M‑Pesa phone number.');
+    const prefixed = createPage({ config: { ...config, paybill: { shortcode: '600555', accountPrefix: 'WF' } } });
+    await prefixed.flush();
+    assert.match(prefixed.element('paybill-details').textContent, /Account number: WF then your M‑Pesa phone number, e\.g\. WF0712345678\./);
+  });
+
+  await test('Buy for TV chooses its own package, even from the active package screen', async () => {
+    const sessionToken = 'tv-session-capability';
+    const page = createPage({
+      config: { location: { businessName: 'Test WiFi', name: 'Test location' }, packages: [
+        { id: 1, name: 'One hour', price: 20, seconds: 3600 }, { id: 2, name: 'One day', price: 50, seconds: 86400 }] },
+      localData: new Map([[storagePrefix + '_session', JSON.stringify(sessionToken)]]),
+      respond(request) {
+        if (request.path.startsWith('/session?')) return { ...activeSession };
+        if (request.path === '/session/connect') return { ...activeSession, provisioningJobId: 31 };
+        if (request.path === '/router-jobs/31') return { ready: true };
+        if (request.path === '/pay') return { checkoutRequestId: 'tv-checkout', portalToken: 'tv-portal-token' };
+      },
+    });
+    await page.flush();
+    await page.advance(1500);
+    assert.equal(page.visible('active'), true);
+    await page.click('manage-tv');
+    assert.equal(page.visible('tv-section'), true);
+    assert.equal(page.visible('buy'), false, 'the active screen stays; the TV section carries its own package list');
+    const choices = page.element('tv-plans').children;
+    assert.deepEqual(choices.map(item => item.children[0].children[0].textContent), ['One hour', 'One day']);
+    assert.equal(page.element('tv-existing').textContent, 'A TV needs its own package. Choose it below, then pick the TV.');
+    assert.equal(page.element('add-tv').textContent, 'LIPA NA M-PESA FOR TV · KES 20');
+    await choices[1].onclick();
+    assert.equal(choices[1].classList.contains('active'), true);
+    assert.equal(page.element('add-tv').textContent, 'LIPA NA M-PESA FOR TV · KES 50');
+    await page.click('tv-manual');
+    assert.equal(page.element('tv-phone').value, activeSession.payerPhone);
+    page.element('tv-mac').value = 'AA:BB:CC:DD:EE:77';
+    await page.click('add-tv');
+    const pay = page.requests.find(request => request.path === '/pay');
+    assert.deepEqual({ packageId: pay.body.packageId, deviceType: pay.body.deviceType, mac: pay.body.mac, phone: pay.body.phone },
+      { packageId: '2', deviceType: 'tv', mac: 'AA:BB:CC:DD:EE:77', phone: activeSession.payerPhone });
+    assert.equal(page.count('/devices/add'), 0, 'a TV is never added to the phone package');
+    assert.doesNotMatch(html, /devices\/add|remove-tv/, 'the portal has no add-a-TV-to-my-package path');
   });
 
   console.log('\nTenant portal UI: ' + passed + ' passed, ' + failures.length + ' failed.');

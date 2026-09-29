@@ -631,16 +631,13 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'moving time onto another existing subscription must be rejected cleanly'
   );
 
-  // One physical TV can be attached to a subscription. The router receives a
-  // dedicated MAC-bound account, and a second TV is refused.
-  const tv = tenant.addTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
-    password: firstGrant.password, mac: 'AA:BB:CC:DD:EE:99', label: 'Living room TV' });
-  assert.ok(tv.provisioningJobId > 0);
+  // A TV now buys its own package, but a TV linked to a phone's package
+  // before that change can still be on file. Its separate router identity
+  // must still expire and be removable.
+  assert.strictEqual(tenant.addTvDevice, undefined, 'a TV can no longer be added to a phone package');
+  legacy.db.prepare(`INSERT INTO tenant_devices (location_id, mac, subscription_id, label)
+    VALUES (?, 'AA:BB:CC:DD:EE:99', ?, 'Living room TV')`).run(alpha.id, firstGrant.id);
   assert.strictEqual(tenant.deviceForSubscription.get(alpha.id, firstGrant.id).label, 'Living room TV');
-  assert.strictEqual(tenant.addTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
-    password: firstGrant.password, mac: 'AA:BB:CC:DD:EE:98', label: 'Second TV' }).error, 'limit');
-  assert.strictEqual(tenant.addTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
-    password: firstGrant.password, mac, label: 'Phone again' }).error, 'same-device');
 
   // Expiry is server wall-clock based. The linked TV uses a distinct router
   // identity, so both identities must receive a single idempotent revoke.
