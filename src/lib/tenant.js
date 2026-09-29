@@ -2803,7 +2803,8 @@ function recordRouterTelemetry({ locationId, cpuPercent, freeMemory, totalMemory
   const location = locationById.get(locationId);
   if (!location) return null;
   const finite = (value, min, max) => {
-    if (value === '' || value === null || value === undefined) return null;
+    // Blank (even just spaces) is "not reported", never 0.
+    if (value === null || value === undefined || String(value).trim() === '') return null;
     const number = Number(value);
     return Number.isFinite(number) && number >= min && number <= max ? Math.round(number * 100) / 100 : null;
   };
@@ -2863,6 +2864,32 @@ function routerTelemetryForLocationId(locationId, { since, limit = 500 } = {}) {
   return {
     latest: latestRouterTelemetry.get(locationId) || null,
     samples: routerTelemetryForLocation.all(locationId, from, safeLimit),
+  };
+}
+
+// Every poll reports each Wi-Fi Fiti customer on the router with a live-session
+// flag (ingestTenantUsage), so this is "customers online at the last check-in".
+const customersOnlineAtLocation = db.prepare(`
+  SELECT COUNT(*) AS n FROM tenant_subscriptions
+   WHERE location_id=? AND is_active=1 AND expires_at > datetime('now')
+`);
+/**
+ * What the server already knows from the router's normal check-ins, for the
+ * router card before any telemetry or Router health result exists: when it
+ * last checked in, customers online then, and (universal kit) the RouterOS
+ * version and board from its last layout report. null before a first check-in.
+ */
+function routerCheckIn(location) {
+  if (!location) return null;
+  const at = location.last_seen_at || location.last_successful_sync_at || null;
+  if (!at) return null;
+  const layout = routerInventoryForLocation(location.id);
+  return {
+    at,
+    customersOnline: Number(customersOnlineAtLocation.get(location.id).n) || 0,
+    routerosVersion: (layout && layout.routerosVersion) || null,
+    board: (layout && layout.board) || null,
+    layoutAt: (layout && layout.reportedAt) || null,
   };
 }
 
@@ -4517,7 +4544,7 @@ module.exports = {
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, renameRouterBridge, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
-  recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId,
+  recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId, routerCheckIn,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,

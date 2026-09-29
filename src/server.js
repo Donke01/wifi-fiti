@@ -887,17 +887,20 @@ function locationDraftInput(body, { routerNameRequired = false } = {}) {
   return { location, routerName: routerName || null };
 }
 
-function canAddLocation(business, res) {
-  const plan = businessPlanEntitlements(business);
-  // Paid hotspot capacity is priced per concurrent customer, not per router.
-  // One router while on the free trial, and still one after a trial ends
-  // without a plan (each router also takes a VPN peer). Paying for hotspot or
-  // PPPoE, or a paid account, lifts the limit.
-  if (serviceBilling.routerLimitLifted(business)) return true;
+// Paid hotspot capacity is priced per concurrent customer, not per router.
+// One router while on the free trial, and still one after a trial ends
+// without a plan (each router also takes a VPN peer). Paying for hotspot or
+// PPPoE, or a paid account, lifts the limit. null means no limit.
+function routerLimit(business) {
+  if (serviceBilling.routerLimitLifted(business)) return null;
   const services = serviceBilling.summary(business);
-  if (services.pppoe && ['active', 'grace'].includes(services.pppoe.status)) return true;
+  if (services.pppoe && ['active', 'grace'].includes(services.pppoe.status)) return null;
   const onTrialAccount = String(business.billing_status || '').toLowerCase() === 'trial';
-  const limit = plan.routerLimit || (onTrialAccount ? 1 : null);
+  return businessPlanEntitlements(business).routerLimit || (onTrialAccount ? 1 : null);
+}
+
+function canAddLocation(business, res) {
+  const limit = routerLimit(business);
   const existing = tenant.locationsForBusiness.all(business.id)
     .filter((location) => String(location.router_status || '').toLowerCase() !== 'offboarding');
   if (limit && existing.length >= limit) {
@@ -1220,7 +1223,7 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), trialLimits: trialLimited(business) ? TRIAL_LIMITS : null, phoneVerification: { available: phoneVerification.available(), verified: phoneVerification.verified(business), required: Boolean(ownerPhoneBlock(business)) }, tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), trialLimits: trialLimited(business) ? TRIAL_LIMITS : null, routerLimit: routerLimit(business), phoneVerification: { available: phoneVerification.available(), verified: phoneVerification.verified(business), required: Boolean(ownerPhoneBlock(business)) }, tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -2222,7 +2225,10 @@ app.get('/api/business/router-telemetry', (req, res) => {
   const period = String(req.query.period || '24h');
   const hours = period === '1h' ? 1 : period === '6h' ? 6 : period === '7d' ? 168 : 24;
   const since = new Date(Date.now() - hours * 3600_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
-  res.json({ locationId, period, ...tenant.routerTelemetryForLocationId(location.id, { since, limit: 1000 }) });
+  // The last Router health check (Router tools) fills in for routers whose
+  // kit sends no telemetry; before one exists, the card shows what the
+  // router's normal check-ins already told the server.
+  res.json({ locationId, period, ...tenant.routerTelemetryForLocationId(location.id, { since, limit: 1000 }), health: routerTools.latestHealth(location.id), checkIn: tenant.routerCheckIn(location) });
 });
 
 app.get('/api/business/vouchers', (req, res) => {
