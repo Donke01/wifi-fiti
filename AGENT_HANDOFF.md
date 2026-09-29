@@ -9,9 +9,11 @@ branch and do not put production secrets, router keys, database files, or
 **Merged to `main` on 29 Sep at Don's request, in this order:** #18 → #13 →
 #14 → #16 → #15 → #17 (this handoff). A push to `main` redeploys Railway.
 
-**Set `ADMIN_PASSWORD` on Railway.** Since #18, platform-admin confirmations
-(plan changes, token rotation, offboarding, PPPoE and FitiSignal controls)
-are refused until it is set.
+**`ADMIN_PASSWORD` is set on Railway (done 29 Sep).** Don set it and the
+command center opens with it. It is now both the platform-admin sign-in (it
+replaces `ADMIN_TOKEN` when both exist) and the confirmation for plan
+changes, token rotation, offboarding, and PPPoE and FitiSignal controls.
+`ADMIN_TOKEN` is kept on Railway for now but no longer signs in.
 
 What the merge itself had to fix (all in the #14–#15 merge commits; tested
 with `npm test`, and in Chromium at 390 and 1280 px as the owner and as an
@@ -73,7 +75,7 @@ Also in #18: admin confirmations need `ADMIN_PASSWORD`, and there is no
 "CONFIRM" fallback. The new `src/lib/admin/confirm.js` hashes both sides
 and compares them in constant time. The admin token compare works the same
 way. With the password unset, dangerous admin actions answer 503.
-**Set `ADMIN_PASSWORD` on Railway before merging #18.** The PPPoE admin
+**`ADMIN_PASSWORD` is set on Railway (29 Sep).** The PPPoE admin
 table also scrolls sideways on a phone now.
 
 1. **Old single-site portal off.**
