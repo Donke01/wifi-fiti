@@ -729,6 +729,16 @@ async function main() {
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'acknowledged expiry is not emitted forever');
   });
 
+  await test('a portal design saved with the dropped rounded font is served as modern', async () => {
+    database.prepare(`INSERT INTO tenant_portal_templates(id,business_id,name,layout,accent_color,font_family,active) VALUES('tpl_old_rounded',?,'Old rounded','classic','#1769D8','rounded',1)`)
+      .run(alpha.business.id);
+    try {
+      assert.equal((await api(endpoint(alpha.location, 'config'))).body.template.fontFamily, 'modern');
+      const listed = await api('/api/business/portal-templates', { token: alpha.token });
+      assert.equal(listed.body.templates.find((row) => row.id === 'tpl_old_rounded').fontFamily, 'modern');
+    } finally { database.prepare("DELETE FROM tenant_portal_templates WHERE id='tpl_old_rounded'").run(); }
+  });
+
   await test('a TV linked to a phone package before TVs bought their own is removed by its customer only, then buys its own', async () => {
     const granted = await voucher(alpha, 'AA:BB:CC:00:00:70', '254712000070');
     const tvMac = 'AA:BB:CC:00:00:71';

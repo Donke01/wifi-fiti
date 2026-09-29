@@ -444,6 +444,41 @@ assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : s
     for (const key of ['name', 'layout', 'accentColor', 'welcomeMessage', 'fontFamily', 'textAlign', 'packageStyle', 'backgroundStyle']) assert.equal(saved.payload.template[key], item[key], item.id + ' keeps its ' + key);
     assert.ok(1.05 / (luminance(item.accentColor) + 0.05) >= 4.5, item.id + ' accent keeps 4.5:1 contrast on white');
   }
+  // "Rounded" was dropped (no rounded system font on Android): a cached
+  // dashboard or an older portal that still sends it gets "modern".
+  assert.notEqual(catalog.some((item) => item.fontFamily === 'rounded'), true, 'no design uses the dropped rounded font');
+  assert.doesNotMatch(html, /<option value="rounded">/, 'the dashboard no longer offers Rounded');
+  const roundedSave = call('post /api/business/portal-templates', { name: 'Old rounded', layout: 'classic', accentColor: '#1769D8', fontFamily: 'rounded' });
+  assert.equal(roundedSave.status, 201, JSON.stringify(roundedSave.payload));
+  assert.equal(roundedSave.payload.template.fontFamily, 'modern', 'a saved "rounded" is stored and shown as modern');
+  assert.equal(call('post /api/business/portal-templates', { name: 'Bad font', layout: 'classic', accentColor: '#1769D8', fontFamily: 'comic' }).status, 400);
+  const { portalFont } = require('../src/lib/tenant-portal-templates');
+  assert.deepEqual(['rounded', '', null, 'modern', 'condensed', 'mono'].map(portalFont), ['modern', 'modern', 'modern', 'modern', 'condensed', 'mono']);
+}
+// Portal font stacks use only fonts that Android and iPhone ship (the portal
+// loads no web fonts behind the walled garden), plus CSS generic families.
+{
+  const portal = fs.readFileSync(path.join(__dirname, '../public/tenant-portal.html'), 'utf8');
+  const shipped = new Set([
+    // generic CSS families
+    'sans-serif', 'serif', 'monospace', 'system-ui', 'ui-sans-serif', 'ui-monospace', '-apple-system',
+    // iOS
+    'Avenir Next Condensed', 'Menlo',
+    // Android (fonts.xml family names, used by Chrome on Android)
+    'sans-serif-condensed',
+  ]);
+  const stacks = [
+    ...[...portal.matchAll(/body\[data-portal-font="([a-z]+)"\]\{font-family:([^;}]+)/g)].map((m) => ['portal ' + m[1], m[2]]),
+    ...[...html.matchAll(/\.portal-template-preview\[data-previewfont-family="([a-z]+)"\]\{font-family:([^;}]+)/g)].map((m) => ['preview ' + m[1], m[2]]),
+    ...[...portal.matchAll(/(\.utility b|\.mpesa-word|\.mpesa-button \.mpesa-label)\{[^}]*?font-family:([^;}]+)/g)].map((m) => [m[1], m[2]]),
+  ];
+  const kinds = stacks.map(([where]) => where);
+  for (const expected of ['portal condensed', 'portal mono', 'preview condensed', 'preview mono', '.utility b', '.mpesa-word', '.mpesa-button .mpesa-label']) assert.ok(kinds.includes(expected), expected + ' has a font stack');
+  assert.equal(kinds.some((where) => /rounded/.test(where)), false, 'no rounded font rule is left');
+  for (const [where, stack] of stacks) {
+    for (const font of stack.split(',').map((name) => name.trim().replace(/^["']|["']$/g, ''))) assert.ok(shipped.has(font), where + ': ' + font + ' is not a font Android or iPhone ships');
+  }
+  assert.match(portal, /document\.body\.dataset\.portalFont = template\.fontFamily === 'rounded' \? 'modern' : template\.fontFamily;/, 'the portal shows a saved rounded design as modern');
 }
 console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');
 assert.match(html, /if \(routerBoardsShown\[boardKey\]\) \{ board\.classList\.add\('rb-settled'\);/, 'redraws do not replay the routerboard entrance motion');
