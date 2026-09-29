@@ -3,7 +3,7 @@
 /*
  * Who is online right now, and each customer's session history.
  *
- * About once a minute the ordinary check-in reply carries a short, read-only
+ * Every 30 seconds (10 while the owner watches) the ordinary check-in reply carries a short, read-only
  * RouterOS block (telemetryReplyScript). The router runs it inside the same
  * check-in job (still one check-in at a time), reads its own load and the
  * hotspot's active list, and posts one small report to /api/router/telemetry
@@ -24,7 +24,7 @@ const { db } = require('./db');
 // A router that has not reported within this window is "not reporting":
 // its customers show as unknown and its online count falls back to the
 // older rule (packages with time left), which never oversells.
-const FRESH_SECONDS = 180;
+const FRESH_SECONDS = 90;
 // Sessions that stopped being reported (router went quiet) are closed at
 // their last report after this long.
 const STALE_SESSION_MINUTES = 10;

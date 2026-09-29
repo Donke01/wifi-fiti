@@ -196,7 +196,8 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
 ### Router telemetry and Active users (branch `router-telemetry`, not merged)
 
 - **Charts and Active users:** the router charts and a live "Active users"
-  view come from a short read-only report. About once a minute a quiet
+  view come from a short read-only report. Every 30 seconds (10 while the
+  owner watches Active users) a quiet
   check-in reply asks each router for it (`src/lib/hotspot-sessions.js`,
   `public/online-users.js`). The README section "Router telemetry and Active
   users" has the details.
