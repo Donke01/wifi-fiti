@@ -252,6 +252,30 @@ async function test(name, fn) {
     assert.equal(local.status, 302, 'public/index.html is not served statically');
     assert.equal(local.headers.get('location'), '/business.html');
   });
+  await test('a failed recovery says why: other router, other number, still confirming, code not received', async () => {
+    database.prepare(`INSERT INTO locations (id, business_id, name, router_token) VALUES ('loc-2', 'biz', 'Sirende', 'rt-2')`).run();
+    database.prepare(`INSERT INTO businesses (id, name, owner_name, owner_phone, email, password_hash) VALUES ('biz-x', 'Other', 'X', '0700000000', 'x@test.ke', 'x')`).run();
+    database.prepare(`INSERT INTO locations (id, business_id, name, router_token) VALUES ('loc-x', 'biz-x', 'Elsewhere', 'rt-x')`).run();
+    const tx = database.prepare(`INSERT INTO tenant_transactions (checkout_request_id, business_id, location_id, phone, package_id, package_name, amount, seconds, mac, status, mpesa_receipt)
+      VALUES (?, ?, ?, ?, 1, 'Day pass', 20, 86400, 'AA:BB:CC:66:00:01', ?, ?)`);
+    tx.run('ws-why-1', 'biz', 'loc-2', '254711600001', 'paid', 'WHYOTHER1');
+    tx.run('ws-why-2', 'biz', 'loc', '254711600002', 'paid', 'WHYPHONE2');
+    tx.run('ws-why-3', 'biz', 'loc', '254711600003', 'pending', 'WHYWAIT03');
+    tx.run('ws-why-4', 'biz', 'loc', '254711600004', 'paid', null);
+    tx.run('ws-why-5', 'biz-x', 'loc-x', '254711600005', 'paid', 'WHYSECRET');
+    const recover = (phone, receipt) => call('POST', '/api/tenant/loc/payment-recover', { phone, receipt, mac: 'AA:BB:CC:66:00:09' });
+    const other = await recover('0711600001', 'WHYOTHER1');
+    assert.equal(other.body.code, 'other_location'); assert.match(other.body.error, /Sirende Wi‑Fi/);
+    const phone = await recover('0711600099', 'WHYPHONE2');
+    assert.equal(phone.body.code, 'other_phone'); assert.equal(phone.body.password, undefined);
+    assert.equal((await recover('0711600003', 'WHYWAIT03')).body.code, 'pending');
+    const unknown = await recover('0711600004', 'QAB12CD34');
+    assert.equal(unknown.body.code, 'receipt_unknown'); assert.match(unknown.body.error, /Ask the WiFi operator to switch you on/);
+    const foreign = await recover('0711600005', 'WHYSECRET');
+    assert.equal(foreign.body.code, 'not_found', 'another business\'s payment reveals nothing');
+    assert.doesNotMatch(foreign.body.error, /Elsewhere/);
+    assert.equal((await recover('0711600006', 'NOSUCH123')).body.code, 'not_found');
+  });
   await test('legacy lookup by phone gives the password only to the device that owns the time', () => legacyOn(async () => {
     await call('POST', `/api/c2b/site/${SITE_C2B_TOKEN}/confirm`, { TransID: 'SITE003', TransAmount: '50', BusinessShortCode: '174379', BillRefNumber: '0722000010' });
     await settle(); await settle();

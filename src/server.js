@@ -2757,7 +2757,21 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
   const mac = cleanMac(req.body && req.body.mac);
   if (!phone || !/^[A-Z0-9]{6,32}$/.test(receipt)) return res.status(400).json({ error: 'Enter the paying number and the M-Pesa transaction code.' });
   let transaction = tenant.paidTransactionByReceipt.get(location.id, phone, receipt);
-  if (!transaction) return res.status(404).json({ error: 'We could not find a confirmed payment for that number and transaction code.' });
+  if (!transaction) {
+    const miss = tenant.paymentRecoveryMiss(location, phone, receipt);
+    console.warn(`[tenant recover] ${location.id} ${phone.slice(0, 5)}… ${receipt.slice(0, 3)}…: ${miss.reason}`);
+    const answers = {
+      other_location: [409, `This payment was made on the ${miss.locationName} Wi‑Fi. Join that Wi‑Fi and recover it there.`],
+      other_phone: [404, 'That M-Pesa code was paid from a different number. Enter the number that paid.'],
+      pending: [409, 'Your payment is still being confirmed. Wait a minute, then try again.'],
+      failed: [409, 'That payment was not completed, so no money was taken for it. If M-Pesa sent you a confirmation message, ask the WiFi operator for help.'],
+      receipt_unknown: [409, 'Your payment is recorded, but its M-Pesa code has not reached us yet. Ask the WiFi operator to switch you on; they can find it by your number.'],
+      not_confirmed: [409, 'The payment provider has not confirmed this payment yet. If money left your M-Pesa, ask the WiFi operator; they can find it by your number.'],
+      not_found: [404, 'We could not find a confirmed payment for that number and transaction code. Check both against your M-Pesa message.'],
+    };
+    const [status, error] = answers[miss.reason] || answers.not_found;
+    return res.status(status).json({ code: miss.reason, error });
+  }
   if (String(transaction.mac || '').startsWith('CLAIM:')) {
     // Bought before joining the Wi-Fi and the claim code was never used (or
     // expired): the paying number and receipt bind it to this device.
