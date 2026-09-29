@@ -452,10 +452,22 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     (error) => error && error.status === 409 && /already in use/.test(error.message),
     'a customer address belongs to only one location');
 
+  // Editing the address switches the old one off: only the newest resolves.
+  for (const slug of ['alpha-one', 'alpha-two', 'alpha-three', 'alpha-four']) {
+    tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug });
+  }
+  assert.ok(tenant.portalDomainByHostname.get('alpha-four.fiti.test'), 'the new address works');
+  for (const slug of ['alpha-one', 'alpha-two', 'alpha-three']) {
+    assert.strictEqual(tenant.portalDomainByHostname.get(`${slug}.fiti.test`), undefined, `the old ${slug} address stops working`);
+  }
+  assert.deepStrictEqual(tenant.portalDomainsForLocation.all(alpha.id).filter((d) => d.status === 'active').map((d) => d.hostname),
+    ['alpha-four.fiti.test'], 'a location has one working address');
+  assert.throws(() => tenant.setManagedPortalHostname({ locationId: collisionOwner.id, businessId: 'business-a', slug: 'alpha-one' }),
+    (error) => error && error.status === 409 && /already in use/.test(error.message),
+    'another tenant cannot take over a retired address and catch its old links');
   tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-one' });
-  tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-two' });
-  tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-three' });
-  assert.throws(() => tenant.setManagedPortalHostname({ locationId: alpha.id, businessId: 'business-a', slug: 'alpha-four' }), /three active portal addresses/);
+  assert.ok(tenant.portalDomainByHostname.get('alpha-one.fiti.test'), 'the owner can switch back to an old address');
+  assert.strictEqual(tenant.portalDomainByHostname.get('alpha-four.fiti.test'), undefined, 'and the one it replaced stops working');
   assert.strictEqual(tenant.managedPortalSlugReserved('cloud'), true, 'system host labels cannot be claimed by tenants');
   const staged = tenant.rotateLocationToken({ locationId: alpha.id, businessId: 'business-a' });
   assert.ok(staged.routerToken, 'replacement kit receives a one-time staged credential');

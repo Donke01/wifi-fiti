@@ -429,9 +429,10 @@ PPPoE subscribers. A router's expired-customer page follows the new address
 at its next expiry.
 
 The dashboard lets a tenant choose a managed first-level address. Changing it
-keeps the former hostname as a live alias so an already paired router does not
-break; each location is limited to three active addresses, after which support
-can retire an old one. Tenant-owned domains are a later feature: they need DNS
+switches the old hostname off at once (the Worker may serve it for up to 30 s
+from its cache); the paired router moves to the new address at its next
+check-in. The old hostname stays reserved for that location, so no other tenant
+can take it and catch customers who still have the old link. Tenant-owned domains are a later feature: they need DNS
 ownership verification and certificate lifecycle management, not merely a
 CNAME.
 
