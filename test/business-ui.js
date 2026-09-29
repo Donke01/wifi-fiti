@@ -423,6 +423,27 @@ assert.match(html, /function appendNetworkPlanner\(/, 'the routerboard carries t
 assert.match(html, /\/network-plan'/, 'the planner saves the map to the network-plan endpoint');
 assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : state === 'free' \? 'Free' : state === 'movable' \? 'Movable' : 'In use'/,
   'every part says whether it is free, in use or carrying the internet');
+// The "Design your portal" form overrides the global button (inline-flex)
+// and input (full width, 47px tall) rules: preset buttons stack the title over
+// its description, and the "Show …" choices are small checkboxes on the same
+// line as their label, at every width.
+{
+  const rule = (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = html.match(new RegExp('(?:^|[}\\s])' + escaped + '\\{([^}]*)\\}', 'm'));
+    assert.ok(match, selector + ' has its own rule');
+    return match[1];
+  };
+  assert.match(rule('.portal-template-preset'), /(^|;)display:block/, 'preset buttons are blocks, not the global inline-flex row');
+  assert.match(rule('.portal-template-preset strong'), /display:block/, 'the preset title sits on its own line');
+  assert.match(rule('.portal-template-creator label.check'), /display:flex/);
+  const checkbox = rule('.portal-template-creator label.check input');
+  assert.match(checkbox, /width:20px/, 'checkboxes are not full width');
+  assert.match(checkbox, /min-height:0/, 'checkboxes drop the 47px field height');
+  const form = html.match(/<form id="portal-template-form"[\s\S]*?<\/form>/)[0];
+  assert.equal((form.match(/<label class="check"><input name="show(?:Packages|Utilities)" type="checkbox"/g) || []).length, 2,
+    'both "Show …" choices are checkboxes inside label.check');
+}
 // Ready-made portal designs: each sets every option, the server accepts it
 // unchanged, and its accent stays readable on the white cards.
 {
