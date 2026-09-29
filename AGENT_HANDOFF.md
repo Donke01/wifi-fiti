@@ -4,7 +4,161 @@ This repository is the source of truth for Wi-Fi Fiti. Work from the `main`
 branch and do not put production secrets, router keys, database files, or
 `.env` files into Git or support messages.
 
-## Handover — 28 Sep 2026, night (read this first)
+## What changed overnight — 29 Sep 2026 (read this first)
+
+**Merged to `main` on 29 Sep at Don's request, in this order:** #18 → #13 →
+#14 → #16 → #15 → #17 (this handoff). A push to `main` redeploys Railway.
+
+**Set `ADMIN_PASSWORD` on Railway.** Since #18, platform-admin confirmations
+(plan changes, token rotation, offboarding, PPPoE and FitiSignal controls)
+are refused until it is set.
+
+What the merge itself had to fix (all in the #14–#15 merge commits; tested
+with `npm test`, and in Chromium at 390 and 1280 px as the owner and as an
+Attendant):
+- #15's route table lacked #14's `/support/search` and `/support/summary`,
+  so staff were refused them. Both need `customers.view`.
+- #16's new sections got permissions in `public/team.js`:
+  - PPPoE tab: `customers.edit` (Owner and Manager)
+  - Support search: `customers.view` (it is now the customer lookup)
+  - Support tickets: `support`
+  - Plan receipts: owner only
+- The menu showed only Home and Customers to an Attendant: menu items are
+  page ids (`money`, `packages`), which #15 looked up as tab ids. Now:
+  - A menu item shows when any tab of its page is allowed.
+  - Tabs a role can't open are not drawn.
+  - A refused tab opens the first allowed tab of the page.
+  - The page is now chosen after that fallback; before, the fallback left
+    the wrong menu item marked.
+- #14's payout export went with #16's hidden Disbursements page.
+- `onboardingFlowState` guards `can()` with `typeof`, for the vm test.
+- The WhatsApp-number scan in `test/business-ui.js` skips the local
+  `.claude` folder.
+- An Attendant now sees Home, Packages & vouchers (Vouchers only), Customers
+  (Customers, Support search, Usage) and Money (Sales, Transactions).
+
+**Day session, 29 Sep:** task 1 was redone and pushed as PR #18. The loose
+ends listed for #13–#16 were fixed on their own branches, so each PR updated.
+Every branch passes `npm test` and `git diff --check`, and the UI changes
+were checked in Chromium at 390 and 1280 px. The PR bodies have the details.
+A trial merge of #18 with #13 is clean and passes `npm test`.
+
+### Branches and PRs
+
+| Task | Branch | PR | State |
+|---|---|---|---|
+| 1 Security | `security-fixes-2` | #18 | Pushed `1e0b584`, `npm test` green, Chromium 390/1280 |
+| 2 Real data | `dashboard-real-data` | #14 | Loose ends fixed `d43aa58`, `npm test` green, Chromium 390/1280 |
+| 3 Flow fixes | `flow-fixes` | #13 | Loose ends fixed `51a6973`, `npm test` green, Chromium 360/390/1280 |
+| 4 Dashboard flow | `dashboard-flow` | #16 | Loose ends fixed `f41059d`, `npm test` green, Chromium 390/1280 |
+| 5 Team accounts | `team-accounts` | #15 | Loose ends fixed `f6a93a4`, `npm test` green, Chromium 390/1280 |
+| Handoff | `handoff-overnight` | this file | |
+
+Each PR body lists its changes, tests, decisions and loose ends in full.
+
+**Merge order used:** security → #13 → #14 → #16 → #15 (notes kept for reference).
+- #14, #16 and #15 all change `public/business.html` heavily, so expect conflicts.
+- #14 fills the placeholders #16 left: Account & limits, support search and the router card.
+- #16 hides the placeholder Team page, which #15 replaces with the real one.
+- After #16 and #15 are both in: add #16's new section ids to `SECTIONS` in `public/team.js`: `remote-section`, `receipts-section` and `tickets-section` (Settings → Receipts & help). Receipts should be owner only (`billing`) and tickets need `support`. `test/business-ui.js` fails until each section has a permission. #15's route table in `src/lib/team.js` already covers `/operations/billing` (owner) and `/operations/tickets` (`support`).
+- Rerun `npm test` and the Chromium check after each merge.
+
+### Task 1 (security): PR #18
+
+The overnight edits were lost with that session's container, so the day
+session redid them from this list. They are on `security-fixes-2` (PR #18).
+The older remote `security-fixes` (8103e5d, 27 Sep) is untouched.
+
+Also in #18: admin confirmations need `ADMIN_PASSWORD`, and there is no
+"CONFIRM" fallback. The new `src/lib/admin/confirm.js` hashes both sides
+and compares them in constant time. The admin token compare works the same
+way. With the password unset, dangerous admin actions answer 503.
+**Set `ADMIN_PASSWORD` on Railway before merging #18.** The PPPoE admin
+table also scrolls sideways on a phone now.
+
+1. **Old single-site portal off.**
+   - New env `LEGACY_SITE_ENABLED` (default off), read per request by `legacySiteEnabled()`.
+   - While off, a middleware answers 410 JSON for:
+     - GET `/api/config`, `/api/session`, `/api/payment/recover`, `/api/status/:id`
+     - POST `/api/pay`, `/api/session/lookup`, `/api/subscriptions/check|transfer`, `/api/device/add|list|remove`, `/api/voucher/redeem`
+   - `legacyPortalRequest()` returns false and `sendLegacyPortal()` 404s.
+   - GET `/` and `/index.html` redirect to `/business.html` instead of serving `public/index.html` statically.
+   - `fromLegacySite()` fails closed: false while off, and false when the site router has not polled in 15 min.
+   - The `LEGACY_SITE_IP_CHECK=off` escape hatch is removed.
+   - `marketing.html`: "View captive portal" pointed at `wififiti.co.ke/legacy`, which would now 404. It goes to `/demo/try`, and the duplicate next to "Live demo" is removed.
+   - README note added.
+   - Tests:
+     - legacy tests set `LEGACY_SITE_ENABLED=true`
+     - `test/security.js` checks every route answers 410 by default, and that no password or TV add is given before a poll
+     - `test/tenant-integration.js` tests the root host with the portal off and on, and checks marketing never links to `/legacy`
+   - Unaffected: tenant portals, the demo, M-Pesa/C2B callbacks and router polling.
+2. **Phone-number lookups rate-limited** (`/api/tenant/:loc/subscriptions/check`, `/devices/list`) in the central limiter.
+   - Limits: 60 per address per location, and 600 per location, per 15 min.
+   - `tenant-portal.html`: the silent pre-payment check treats 429 as "nothing found", so a busy hotspot still sells.
+3. **Voucher redeem attempt limit**, persisted like `/claim`: 10 tries per address per minute. Wrong codes are capped at 30 per address per 15 min and 300 per location per 10 min.
+4. **Review fixes**
+   - `public/pppoe-admin.html`: stored XSS against the platform admin. Tenant-set PPPoE profile names and usernames went into innerHTML unescaped. Now escaped; the broken status column is fixed and ids are URL-encoded.
+   - SMS worker (5 s) had no in-flight guard. A slow batch was picked up again and every SMS in it sent twice. Now one batch at a time.
+   - Payment `reconcile()` sweep (8 s): no in-flight guard. Now one at a time.
+   - `/claim` attempt map was never pruned. Now pruned every minute.
+   - `router-setup.js` `ros()` now also escapes `$` and line breaks. Inputs were already allow-listed, so this is extra safety only.
+5. **Reviewed, no change needed:**
+   - RouterOS script building (`rsc.js` allow-lists; `pppoe.js`, `router-changes.js` and `router-tools.js` escaping)
+   - the edge gateway (header allow-list, host check, narrow paths)
+   - the VPN agent (argument arrays, keys and /32 addresses validated)
+   - `operations.html`, `platform-admin.html` and the admin modules (text or escaped)
+   - PPPoE owner routes (business-scoped) and public pay routes (rate-limited)
+   - sales, telemetry and PPPoE date comparisons
+6. **Left:**
+   - `adminOk` accepts `ADMIN_PASSWORD || ADMIN_TOKEN` as the admin token. So when `ADMIN_PASSWORD` is set, the token and the confirmation are the same secret. This was not changed, because it could lock the desk out. Don should decide.
+   - The voucher and claim per-location failure budgets let someone block entry at one location for about 10 min (a deliberate trade-off).
+   - Not every one of the ~128 migrations was read.
+   - `test/devices.js` and `test/features.js` (not in `npm test`) rely on MAC lookups before a poll.
+
+### Decisions made overnight (all tasks)
+
+- **Legacy portal:** switched off rather than deleted, so an operator can turn it back on with one env var. The IP-check escape hatch is gone.
+- **Phone lookups:** limits are generous, because customers behind one hotspot share an IP, and a blocked check never stops a purchase.
+- **PayBill on the portal (#13):** only an active C2B PayBill registered for that location counts. A Daraja STK shortcode or a Till is not offered as "Lipa na PayBill".
+- **Buy for TV (#13):** only Buy for TV remains. `/devices/add` still answers 402 for old cached portals.
+- **Setup exit (#13):** "Back to workspace" before a router works, and is remembered per browser tab. Home then shows "Add your first router to continue".
+- **Offline router (#13):** a router counts as offline when the server has had no poll for 90 s.
+- **Exports (#14):**
+  - They export what the page shows, with its filters.
+  - Full phone numbers (the owner's own records), UTC times, formula-safe cells.
+  - Sales exports the whole chosen period, up to 500 payments.
+- **Support search (#14):** by phone, voucher code or M-Pesa code only. Results are masked and capped at 20.
+- **Router limit (#14):** the router limit card follows the existing rule, which is still 1 after a trial ends with no plan.
+- **Tabs (#16):** pages with several parts use tabs, not one long stack. Home stays stacked.
+- **Billing & payments (#16):** plan/billing and payment collection are one "Billing & payments" tab, and Usage analytics sits under Customers.
+- **operations.html (#16):** no longer linked from the dashboard, because it holds payouts.
+- **Team roles (#15):**
+  - Invites last 7 days.
+  - One Owner, who can't be invited.
+  - Staff don't reset their own password; the owner's "Reset password" makes a one-time link.
+  - An owner password reset signs out only the owner.
+  - The Manager also gets sales, remote access, customer portal, SMS settings, router backups and PPPoE cash payments; Don's spec didn't mention these either way.
+  - Buying SMS credits and paying Wi-Fi Fiti are owner only.
+- **Team routes (#15):** every `/api/business/*` route is in one table in `src/lib/team.js`. Anything unlisted is refused for non-owners.
+
+### What is left
+
+- **Don:** rotate the Daraja sandbox key, and replace the `MIKROTIK_*` placeholders and `MPESA_ENV` on Railway.
+- **Don:** hardware tests; see "Next steps" in the 28 Sep handover below.
+- **Don:** decide on `changes.diff`. It was not touched.
+- **Don:** set `ADMIN_PASSWORD` on Railway (#18). If any router still uses the old single-site portal, set `LEGACY_SITE_ENABLED=true` until it has been moved.
+- Payouts/disbursements (left for now). They are still only in the unlinked `operations.html`. Plan receipts and support tickets now live in Settings → Receipts & help (#16).
+- **#13:**
+  - The dashboard preview of the portal on a phone is slightly wider than its frame. This was already the case before #13; the real portal is fine.
+  - "Remove this TV" shows only on the phone whose browser holds that package.
+- **#14:**
+  - Uptime, CPU and memory still need Router health or the telemetry test kit, because normal check-ins don't carry them.
+  - Older kits send no RouterOS version or board.
+- **#16:** SMS and email reminders say "Settings > Billing & payments". The arrow is left out on purpose, because it would make an SMS Unicode, which costs more per message.
+- **#15:** the invite email hasn't been sent through real Resend.
+- **Firefox:** nothing overnight was checked in Firefox.
+
+## Handover — 28 Sep 2026, night
 
 ### Where the code is
 
