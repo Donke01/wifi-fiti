@@ -193,6 +193,24 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
   - Not yet seen on a real Android phone or iPhone.
 - **#23:** the "Design your portal" form had 47 px, full-width checkboxes, and preset titles ran into their descriptions, at every width. The cause was the global `button{display:inline-flex}` and `input{width:100%;min-height:47px}` rules. The presets are now blocks, and `label.check` in the form is a flex row with a 20 px checkbox. `test/business-ui.js` checks both.
 
+### Router telemetry and Active users (branch `router-telemetry`, not merged)
+
+- **Charts and Active users:** the router charts and a live "Active users"
+  view come from a short read-only report. About once a minute a quiet
+  check-in reply asks each router for it (`src/lib/hotspot-sessions.js`,
+  `public/online-users.js`). The README section "Router telemetry and Active
+  users" has the details.
+- **Concurrent-user limit:** it now counts customers actually online (Don's
+  choice: count online, block only new sales, never a reconnect). A router
+  that is not reporting falls back to counting packages with time left.
+- **Not yet tested on a real router.** Check it on CLOUDNET (RB951, RouterOS
+  7.24.2) first:
+  - the report arrives, and `[:tonum]` of the uptime and idle times gives
+    seconds;
+  - CPU before and after;
+  - then a small board (hAP lite).
+  - `ROUTER_TELEMETRY=off` on Railway stops it on every router at once.
+
 ### Portal templates (merged in `7c5befe`)
 
 - **One gallery:** `PORTAL_TEMPLATE_CATALOG` in `public/business.html` holds all 15 designs. **Never add a second gallery script.**
