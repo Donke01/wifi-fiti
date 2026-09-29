@@ -138,13 +138,52 @@ const search = (token, q) => api('/api/business/support/search?q=' + encodeURICo
   // Router card: the last Router health check fills in when the kit sends no telemetry.
   const empty = await api(`/api/business/router-telemetry?locationId=${alpha.location}`, { token: alpha.token });
   assert.equal(empty.status, 200); assert.equal(empty.body.latest, null); assert.equal(empty.body.health, null, 'no data, no numbers');
+  assert.equal(empty.body.checkIn, null, 'no check-in yet, nothing to show');
+
+  // Before any Router health result: what the router's normal check-ins told
+  // the server (time, customers online then, RouterOS and board from the layout report).
+  const tenant = require('../src/lib/tenant');
+  const { parseRouterInventory } = require('../src/lib/router-topology');
+  db.prepare(`UPDATE locations SET router_status='online', router_setup_verified_at=datetime('now','-1 hours'), last_seen_at=datetime('now','-1 minutes'), last_successful_sync_at=datetime('now','-1 minutes') WHERE id=?`).run(alpha.location);
+  tenant.recordRouterInventory(alpha.location, parseRouterInventory('fiti-inventory-v2\ninv|agent|6\ninv|system|routeros|7.24.2\ninv|board|hAP_lite\ninv|if|ether1|ether|up\nfiti-inventory-end'));
+  const checkedIn = (await api(`/api/business/router-telemetry?locationId=${alpha.location}`, { token: alpha.token })).body;
+  assert.equal(checkedIn.health, null);
+  assert.match(checkedIn.checkIn.at, /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/, 'the last check-in time');
+  assert.deepEqual({ ...checkedIn.checkIn, at: undefined, layoutAt: undefined }, { at: undefined, customersOnline: 1, routerosVersion: '7.24.2', board: 'hAP_lite', layoutAt: undefined },
+    'one customer online (the ended package and the other business do not count)');
+  assert.doesNotMatch(JSON.stringify(checkedIn.checkIn), /secret|u-alpha|254722333444/, 'no customer details in the check-in summary');
+  // A router on an older kit sends no layout report: time and customers only.
+  db.prepare(`UPDATE locations SET router_status='online', last_seen_at=datetime('now') WHERE id=?`).run(bravo.location);
+  assert.deepEqual({ ...(await api(`/api/business/router-telemetry?locationId=${bravo.location}`, { token: bravo.token })).body.checkIn, at: undefined },
+    { at: undefined, customersOnline: 1, routerosVersion: null, board: null, layoutAt: null });
+  console.log('  ok   router card falls back to the last check-in');
+
   db.prepare(`INSERT INTO tenant_router_tools(location_id,tool,status,result) VALUES(?,'health','done',?)`)
     .run(alpha.location, 'uptime=3d4h\ncpu=12\nfree=20.5MiB\ntotal=64.0MiB\nversion=7.24.2\nhotspot_users=4\n');
   db.prepare(`INSERT INTO tenant_router_tools(location_id,tool,status,result) VALUES(?,'health','failed','error=no_answer')`).run(alpha.location);
   const health = (await api(`/api/business/router-telemetry?locationId=${alpha.location}`, { token: alpha.token })).body.health;
   assert.deepEqual({ ...health, at: undefined }, { cpu: 12, freeMemory: 21495808, totalMemory: 67108864, uptime: '3d4h', hotspotUsers: 4, at: undefined }, 'the last finished check, not the failed one');
   assert.equal((await api(`/api/business/router-telemetry?locationId=${alpha.location}`, { token: bravo.token })).status, 404, 'another business cannot read this router');
+  // An empty or non-numeric reading is "no reading", never 0. A real 0 stays 0.
+  const healthRun = db.prepare(`INSERT INTO tenant_router_tools(location_id,tool,status,result) VALUES(?,'health','done',?)`);
+  healthRun.run(alpha.location, 'uptime=3d5h\ncpu=\nfree=20.5MiB\ntotal=64.0MiB\nhotspot_users= \n');
+  const blank = (await api(`/api/business/router-telemetry?locationId=${alpha.location}`, { token: alpha.token })).body.health;
+  assert.equal(blank.cpu, null, 'empty CPU is not 0%'); assert.equal(blank.hotspotUsers, null, 'empty customer count is not 0');
+  assert.equal(blank.uptime, '3d5h'); assert.equal(blank.totalMemory, 67108864);
+  healthRun.run(alpha.location, 'uptime=3d5h\ncpu=n/a\nfree=\ntotal=64.0MiB\n');
+  const odd = (await api(`/api/business/router-telemetry?locationId=${alpha.location}`, { token: alpha.token })).body.health;
+  assert.deepEqual([odd.cpu, odd.freeMemory, odd.hotspotUsers], [null, null, null], 'non-numbers and missing lines are no reading');
+  healthRun.run(alpha.location, 'uptime=3d6h\ncpu=0\nfree=20.5MiB\ntotal=64.0MiB\nhotspot_users=0\n');
+  const zero = (await api(`/api/business/router-telemetry?locationId=${alpha.location}`, { token: alpha.token })).body.health;
+  assert.deepEqual([zero.cpu, zero.hotspotUsers], [0, 0], 'a real 0 is still 0');
+  const tools = await api(`/api/business/locations/${alpha.location}/tools`, { token: alpha.token });
+  assert.equal(tools.status, 200, JSON.stringify(tools.body));
+  const cpus = tools.body.runs.filter((run) => run.tool === 'health' && run.status === 'done').map((run) => run.summary.cpu);
+  assert.ok(cpus.includes(null) && cpus.includes(0) && cpus.includes(12), 'the Router tools page gets the same readings: ' + JSON.stringify(cpus));
+  const { metric } = require('../src/lib/router-tools')._test;
+  assert.deepEqual(['', '  ', null, undefined, 'abc', '12', ' 7.5 ', '0', '40%'].map(metric), [null, null, null, null, null, 12, 7.5, 0, 40]);
   console.log('  ok   router card uses the last Router health check');
+  console.log('  ok   an empty CPU reading is "no reading", not 0%');
 
   // Account & limits: one router on the trial, no limit once hotspot is paid.
   assert.equal(alpha.me.routerLimit, 1, 'the free trial has one router');

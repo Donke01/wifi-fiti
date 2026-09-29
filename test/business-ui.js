@@ -547,7 +547,7 @@ assert.match(html, /var radioHint = isRadio\(item\) && \(item\.free \|\| item\.s
   for (const name of ['el', 'add', 'clear', 'plural', 'kes', 'duration', 'when', 'maskedPhone', 'isActive', 'statusClass', 'analyticsDuration',
     'voucherStatus', 'voucherStatusLabel', 'voucherDuration', 'filteredVouchers', 'csvCell', 'buildCsv', 'csvFileName', 'textMatches', 'filteredPackages',
     'salesMatches', 'filteredTransactions', 'customerActive', 'filteredCustomers', 'txExportRow', 'exportRows', 'supportTimeLeft', 'supportCard',
-    'renderSupportResults', 'renderAccountLimits']) {
+    'renderSupportResults', 'renderAccountLimits', 'reading', 'routerCardValues']) {
     const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n      var |\\n    \\}\\)\\(\\);)'));
     assert.ok(declaration, name + ' is available to exercise');
     vm.runInContext(declaration[0], ui);
@@ -632,5 +632,47 @@ assert.match(html, /var radioHint = isRadio\(item\) && \(item\.free \|\| item\.s
   assert.deepEqual(value('account-routers'), ['2', 'No router limit'], 'routers are unlimited once hotspot is paid');
   assert.deepEqual(value('account-hotspot'), ['40 of 100', 'With time now · paid for 100']);
   assert.deepEqual(value('account-packages'), ['1', 'No package limit']);
+
+  // Router card readings: empty, missing or non-numeric is no reading; 0 is 0.
+  assert.deepEqual(['', '  ', null, undefined, 'n/a', true, '0', 0, '12.5', 40].map(ui.reading), [null, null, null, null, null, null, 0, 0, 12.5, 40]);
+  const card = (result, online = true) => plain(ui.routerCardValues(result, online));
+  const checkIn = { at: '2026-09-29 08:00:00', customersOnline: 3, routerosVersion: '7.24.2', board: 'hAP_lite', layoutAt: '2026-09-29 07:55:00' };
+  const atCheckIn = 'From the last check-in · ' + ui.when(checkIn.at);
+  // Nothing at all yet.
+  assert.deepEqual(card({ latest: null, health: null, checkIn: null }).cards.map((item) => item.value), ['—', '—', '—', '—']);
+  assert.equal(card({ latest: null, health: null, checkIn: null }).details, '');
+  // Only check-ins: customers online and router details, labelled as such; the rest waits for Router health.
+  const fromCheckIn = card({ latest: null, health: null, checkIn });
+  assert.deepEqual(fromCheckIn.cards[1], { value: '3', foot: atCheckIn });
+  assert.deepEqual(fromCheckIn.cards.map((item) => item.value), ['—', '3', '—', '—']);
+  assert.equal(fromCheckIn.cards[2].foot, 'Run Router health in Router tools');
+  assert.equal(fromCheckIn.details, 'From the last check-in: RouterOS 7.24.2 · Board hAP_lite');
+  assert.equal(card({ latest: null, health: null, checkIn: { ...checkIn, customersOnline: 0, routerosVersion: null, board: null } }).cards[1].value, '0', 'no customers online is 0, not a dash');
+  assert.equal(card({ latest: null, health: null, checkIn: { ...checkIn, routerosVersion: null, board: null } }).details, '', 'an older kit sends no RouterOS or board');
+  const offline = card({ latest: null, health: null, checkIn }, false);
+  assert.deepEqual(offline.cards[0], { value: 'Offline', foot: 'Router is not checking in · last ' + ui.when(checkIn.at) });
+  // A Router health result takes over and says so.
+  const health = { cpu: 12, freeMemory: 16 * 1048576, totalMemory: 64 * 1048576, uptime: '3d4h', hotspotUsers: 4, at: '2026-09-29 09:00:00' };
+  const fromHealth = card({ latest: null, health, checkIn });
+  const healthFoot = 'From Router health · ' + ui.when(health.at);
+  assert.deepEqual(fromHealth.cards, [{ value: '3d4h', foot: healthFoot }, { value: '4', foot: healthFoot }, { value: '12.0%', foot: healthFoot }, { value: '75.0%', foot: healthFoot }]);
+  // Empty CPU: a dash, never 0%. A real 0 is 0%.
+  for (const empty of ['', null, undefined, 'n/a']) {
+    const blank = card({ latest: null, health: { ...health, cpu: empty, hotspotUsers: empty }, checkIn });
+    assert.deepEqual(blank.cards[2], { value: '—', foot: 'Router health gave no reading · ' + ui.when(health.at) }, 'empty CPU ' + JSON.stringify(empty));
+    assert.deepEqual(blank.cards[1], { value: '3', foot: atCheckIn }, 'no customer count in the health check: the last check-in fills in');
+  }
+  assert.equal(card({ latest: null, health: { ...health, cpu: 0 }, checkIn }).cards[2].value, '0.0%');
+  assert.equal(card({ latest: null, health: { ...health, cpu: '0' }, checkIn }).cards[2].value, '0.0%');
+  assert.equal(card({ latest: null, health: { ...health, freeMemory: '' }, checkIn }).cards[3].value, '—', 'empty memory is a dash too');
+  // The kit's own telemetry, when newer than the health check.
+  const latest = { cpu_percent: '', total_memory: 1000, free_memory: 250, active_users: 7, uptime_seconds: 90000, recorded_at: '2026-09-29 10:00:00' };
+  const fromTelemetry = card({ latest, health, checkIn });
+  assert.deepEqual(fromTelemetry.cards.map((item) => item.value), ['1d 1h', '7', '—', '75.0%']);
+  assert.equal(fromTelemetry.cards[0].foot, 'From the router’s report · ' + ui.when(latest.recorded_at));
+  assert.equal(fromTelemetry.cards[2].foot, 'Not in the router’s report · ' + ui.when(latest.recorded_at));
+  assert.equal(card({ latest: { ...latest, cpu_percent: 0 }, health: null, checkIn: null }).cards[2].value, '0.0%');
+  assert.match(html, /details\.textContent = values\.details/, 'check-in details are set as text');
+  assert.doesNotMatch(html, /s\.cpu != null \? s\.cpu \+ '%'/, 'Router tools shows a dash for an empty CPU reading too');
   console.log('Business UI: real exports, support search results and Account & limits passed.');
 }

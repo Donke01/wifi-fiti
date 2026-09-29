@@ -218,6 +218,13 @@ function bytes(value) {
   const n = Number(m[1]); const unit = (m[2] || 'B').toUpperCase();
   return Math.round(n * ({ B: 1, KIB: 1024, KB: 1024, MIB: 1048576, MB: 1048576, GIB: 1073741824, GB: 1073741824 }[unit] || 1));
 }
+// A number the router reported, or null when the value is empty or not a
+// number. Number('') is 0, which made an empty cpu= line read as "0%".
+function metric(value) {
+  const text = String(value == null ? '' : value).trim().replace(/%$/, '').trim();
+  if (!/^-?\d+(?:\.\d+)?$/.test(text)) return null;
+  return Number(text);
+}
 function seconds(value) {
   // RouterOS durations: "1s", "2s340ms", "00:00:02.34", "1w2d3h4m5s".
   const v = String(value || '').trim();
@@ -238,7 +245,7 @@ function publicTool(row) {
     if (out.error) summary.error = out.error;
     if (row.tool === 'health') {
       const free = bytes(out.free); const total = bytes(out.total);
-      Object.assign(summary, { uptime: out.uptime || null, cpu: out.cpu != null ? Number(out.cpu) : null, freeMemory: free, totalMemory: total, version: out.version || null, board: out.board || null, freeStorage: bytes(out.hdd), clock: out.clock || null, hotspotUsers: out.hotspot_users != null ? Number(out.hotspot_users) : null });
+      Object.assign(summary, { uptime: out.uptime || null, cpu: metric(out.cpu), freeMemory: free, totalMemory: total, version: out.version || null, board: out.board || null, freeStorage: bytes(out.hdd), clock: out.clock || null, hotspotUsers: metric(out.hotspot_users) });
     } else if (row.tool === 'log') {
       summary.lines = lines.map((l) => { const [time, topics, ...rest] = l.split('|'); return { time: time || '', topics: topics || '', message: rest.join('|') }; });
     } else if (row.tool === 'speed') {
@@ -265,8 +272,7 @@ function latestHealth(locationId) {
   const run = publicTool(lastHealth.get(locationId));
   if (!run || run.summary.error) return null;
   const { cpu, freeMemory, totalMemory, uptime, hotspotUsers } = run.summary;
-  const number = (value) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value));
-  return { cpu: number(cpu), freeMemory: number(freeMemory), totalMemory: number(totalMemory), uptime: uptime || null, hotspotUsers: number(hotspotUsers), at: run.updatedAt };
+  return { cpu: metric(cpu), freeMemory: metric(freeMemory), totalMemory: metric(totalMemory), uptime: uptime || null, hotspotUsers: metric(hotspotUsers), at: run.updatedAt };
 }
 
-module.exports = { queueTool, nextToolScript, recordAnswer, listTools, latestHealth, hasQueuedTool, restartPending, allowSpeedDownload, toolScript, publicTool, TOOLS, SPEED_BYTES, _test: { bytes, seconds } };
+module.exports = { queueTool, nextToolScript, recordAnswer, listTools, latestHealth, hasQueuedTool, restartPending, allowSpeedDownload, toolScript, publicTool, TOOLS, SPEED_BYTES, _test: { bytes, seconds, metric } };

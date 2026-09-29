@@ -2192,8 +2192,9 @@ app.get('/api/business/router-telemetry', (req, res) => {
   const hours = period === '1h' ? 1 : period === '6h' ? 6 : period === '7d' ? 168 : 24;
   const since = new Date(Date.now() - hours * 3600_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
   // The last Router health check (Router tools) fills in for routers whose
-  // kit sends no telemetry.
-  res.json({ locationId, period, ...tenant.routerTelemetryForLocationId(location.id, { since, limit: 1000 }), health: routerTools.latestHealth(location.id) });
+  // kit sends no telemetry; before one exists, the card shows what the
+  // router's normal check-ins already told the server.
+  res.json({ locationId, period, ...tenant.routerTelemetryForLocationId(location.id, { since, limit: 1000 }), health: routerTools.latestHealth(location.id), checkIn: tenant.routerCheckIn(location) });
 });
 
 app.get('/api/business/vouchers', (req, res) => {
