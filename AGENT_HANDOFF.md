@@ -29,6 +29,8 @@ Everything below is on `main` and live on cloud.wififiti.co.ke; a push to
 | 09:42 | #27 | Faster: router report every 30 s (10 s while Active users is open), a chart point every minute, "not reporting" after 90 s |
 | 10:01 | #28 | Payment recovery in the portal says why it found nothing |
 | 10:01 | #29 | Dashboard refreshes itself every 2 seconds |
+| 10:41 | #31 | PPPoE pay page on the tenant's own portal address (`kitale.wififiti.co.ke/pay`), behind `PPPOE_TENANT_ADDRESS` |
+| 12:42 | #32 | PPPoE **Home internet** page (`/home`): packages, "Get connected" form, requests on the PPPoE page; Wi-Fi Fiti colours |
 
 **Check first on real hardware (nothing below has run on a router yet):**
 1. On CLOUDNET (RB951, 7.24.2), open Routers → Active users. It fills within
@@ -41,6 +43,12 @@ Everything below is on `main` and live on cloud.wififiti.co.ke; a push to
    again.
 
 **Still open:**
+- Deploy: the `edge/portal-gateway` Worker is not redeployed yet, so
+  `/pay` and `/home` on tenant addresses don't work until `wrangler deploy`.
+  Then check `https://<tenant>.wififiti.co.ke/pay`, and only then set
+  `PPPOE_TENANT_ADDRESS=true` on Railway. Until then links stay on cloud.
+- Home internet page: owners get no SMS or alert for a new request, and the
+  dashboard's PPPoE card doesn't show a count.
 - Payment recovery: a payment confirmed by an M-Pesa status query has no
   code, so it can't be recovered by typing one. The owner switches the
   customer on from Customers → Support search. Railway logs each failed
