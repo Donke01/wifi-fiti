@@ -6,8 +6,36 @@ branch and do not put production secrets, router keys, database files, or
 
 ## What changed overnight — 29 Sep 2026 (read this first)
 
-Nothing below is merged. Each task has its own branch from `main` `7c5befe`
-and its own PR. Merge only when Don says "push".
+**Merged to `main` on 29 Sep at Don's request, in this order:** #18 → #13 →
+#14 → #16 → #15 → #17 (this handoff). A push to `main` redeploys Railway.
+
+**Set `ADMIN_PASSWORD` on Railway.** Since #18, platform-admin confirmations
+(plan changes, token rotation, offboarding, PPPoE and FitiSignal controls)
+are refused until it is set.
+
+What the merge itself had to fix (all in the #14–#15 merge commits; tested
+with `npm test`, and in Chromium at 390 and 1280 px as the owner and as an
+Attendant):
+- #15's route table lacked #14's `/support/search` and `/support/summary`,
+  so staff were refused them. Both need `customers.view`.
+- #16's new sections got permissions in `public/team.js`:
+  - PPPoE tab: `customers.edit` (Owner and Manager)
+  - Support search: `customers.view` (it is now the customer lookup)
+  - Support tickets: `support`
+  - Plan receipts: owner only
+- The menu showed only Home and Customers to an Attendant: menu items are
+  page ids (`money`, `packages`), which #15 looked up as tab ids. Now:
+  - A menu item shows when any tab of its page is allowed.
+  - Tabs a role can't open are not drawn.
+  - A refused tab opens the first allowed tab of the page.
+  - The page is now chosen after that fallback; before, the fallback left
+    the wrong menu item marked.
+- #14's payout export went with #16's hidden Disbursements page.
+- `onboardingFlowState` guards `can()` with `typeof`, for the vm test.
+- The WhatsApp-number scan in `test/business-ui.js` skips the local
+  `.claude` folder.
+- An Attendant now sees Home, Packages & vouchers (Vouchers only), Customers
+  (Customers, Support search, Usage) and Money (Sales, Transactions).
 
 **Day session, 29 Sep:** task 1 was redone and pushed as PR #18. The loose
 ends listed for #13–#16 were fixed on their own branches, so each PR updated.
@@ -28,7 +56,7 @@ A trial merge of #18 with #13 is clean and passes `npm test`.
 
 Each PR body lists its changes, tests, decisions and loose ends in full.
 
-**Suggested merge order:** security → #13 → #14 → #16 → #15.
+**Merge order used:** security → #13 → #14 → #16 → #15 (notes kept for reference).
 - #14, #16 and #15 all change `public/business.html` heavily, so expect conflicts.
 - #14 fills the placeholders #16 left: Account & limits, support search and the router card.
 - #16 hides the placeholder Team page, which #15 replaces with the real one.
