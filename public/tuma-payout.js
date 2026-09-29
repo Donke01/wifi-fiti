@@ -68,8 +68,8 @@
     var s = state.settlement || {};
     var a = s.account;
     if (s.platformReady === false) return h('p', { class: 'tp-state warn', text: 'Wi‑Fi Fiti is finishing its Tuma connection. You can set this up as soon as it is ready.' });
-    if (a && !a.active && a.suspendedReason === 'trial-ended') return h('p', { class: 'tp-state warn' }, [h('span', { text: '!' }), h('span', { text: 'Your Tuma payout account is paused because your free trial ended without a plan. It switches back on automatically as soon as you choose a plan in Billing & payments.' })]);
-    if (state.trialNotice) return h('p', { class: 'tp-state warn' }, [h('span', { text: '!' }), h('span', { text: 'Payout account saved. ' + state.trialNotice + ' Your free trial has ended, so choose a plan in Billing & payments to start selling.' })]);
+    if (a && !a.active && a.suspendedReason === 'trial-ended') return h('p', { class: 'tp-state warn' }, [h('span', { text: '!' }), h('span', { text: 'Your Tuma payout account is paused because your free trial ended without a plan. It switches back on automatically as soon as you choose a plan in Settings → Billing & payments.' })]);
+    if (state.trialNotice) return h('p', { class: 'tp-state warn' }, [h('span', { text: '!' }), h('span', { text: 'Payout account saved. ' + state.trialNotice + ' Your free trial has ended, so choose a plan in Settings → Billing & payments to start selling.' })]);
     if (a && a.active) {
       var where = a.destinationType === 'own' ? 'your own Tuma account (' + a.email + ')'
         : kindLabel(a.destinationType) + (a.destinationType === 'bank' ? ' · ' + a.destinationName : '') + (a.accountLast4 ? ' ending ' + a.accountLast4 : '');

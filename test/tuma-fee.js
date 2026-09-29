@@ -123,12 +123,15 @@ const MID_OCT = Date.parse('2026-10-15T09:00:00Z');
     assert.equal(await reminders.run(), 1);
     assert.equal(await reminders.run(), 0);
     assert.match(sms[0], /Kitale Cyber: your Tuma sales this month are KES 85,000.*KES 3,000/);
+    assert.match(sms[0], /dashboard \(Settings > Billing & payments\) to avoid/);
     h.sale(20000, MID_OCT);
     assert.equal(await reminders.run(), 1);
     assert.match(sms[1], /KES 3,000 Tuma fee is due/);
+    assert.match(sms[1], /dashboard \(Settings > Billing & payments\) by /);
     h.setNow(MID_OCT + 4 * DAY);
     assert.equal(await reminders.run(), 1);
     assert.match(sms[2], /new sales are paused/);
+    assert.match(sms[2], /dashboard \(Settings > Billing & payments\) to resume/);
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

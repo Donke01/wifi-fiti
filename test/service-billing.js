@@ -122,6 +122,9 @@ const at = (offsetDays) => new Date(NOW + offsetDays * DAY).toISOString().replac
     assert.equal(await reminders.run(), 2);
     assert.match(sms[2].message, /3 grace days/);
     assert.match(sms[3].message, /trial has ended/);
+    for (const m of [sms[0], sms[1], sms[3]]) assert.match(m.message, /in (?:your dashboard \()?Settings > Billing & payments/, 'each reminder says where to renew');
+    for (const m of sms) assert.match(m.message, /^[\x20-\x7e]*$/, 'reminders stay plain GSM-7 text (no arrow), so they are not sent as Unicode SMS');
+    assert.match(emails[0].html, />Open Settings → Billing &amp; payments<\/a>/, 'the email link names the tab');
   });
 
   await test('old Starter/Growth tenants are told to move to prepaid capacity', async () => {
@@ -134,6 +137,7 @@ const at = (offsetDays) => new Date(NOW + offsetDays * DAY).toISOString().replac
     const reminders = createServiceReminders({ db, now: () => NOW, log: { error() {} }, smsProvider: { async send(m) { sms.push(m); } } });
     assert.equal(await reminders.run(), 1, 'a tenant already on prepaid hotspot capacity is not nagged');
     assert.match(sms[0].message, /Old Plan Co: .*replaced by prepaid capacity from KES 1,000/);
+    assert.match(sms[0].message, /Choose yours in Settings > Billing & payments/);
   });
 
   console.log('\nAdding users mid-period');
@@ -178,6 +182,7 @@ const at = (offsetDays) => new Date(NOW + offsetDays * DAY).toISOString().replac
     assert.equal(await reminders.run(), 1);
     assert.equal(await reminders.run(), 0);
     assert.match(sms[0], /185 of 200 users online at once.*days left this month/);
+    assert.match(sms[0], /dashboard \(Settings > Billing & payments\)/);
     online = 200;
     assert.equal(await reminders.capacityPrompt('b1', 'hotspot', 'full'), true);
     assert.equal(await reminders.capacityPrompt('b1', 'hotspot', 'full'), false, 'once per capacity');

@@ -183,7 +183,7 @@
             api('/api/business/billing/status/' + encodeURIComponent(id)).then(function (r) {
               if (r.status === 'paid') return success(body, LABEL[kind] + ' is active. Carrying on…', finish);
               if (r.status === 'failed') { status.replaceChildren(); busy(go, false); err.textContent = r.reason || 'The payment did not go through. Try again.'; return; }
-              if (tries > 60) { status.replaceChildren(); busy(go, false); err.textContent = 'Still waiting for M-Pesa. If you paid, it will show in Billing & payments shortly.'; return; }
+              if (tries > 60) { status.replaceChildren(); busy(go, false); err.textContent = 'Still waiting for M-Pesa. If you paid, it will show in Settings → Billing & payments shortly.'; return; }
               pollTimer = setTimeout(function () { poll(id, tries + 1); }, 3000);
             }).catch(function () { pollTimer = setTimeout(function () { poll(id, tries + 1); }, 4000); });
           }

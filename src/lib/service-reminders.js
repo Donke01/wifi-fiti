@@ -9,6 +9,7 @@
 const serviceBilling = require('./service-billing');
 
 const DAY_MS = 86400_000;
+const { BILLING_PLACE } = serviceBilling;
 
 function trialReminders(business, now) {
   if (String(business.billing_status || '').toLowerCase() !== 'trial') return [];
@@ -27,18 +28,18 @@ function trialText(stage, expiresRaw, name, business = {}) {
   const who = name ? `${name}: ` : '';
   return stage === 'before'
     ? (planKes
-      ? `${who}your Wi-Fi Fiti free trial ends on ${day}. Your chosen plan is KES ${planKes.toLocaleString('en-KE')}/month: pay it in Billing & payments to keep taking payments without a break.`
-      : `${who}your Wi-Fi Fiti free trial ends on ${day}. Choose your hotspot capacity in Billing & payments to keep taking payments without a break.`)
-    : `${who}your Wi-Fi Fiti free trial has ended, so new sales are paused. Subscribe in Billing & payments to resume. Customers already online keep their time.`;
+      ? `${who}your Wi-Fi Fiti free trial ends on ${day}. Your chosen plan is KES ${planKes.toLocaleString('en-KE')}/month: pay it in ${BILLING_PLACE} to keep taking payments without a break.`
+      : `${who}your Wi-Fi Fiti free trial ends on ${day}. Choose your hotspot capacity in ${BILLING_PLACE} to keep taking payments without a break.`)
+    : `${who}your Wi-Fi Fiti free trial has ended, so new sales are paused. Subscribe in ${BILLING_PLACE} to resume. Customers already online keep their time.`;
 }
 
 function planText(stage, expiresRaw, name) {
   const ends = serviceBilling.parseTime(expiresRaw);
   const day = (ms) => new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' });
   const who = name ? `${name}: ` : '';
-  if (stage === 'before') return `${who}your Wi-Fi Fiti plan ends on ${day(ends)}. Starter and Growth are being replaced by prepaid capacity from KES 1,000/month. Choose yours in Billing & payments to keep selling.`;
-  if (stage === 'grace') return `${who}your Wi-Fi Fiti plan has ended. Sales continue until ${day(ends + serviceBilling.GRACE_DAYS * DAY_MS)}. Choose prepaid hotspot capacity in Billing & payments to avoid interruption.`;
-  return `${who}new sales have stopped because your old Wi-Fi Fiti plan ended. Choose prepaid hotspot capacity in Billing & payments to resume. Customers already online keep their time.`;
+  if (stage === 'before') return `${who}your Wi-Fi Fiti plan ends on ${day(ends)}. Starter and Growth are being replaced by prepaid capacity from KES 1,000/month. Choose yours in ${BILLING_PLACE} to keep selling.`;
+  if (stage === 'grace') return `${who}your Wi-Fi Fiti plan has ended. Sales continue until ${day(ends + serviceBilling.GRACE_DAYS * DAY_MS)}. Choose prepaid hotspot capacity in ${BILLING_PLACE} to avoid interruption.`;
+  return `${who}new sales have stopped because your old Wi-Fi Fiti plan ended. Choose prepaid hotspot capacity in ${BILLING_PLACE} to resume. Customers already online keep their time.`;
 }
 
 function createServiceReminders({ db, smsProvider = null, sendEmail = null, tumaFee = null, capacityUsage = null, now = () => Date.now(), log = console }) {
@@ -93,7 +94,7 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, tuma
       try {
         const safe = text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
         await sendEmail({ to: business.email, subject: item.subject ? item.subject : item.stage === 'before' ? 'Your Wi-Fi Fiti subscription ends soon' : 'Your Wi-Fi Fiti subscription needs renewing',
-          text, html: `<p>${safe}</p><p><a href="https://cloud.wififiti.co.ke/business#payments">Open Billing &amp; payments</a></p>` });
+          text, html: `<p>${safe}</p><p><a href="https://cloud.wififiti.co.ke/business#payments">Open Settings → Billing &amp; payments</a></p>` });
         channels.push('email');
       } catch (error) { if (error.code !== 'EMAIL_NOT_CONFIGURED') log.error('[billing reminders] email failed:', error.message); }
     }
@@ -126,8 +127,8 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, tuma
     const unit = kind === 'pppoe' ? 'active users' : 'users online at once';
     const who = name ? `${name}: ` : '';
     const used = `${usage.used} of ${usage.capacity} ${unit}`;
-    if (level === 'full') return { subject: `Your ${label} plan is full`, text: `${who}your ${label} plan is full (${used}), so new customers are being turned away. Add more users in your Wi-Fi Fiti dashboard (Billing & payments). You pay only for the days left this month.` };
-    return { subject: `Your ${label} plan is nearly full`, text: `${who}you are using ${used} on your ${label} plan. Add more users in your Wi-Fi Fiti dashboard (Billing & payments) before new customers are turned away. You pay only for the days left this month.` };
+    if (level === 'full') return { subject: `Your ${label} plan is full`, text: `${who}your ${label} plan is full (${used}), so new customers are being turned away. Add more users in your Wi-Fi Fiti dashboard (${BILLING_PLACE}). You pay only for the days left this month.` };
+    return { subject: `Your ${label} plan is nearly full`, text: `${who}you are using ${used} on your ${label} plan. Add more users in your Wi-Fi Fiti dashboard (${BILLING_PLACE}) before new customers are turned away. You pay only for the days left this month.` };
   }
 
   /** Sends one prompt per service, capacity, level and paid period. */
@@ -167,9 +168,9 @@ function createServiceReminders({ db, smsProvider = null, sendEmail = null, tuma
     const kes = (n) => `KES ${Number(n).toLocaleString('en-KE')}`;
     const who = name ? `${name}: ` : '';
     const pause = fee.pauseAt ? new Date(fee.pauseAt).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' }) : '';
-    if (fee.stage === 'approaching') return { subject: 'Your Tuma sales are close to KES 100,000', text: `${who}your Tuma sales this month are ${kes(fee.salesKes)}. At ${kes(fee.thresholdKes)}, Tuma's flat ${kes(fee.feeKes)} monthly fee applies. Pay it early in your Wi-Fi Fiti dashboard (Billing & payments) to avoid any interruption.` };
-    if (fee.stage === 'due') return { subject: 'Your Tuma monthly fee is due', text: `${who}your Tuma sales passed ${kes(fee.thresholdKes)} this month, so the ${kes(fee.feeKes)} Tuma fee is due. Pay it in your Wi-Fi Fiti dashboard by ${pause} to keep taking payments.` };
-    return { subject: 'Sales paused: Tuma fee unpaid', text: `${who}new sales are paused because the ${kes(fee.feeKes)} Tuma fee was not paid. Pay it in your Wi-Fi Fiti dashboard (Billing & payments) to resume at once. Customers already online keep their time.` };
+    if (fee.stage === 'approaching') return { subject: 'Your Tuma sales are close to KES 100,000', text: `${who}your Tuma sales this month are ${kes(fee.salesKes)}. At ${kes(fee.thresholdKes)}, Tuma's flat ${kes(fee.feeKes)} monthly fee applies. Pay it early in your Wi-Fi Fiti dashboard (${BILLING_PLACE}) to avoid any interruption.` };
+    if (fee.stage === 'due') return { subject: 'Your Tuma monthly fee is due', text: `${who}your Tuma sales passed ${kes(fee.thresholdKes)} this month, so the ${kes(fee.feeKes)} Tuma fee is due. Pay it in your Wi-Fi Fiti dashboard (${BILLING_PLACE}) by ${pause} to keep taking payments.` };
+    return { subject: 'Sales paused: Tuma fee unpaid', text: `${who}new sales are paused because the ${kes(fee.feeKes)} Tuma fee was not paid. Pay it in your Wi-Fi Fiti dashboard (${BILLING_PLACE}) to resume at once. Customers already online keep their time.` };
   }
 
   async function runTumaFee() {

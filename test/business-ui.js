@@ -6,12 +6,13 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '../public/business.html'), 'utf8');
 
-assert.match(html, /id="remote-onboarding-section"/, 'the dashboard explains the two-stage onboarding path');
+assert.match(html, /<section class="section" id="remote-section">[^\n]*Customer traffic and payments never use this path[^\n]*It is off by default\. Once a router has connected through setup, you can request it/, 'the Remote access part explains the path, that it stays off until requested, and only after a router has connected');
 assert.match(html, /Remote setup/, 'each location exposes managed setup without hiding it in a support-only view');
 assert.match(html, /\/remote-access/, 'the UI calls a location-scoped remote-access API');
 assert.match(html, /consent:\s*true/, 'a business owner must explicitly consent before remote access is requested');
 assert.match(html, /action:\s*'revoke'/, 'an owner can revoke remote access');
 assert.match(html, /Customer traffic and payments never use this path/, 'the UI does not imply customer traffic is routed through support access');
+assert.match(html, /function renderRemoteRouters\(\) \{[\s\S]*?openRemoteAccess\(location, card, open\)/, 'the Remote access part opens the same consent-gated panel for each router');
 assert.doesNotMatch(html, /privateKey|private-key|vpnPrivate/i, 'the business UI must never render VPN private material');
 assert.match(html, /\/mapped-deployment/, 'the mapped deployment remains location-scoped and owner-authenticated');
 assert.match(html, /action:\s*'apply'/, 'the browser can request only the finite reviewed mapped-deployment action');
@@ -42,8 +43,10 @@ assert.match(html, /Start router setup again/,
   'each location offers a safe way to begin its router setup again');
 assert.doesNotMatch(html, /Offboard \/ remove router|\/offboard|OFFBOARD ROUTER/,
   'remote router offboarding is temporarily hidden from the dashboard');
-assert.match(html, /Clear setup form/,
-  'the setup wizard can clear only unsaved form choices');
+assert.doesNotMatch(html, /id="router-setup-section"|id="location-setup-section"|Generate secure router setup/,
+  'the old router wizard is gone: guided setup is the only way to create a router kit');
+assert.match(html, /\$\('add-router'\)\.addEventListener\('click', function \(\) \{ if \(state\.workspace\) startAdditionalRouter\(\); \}\);/,
+  'Add router on the Routers page starts guided setup');
 assert.match(html, /Remove unused setup/,
   'a location exposes only an explicit unused-draft removal action');
 assert.match(html, /function discardUnusedRouterSetup\(location, button, error\)/,
@@ -294,8 +297,8 @@ assert.match(compactKitUi[0], /storedRouterKitIsStale\(saved\)/,
   'an older cached script is detected instead of silently reused');
 assert.match(compactKitUi[0], /This saved connection kit is out of date and cannot be copied\./,
   'owners receive a direct fresh-kit instruction before a stale RouterOS command can be copied');
-assert.match(html, /item && item\.token && storedRouterKitIsCurrent\(item\)/,
-  'the legacy pairing-kit list also refuses to surface a stale cached command');
+assert.doesNotMatch(html, /function renderPairingKits\(/,
+  'the legacy pairing-kit list is gone, so no second list can surface a cached command');
 assert.match(html, /\/system device-mode update fetch=yes scheduler=yes hotspot=yes/,
   'the onboarding hint enables only the three required RouterOS device-mode features');
 assert.doesNotMatch(html, /\/system device-mode update mode=advanced/,
@@ -303,8 +306,11 @@ assert.doesNotMatch(html, /\/system device-mode update mode=advanced/,
 
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
-// Exercise all three public result screens: a button present somewhere in
-// the HTML is not enough if owners enter through a different setup screen.
+// Exercise every screen that shows a connection kit: a button present
+// somewhere in the HTML is not enough if owners enter through a different
+// setup screen. Guided setup is the only one; the old wizard result and the
+// saved-kit list are gone.
+assert.doesNotMatch(html, /id="router-setup-output"|id="setup-list"|id="router-setup-form"/, 'no second kit screen outside guided setup');
 const vm = require('node:vm');
 class TestElement {
   constructor(tag) { this.tagName = tag; this.children = []; this.textContent = ''; this.listeners = {}; this.classList = { add() {}, remove() {} }; }
@@ -335,16 +341,16 @@ const context = vm.createContext({
 vm.runInContext(html.match(/var ROUTER_ROOT_PINS = \[[^\]]*\];/)[0], context);
 for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps', 'routerCertificateFix', 'routerClockFix',
   'routerBootstrapCommand', 'storedRouterKitHasScript', 'storedRouterKitIsCurrent', 'storedRouterKitIsStale',
-  'appendRouterInstaller', 'appendSimpleRouterSetup', 'renderPairingKits', 'showRouterSetup']) {
+  'appendRouterInstaller', 'appendSimpleRouterSetup']) {
   const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
   assert.ok(declaration, name + ' is available to exercise');
   vm.runInContext(declaration[0], context);
 }
 for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', '']) {
   const generated = { mode: 'auto', script: '# Test full kit\n:put "test"', loader: loaderStatus === 'ready', loaderStatus };
-  context.showRouterSetup({ location: uiLocation, portalUrl: context.publicPortal(), setup: generated });
+  context.saveSetup(uiLocation, context.publicPortal(), generated);
   const guided = new TestElement('div'); context.appendSimpleRouterSetup(guided, { location: uiLocation });
-  for (const [screen, root] of [['setup result', elements.get('router-setup-output')], ['saved kits', elements.get('setup-list')], ['guided setup', guided]]) {
+  for (const [screen, root] of [['guided setup', guided]]) {
     const nodes = descendants(root);
     const buttons = nodes.filter(node => node.tagName === 'button' && node.textContent === 'Copy connection kit');
     assert.equal(buttons.length, 1, screen + ' always identifies the secure connection kit');
@@ -468,8 +474,7 @@ assert.match(html, /'Add Wi-Fi to it below instead of a second one\.' : 'Use it 
 assert.match(html, /entry\.wifi = \{ ssid: defaultSsid\(\), radio: it\.name \};/, 'Wi-Fi can be added to a hotspot that already runs');
 assert.match(html, /undo removes only the Wi-Fi\./);
 assert.match(html, /hotspot_missing: 'The hotspot is no longer running on that bridge/);
-assert.match(html, /<select aria-label="Analytics location"><option value="">All locations<\/option><\/select>/, 'All locations sends no location filter');
-assert.match(html, /<select id="customers-location" aria-label="Customer location"><option value="">All locations<\/option><\/select>/, 'All locations shows every customer');
+assert.match(html, /<select aria-label="Analytics location"><option value="">All routers<\/option><\/select>/, 'All routers sends no location filter'); assert.match(html, /<select id="customers-location" aria-label="Customer location"><option value="">All routers<\/option><\/select>/, 'All routers shows every customer');
 // Go live (stage 4): one card from a set-up router to the first paying customer.
 assert.match(html, /function appendGoLive\(parent, location, options\)/);
 assert.match(html, /'\/api\/business\/locations\/' \+ encodeURIComponent\(locationId\) \+ '\/go-live'/, 'the card reads the same checks a purchase uses');
@@ -495,8 +500,7 @@ assert.match(html, /if \(!radioItem \|\| radioItem\.shareWifi \|\| !WIFI_CHANNEL
 assert.match(html, /add\(more, 'summary', '', 'More Wi-Fi options'\)/);
 assert.match(html, /login_backup_failed: /);
 // Router tools page.
-assert.match(html, /<button type="button" data-module="tools"><span class="symbol" aria-hidden="true">⚒<\/span>Router tools<\/button>/);
-assert.match(html, /,tools: \['tools-section'\]/);
+assert.match(html, /\{ id: 'tools', label: 'Router tools', sections: \['tools-section'\] \}/, 'Router tools is a part of the Routers page');
 assert.match(html, /\{ tool: 'reboot', title: 'Restart the router'/);
 assert.match(html, /if \(card\.danger && !go\.dataset\.armed\) \{ go\.dataset\.armed = '1'; go\.textContent = 'Tap again to restart';/, 'a restart needs two taps');
 assert.match(html, /section\.offsetParent === null \|\| document\.visibilityState === 'hidden'\) \{ scheduleTools\(\); return; \}/, 'no checks from a hidden page');
@@ -647,8 +651,8 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   assert.equal(ui.csvFileName('customers', new Date(2026, 8, 9)), 'wifi-fiti-customers-2026-09-09.csv', 'the file name carries the date');
 
   // Every export: header only when there are no rows, never a fake row.
-  for (const kind of ['packages', 'sales', 'transactions', 'analytics', 'vouchers', 'customers', 'disbursements']) {
-    const rows = ui.exportRows(kind, []);
+  for (const kind of ['packages', 'sales', 'transactions', 'analytics', 'vouchers', 'customers']) {
+    const rows = ui.exportRows(kind);
     assert.equal(rows.length, 1, kind + ' with no data exports just its header');
     assert.ok(rows[0].length > 3 && rows[0].every((cell) => typeof cell === 'string' && cell), kind + ' has a header row');
   }
@@ -681,8 +685,8 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   ui.$('vm-status').value = 'used';
   assert.deepEqual(plain(ui.exportRows('vouchers').slice(1)), [['FITI02', 'Kitale', '1 hour', 60, null, 'Used up', '254722333444', '2026-09-29 08:30:00']], 'the voucher filters apply');
   assert.equal(ui.exportRows('analytics').length, 2);
-  assert.deepEqual(plain(ui.exportRows('disbursements', [{ created_at: '2026-09-29 08:00:00', amount_minor: 12345, destination_type: 'mpesa', destination_name: 'Don', destination_account: '0712345678', status: 'pending' }]).slice(1)[0].slice(0, 6)),
-    ['2026-09-29 08:00:00', 123.45, 'M-Pesa', 'Don', '0712345678', 'pending']);
+  // Payouts are not shown yet, so there is no payout export either.
+  assert.equal(ui.exportRows('disbursements'), null);
 
   // Support hub results: plain text, masked phones, time left, statuses.
   const results = new Node('div');
@@ -763,3 +767,57 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   assert.doesNotMatch(html, /s\.cpu != null \? s\.cpu \+ '%'/, 'Router tools shows a dash for an empty CPU reading too');
   console.log('Business UI: real exports, support search results and Account & limits passed.');
 }
+
+// Settings → Receipts & help: plan receipts and support tickets, drawn by the
+// page's own helpers in the tiny DOM. Text only, never HTML.
+{
+  const calls = [];
+  const help = vm.createContext({
+    document: { createElement: tag => new TestElement(tag) },
+    downloadPlanReceipt: (record) => calls.push(['download', record.checkout_request_id]),
+    openSupportTicket: (id) => calls.push(['open', id]),
+  });
+  for (const name of ['el', 'add', 'clear', 'kes', 'when', 'planReceiptLabel', 'supportTicketStatus', 'helpEmpty', 'drawPlanReceipts', 'drawSupportTickets', 'drawSupportThread']) {
+    const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n      // |\\n      var |\\n    \\}\\)\\(\\);)'));
+    assert.ok(declaration, name + ' is available to exercise');
+    vm.runInContext(declaration[0], help);
+  }
+  const texts = root => descendants(root).map(node => node.textContent).filter(Boolean);
+  const receipts = new TestElement('div');
+  help.drawPlanReceipts(receipts, [], false);
+  assert.ok(texts(receipts).includes('No plan receipts yet'), 'no receipts: a plain empty message');
+  help.drawPlanReceipts(receipts, [{ checkout_request_id: 'ws_CO_1', plan: 'services-hotspot', amount: 1000, mpesa_receipt: 'TST123', paid_at: '2026-09-01 10:00:00', expires_at: '2026-10-01 10:00:00' }], false);
+  assert.ok(texts(receipts).includes('Hotspot users · KES 1,000'), 'a receipt names what was paid for, in plain words');
+  assert.ok(texts(receipts).some(text => /^Paid .* · Valid until .* · M-Pesa TST123$/.test(text)), 'a receipt shows when it was paid, how long it lasts and the M-Pesa code');
+  const download = descendants(receipts).find(node => node.tagName === 'button');
+  assert.equal(download.textContent, 'Download receipt');
+  download.listeners.click(); assert.deepEqual(calls.pop(), ['download', 'ws_CO_1'], 'Download receipt downloads that receipt');
+  help.drawPlanReceipts(receipts, [{ checkout_request_id: 'ws_CO_2', plan: 'sms-7', amount: 200 }], true);
+  assert.equal(descendants(receipts).filter(node => node.textContent === 'Download receipt').length, 2, 'Show more adds to the list');
+  assert.equal(help.planReceiptLabel('services-pppoe'), 'PPPoE + Static IP users');
+  assert.equal(help.planReceiptLabel('sms-12'), 'SMS credits');
+  assert.equal(help.planReceiptLabel('tuma_fee'), 'Tuma fee');
+  assert.equal(help.planReceiptLabel(''), 'Wi-Fi Fiti payment');
+  assert.equal(help.planReceiptLabel('constructor'), 'Constructor', 'object keys are not plan names');
+
+  const tickets = new TestElement('div');
+  help.drawSupportTickets(tickets, [], false);
+  assert.ok(texts(tickets).includes('No questions yet'));
+  help.drawSupportTickets(tickets, [{ id: 'ticket-1', subject: '<b>Paid but offline</b>', status: 'in_progress', location_name: null, updated_at: '2026-09-02 08:00:00' }], false);
+  assert.ok(texts(tickets).includes('<b>Paid but offline</b>'), 'a subject is shown as text');
+  assert.ok(texts(tickets).some(text => /^In progress · All my routers · Updated /.test(text)), 'the status is in plain words');
+  descendants(tickets).find(node => node.textContent === 'Read replies').listeners.click();
+  assert.deepEqual(calls.pop(), ['open', 'ticket-1'], 'Read replies opens that ticket');
+
+  const thread = new TestElement('div');
+  help.drawSupportThread(thread, { ticket: { id: 'ticket-1', subject: 'Paid but offline', status: 'resolved', location_name: 'Kitale' }, messages: [
+    { author: 'operator', body: 'A customer paid.', created_at: '2026-09-02 08:00:00' }, { author: 'admin', body: 'Fixed now.', created_at: '2026-09-02 09:00:00' }] });
+  assert.ok(texts(thread).includes('Resolved · Kitale'));
+  assert.ok(texts(thread).some(text => /^You · /.test(text)) && texts(thread).some(text => /^Wi-Fi Fiti support · /.test(text)), 'each message says who wrote it');
+  assert.ok(texts(thread).includes('Fixed now.'));
+  assert.ok(descendants(thread).some(node => node.tagName === 'textarea' && node.required && node.maxLength === 4000), 'the owner can reply');
+  assert.ok(descendants(thread).some(node => node.textContent === 'Send reply' && node.type === 'submit'));
+}
+assert.match(html, /<section class="section" id="receipts-section">[^\n]*Plan receipts[^\n]*not tax invoices/, 'the receipts part says receipts are not tax invoices');
+assert.match(html, /<section class="section" id="tickets-section">[^\n]*Ask Wi-Fi Fiti[^\n]*You won't get an SMS or email, so check back here\.[^\n]*<form id="ticket-form">/, 'the tickets part says replies come here only');
+for (const value of ['payment', 'connection', 'router', 'billing', 'other']) assert.match(html, new RegExp('<option value="' + value + '">'), 'ticket category ' + value + ' matches the server');
