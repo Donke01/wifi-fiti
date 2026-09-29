@@ -97,6 +97,8 @@ const ROUTES = [
 
   // Customers and "Already paid?" help
   ['GET', `${B}/operations/customers`, 'customers.view'], ['GET', `${B}/operations/customers/:subscriptionId`, 'customers.view'],
+  // Who is online on a router: the Technician sees it too (no money in it).
+  ['GET', `${B}/locations/:locationId/online-users`, ['customers.view', 'routers.view']],
   // Support hub: find a customer by phone, voucher or M-Pesa code, and its numbers.
   ['GET', `${B}/support/search`, 'customers.view'], ['GET', `${B}/support/summary`, 'customers.view'],
   ['POST', `${B}/operations/transactions/:checkoutRequestId/retry`, 'payments.recover', 'Switched on a paid customer'],

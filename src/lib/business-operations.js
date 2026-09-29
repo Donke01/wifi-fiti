@@ -174,7 +174,10 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
     const vouchers = db.prepare(`SELECT package_name,seconds,rate_limit,redeemed_at,batch FROM tenant_vouchers
       WHERE business_id=? AND location_id=? AND redeemed_subscription_id=? ORDER BY redeemed_at DESC LIMIT 100`)
       .all(business.id, subscription.location_id, subscription.id);
-    res.json({ subscription, history, devices, vouchers });
+    // Sessions the router reported: when they were online, for how long,
+    // how much data, and whether they are online now.
+    const activity = require('./hotspot-sessions').historyForSubscription(subscription.id, business.id, 50);
+    res.json({ subscription, history, devices, vouchers, activity });
   }));
 
   // Support hub: one box finds a customer by phone, voucher code or M-Pesa

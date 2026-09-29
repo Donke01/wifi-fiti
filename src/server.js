@@ -16,6 +16,7 @@ const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup, bui
 const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topology');
 const routerChanges = require('./lib/router-changes');
 const routerTools = require('./lib/router-tools');
+const hotspotSessions = require('./lib/hotspot-sessions');
 const team = require('./lib/team');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
@@ -461,6 +462,8 @@ app.use('/api/router/sync', express.text({ type: '*/*', limit: '64kb' }));
 // ahead of urlencoded(), which otherwise consumes RouterOS fetch payloads
 // before the exact versioned report can be validated.
 app.use('/api/router/support-enroll', express.text({ type: '*/*', limit: '2kb' }));
+// The once-a-minute router report (load and who is online) is plain text too.
+app.use('/api/router/telemetry', express.text({ type: '*/*', limit: '48kb' }));
 app.use('/api/router/tool', express.text({ type: '*/*', limit: '16kb' }));
 // The self-hosted VPN gateway is the only trusted machine that needs a
 // larger, peer-state JSON report. Register its parser before the normal API
@@ -2371,6 +2374,22 @@ app.get('/api/business/router-telemetry', (req, res) => {
   res.json({ locationId, period, ...tenant.routerTelemetryForLocationId(location.id, { since, limit: 1000 }), health: routerTools.latestHealth(location.id), checkIn: tenant.routerCheckIn(location) });
 });
 
+// Active users: who is online on one router right now (session, data, time
+// left), and who has time left but is not connected. Opening it makes that
+// router report every 20 seconds for the next two minutes.
+app.get('/api/business/locations/:locationId/online-users', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const location = tenant.locationForBusiness.get(req.params.locationId, business.id);
+  if (!location) return res.status(404).json({ error: 'Router not found.' });
+  onlineViewedAt.set(location.id, Date.now());
+  const view = hotspotSessions.onlineForLocation(location.id);
+  const usage = serviceUsage(db.businessById.get(business.id) || business);
+  res.set('Cache-Control', 'no-store').json({
+    locationId: location.id, routerOnline: String(location.router_status || '') === 'online', ...view,
+    capacity: usage && usage.hotspot ? { online: usage.hotspot.used, limit: usage.hotspot.capacity, level: usage.hotspot.level } : null,
+  });
+});
+
 app.get('/api/business/vouchers', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   res.json({ vouchers: tenant.vouchersForBusiness.all(business.id, 2000) });
@@ -2598,8 +2617,10 @@ function businessCanSell(location) {
     || (ownerPhoneBlock(location) ? 'This WiFi is not taking payments yet. Please ask the operator.' : null);
 }
 
-const hotspotOnlineNow = db.db.prepare(`SELECT COUNT(*) AS n FROM tenant_subscriptions
-  WHERE business_id=? AND expires_at>datetime('now')`);
+// Customers connected right now, as the routers report them (see
+// hotspot-sessions.js). A router that is not reporting counts every package
+// with time left instead, so a sale is never allowed on a guess.
+const hotspotOnlineNow = { get: (businessId) => ({ n: hotspotSessions.onlineCountForBusiness(businessId) }) };
 
 // Capacity check for one new sale. Prepaid hotspot capacity counts customers
 // online right now; legacy Starter/Growth plans keep their monthly device cap.
@@ -5131,7 +5152,24 @@ function tenantOpenWifiScript(location) {
 // one in place on their next poll (at most every 10 minutes), so a fix does
 // not need a re-pairing. Support-control replies stay narrow and never carry it.
 const inventoryUpdateSentAt = new Map();
+// About once a minute a quiet reply also asks the router for its load and
+// who is online (hotspot-sessions.js). Every 20 seconds while the owner has
+// the Active users view open. It never rides with a login job, a payment in
+// progress, a tool, a map change or support work, so it cannot slow them.
+const telemetryAskedAt = new Map();
+const onlineViewedAt = new Map();
+const TELEMETRY_EVERY_MS = 60_000;
+const TELEMETRY_VIEWING_EVERY_MS = 20_000;
 function tenantRouterScript(location, options = {}) {
+  const result = tenantRouterScriptWithExtras(location, options);
+  // ROUTER_TELEMETRY=off stops the report on every router at once.
+  if (!result.quiet || String(process.env.ROUTER_TELEMETRY || '').toLowerCase() === 'off') return result;
+  const viewing = Date.now() - (onlineViewedAt.get(location.id) || 0) < 2 * 60_000;
+  if (Date.now() - (telemetryAskedAt.get(location.id) || 0) < (viewing ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS)) return result;
+  telemetryAskedAt.set(location.id, Date.now());
+  return { ...result, script: [result.script, hotspotSessions.telemetryReplyScript()].filter(Boolean).join('\n') };
+}
+function tenantRouterScriptWithExtras(location, options = {}) {
   const core = tenantRouterScriptCore(location, options);
   const result = withRouterTool(location, core);
   // A reply that carries a tool carries no network change as well.
@@ -5154,7 +5192,7 @@ function tenantRouterScript(location, options = {}) {
   } catch (error) { console.error('[router changes] could not build a change:', error.message); }
   // A change is the heaviest thing a small router runs, and it sends its own
   // layout report when it finishes, so nothing else rides along with it.
-  if (extra.length) return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n') };
+  if (extra.length) return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n'), quiet: false };
   if (layout && (Number(layout.agent) || 1) < INVENTORY_AGENT) {
     const last = inventoryUpdateSentAt.get(location.id) || 0;
     if (Date.now() - last >= 10 * 60_000) { inventoryUpdateSentAt.set(location.id, Date.now()); extra.push(inventoryScriptUpdate()); }
@@ -5167,7 +5205,7 @@ function tenantRouterScript(location, options = {}) {
     if (Date.now() - lastAsk >= Math.min(25_000, layoutReportEvery(location.id))) { inventoryRefreshAskedAt.set(location.id, Date.now()); extra.push(INVENTORY_REFRESH_LINE, INVENTORY_TIMER_REMOVE_LINE); }
   }
   if (!extra.length) return result;
-  return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n') };
+  return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n'), quiet: false };
 }
 // The layout report is heavy for a small board (a hAP lite at 100% CPU spent
 // much of it listing interfaces and pools). It runs every 25 s only while the
@@ -5187,7 +5225,7 @@ function withRouterTool(location, result) {
   if (location.router_kit === 'universal' && routerChanges.hasActiveChange(location.id)) return result;
   let script = '';
   try { script = routerTools.nextToolScript(location); } catch (error) { console.error('[router tools] could not build a tool:', error.message); }
-  return script ? { ...result, script: [result.script, script].filter(Boolean).join('\n') } : result;
+  return script ? { ...result, script: [result.script, script].filter(Boolean).join('\n'), quiet: false } : result;
 }
 const inventoryRefreshAskedAt = new Map();
 const INVENTORY_REFRESH_LINE = ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }';
@@ -5248,7 +5286,9 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
   // owner's private network, so it is never touched here.
   const openWifi = controls.length || location.router_kit === 'universal' ? '' : tenantOpenWifiScript(location);
   if (!jobs.length && !controls.length && !deployment) {
-    return { script: [pollTuning, openWifi, portal, pppoeScript].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
+    // Quiet: nothing for a customer or the owner is waiting on this reply.
+    return { script: [pollTuning, openWifi, portal, pppoeScript].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [],
+      quiet: !fastPoll && !portal && !pppoeScript };
   }
 
   // Support controls always use their own queue and ACK global. They are
@@ -5406,6 +5446,40 @@ function ingestTenantDevices(location, query) {
     return 0;
   }
 }
+
+/**
+ * The once-a-minute router report asked for by the check-in reply: load,
+ * memory, uptime, customer-bridge traffic and who is online. Header auth
+ * only; a malformed report is refused and changes nothing. A chart sample
+ * is kept at most every 4 minutes; sessions are updated on every report.
+ */
+const telemetrySampleAt = new Map();
+const telemetryReportAt = new Map();
+app.post('/api/router/telemetry', (req, res) => {
+  const site = String(req.query.site || '');
+  const header = req.get('X-WiFi-Fiti-Router');
+  const location = site.startsWith('loc-') && header ? tenant.authenticateRouter(site, header, 'header') : null;
+  if (!location || location.router_pairing_auth === 'pending') return res.status(403).type('text/plain').send('# forbidden\n');
+  // One report per 10 seconds per router is plenty; extras are dropped.
+  if (Date.now() - (telemetryReportAt.get(location.id) || 0) < 10_000) return res.type('text/plain').send('# later\n');
+  const report = hotspotSessions.parseReport(req.body);
+  if (!report) return res.status(400).type('text/plain').send('# not a telemetry report\n');
+  telemetryReportAt.set(location.id, Date.now());
+  try {
+    hotspotSessions.recordReport(location, report);
+    if (report.resources && Date.now() - (telemetrySampleAt.get(location.id) || 0) >= 4 * 60_000) {
+      const sample = tenant.recordRouterTelemetry({ locationId: location.id, ...report.resources,
+        activeUsers: report.customersOnline });
+      if (sample) telemetrySampleAt.set(location.id, Date.now());
+    }
+  } catch (error) {
+    console.error('[router telemetry]', location.id, error.message);
+    return res.status(500).type('text/plain').send('# retry\n');
+  }
+  res.type('text/plain').send('# ok\n');
+});
+// Close sessions of routers that went quiet; trim old history.
+setInterval(() => { try { hotspotSessions.sweep(); } catch (error) { console.error('[router telemetry] sweep failed:', error.message); } }, 5 * 60_000).unref();
 
 /**
  * A router asks what work is waiting. The reply is RouterOS script, which

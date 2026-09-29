@@ -949,3 +949,50 @@ for (const value of ['payment', 'connection', 'router', 'billing', 'other']) ass
   assert.match(html, /acc\.lastPayment\.amount != null \? kes\(acc\.lastPayment\.amount\) \+ ' · ' : ''/);
   assert.match(html, /var paid = sale && sale\.amount != null \? 'Paid ' \+ kes\(sale\.amount\) : 'Paid';/);
 }
+
+// Active users (public/online-users.js): opened from the router card; plain
+// words for each customer online, idle, offline; money only for roles with
+// sales; nothing written as HTML.
+{
+  const source = fs.readFileSync(path.join(__dirname, '../public/online-users.js'), 'utf8');
+  assert.doesNotMatch(source, /innerHTML/, 'customer data is only ever written with textContent');
+  const load = (canDo) => {
+    const context = { window: { FitiTeam: { can: canDo } }, document: {}, localStorage: { getItem: () => '' }, Date, Math, Number, String, Array, Boolean, setInterval, clearInterval };
+    vm.runInNewContext(source, context);
+    return context.window.FitiOnlineUsers._test;
+  };
+  const owner = load(() => true);
+  assert.equal(owner.span(45), '45s'); assert.equal(owner.span(125), '2m'); assert.equal(owner.span(3 * 3600 + 5 * 60), '3h 05m'); assert.equal(owner.span(2 * 86400 + 7200), '2d 2h');
+  assert.equal(owner.bytes(950), '950 B'); assert.equal(owner.bytes(5200000), '5.2 MB'); assert.equal(owner.bytes(1.3e9), '1.3 GB');
+  assert.equal(owner.phone('254711000001'), '0711000001');
+  assert.equal(owner.shortMac('AA:BB:CC:DD:EE:FF'), '••:EE:FF');
+  const row = { router_username: '254711000001', payer_phone: '254711000001', mac: 'AA:BB:CC:00:00:01', ip: '10.5.50.11',
+    uptime_seconds: 3720, idle_seconds: 30, bytes_in: 700000, bytes_out: 52000000, package_name: '1 day', subscription_id: 'sub-1', seconds_left: 72000 };
+  const view = owner.onlineRowView(row);
+  assert.equal(view.status, 'Online'); assert.equal(view.onlineFor, '1h 02m'); assert.equal(view.data, '↓ 52 MB · ↑ 700 KB');
+  assert.equal(view.plan, '1 day · 20h 00m left'); assert.equal(view.device, '••:00:01 · 10.5.50.11'); assert.equal(view.clickable, true);
+  assert.equal(owner.onlineRowView({ ...row, idle_seconds: 600 }).status, 'Idle 10m', 'idle five minutes or more is shown as idle');
+  assert.equal(owner.onlineRowView({ ...row, router_username: '254711000001-tv' }).tv, true);
+  assert.equal(owner.offlineRowView({ payer_phone: '254711000003', package_name: '1 week', seconds_left: 90000, last_seen_at: null }).status, 'Not connected yet');
+  assert.match(owner.capacityText({ online: 100, limit: 100, level: 'full' }), /^100 of 100 online on your plan · Full: new customers wait until someone leaves\. Customers with time left can still reconnect\.$/);
+  assert.equal(owner.capacityText({ online: 3, limit: 0 }), '');
+  assert.match(owner.capacityText({ online: 4, limit: 10, level: 'ok' }, false), /^4 of 10 counted on your plan \(every package with time left, until the router reports\)$/);
+  const body = { subscription: { payer_phone: '254711000001', expires_at: '2999-01-01 00:00:00', used_seconds: 7200, mac: 'AA:BB:CC:00:00:01', location_name: 'Kitale' },
+    history: [{ created_at: '2026-09-29 08:00:00', package_name: '1 day', amount: 50, status: 'paid', mpesa_receipt: 'SGR7ABC' }], vouchers: [],
+    activity: { online: true, sessions: [{ started_at: '2026-09-29 08:01:00', ended_at: null, online: 1, uptime_seconds: 600, bytes_in: 1000, bytes_out: 2000000, mac: 'AA:BB:CC:00:00:01', ip: '10.5.50.11' }],
+      totals: { seconds: 5400, bytes_in: 5000, bytes_out: 9000000, last_seen_at: '2026-09-29 08:11:00' } } };
+  const detail = owner.detailView(body, Date.parse('2026-09-29T09:00:00Z'));
+  assert.equal(detail.status, 'Online now');
+  assert.equal(JSON.stringify(detail.stats.map((item) => item[0])), JSON.stringify(['Time left', 'Time used', 'Online in total', 'Data used']));
+  assert.equal(detail.sessions[0][1], 'Online now');
+  assert.equal(detail.payments[0][2], 'KES 50');
+  const technician = load((permission) => permission === 'routers.view');
+  assert.equal(technician.onlineRowView(row).clickable, false, 'a role without customers.view does not open customer history');
+  assert.equal(technician.detailView(body).payments[0][2], '—', 'no amount without a sales permission');
+  // The router card's Active users number opens it, for roles that may.
+  assert.match(html, /<article class="metric router-active-users" data-online-users>/);
+  assert.match(html, /<script src="\/online-users\.js" defer><\/script>/);
+  assert.match(html, /window\.FitiOnlineUsers && \(can\('customers\.view'\) \|\| can\('routers\.view'\)\)/);
+  assert.match(html, /'No update since ' \+ when\(latest\.recorded_at\)/, 'an old chart says how old it is');
+  assert.match(html, /card\.dataset\.cardModule \|\| card\.hasAttribute\('data-online-users'\)\) return;/, 'the card opens who is online, not the Customers page');
+}
