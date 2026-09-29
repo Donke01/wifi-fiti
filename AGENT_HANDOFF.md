@@ -150,7 +150,7 @@ table also scrolls sideways on a phone now.
 - **Don:** rotate the Daraja sandbox key, and replace the `MIKROTIK_*` placeholders and `MPESA_ENV` on Railway.
 - **Don:** hardware tests; see "Next steps" in the 28 Sep handover below.
 - ~~**Don:** decide on `changes.diff`.~~ Done 29 Sep: remote support is on by default for new routers (`auto-remote-support`).
-- **Don:** set `ADMIN_PASSWORD` on Railway (#18). If any router still uses the old single-site portal, set `LEGACY_SITE_ENABLED=true` until it has been moved.
+- **Done:** `ADMIN_PASSWORD` is set on Railway. **Don:** if any router still uses the old single-site portal, set `LEGACY_SITE_ENABLED=true` until it has been moved.
 - Payouts/disbursements (left for now). They are still only in the unlinked `operations.html`. Plan receipts and support tickets now live in Settings → Receipts & help (#16).
 - **#13:**
   - The dashboard preview of the portal on a phone is slightly wider than its frame. This was already the case before #13; the real portal is fine.
@@ -162,13 +162,16 @@ table also scrolls sideways on a phone now.
 - **#15:** the invite email hasn't been sent through real Resend.
 - **Firefox:** nothing overnight was checked in Firefox.
 
-### Follow-ups after the merge (29 Sep, day)
+### Follow-ups after the merge (29 Sep, day): all merged
+
+Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 → #20 (this handoff). Before merging, `main` with all five merged together passed `npm test`. It was also checked in Chromium: the portal fonts at 360, 390 and 1280 px; the dashboard at 390 and 1280 px as the Owner and as a Technician; and the portal form at 390 and 1280 px.
 
 | Item | Branch | PR | State |
 |---|---|---|---|
-| Router token only in the header (brief item 8) | `security-fixes-2` | #19 | Pushed `c17c004` on `main` `83e5290`, `npm test` green |
-| Customers → "Contact Wi-Fi Fiti support"; Usage analytics on Home (item 6) | `dashboard-flow` | #22 | Pushed `5867dd6` on `main` `83e5290`, `npm test` green, Chromium 390/1280 as Owner and Technician |
-| Portal fonts that phones have; Rounded dropped (item 7) | `flow-fixes` | #21 | Pushed `09aa524` on `main` `83e5290`, `npm test` green, Chromium 360/390/1280 |
+| Router token only in the header (brief item 8) | `security-fixes-2` | #19 | Merged |
+| Customers → "Contact Wi-Fi Fiti support"; Usage analytics on Home (item 6) | `dashboard-flow` | #22 | Merged |
+| Portal fonts that phones have; Rounded dropped (item 7) | `flow-fixes` | #21 | Merged |
+| Portal form on phones: normal checkboxes, preset titles above descriptions | `portal-form-phone` | #23 | Merged |
 
 - #21 and #22 were built on the old branch heads. With Don's go-ahead they were cherry-picked onto `main`: #21 needed an import line in `src/server.js`, #22 a `business.html` conflict and `public/team.js`. Both were tested again there.
 - **Item 6 (`a0f55d8`):**
@@ -182,7 +185,7 @@ table also scrolls sideways on a phone now.
   - Mono is `ui-monospace`, then Menlo, then `monospace`.
   - Rounded is dropped, because Android ships no rounded font. A saved "rounded" is served as "modern" (`portalFont()` in `src/lib/tenant-portal-templates.js`).
   - Not yet seen on a real Android phone or iPhone.
-- Seen while checking #21: at 390 px the dashboard's "Design your portal" form has oversized checkboxes, and the gallery labels run into their descriptions. `main` shows the same, so it was not caused by #21, and it is not fixed yet.
+- **#23:** the "Design your portal" form had 47 px, full-width checkboxes, and preset titles ran into their descriptions, at every width. The cause was the global `button{display:inline-flex}` and `input{width:100%;min-height:47px}` rules. The presets are now blocks, and `label.check` in the form is a flex row with a 20 px checkbox. `test/business-ui.js` checks both.
 
 ### Portal templates (merged in `7c5befe`)
 
