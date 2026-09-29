@@ -3,7 +3,7 @@
  *
  *  - Online now: every customer the router reported in its last few
  *    minutes, with how long they have been on, idle time, data used, device
- *    and IP, package and time left. Refreshes every 10 seconds while open
+ *    and IP, package and time left. Refreshes every 2 seconds while open
  *    (the router reports faster while this is open).
  *  - Time left, offline: customers with a package who are not connected.
  *  - Tap a customer (roles with customers.view): package, time left and
@@ -17,7 +17,7 @@
  * window.FitiOnlineUsers.open({ id, name }) · .close() */
 (function () {
   'use strict';
-  var REFRESH_MS = 10000;
+  var REFRESH_MS = 2000;
   var IDLE_AFTER_SECONDS = 5 * 60;
   var state = { location: null, tab: 'online', data: null, timer: null, detail: null, query: '' };
 
@@ -184,7 +184,7 @@
     if (state.detail) return drawDetail(card);
     var data = state.data;
     var name = (state.location && state.location.name) || 'Router';
-    var shut = heading(card, 'Active users · ' + name, data && data.reportedAt ? 'Updated ' + ago(data.reportedAt) + ' · refreshes every 10 seconds' : 'Asking the router who is online…');
+    var shut = heading(card, 'Active users · ' + name, data && data.reportedAt ? 'Updated ' + ago(data.reportedAt) + ' · refreshes every 2 seconds' : 'Asking the router who is online…');
     var capacity = el('p', 'ou-capacity', data ? capacityText(data.capacity, data.reporting) : '');
     if (data && data.capacity && data.capacity.level === 'full') capacity.className += ' full';
     card.appendChild(capacity);

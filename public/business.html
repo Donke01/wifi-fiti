@@ -1168,6 +1168,8 @@
           var details = section.querySelector('.router-checkin');
           if (details) { details.textContent = values.details; if (values.details) details.classList.remove('hidden'); else details.classList.add('hidden'); }
           wireOnlineUsersCard(section, selected);
+          var lastCheckIn = section.querySelector('.router-last-checkin');
+          if (lastCheckIn && result && result.checkIn && result.checkIn.at) lastCheckIn.textContent = when(result.checkIn.at);
           if (!latest) return;
           // A chart older than 5 minutes says so instead of looking current.
           var latestAt = Date.parse(String(latest.recorded_at || '').replace(' ', 'T') + 'Z');
@@ -1188,7 +1190,7 @@
       function renderRouterObservability() {
         var locationsRoot = $('locations-section'); if (!locationsRoot) return; var section = $('router-observability-section'); if (!section) { section = document.createElement('section'); section.className = 'section'; section.id = 'router-observability-section'; section.dataset.module = 'routers'; locationsRoot.parentNode.insertBefore(section, locationsRoot.nextSibling); }
         var locations = (state.workspace && state.workspace.locations) || []; var selected = locations.find(function (location) { return String(location.id) === String(sessionStorage.getItem('fiti_active_location') || ''); }) || locations[0]; var online = selected && String(selected.router_status || '').toLowerCase() === 'online'; var lastSeen = selected && (selected.last_successful_sync_at || selected.last_seen_at); var routerName = selected ? (selected.router_name || selected.name || 'Router') : 'No router selected'; var model = selected ? (selected.router_model || 'MikroTik') : '—'; var health = online ? 'Online' : 'Offline';
-        section.innerHTML = '<div class="module-heading"><div><h2>Router observability</h2><p>Monitor router health, customer activity and traffic without opening the router directly.</p></div><div class="section-actions"><select id="router-observability-location" aria-label="Router location"></select><select id="router-observability-period" aria-label="Router time range"><option>Last 1 hour</option><option>Last 6 hours</option><option>Last 24 hours</option><option>Last 7 days</option></select><button type="button" class="secondary" id="router-observability-refresh">Refresh</button></div></div><div class="panel"><div class="connection"><strong>' + escapeHtml(routerName) + ' · ' + escapeHtml(model) + '</strong><p><span class="status ' + (online ? 'online' : 'waiting') + '">' + health + '</span> · Last check-in: ' + (lastSeen ? escapeHtml(when(lastSeen)) : 'Waiting for first check-in') + '</p><small class="router-checkin muted hidden"></small></div><div class="module-grid" style="margin-top:15px"><article class="metric"><div class="metric-label">Uptime</div><div class="metric-value">' + (online ? '—' : 'Offline') + '</div><div class="metric-foot">Router-reported uptime</div></article><article class="metric router-active-users" data-online-users><div class="metric-label">Active users</div><div class="metric-value">—</div><div class="metric-foot">Connected customer devices</div><div class="metric-cta">See who is online →</div></article><article class="metric"><div class="metric-label">CPU load</div><div class="metric-value">—</div><div class="metric-foot">Latest router report</div></article><article class="metric"><div class="metric-label">Memory usage</div><div class="metric-value">—</div><div class="metric-foot">Latest router report</div></article></div><div class="split" style="margin-top:16px"><div class="chart-placeholder"><div><strong>CPU &amp; memory usage</strong><small>Fills in about every minute once this router reports.</small></div></div><div class="chart-placeholder"><div><strong>Network traffic rate</strong><small>Needs two reports, about a minute apart.</small></div></div></div><div class="chart-placeholder" style="margin-top:16px;min-height:190px"><div><strong>Active users over time</strong><small>Fills in about every minute once this router reports.</small></div></div></div>';
+        section.innerHTML = '<div class="module-heading"><div><h2>Router observability</h2><p>Monitor router health, customer activity and traffic without opening the router directly.</p></div><div class="section-actions"><select id="router-observability-location" aria-label="Router location"></select><select id="router-observability-period" aria-label="Router time range"><option>Last 1 hour</option><option>Last 6 hours</option><option>Last 24 hours</option><option>Last 7 days</option></select><button type="button" class="secondary" id="router-observability-refresh">Refresh</button></div></div><div class="panel"><div class="connection"><strong>' + escapeHtml(routerName) + ' · ' + escapeHtml(model) + '</strong><p><span class="status ' + (online ? 'online' : 'waiting') + '">' + health + '</span> · Last check-in: <span class="router-last-checkin">' + (lastSeen ? escapeHtml(when(lastSeen)) : 'Waiting for first check-in') + '</span></p><small class="router-checkin muted hidden"></small></div><div class="module-grid" style="margin-top:15px"><article class="metric"><div class="metric-label">Uptime</div><div class="metric-value">' + (online ? '—' : 'Offline') + '</div><div class="metric-foot">Router-reported uptime</div></article><article class="metric router-active-users" data-online-users><div class="metric-label">Active users</div><div class="metric-value">—</div><div class="metric-foot">Connected customer devices</div><div class="metric-cta">See who is online →</div></article><article class="metric"><div class="metric-label">CPU load</div><div class="metric-value">—</div><div class="metric-foot">Latest router report</div></article><article class="metric"><div class="metric-label">Memory usage</div><div class="metric-value">—</div><div class="metric-foot">Latest router report</div></article></div><div class="split" style="margin-top:16px"><div class="chart-placeholder"><div><strong>CPU &amp; memory usage</strong><small>Fills in about every minute once this router reports.</small></div></div><div class="chart-placeholder"><div><strong>Network traffic rate</strong><small>Needs two reports, about a minute apart.</small></div></div></div><div class="chart-placeholder" style="margin-top:16px;min-height:190px"><div><strong>Active users over time</strong><small>Fills in about every minute once this router reports.</small></div></div></div>';
         var select = section.querySelector('#router-observability-location'); locations.forEach(function (location) { var option = document.createElement('option'); option.value = location.id; option.textContent = location.name || location.router_name || location.id; if (selected && String(selected.id) === String(location.id)) option.selected = true; select.appendChild(option); }); select.addEventListener('change', function () { sessionStorage.setItem('fiti_active_location', this.value); renderHotspotPicker(); renderRouterObservability(); }); section.querySelector('#router-observability-period').addEventListener('change', function () { loadRouterTelemetry(section, selected); }); section.querySelector('#router-observability-refresh').addEventListener('click', function (event) { var button = event.currentTarget; setBusy(button, true, 'Refreshing…'); load().finally(function () { setBusy(button, false); }); }); loadRouterTelemetry(section, selected);
       }
       function installCardNavigation() {
@@ -3714,6 +3716,48 @@
         $('workspace-error').textContent = '';
         return Promise.allSettled([api('/api/business/me'), can(['sales.view', 'sales.today']) ? api('/api/business/dashboard?period=' + encodeURIComponent(salesPeriod)) : Promise.resolve({}), can('vouchers.view') ? api('/api/business/vouchers') : Promise.resolve({ vouchers: [] }), can('payments.settings') ? api('/api/business/payment-collection') : Promise.resolve({})]).then(function (results) { if (token !== requestToken) return; if (results[0].status === 'rejected') { if (results[0].reason && results[0].reason.status === 401) { clearSession(); return; } $('workspace-error').textContent = 'Your workspace profile could not be loaded. Refresh to try again.'; return; } state.workspace = results[0].value; state.dashboard = results[1].status === 'fulfilled' ? results[1].value : {}; state.vouchers = results[2].status === 'fulfilled' ? (results[2].value.vouchers || []) : []; state.payment = results[3].status === 'fulfilled' ? results[3].value : {}; billingRecoveryPending = !state.billing; renderWorkspace(); renderSales(); renderVouchers(); renderIssuedVouchers(); if (can('payments.settings')) loadIntegrations(); if (!state.billing && can('billing')) return recoverBilling(); });
       }
+      // Live refresh: every 2 seconds, while the dashboard is open and
+      // visible, the page updates itself. A cheap check (workspace, sales,
+      // vouchers) redraws the dashboard only when something really changed:
+      // a sale, a router going online or offline, a new package. Clock-like
+      // fields are ignored so nothing redraws for nothing. The page being
+      // viewed also refreshes its own numbers: the router card, charts and
+      // last check-in on Routers, the list on Customers. It pauses while
+      // someone types, has a field focused, has a dialog or the router map
+      // open, or is selecting text, so nothing is ever lost mid-edit.
+      var LIVE_EVERY_MS = 2000; var LIVE_RETRY_MS = 10000;
+      var liveTimer = null; var liveInFlight = false; var liveFingerprint = null; var lastUserInputAt = 0;
+      if (typeof document.addEventListener === 'function') {
+        document.addEventListener('input', function () { lastUserInputAt = Date.now(); }, true);
+        document.addEventListener('keydown', function () { lastUserInputAt = Date.now(); }, true);
+      }
+      function liveStable(value) { return JSON.stringify(value, function (key, item) { return /(?:_at|At|^since|seconds_left|remainingSeconds)$/.test(key) ? undefined : item; }); }
+      function userBusy() {
+        var active = document.activeElement;
+        if (active && active !== document.body && (/^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName) || active.isContentEditable)) return true;
+        if (Date.now() - lastUserInputAt < 8000) return true;
+        if (document.querySelector('.ou-backdrop, .router-draft-modal:not(.hidden), .rb-review')) return true;
+        if (typeof plannerInUse === 'function' && plannerInUse()) return true;
+        var selection = window.getSelection && window.getSelection();
+        return Boolean(selection && String(selection).length);
+      }
+      function scheduleLiveRefresh(delay) { clearTimeout(liveTimer); liveTimer = setTimeout(liveTick, delay == null ? LIVE_EVERY_MS : delay); }
+      function selectedRouter() { var locations = (state.workspace && state.workspace.locations) || []; return locations.find(function (location) { return String(location.id) === String(sessionStorage.getItem('fiti_active_location') || ''); }) || locations[0] || null; }
+      function refreshLivePage() {
+        if (moduleView === 'routers' && can('routers.view')) { var section = $('router-observability-section'); var selected = selectedRouter(); if (section && selected) loadRouterTelemetry(section, selected); }
+        if (moduleView === 'customers' && can('customers.view')) loadCustomers();
+      }
+      function liveTick() {
+        if (!token || !state.workspace || document.visibilityState === 'hidden' || liveInFlight || moduleView === 'onboarding' || userBusy()) return scheduleLiveRefresh();
+        liveInFlight = true; var requestToken = token; var failed = false;
+        Promise.all([api('/api/business/me'), can(['sales.view', 'sales.today']) ? api('/api/business/dashboard?period=' + encodeURIComponent(salesPeriod)) : Promise.resolve({}), can('vouchers.view') ? api('/api/business/vouchers') : Promise.resolve({})]).then(function (results) {
+          if (token !== requestToken) return;
+          var print = liveStable(results); var changed = liveFingerprint !== null && print !== liveFingerprint; liveFingerprint = print;
+          if (changed && !userBusy()) return load();
+        }).then(function () { if (token === requestToken && !userBusy()) refreshLivePage(); }).catch(function () { failed = true; }).then(function () { liveInFlight = false; scheduleLiveRefresh(failed ? LIVE_RETRY_MS : LIVE_EVERY_MS); });
+      }
+      if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') scheduleLiveRefresh(200); });
+      scheduleLiveRefresh();
       function chooseAccess(mode) { var registration = mode === 'register'; clearAuthForms(); $('register').classList.toggle('hidden', !registration); $('login').classList.toggle('hidden', registration); $('forgot-password').classList.add('hidden'); $('reset-password').classList.add('hidden'); $('verification').classList.add('hidden'); $('show-register').setAttribute('aria-selected', String(registration)); $('show-login').setAttribute('aria-selected', String(!registration)); (registration ? $('register') : $('login')).querySelector('input').focus(); }
       var verificationState = null;
       var verificationTimer = null;

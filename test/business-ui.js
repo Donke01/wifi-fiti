@@ -996,3 +996,22 @@ for (const value of ['payment', 'connection', 'router', 'billing', 'other']) ass
   assert.match(html, /'No update since ' \+ when\(latest\.recorded_at\)/, 'an old chart says how old it is');
   assert.match(html, /card\.dataset\.cardModule \|\| card\.hasAttribute\('data-online-users'\)\) return;/, 'the card opens who is online, not the Customers page');
 }
+
+// Live refresh: every 2 s, redraws only on a real change, pauses while busy.
+{
+  const liveStable = vm.runInNewContext('(' + html.match(/function liveStable\(value\) \{[\s\S]*?\n/)[0].replace(/^function liveStable/, 'function') + ')');
+  const before = [{ business: { id: 'b', name: 'Shop' }, locations: [{ id: 'l', router_status: 'online', last_seen_at: '2026-09-29 10:00:00' }] }, { since: '2026-09-29 00:00:00', totals: { gross: 50 } }];
+  const tick = JSON.parse(JSON.stringify(before)); tick[0].locations[0].last_seen_at = '2026-09-29 10:00:05'; tick[1].since = '2026-09-29 00:00:02';
+  assert.equal(liveStable(tick), liveStable(before), 'a router check-in or the clock alone never redraws the page');
+  const sale = JSON.parse(JSON.stringify(before)); sale[1].totals.gross = 70;
+  assert.notEqual(liveStable(sale), liveStable(before), 'a new sale redraws it');
+  const offline = JSON.parse(JSON.stringify(before)); offline[0].locations[0].router_status = 'offline';
+  assert.notEqual(liveStable(offline), liveStable(before), 'a router going offline redraws it');
+  assert.match(html, /var LIVE_EVERY_MS = 2000;/);
+  assert.match(html, /document\.visibilityState === 'hidden' \|\| liveInFlight \|\| moduleView === 'onboarding' \|\| userBusy\(\)/, 'paused while hidden, busy or in setup');
+  assert.match(html, /\/\^\(INPUT\|SELECT\|TEXTAREA\)\$\/\.test\(active\.tagName\)/, 'never while a field has focus');
+  assert.match(html, /Date\.now\(\) - lastUserInputAt < 8000/, 'nor within 8 seconds of typing');
+  assert.match(html, /document\.querySelector\('\.ou-backdrop, \.router-draft-modal:not\(\.hidden\), \.rb-review'\)/, 'nor with a dialog or the map review open');
+  assert.match(html, /if \(moduleView === 'routers' && can\('routers\.view'\)\) \{ var section = \$\('router-observability-section'\);/);
+  assert.match(fs.readFileSync(path.join(__dirname, '../public/online-users.js'), 'utf8'), /var REFRESH_MS = 2000;/, 'Active users refreshes every 2 seconds');
+}
