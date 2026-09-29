@@ -19,6 +19,7 @@ const routerTools = require('./lib/router-tools');
 const team = require('./lib/team');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
+const { portalFont } = require('./lib/tenant-portal-templates');
 const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
@@ -2666,7 +2667,7 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
     FROM tenant_portal_templates WHERE business_id=? AND active=1 ORDER BY updated_at DESC LIMIT 1`).get(location.business_id) || null;
   res.json({ location: { id: location.id, name: location.name, businessName: branding.name },
     portalUrl: portalUrlForLocation(location), branding,
-    template: portalTemplate ? { id: portalTemplate.id, name: portalTemplate.name, layout: portalTemplate.layout, accentColor: portalTemplate.accent_color, welcomeMessage: portalTemplate.welcome_message, showPackages: Boolean(portalTemplate.show_packages), showUtilities: Boolean(portalTemplate.show_utilities), fontFamily: portalTemplate.font_family || 'modern', textAlign: portalTemplate.text_align || 'center', packageStyle: portalTemplate.package_style || 'stacked', backgroundStyle: portalTemplate.background_style || 'aurora' } : null,
+    template: portalTemplate ? { id: portalTemplate.id, name: portalTemplate.name, layout: portalTemplate.layout, accentColor: portalTemplate.accent_color, welcomeMessage: portalTemplate.welcome_message, showPackages: Boolean(portalTemplate.show_packages), showUtilities: Boolean(portalTemplate.show_utilities), fontFamily: portalFont(portalTemplate.font_family), textAlign: portalTemplate.text_align || 'center', packageStyle: portalTemplate.package_style || 'stacked', backgroundStyle: portalTemplate.background_style || 'aurora' } : null,
     packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone,
     paybill });
 });
@@ -5472,6 +5473,9 @@ app.post('/api/router/sync', (req, res) => {
       return res.type('text/plain').send(routerSetupReceiptScript(receipt.challenge));
     }
     let readyLocation = tenant.autoCompleteCustomerPortal(receipt.location.id) || receipt.location;
+    // Remote support is on by default for a router that has only now proved
+    // its setup; an owner who turned it off keeps it off.
+    if (receipt.setupJustVerified) readyLocation = tenant.autoRequestRemoteAccess(readyLocation) || readyLocation;
     // Automatic kits discover the live Hotspot and customer bridge on the
     // router. Persist those detected names before emitting queued jobs so a
     // custom Hotspot is never addressed as the default `hotspot1`.

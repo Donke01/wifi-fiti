@@ -6,6 +6,15 @@
 // its next request.
 const crypto = require('node:crypto');
 
+// Portal font styles. "rounded" was dropped: Android has no rounded system
+// font and the portal loads no web fonts, so it looked the same as modern.
+// A saved or sent "rounded" (or nothing) is treated as "modern".
+const PORTAL_FONTS = ['modern', 'condensed', 'mono'];
+function portalFont(value) {
+  const font = String(value == null ? '' : value).trim();
+  return !font || font === 'rounded' ? 'modern' : font;
+}
+
 function attachTenantPortalTemplateRoutes(app, { businessAuth, db }) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tenant_portal_templates (
@@ -49,17 +58,19 @@ function attachTenantPortalTemplateRoutes(app, { businessAuth, db }) {
     if (!['classic','cards','minimal'].includes(layout)) throw new Error('Choose a valid portal layout.');
     const accent = clean(body.accentColor || body.accent_color, 20) || '#1769D8';
     if (!/^#[0-9a-f]{6}$/i.test(accent)) throw new Error('Accent colour must be a six-digit hex colour.');
-    const fontFamily = clean(body.fontFamily || body.font_family, 20) || 'modern';
+    // "rounded" was dropped (phones have no rounded system font on Android);
+    // older portals and cached dashboards that still send it get "modern".
+    const fontFamily = portalFont(clean(body.fontFamily || body.font_family, 20));
     const textAlign = clean(body.textAlign || body.text_align, 20) || 'center';
     const packageStyle = clean(body.packageStyle || body.package_style, 20) || 'stacked';
     const backgroundStyle = clean(body.backgroundStyle || body.background_style, 20) || 'aurora';
-    if (!['modern', 'rounded', 'condensed', 'mono'].includes(fontFamily)) throw new Error('Choose a valid font style.');
+    if (!PORTAL_FONTS.includes(fontFamily)) throw new Error('Choose a valid font style.');
     if (!['left', 'center'].includes(textAlign)) throw new Error('Choose a valid text alignment.');
     if (!['stacked', 'tiles', 'compact', 'pill'].includes(packageStyle)) throw new Error('Choose a valid package style.');
     if (!['aurora', 'midnight', 'paper', 'sunset', 'mint'].includes(backgroundStyle)) throw new Error('Choose a valid background style.');
     return { name, layout, accentColor: accent.toUpperCase(), welcomeMessage: clean(body.welcomeMessage || body.welcome_message, 140), showPackages: body.showPackages === false ? 0 : 1, showUtilities: body.showUtilities === false ? 0 : 1, fontFamily, textAlign, packageStyle, backgroundStyle };
   };
-  const publicTemplate = row => row && ({ id: row.id, name: row.name, layout: row.layout, accentColor: row.accent_color, welcomeMessage: row.welcome_message, showPackages: Boolean(row.show_packages), showUtilities: Boolean(row.show_utilities), fontFamily: row.font_family || 'modern', textAlign: row.text_align || 'center', packageStyle: row.package_style || 'stacked', backgroundStyle: row.background_style || 'aurora', active: Boolean(row.active), createdAt: row.created_at, updatedAt: row.updated_at });
+  const publicTemplate = row => row && ({ id: row.id, name: row.name, layout: row.layout, accentColor: row.accent_color, welcomeMessage: row.welcome_message, showPackages: Boolean(row.show_packages), showUtilities: Boolean(row.show_utilities), fontFamily: portalFont(row.font_family), textAlign: row.text_align || 'center', packageStyle: row.package_style || 'stacked', backgroundStyle: row.background_style || 'aurora', active: Boolean(row.active), createdAt: row.created_at, updatedAt: row.updated_at });
   app.get('/api/business/portal-templates', operator((req, res, business) => {
     const rows = db.prepare('SELECT * FROM tenant_portal_templates WHERE business_id=? ORDER BY active DESC,updated_at DESC').all(business.id);
     res.set('Cache-Control', 'no-store').json({ templates: rows.map(publicTemplate), active: publicTemplate(rows.find(row => row.active) || rows[0] || null) });
@@ -90,4 +101,4 @@ function attachTenantPortalTemplateRoutes(app, { businessAuth, db }) {
   }));
 }
 
-module.exports = { attachTenantPortalTemplateRoutes };
+module.exports = { attachTenantPortalTemplateRoutes, portalFont, PORTAL_FONTS };

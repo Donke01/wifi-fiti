@@ -1976,7 +1976,7 @@ function withRemoteAccessTransaction(work) {
  * support only after its router has completed its first authenticated poll.
  * This records consent; it neither issues VPN keys nor changes the router.
  */
-function requestRemoteAccess({ locationId, businessId }) {
+function requestRemoteAccess({ locationId, businessId, actorType = 'business', actorId = businessId }) {
   const location = locationForBusiness.get(locationId, businessId);
   if (!location) return null;
   if (!location.last_successful_sync_at && !location.router_setup_verified_at) {
@@ -1997,7 +1997,7 @@ function requestRemoteAccess({ locationId, businessId }) {
     }
     if (existing) reRequestRemoteAccess.run(location.id);
     else insertRemoteAccess.run(location.id);
-    insertRemoteAccessEvent.run({ locationId: location.id, actorType: 'business', actorId: businessId, action: 'requested' });
+    insertRemoteAccessEvent.run({ locationId: location.id, actorType, actorId, action: 'requested' });
     return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
   });
 }
@@ -3610,7 +3610,7 @@ function processRouterSetupReceipt(location, { protocol, ack, health, kit } = {}
 
   if (pairing === 'active') {
     verifyActiveRouterSetup.run({ locationId: location.id, health: reportedHealth });
-    return { verified: true, challenge: null, location: locationById.get(location.id) };
+    return { verified: true, setupJustVerified: true, challenge: null, location: locationById.get(location.id) };
   }
 
   const next = pendingSetupSnapshot(location);
@@ -3626,7 +3626,7 @@ function processRouterSetupReceipt(location, { protocol, ack, health, kit } = {}
     nonce: currentNonce,
   });
   if (promotion.changes) {
-    return { verified: true, promoted: true, challenge: null, location: locationById.get(location.id) };
+    return { verified: true, promoted: true, setupJustVerified: true, challenge: null, location: locationById.get(location.id) };
   }
   return { verified: false, challenge: null, location: locationById.get(location.id) };
 }
@@ -3658,6 +3658,40 @@ function autoCompleteCustomerPortal(locationId) {
     try { db.exec('ROLLBACK'); } catch (_) { /* transaction already closed */ }
     throw error;
   }
+}
+
+/**
+ * Remote support is on by default (Don's decision, 29 Sep 2026): when a
+ * router has just proved its setup, ask for it on the owner's behalf through
+ * the same path as the dashboard's Remote setup button. The router still
+ * makes its own WireGuard key, and the router still has to pass the verified
+ * poll first.
+ *
+ * Only a router that has never had remote support is switched on: once an
+ * owner turns it off (a revoked record exists), it stays off. Routers
+ * verified before this change are left alone, because this runs only at
+ * the moment of verification. Billing never depends on it, so errors are
+ * logged and swallowed.
+ */
+function autoRequestRemoteAccess(location) {
+  if (!location || !location.router_setup_verified_at) return location;
+  if (remoteAccessByLocation.get(location.id)) return location;
+  try {
+    requestRemoteAccess({ locationId: location.id, businessId: location.business_id,
+      actorType: 'system', actorId: 'platform:auto-onboarding' });
+    if (config.vpnGateway && config.vpnGateway.enabled) {
+      provisionRemoteVpn({
+        locationId: location.id,
+        gatewayId: config.vpnGateway.id,
+        gatewayName: 'Wi-Fi Fiti secure gateway',
+        managementCidr: config.vpnGateway.managementCidr,
+        actorId: 'platform:auto-onboarding',
+      });
+    }
+  } catch (error) {
+    console.warn(`[remote-access] automatic request failed for ${location.id}: ${error.message}`);
+  }
+  return locationById.get(location.id) || location;
 }
 
 function setManagedPortalHostname({ locationId, businessId, slug }) {
@@ -4542,7 +4576,7 @@ module.exports = {
   paymentInProgress, jobPaymentTiming, latestSale, firstCustomerConnected,
   deletePackageForOwner, setPaymentDeviceIp, bindPayBillPayment, bindUnclaimedPayment, claimedElsewhere, setProvisionError, clearProvisionError, subscriptionLive,
   setBusinessBillingSource,
-  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, renameRouterBridge, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
+  tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, renameRouterBridge, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, autoRequestRemoteAccess, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
   recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId, routerCheckIn,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,

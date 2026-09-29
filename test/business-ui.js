@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '../public/business.html'), 'utf8');
 
-assert.match(html, /<section class="section" id="remote-section">[^\n]*Customer traffic and payments never use this path[^\n]*It is off by default\. Once a router has connected through setup, you can request it/, 'the Remote access part explains the path, that it stays off until requested, and only after a router has connected');
+assert.match(html, /<section class="section" id="remote-section">[^\n]*Customer traffic and payments never use this path[^\n]*It turns on by itself once a new router finishes setup\. You can turn it off for any router below at any time, and it stays off until you turn it on again\./, 'the Remote access part explains the path, that it starts only after setup, and that turning it off sticks');
 assert.match(html, /Remote setup/, 'each location exposes managed setup without hiding it in a support-only view');
 assert.match(html, /\/remote-access/, 'the UI calls a location-scoped remote-access API');
 assert.match(html, /consent:\s*true/, 'a business owner must explicitly consent before remote access is requested');
@@ -423,6 +423,27 @@ assert.match(html, /function appendNetworkPlanner\(/, 'the routerboard carries t
 assert.match(html, /\/network-plan'/, 'the planner saves the map to the network-plan endpoint');
 assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : state === 'free' \? 'Free' : state === 'movable' \? 'Movable' : 'In use'/,
   'every part says whether it is free, in use or carrying the internet');
+// The "Design your portal" form overrides the global button (inline-flex)
+// and input (full width, 47px tall) rules: preset buttons stack the title over
+// its description, and the "Show …" choices are small checkboxes on the same
+// line as their label, at every width.
+{
+  const rule = (selector) => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = html.match(new RegExp('(?:^|[}\\s])' + escaped + '\\{([^}]*)\\}', 'm'));
+    assert.ok(match, selector + ' has its own rule');
+    return match[1];
+  };
+  assert.match(rule('.portal-template-preset'), /(^|;)display:block/, 'preset buttons are blocks, not the global inline-flex row');
+  assert.match(rule('.portal-template-preset strong'), /display:block/, 'the preset title sits on its own line');
+  assert.match(rule('.portal-template-creator label.check'), /display:flex/);
+  const checkbox = rule('.portal-template-creator label.check input');
+  assert.match(checkbox, /width:20px/, 'checkboxes are not full width');
+  assert.match(checkbox, /min-height:0/, 'checkboxes drop the 47px field height');
+  const form = html.match(/<form id="portal-template-form"[\s\S]*?<\/form>/)[0];
+  assert.equal((form.match(/<label class="check"><input name="show(?:Packages|Utilities)" type="checkbox"/g) || []).length, 2,
+    'both "Show …" choices are checkboxes inside label.check');
+}
 // Ready-made portal designs: each sets every option, the server accepts it
 // unchanged, and its accent stays readable on the white cards.
 {
@@ -444,6 +465,41 @@ assert.match(html, /'rb-badge ' \+ state, state === 'internet' \? 'Internet' : s
     for (const key of ['name', 'layout', 'accentColor', 'welcomeMessage', 'fontFamily', 'textAlign', 'packageStyle', 'backgroundStyle']) assert.equal(saved.payload.template[key], item[key], item.id + ' keeps its ' + key);
     assert.ok(1.05 / (luminance(item.accentColor) + 0.05) >= 4.5, item.id + ' accent keeps 4.5:1 contrast on white');
   }
+  // "Rounded" was dropped (no rounded system font on Android): a cached
+  // dashboard or an older portal that still sends it gets "modern".
+  assert.notEqual(catalog.some((item) => item.fontFamily === 'rounded'), true, 'no design uses the dropped rounded font');
+  assert.doesNotMatch(html, /<option value="rounded">/, 'the dashboard no longer offers Rounded');
+  const roundedSave = call('post /api/business/portal-templates', { name: 'Old rounded', layout: 'classic', accentColor: '#1769D8', fontFamily: 'rounded' });
+  assert.equal(roundedSave.status, 201, JSON.stringify(roundedSave.payload));
+  assert.equal(roundedSave.payload.template.fontFamily, 'modern', 'a saved "rounded" is stored and shown as modern');
+  assert.equal(call('post /api/business/portal-templates', { name: 'Bad font', layout: 'classic', accentColor: '#1769D8', fontFamily: 'comic' }).status, 400);
+  const { portalFont } = require('../src/lib/tenant-portal-templates');
+  assert.deepEqual(['rounded', '', null, 'modern', 'condensed', 'mono'].map(portalFont), ['modern', 'modern', 'modern', 'modern', 'condensed', 'mono']);
+}
+// Portal font stacks use only fonts that Android and iPhone ship (the portal
+// loads no web fonts behind the walled garden), plus CSS generic families.
+{
+  const portal = fs.readFileSync(path.join(__dirname, '../public/tenant-portal.html'), 'utf8');
+  const shipped = new Set([
+    // generic CSS families
+    'sans-serif', 'serif', 'monospace', 'system-ui', 'ui-sans-serif', 'ui-monospace', '-apple-system',
+    // iOS
+    'Avenir Next Condensed', 'Menlo',
+    // Android (fonts.xml family names, used by Chrome on Android)
+    'sans-serif-condensed',
+  ]);
+  const stacks = [
+    ...[...portal.matchAll(/body\[data-portal-font="([a-z]+)"\]\{font-family:([^;}]+)/g)].map((m) => ['portal ' + m[1], m[2]]),
+    ...[...html.matchAll(/\.portal-template-preview\[data-previewfont-family="([a-z]+)"\]\{font-family:([^;}]+)/g)].map((m) => ['preview ' + m[1], m[2]]),
+    ...[...portal.matchAll(/(\.utility b|\.mpesa-word|\.mpesa-button \.mpesa-label)\{[^}]*?font-family:([^;}]+)/g)].map((m) => [m[1], m[2]]),
+  ];
+  const kinds = stacks.map(([where]) => where);
+  for (const expected of ['portal condensed', 'portal mono', 'preview condensed', 'preview mono', '.utility b', '.mpesa-word', '.mpesa-button .mpesa-label']) assert.ok(kinds.includes(expected), expected + ' has a font stack');
+  assert.equal(kinds.some((where) => /rounded/.test(where)), false, 'no rounded font rule is left');
+  for (const [where, stack] of stacks) {
+    for (const font of stack.split(',').map((name) => name.trim().replace(/^["']|["']$/g, ''))) assert.ok(shipped.has(font), where + ': ' + font + ' is not a font Android or iPhone ships');
+  }
+  assert.match(portal, /document\.body\.dataset\.portalFont = template\.fontFamily === 'rounded' \? 'modern' : template\.fontFamily;/, 'the portal shows a saved rounded design as modern');
 }
 console.log('Business UI: focused router onboarding, mapping, and client-script safety passed.');
 assert.match(html, /if \(routerBoardsShown\[boardKey\]\) \{ board\.classList\.add\('rb-settled'\);/, 'redraws do not replay the routerboard entrance motion');
@@ -768,7 +824,7 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   console.log('Business UI: real exports, support search results and Account & limits passed.');
 }
 
-// Settings → Receipts & help: plan receipts and support tickets, drawn by the
+// Settings → Receipts and Customers → Contact Wi-Fi Fiti support, drawn by the
 // page's own helpers in the tiny DOM. Text only, never HTML.
 {
   const calls = [];
@@ -819,7 +875,7 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   assert.ok(descendants(thread).some(node => node.textContent === 'Send reply' && node.type === 'submit'));
 }
 assert.match(html, /<section class="section" id="receipts-section">[^\n]*Plan receipts[^\n]*not tax invoices/, 'the receipts part says receipts are not tax invoices');
-assert.match(html, /<section class="section" id="tickets-section">[^\n]*Ask Wi-Fi Fiti[^\n]*You won't get an SMS or email, so check back here\.[^\n]*<form id="ticket-form">/, 'the tickets part says replies come here only');
+assert.match(html, /<section class="section" id="support-section"[^\n]*\n        <section class="section" id="support-tickets-section">[^\n]*<h2>Contact Wi-Fi Fiti support<\/h2>[^\n]*You won't get an SMS or email, so check back here\.[^\n]*<form id="ticket-form">/, 'the support-ticket screen sits under Customers, next to Support search, and says replies come here only');
 for (const value of ['payment', 'connection', 'router', 'billing', 'other']) assert.match(html, new RegExp('<option value="' + value + '">'), 'ticket category ' + value + ' matches the server');
 
 // Team accounts: every dashboard section has a permission in public/team.js

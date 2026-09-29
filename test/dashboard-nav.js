@@ -48,10 +48,10 @@ const expected = {
   // Every older page name and hash.
   onboarding: 'overview', setup: 'overview', locations: 'routers', 'router-map': 'routers', 'router-setup': 'routers',
   tools: 'routers', 'router-tools': 'routers', remote: 'routers', 'remote-access': 'routers', pppoe: 'routers',
-  vouchers: 'packages', support: 'customers', analytics: 'customers', sales: 'money', transactions: 'money',
+  vouchers: 'packages', support: 'customers', analytics: 'overview', sales: 'money', transactions: 'money',
   disbursements: 'money', payouts: 'money', branding: 'portal', 'portal-templates': 'portal', templates: 'portal',
   account: 'settings', billing: 'settings', payments: 'settings', plan: 'settings', 'payment-collection': 'settings',
-  integrations: 'settings', team: 'settings', receipts: 'settings', tickets: 'settings', help: 'settings',
+  integrations: 'settings', team: 'settings', receipts: 'settings', tickets: 'customers', help: 'customers',
   // Unknown or empty → Home.
   '': 'overview', nonsense: 'overview', 'google_token=abc': 'overview', constructor: 'overview', ['__proto__']: 'overview', hasOwnProperty: 'overview',
 };
@@ -60,13 +60,23 @@ assert.equal(resolveModule('money'), 'sales', 'Money opens on Sales');
 assert.equal(resolveModule('settings'), 'account', 'Settings opens on Account & limits');
 assert.equal(resolveModule('disbursements'), 'sales', 'the old Disbursements page is not shown; its link opens Sales');
 assert.equal(resolveModule('vouchers'), 'vouchers', 'a part keeps its own hash');
-assert.equal(resolveModule('tickets'), 'receipts', 'support tickets open Settings → Receipts & help');
+assert.equal(resolveModule('tickets'), 'tickets', 'support tickets have their own tab under Customers');
+assert.equal(resolveModule('help'), 'tickets', '#help (Settings → Receipts & help before) opens the support tickets');
+assert.equal(resolveModule('analytics'), 'overview', 'Usage analytics is on Home now');
+assert.equal(context.moduleAnchors.analytics, 'analytics-section', '#analytics opens Home at Usage analytics');
+assert.deepEqual(dashboardPages[0].parts.map((part) => part.sections), [['overview', 'overview-golive', 'metrics', 'overview-insights-section', 'onboarding-section', 'analytics-section']],
+  'Home is one stacked page, with Usage analytics below the overview');
+assert.deepEqual(dashboardPages.find((page) => page.id === 'customers').parts.map((part) => [part.id, part.label, part.sections]), [
+  ['customers', 'Customers', ['customers-section']],
+  ['support', 'Support search', ['support-section']],
+  ['tickets', 'Contact Wi-Fi Fiti support', ['support-tickets-section']],
+], 'Customers: customers, support search and one support-ticket screen');
 assert.deepEqual(dashboardPages.find((page) => page.id === 'settings').parts.map((part) => [part.id, part.label, part.sections]), [
   ['account', 'Account & limits', ['account-section']],
   ['payments', 'Billing & payments', ['billing-section', 'network-services-section', 'integrations-section']],
-  ['receipts', 'Receipts & help', ['receipts-section', 'tickets-section']],
+  ['receipts', 'Receipts', ['receipts-section']],
   ['team', 'Team', ['team-section']],
-], 'Settings has four tabs; plan receipts and support tickets have their own');
+], 'Settings has four tabs; plan receipts have their own');
 for (const [hash, part] of [['#vouchers', 'vouchers'], ['#module=tools', 'tools'], ['#payments', 'payments'], ['#disbursements', 'sales'], ['#nope', 'overview'], ['', 'overview']]) {
   context.window.location.hash = hash; assert.equal(context.moduleFromHash(), part, hash + ' → ' + part);
 }
@@ -76,7 +86,9 @@ const sections = Object.values(moduleSections).flat();
 assert.equal(new Set(sections).size, sections.length, 'no section is on two pages');
 assert.ok(!sections.includes('disbursements-section'), 'Disbursements is hidden');
 assert.doesNotMatch(html, /id="disbursements-section"/, 'the placeholder Disbursements page is gone');
-for (const id of ['locations-section', 'tools-section', 'pppoe-section', 'packages-section', 'vouchers-section', 'customers-section', 'support-section', 'sales-section', 'branding-section', 'sms-section', 'billing-section', 'integrations-section', 'network-services-section', 'receipts-section', 'tickets-section']) {
+assert.equal((html.match(/id="ticket-form"/g) || []).length, 1, 'there is one support-ticket screen, not two');
+assert.doesNotMatch(html, /id="tickets-section"/, 'the ticket screen moved out of Settings');
+for (const id of ['locations-section', 'tools-section', 'pppoe-section', 'packages-section', 'vouchers-section', 'customers-section', 'support-section', 'sales-section', 'branding-section', 'sms-section', 'billing-section', 'integrations-section', 'network-services-section', 'receipts-section', 'support-tickets-section', 'analytics-section']) {
   assert.match(html, new RegExp('id="' + id + '"'), id + ' exists');
   assert.ok(sections.includes(id), id + ' is on a page');
 }
@@ -84,7 +96,7 @@ for (const id of ['transactions-section', 'account-section', 'team-section', 're
 
 // Every page name used by a button, a card, another script, the server or an
 // email is known (it does not silently fall back to Home).
-const known = (name) => name === 'overview' || resolveModule(name) !== 'overview';
+const known = (name) => name === 'overview' || resolveModule(name) !== 'overview' || Object.prototype.hasOwnProperty.call(context.moduleAliases, name);
 const used = new Set();
 const collect = (text, pattern) => { for (const m of text.matchAll(pattern)) used.add(m[1]); };
 collect(html, /goLiveGoTo\('([a-z-]+)'\)/g);
@@ -100,14 +112,16 @@ collect(read('public/pppoe.html'), /\/business\.html#([a-z-]+)/g);
 assert.ok(used.size > 10, 'the page names in use were found');
 for (const name of used) assert.ok(known(name), name + ' is a known dashboard page');
 
-// Receipts & help uses the owner's receipt and ticket APIs, and never payouts.
+// Receipts and support tickets use the owner's receipt and ticket APIs, never payouts.
 assert.match(html, /api\('\/api\/business\/operations\/billing\?offset=' \+ offset\)/, 'plan receipts come from the owner receipts API');
 assert.match(html, /'\/api\/business\/operations\/billing\/' \+ encodeURIComponent\(record\.checkout_request_id\) \+ '\/receipt'/, 'each receipt downloads from the owner API');
 assert.match(html, /api\('\/api\/business\/operations\/tickets\?offset=' \+ offset\)/, 'support tickets come from the owner tickets API');
 assert.match(html, /api\('\/api\/business\/operations\/tickets', \{ method: 'POST'/, 'a new ticket is sent to the owner tickets API');
 assert.match(html, /'\/api\/business\/operations\/tickets\/' \+ encodeURIComponent\(ticket\.id\) \+ '\/messages'/, 'a reply goes to the ticket');
 assert.doesNotMatch(html, /\/payouts|admin-token|business-operations\/|\/operations\.html/, 'the dashboard neither shows payouts nor links operations.html');
-assert.match(html, /if \(requested === 'receipts' && token && !\(options\.silent && helpLoaded\)\) loadReceiptsAndHelp\(\);/, 'the tab loads when opened, not on every redraw');
+assert.match(html, /if \(requested === 'receipts' && token && !\(options\.silent && helpLoaded\.receipts\)\) loadReceiptsTab\(\);/, 'Receipts loads when opened, not on every redraw');
+assert.match(html, /if \(requested === 'tickets' && token && !\(options\.silent && helpLoaded\.tickets\)\) loadSupportTab\(\);/, 'support tickets load when opened, not on every redraw');
+assert.match(html, /var anchorId = Object\.prototype\.hasOwnProperty\.call\(moduleAnchors, String\(module\)\) \? moduleAnchors\[String\(module\)\] : ''; var first = \(anchorId && \$\(anchorId\)\) \|\| tabs/, 'an old #analytics link scrolls to Usage analytics on Home');
 
 // Every message that sends the owner to Billing & payments says where it is:
 // "Settings → Billing & payments" (SMS use ">" to stay in GSM-7).

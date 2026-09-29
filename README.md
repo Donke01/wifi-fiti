@@ -268,8 +268,11 @@ remote support:
 2. The router completes an authenticated outbound HTTPS poll. Billing,
    provisioning and customer service now work without exposing a management
    service to the public internet.
-3. The owner can explicitly request managed remote setup from the location
-   card. The platform records consent, approval, allocation and revocation as
+3. Remote support turns on by itself for a router that has just finished
+   setup (the same request as the Routers → Remote access "Remote setup"
+   button, logged as the system). Routers set up before 29 Sep 2026 keep the
+   button. Once the owner turns it off it stays off until they turn it on
+   again. The platform records request, approval, allocation and revocation as
    separate audited states. After platform configuration, the router receives
    a narrowly-scoped prepare command through its normal poll: it creates a
    **disabled** native WireGuard interface and reports only its public key.
@@ -278,7 +281,7 @@ remote support:
 
 The polling path remains the product's source of truth. A support connection
 must never carry customer browsing traffic or be required for payment
-fulfilment. A router with no remote-support consent continues working normally.
+fulfilment. A router with remote support turned off continues working normally.
 
 The generated RouterOS kit includes a dormant native WireGuard support
 bootstrap. It is disabled by default, stores no private VPN material in the
@@ -444,6 +447,20 @@ dashboard instead. Tenant portals, the demo, M-Pesa/C2B callbacks and router
 polling are unaffected. When it is switched back on, credentials by MAC are
 handed out only to the address the site's router last polled from, and not
 at all until it has polled within the last 15 minutes.
+
+Switching the old portal off leaves every router route alone: the legacy
+site's poll (`/api/router/sync`, `/api/router/jobs`) and all tenant router
+routes answer exactly as before.
+
+**Router tokens in URLs.** Older kits send the router token in the URL: the
+legacy site's poll (`routeros/poll-setup.rsc`, `public/router-poll-install.rsc`,
+`?token=`) and early tenant kits calling `router-login?token=`. The server
+still accepts them, so no router has to change; a tenant router that was
+paired in header mode is refused a query token. Every kit generated now
+(`public/tenant-router-install.rsc`, `src/lib/router-setup.js`, the PPPoE
+script and the dashboard's one-line installer) sends it only in the
+`X-WiFi-Fiti-Router` header, and `test/security.js` fails if a `?token=` or a
+fetch to the API without that header is added.
 
 Dangerous platform-admin actions need `ADMIN_PASSWORD` typed as a
 confirmation, on top of the admin token. There is no fallback phrase: with

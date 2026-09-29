@@ -561,6 +561,29 @@ async function test(name, fn) {
     assert.match(node('#subs').innerHTML, /<td>enabled<\/td>/, 'the status column shows the status');
     assert.doesNotMatch(node('#subs').innerHTML, /data-id="">/);
   });
+  await test('new router kits send the router token only in the X-WiFi-Fiti-Router header', () => {
+    // Older kits (the legacy site's poll, early tenant kits calling
+    // router-login?token=) still put it in the URL; the server keeps
+    // accepting them so no router has to change. Everything generated now
+    // must use the header.
+    const root = path.join(__dirname, '..');
+    const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]);
+    const sources = [...walk(path.join(root, 'src')).filter((file) => file.endsWith('.js')),
+      path.join(root, 'public', 'tenant-router-install.rsc'), path.join(root, 'public', 'business.html')];
+    for (const file of sources) {
+      const text = fs.readFileSync(file, 'utf8');
+      assert.doesNotMatch(text, /[?&]token=/, `${path.relative(root, file)} puts a token in a URL`);
+      // A RouterOS fetch statement (continued lines end with a backslash)
+      // without the header is a public download (the installer, the CA
+      // bundle, the clock) and must not carry a token at all.
+      for (const match of text.matchAll(/tool fetch url=/g)) {
+        const statement = text.slice(match.index, match.index + 800).split(/(?<!\\)\n/)[0];
+        if (/X-WiFi-Fiti-Router/.test(statement)) continue;
+        assert.doesNotMatch(statement, /token|\/api\//i, `${path.relative(root, file)}: ${statement.slice(0, 120)}`);
+      }
+    }
+  });
   await test('RouterOS strings escape $ and line breaks', () => {
     const { ros } = require('../src/lib/router-setup');
     assert.equal(ros('a$b"c\\d\r\ne'), '"a\\$b\\"c\\\\d\\r\\ne"');

@@ -128,6 +128,16 @@ async function main() {
 
   const paired = await completeRouterSync(location);
   assert.equal(paired.status, 200, paired.text);
+  // Remote access is now requested automatically the moment a router's
+  // setup is independently verified - see autoRequestRemoteAccess. So the
+  // prepare acknowledgement appears in THIS response, not a later one that
+  // only follows an explicit owner click.
+  const prepareAck = paired.text.match(/:global fitiSupportAck "(\d+)"/);
+  assert.ok(prepareAck,
+    'automatic remote-access request should queue router preparation on first verified sync');
+  assert.match(paired.text, /\/system script run \$fitiSupportBootstrap/);
+  assert.doesNotMatch(paired.text, /endpoint-address|private-key|0\.0\.0\.0\/0|\/ip hotspot|\/ip firewall nat/i,
+    'automatic preparation must stay exactly as harmless as the manual path was');
 
   const unauthorized = await api(gatewayEndpoint, { method: 'POST', body: {} });
   assert.equal(unauthorized.status, 404, 'the internal gateway endpoint stays invisible without its separate secret');
@@ -136,21 +146,18 @@ async function main() {
   });
   assert.equal(malformed.status, 400, 'the gateway route refuses malformed peer observations');
 
+  // The owner can still explicitly confirm consent at any time. With
+  // automatic requesting already having driven this to 'configured', this
+  // call now exercises the idempotent no-op path instead of the original
+  // transition - both are already covered by requestRemoteAccess's own
+  // unit tests, so this checks the two integrate correctly rather than
+  // re-proving idempotency here.
   const requested = await api(remoteEndpoint, { method: 'POST', token: businessToken, body: { consent: true } });
   assert.equal(requested.status, 200, JSON.stringify(requested.body));
   assert.equal(requested.body.remoteAccess.status, 'configured', 'gateway-enabled consent moves directly to harmless router preparation');
   assert.equal(requested.body.remoteAccess.managementAddress, '10.254.0.2');
   assert.equal(requested.body.remoteAccess.gatewayState, 'preparing_router');
   assert.equal(JSON.stringify(requested.body).includes(routerPublicKey), false, 'owner output never exposes a router identity');
-
-  const prepare = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
-    method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
-  });
-  assert.equal(prepare.status, 200, prepare.text);
-  const prepareAck = prepare.text.match(/:global fitiSupportAck "(\d+)"/);
-  assert.ok(prepareAck, 'the router receives a separate, safe WireGuard preparation acknowledgement');
-  assert.match(prepare.text, /\/system script run \$fitiSupportBootstrap/);
-  assert.doesNotMatch(prepare.text, /endpoint-address|private-key|0\.0\.0\.0\/0|\/ip hotspot|\/ip firewall nat/i);
 
   const enrolled = await api(supportEndpoint, {
     method: 'POST', routerToken: location.routerToken, body: supportEnrollment(location.id), contentType: 'text/plain',
@@ -235,7 +242,48 @@ async function main() {
   assert.doesNotMatch(cleanup.text, /fiti-poll|\/ip hotspot|\/ip firewall nat|0\.0\.0\.0\/0/,
     'revoking support leaves the ordinary billing/control plane untouched');
 
-  console.log('VPN gateway HTTP lifecycle: consent, prepare, activate, handshake and revoke passed.');
+  // Remote support is on by default, but only for a router that has never
+  // had it, and the log says the system asked, not the owner.
+  const db = require('../src/lib/db').db;
+  const tenantLib = require('../src/lib/tenant');
+  const firstEvent = db.prepare('SELECT actor_type, actor_id, action FROM tenant_remote_access_events WHERE location_id=? ORDER BY id LIMIT 1').get(location.id);
+  assert.deepEqual({ ...firstEvent }, { actor_type: 'system', actor_id: 'platform:auto-onboarding', action: 'requested' },
+    'the automatic request is recorded as the system');
+  // An owner who turned it off keeps it off: neither another check-in nor
+  // a new verification of the router switches it back on.
+  await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
+    method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
+  });
+  tenantLib.autoRequestRemoteAccess(tenantLib.locationById.get(location.id));
+  const stillOff = await api(remoteEndpoint, { token: businessToken });
+  assert.equal(stillOff.body.remoteAccess.status, 'revoked', 'remote support stays off once the owner turned it off');
+  // A router verified before remote support became automatic is left alone
+  // by its ordinary check-ins; the owner can still use Remote setup.
+  // (A second business: a trial workspace holds one router.)
+  const olderOwner = await api('/api/business/register', { method: 'POST', body: {
+    name: 'Older Internet', ownerName: 'Owner', phone: '0712000009',
+    email: 'vpn-older@example.test', password: 'test-password', plan: 'starter', collectionMode: 'fiti',
+  } });
+  assert.equal(olderOwner.status, 201, JSON.stringify(olderOwner.body));
+  const olderCreated = await api('/api/business/locations', {
+    method: 'POST', token: olderOwner.body.token, body: { name: 'Older Site', routerName: 'RB951' },
+  });
+  assert.equal(olderCreated.status, 201, JSON.stringify(olderCreated.body));
+  const older = olderCreated.body.location;
+  assert.equal((await completeRouterSync(older)).status, 200);
+  db.prepare('DELETE FROM tenant_remote_support_controls WHERE location_id=?').run(older.id);
+  db.prepare('DELETE FROM tenant_vpn_peers WHERE location_id=?').run(older.id);
+  db.prepare('DELETE FROM tenant_remote_access_events WHERE location_id=?').run(older.id);
+  db.prepare('DELETE FROM tenant_remote_access WHERE location_id=?').run(older.id);
+  const ordinary = await api(`/api/router/sync?site=${encodeURIComponent(older.id)}&ack=`, {
+    method: 'POST', routerToken: older.routerToken, body: '', contentType: 'text/plain',
+  });
+  assert.equal(ordinary.status, 200, ordinary.text);
+  assert.doesNotMatch(ordinary.text, /fitiSupportAck|fitiSupportBootstrap/, 'an ordinary check-in queues no remote-support work');
+  const olderAccess = await api(`/api/business/locations/${encodeURIComponent(older.id)}/remote-access`, { token: olderOwner.body.token });
+  assert.equal(olderAccess.body.remoteAccess.status, 'not_requested', 'a router verified earlier keeps the manual Remote setup button');
+
+  console.log('VPN gateway HTTP lifecycle: automatic request, prepare, activate, handshake, revoke that stays off passed.');
 }
 
 main().then(async () => {
