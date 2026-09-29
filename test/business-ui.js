@@ -469,7 +469,7 @@ assert.match(html, /entry\.wifi = \{ ssid: defaultSsid\(\), radio: it\.name \};/
 assert.match(html, /undo removes only the Wi-Fi\./);
 assert.match(html, /hotspot_missing: 'The hotspot is no longer running on that bridge/);
 assert.match(html, /<select aria-label="Analytics location"><option value="">All locations<\/option><\/select>/, 'All locations sends no location filter');
-assert.match(html, /<select aria-label="Customer location"><option value="">All locations<\/option><\/select>/, 'All locations shows every customer');
+assert.match(html, /<select id="customers-location" aria-label="Customer location"><option value="">All locations<\/option><\/select>/, 'All locations shows every customer');
 // Go live (stage 4): one card from a set-up router to the first paying customer.
 assert.match(html, /function appendGoLive\(parent, location, options\)/);
 assert.match(html, /'\/api\/business\/locations\/' \+ encodeURIComponent\(locationId\) \+ '\/go-live'/, 'the card reads the same checks a purchase uses');
@@ -506,3 +506,131 @@ assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer W
 assert.match(html, /'Wi-Fi can only join a hotspot bridge\. PPPoE customers connect by cable\.'/, 'a radio dropped on a PPPoE bridge is refused with a reason');
 assert.match(html, /goes\.textContent = item\.shareWifi \? '📶 can add a separate customer Wi-Fi' : '📶 can broadcast customer Wi-Fi'/, 'free radios say they can broadcast customer Wi-Fi');
 assert.match(html, /var radioHint = isRadio\(item\) && \(item\.free \|\| item\.shareWifi\)/, 'a radio already in a Wi-Fi Fiti bridge is not offered again');
+
+// Real data instead of placeholders: CSV exports, the support hub search,
+// Account & limits and the router card.
+{
+  assert.doesNotMatch(html, /No records yet|No records available for this report|Search is ready/, 'no export or search returns made-up rows');
+  assert.doesNotMatch(html, /<div class="metric-label">Router limit<\/div><div class="metric-value">1<\/div>/, 'the router limit is not fixed text');
+  assert.doesNotMatch(html, /Active users<\/div><div class="metric-value">0<\/div>|CPU load<\/div><div class="metric-value">0%<\/div>|Memory usage<\/div><div class="metric-value">0%<\/div>/, 'the router card shows no made-up numbers');
+  assert.doesNotMatch(html, /Login rate<\/div><div class="metric-value">0%<\/div>|Expired today<\/div><div class="metric-value">0<\/div>/, 'the support numbers are not fixed text');
+  assert.match(html, /api\('\/api\/business\/support\/search\?q=' \+ encodeURIComponent\(query\)\)/, 'the support hub searches on the server');
+  assert.match(html, /https:\/\/wa\.me\/254718016683\?text=/, 'the setup guide links to the right WhatsApp number');
+  // The wrong number (one digit too many) is gone from the whole repository.
+  const root = path.join(__dirname, '..');
+  const wrong = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (['node_modules', '.git'].includes(entry.name) || entry.name === 'changes.diff') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && fs.statSync(full).size < 5e6 && fs.readFileSync(full, 'utf8').includes('2547180166' + '833')) wrong.push(path.relative(root, full));
+    }
+  }(root));
+  assert.deepEqual(wrong, [], 'the wrong WhatsApp number is gone');
+
+  const nodes = new Map();
+  class Node {
+    constructor(tag) { this.tagName = tag; this.children = []; this.textContent = ''; this.className = ''; this.style = {}; this.classList = { add() {}, remove() {} }; }
+    appendChild(child) { this.children.push(child); return child; }
+    replaceChildren() { this.children = []; }
+    setAttribute(name, value) { this[name] = value; }
+    addEventListener() {}
+  }
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const text = (node) => [node.textContent, ...node.children.map(text)].join(' ');
+  const ui = vm.createContext({
+    document: { createElement: (tag) => new Node(tag), createTextNode: (value) => ({ tagName: '#text', textContent: value, children: [] }) },
+    $: (id) => { if (!nodes.has(id)) nodes.set(id, new Node('div')); return nodes.get(id); },
+    state: {}, analyticsSnapshot: null,
+  });
+  for (const name of ['el', 'add', 'clear', 'plural', 'kes', 'duration', 'when', 'maskedPhone', 'isActive', 'statusClass', 'analyticsDuration',
+    'voucherStatus', 'voucherStatusLabel', 'voucherDuration', 'filteredVouchers', 'csvCell', 'buildCsv', 'csvFileName', 'textMatches', 'filteredPackages',
+    'salesMatches', 'filteredTransactions', 'customerActive', 'filteredCustomers', 'txExportRow', 'exportRows', 'supportTimeLeft', 'supportCard',
+    'renderSupportResults', 'renderAccountLimits']) {
+    const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n      var |\\n    \\}\\)\\(\\);)'));
+    assert.ok(declaration, name + ' is available to exercise');
+    vm.runInContext(declaration[0], ui);
+  }
+  for (const name of ['VOUCHER_STATUS', 'VOUCHER_BADGE', 'TX_EXPORT_HEADER']) vm.runInContext(html.match(new RegExp('      var ' + name + ' = [^\\n]*'))[0], ui);
+
+  // CSV: quotes, commas and newlines are escaped; formulas stay plain text.
+  assert.equal(ui.buildCsv([['a,b', 'say "hi"', 'line 1\nline 2'], ['=SUM(A1)', '+254712', '-cmd', '@x', '\tt', '\rr', -5, 12.5, null, undefined, 'plain']]),
+    '"a,b","say ""hi""","line 1\nline 2"\r\n"\'=SUM(A1)","\'+254712","\'-cmd","\'@x","\'\tt","\'\rr","-5","12.5","","","plain"\r\n');
+  assert.equal(ui.csvFileName('customers', new Date(2026, 8, 9)), 'wifi-fiti-customers-2026-09-09.csv', 'the file name carries the date');
+
+  // Every export: header only when there are no rows, never a fake row.
+  for (const kind of ['packages', 'sales', 'transactions', 'analytics', 'vouchers', 'customers', 'disbursements']) {
+    const rows = ui.exportRows(kind, []);
+    assert.equal(rows.length, 1, kind + ' with no data exports just its header');
+    assert.ok(rows[0].length > 3 && rows[0].every((cell) => typeof cell === 'string' && cell), kind + ' has a header row');
+  }
+
+  // Exports hold the real rows and follow the page's filters.
+  ui.state.workspace = { packages: [{ name: '1 hour', price: 20, seconds: 3600, active: 1 }, { name: 'Day pass', price: 50, seconds: 86400, active: 0, rate_limit: '2M/2M' }] };
+  ui.state.dashboard = { transactions: [
+    { checkout_request_id: 'ws_1', created_at: '2026-09-29 08:00:00', location_name: 'Kitale', phone: '254722333444', mac: 'AA:01', package_name: '1 hour', amount: 20, status: 'paid', payment_source: 'fiti', mpesa_receipt: 'SGR1' },
+    { checkout_request_id: 'ws_2', created_at: '2026-09-29 09:00:00', location_name: 'Sirende', phone: '254733000111', mac: 'AA:02', package_name: '=HYPERLINK("x")', amount: 50, status: 'failed', payment_source: 'fiti', result_desc: 'Cancelled, by user' }] };
+  ui.state.customers = [
+    { location_id: 'loc-1', location_name: 'Kitale', payer_phone: '254722333444', mac: 'AA:01', router_username: 'u1', has_time: 1, is_active: 1, used_seconds: 600, expires_at: '2026-09-29 10:00:00' },
+    { location_id: 'loc-2', location_name: 'Sirende', payer_phone: '254733000111', mac: 'AA:02', router_username: 'u2', has_time: 0, is_active: 0, used_seconds: 3600, expires_at: '2026-09-28 10:00:00' }];
+  ui.state.vouchers = [{ code: 'FITI01', location_id: 'loc-1', location_name: 'Kitale', package_name: '1 hour', seconds: 3600, status: 'open' }, { code: 'FITI02', location_id: 'loc-1', location_name: 'Kitale', package_name: '1 hour', seconds: 3600, status: 'used', redeemed_by: '254722333444', redeemed_at: '2026-09-29 08:30:00' }];
+  ui.analyticsSnapshot = { report: [{ created_at: '2026-09-29 08:00:00', location_name: 'Kitale', phone: '254722333444', amount: 20, status: 'paid' }] };
+  assert.deepEqual(plain(ui.exportRows('packages').slice(1)), [['1 hour', 20, '1 hour', 'Router default', 'Active'], ['Day pass', 50, '1 day', '2M/2M', 'Paused']]);
+  ui.$('packages-status-filter').value = 'paused';
+  assert.deepEqual(plain(ui.exportRows('packages').slice(1).map((row) => row[0])), ['Day pass'], 'the package status filter applies');
+  assert.equal(ui.exportRows('transactions').length, 3);
+  ui.$('transactions-status').value = 'failed';
+  const failed = ui.exportRows('transactions');
+  assert.deepEqual(plain(failed.slice(1).map((row) => row[9])), ['ws_2'], 'the transaction status filter applies');
+  assert.match(ui.buildCsv(failed), /"'=HYPERLINK\(""x""\)"/, 'a formula in a package name is neutralised');
+  assert.match(ui.buildCsv(failed), /"Cancelled, by user"/);
+  ui.$('sales-search').value = 'sgr1';
+  assert.deepEqual(plain(ui.exportRows('sales').slice(1).map((row) => row[9])), ['ws_1'], 'the sales search applies');
+  ui.$('customers-location').value = 'loc-2';
+  assert.deepEqual(plain(ui.exportRows('customers').slice(1)), [['254733000111', 'AA:02', 'Sirende', 'u2', 'Expired', '1h 0m', '2026-09-28 10:00:00']], 'the customer location filter applies');
+  ui.$('customers-location').value = ''; ui.$('customers-status').value = 'active';
+  assert.deepEqual(plain(ui.exportRows('customers').slice(1).map((row) => row[0])), ['254722333444'], 'the customer status filter applies');
+  ui.$('vm-status').value = 'used';
+  assert.deepEqual(plain(ui.exportRows('vouchers').slice(1)), [['FITI02', 'Kitale', '1 hour', 60, null, 'Used up', '254722333444', '2026-09-29 08:30:00']], 'the voucher filters apply');
+  assert.equal(ui.exportRows('analytics').length, 2);
+  assert.deepEqual(plain(ui.exportRows('disbursements', [{ created_at: '2026-09-29 08:00:00', amount_minor: 12345, destination_type: 'mpesa', destination_name: 'Don', destination_account: '0712345678', status: 'pending' }]).slice(1)[0].slice(0, 6)),
+    ['2026-09-29 08:00:00', 123.45, 'M-Pesa', 'Don', '0712345678', 'pending']);
+
+  // Support hub results: plain text, masked phones, time left, statuses.
+  const results = new Node('div');
+  const count = ui.renderSupportResults(results, { query: '0722333444',
+    customers: [{ payer_phone: '254722333444', mac: 'AA:01', location_name: 'Kitale', package_name: '1 hour', seconds_left: 1500, expires_at: '2026-09-29 10:00:00' }],
+    payments: [{ phone: '254722333444', package_name: '<b>1 hour</b>', location_name: 'Kitale', status: 'paid', mpesa_receipt: 'SGR1', switched_on_at: null, amount: 20, created_at: '2026-09-29 08:00:00' }],
+    vouchers: [{ code: 'FITI01', package_name: '1 hour', location_name: 'Kitale', status: 'active', seconds_left: 600, redeemed_by: '254722333444', redeemed_at: '2026-09-29 08:30:00' }] });
+  assert.equal(count, 3);
+  const shown = text(results);
+  assert.match(shown, /•••• 3444 · 1 hour/); assert.doesNotMatch(shown, /254722333444/, 'phones are masked as elsewhere on the dashboard');
+  assert.match(shown, /25m left/); assert.match(shown, /Receipt SGR1 · Paid, not switched on yet/); assert.match(shown, /FITI01 · 1 hour/); assert.match(shown, /In use/); assert.match(shown, /10m left/);
+  assert.match(shown, /<b>1 hour<\/b>/, 'names are shown as text, never as HTML');
+  const none = new Node('div');
+  assert.equal(ui.renderSupportResults(none, { query: 'SGR9', customers: [], payments: [], vouchers: [] }), 0);
+  assert.match(text(none), /Nothing found/);
+
+  // Account & limits from the workspace data.
+  ui.state.vouchers = [{}, {}];
+  ui.state.workspace = { business: { billing_status: 'trial' }, services: { trial: { active: true, endsAt: '2026-10-05T10:00:00Z' }, hotspot: { status: 'none' }, pppoe: { status: 'none' }, legacy: { status: 'none' } },
+    serviceUsage: { hotspot: { used: 3, capacity: 0 }, pppoe: { used: 1, capacity: 0 } }, trialLimits: { maxPackagePriceKes: 3, maxPackages: 3, maxPackageHours: 24, maxVouchers: 5, maxPppoeUsers: 2, maxHotspotUsers: 10 },
+    routerLimit: 1, locations: [{ router_status: 'online' }], packages: [{}, {}] };
+  ui.renderAccountLimits();
+  const value = (id) => [nodes.get(id).textContent, nodes.get(id + '-foot').textContent];
+  assert.equal(value('account-plan')[0], 'Free trial'); assert.match(value('account-plan')[1], /^Ends /);
+  assert.deepEqual(value('account-routers'), ['1 of 1', 'Free trial: 1 router']);
+  assert.deepEqual(value('account-hotspot'), ['3 of 10', 'With time now · free trial limit']);
+  assert.deepEqual(value('account-packages'), ['2 of 3', 'Free trial: up to KES 3, 24 h each']);
+  assert.deepEqual(value('account-vouchers'), ['2 of 5', 'Free trial limit']);
+  assert.deepEqual(value('account-pppoe'), ['1 of 2', 'Active · free trial limit']);
+  ui.state.workspace = { business: { billing_status: 'trial' }, services: { trial: { active: false, endsAt: '2026-09-20T10:00:00Z' }, hotspot: { status: 'active', expiresAt: '2026-10-20T10:00:00Z' }, pppoe: { status: 'none' }, legacy: { status: 'none' } },
+    serviceUsage: { hotspot: { used: 40, capacity: 100 }, pppoe: { used: 0, capacity: 0 } }, trialLimits: null, routerLimit: null, locations: [{}, {}, { router_status: 'offboarding' }], packages: [{}] };
+  ui.renderAccountLimits();
+  assert.equal(value('account-plan')[0], 'Hotspot'); assert.match(value('account-plan')[1], /^Hotspot paid to /);
+  assert.deepEqual(value('account-routers'), ['2', 'No router limit'], 'routers are unlimited once hotspot is paid');
+  assert.deepEqual(value('account-hotspot'), ['40 of 100', 'With time now · paid for 100']);
+  assert.deepEqual(value('account-packages'), ['1', 'No package limit']);
+  console.log('Business UI: real exports, support search results and Account & limits passed.');
+}

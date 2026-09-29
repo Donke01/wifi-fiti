@@ -177,6 +177,79 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
     res.json({ subscription, history, devices, vouchers });
   }));
 
+  // Support hub: one box finds a customer by phone, voucher code or M-Pesa
+  // code. Every query is pinned to the signed-in business and capped.
+  const SUPPORT_RESULTS = 20;
+  const secondsLeft = `CASE WHEN s.expires_at>datetime('now') AND s.mac NOT LIKE 'RELEASED:%'
+    THEN CAST(ROUND((julianday(s.expires_at)-julianday('now'))*86400) AS INTEGER) ELSE 0 END`;
+  const supportPayments = db.prepare(`SELECT t.checkout_request_id,t.phone,t.mac,t.package_name,t.amount,t.status,
+      t.mpesa_receipt,t.payment_source,t.created_at,l.name AS location_name,j.acked_at AS switched_on_at,
+      ${secondsLeft} AS seconds_left
+    FROM tenant_transactions t JOIN locations l ON l.id=t.location_id AND l.business_id=t.business_id
+    LEFT JOIN tenant_jobs j ON j.id=t.provisioning_job_id AND j.location_id=t.location_id
+    LEFT JOIN tenant_subscriptions s ON s.id=t.subscription_id AND s.business_id=t.business_id
+    WHERE t.business_id=? AND (t.mpesa_receipt=? OR t.checkout_request_id=? OR (?<>'' AND t.phone LIKE '%'||?))
+    ORDER BY t.created_at DESC LIMIT ?`);
+  const supportVouchers = db.prepare(`SELECT v.code,v.package_name,v.seconds,v.batch,v.created_at,v.redeemed_at,v.redeemed_by,
+      v.paused_seconds,l.name AS location_name,
+      CASE WHEN v.redeemed_at IS NULL AND v.paused_at IS NOT NULL THEN 'paused'
+           WHEN v.redeemed_at IS NULL THEN 'open'
+           WHEN v.paused_at IS NOT NULL THEN 'session_paused'
+           WHEN s.expires_at>datetime('now') AND s.mac NOT LIKE 'RELEASED:%' THEN 'active'
+           ELSE 'used' END AS status,
+      ${secondsLeft} AS seconds_left
+    FROM tenant_vouchers v JOIN locations l ON l.id=v.location_id AND l.business_id=v.business_id
+    LEFT JOIN tenant_subscriptions s ON s.id=v.redeemed_subscription_id AND s.location_id=v.location_id
+    WHERE v.business_id=? AND (v.code=? OR v.code='FITI'||? OR (?<>'' AND v.redeemed_by LIKE '%'||?))
+    ORDER BY COALESCE(v.redeemed_at,v.created_at) DESC LIMIT ?`);
+  const supportCustomers = db.prepare(`SELECT s.id,s.payer_phone,s.mac,s.expires_at,s.is_active,s.updated_at,l.name AS location_name,
+      (SELECT t.package_name FROM tenant_transactions t WHERE t.business_id=s.business_id AND t.subscription_id=s.id
+        ORDER BY t.created_at DESC LIMIT 1) AS package_name,
+      ${secondsLeft} AS seconds_left
+    FROM tenant_subscriptions s JOIN locations l ON l.id=s.location_id AND l.business_id=s.business_id
+    WHERE s.business_id=? AND ?<>'' AND s.payer_phone LIKE '%'||? AND s.mac NOT LIKE 'RELEASED:%'
+      AND s.mac NOT LIKE 'CLAIM:%' AND s.mac NOT LIKE 'C2B:%'
+    ORDER BY s.updated_at DESC LIMIT ?`);
+  function supportQuery(raw) {
+    const text = String(raw == null ? '' : raw).trim();
+    if (text.length < 3 || text.length > 40 || !/^[A-Za-z0-9 +()._-]+$/.test(text)) {
+      throw fail('Enter a phone number, voucher code or M-Pesa code (3 to 40 letters or digits).');
+    }
+    const digits = text.replace(/[\s+()-]/g, '');
+    // 07…, 7…, 2547… and +254 7… are the same number: match its last 9
+    // digits. 4 to 8 digits match the end of a number (the dashboard shows
+    // the last 4).
+    const phone = /^\d{4,15}$/.test(digits) ? digits.slice(-9) : '';
+    return { text, code: text.replace(/\s+/g, '').toUpperCase(), phone };
+  }
+  app.get('/api/business/support/search', operator((req, res, business) => {
+    const { text, code, phone } = supportQuery(req.query.q);
+    const capped = rows => ({ rows: rows.slice(0, SUPPORT_RESULTS), more: rows.length > SUPPORT_RESULTS });
+    const payments = capped(supportPayments.all(business.id, code, text, phone, phone, SUPPORT_RESULTS + 1));
+    const vouchers = capped(supportVouchers.all(business.id, code, code, phone, phone, SUPPORT_RESULTS + 1));
+    const customers = capped(supportCustomers.all(business.id, phone, phone, SUPPORT_RESULTS + 1));
+    res.json({ query: text, customers: customers.rows, payments: payments.rows, vouchers: vouchers.rows,
+      more: payments.more || vouchers.more || customers.more, limit: SUPPORT_RESULTS });
+  }));
+  // Support numbers from the last 7 days of paid customers. "Switched on"
+  // means the router confirmed the customer's login.
+  const supportPaidWeek = db.prepare(`SELECT COUNT(*) AS paid,
+      COALESCE(SUM(CASE WHEN j.acked_at IS NOT NULL THEN 1 ELSE 0 END),0) AS switched_on,
+      AVG(CASE WHEN j.acked_at IS NOT NULL THEN MAX(0,(julianday(j.acked_at)-julianday(j.created_at))*86400) END) AS average_seconds
+    FROM tenant_transactions t LEFT JOIN tenant_jobs j ON j.id=t.provisioning_job_id AND j.location_id=t.location_id
+    WHERE t.business_id=? AND t.status='paid' AND t.created_at>=datetime('now','-7 days')`);
+  // "Today" is the Kenyan day (UTC+3, no daylight saving).
+  const supportEndedToday = db.prepare(`SELECT COUNT(*) AS n FROM tenant_subscriptions
+    WHERE business_id=? AND mac NOT LIKE 'RELEASED:%' AND expires_at<=datetime('now')
+      AND expires_at>=datetime('now','+3 hours','start of day','-3 hours')`);
+  app.get('/api/business/support/summary', operator((req, res, business) => {
+    const week = supportPaidWeek.get(business.id);
+    const paid = Number(week.paid || 0); const switchedOn = Number(week.switched_on || 0);
+    res.json({ days: 7, paid, switchedOn, notSwitchedOn: paid - switchedOn,
+      averageSwitchOnSeconds: week.average_seconds == null ? null : Math.round(Number(week.average_seconds)),
+      endedToday: Number(supportEndedToday.get(business.id).n || 0) });
+  }));
+
   // A confirmed customer payment can be safely retried by the tenant. This
   // only requeues the existing package grant; it never creates a new charge.
   app.post(`${base}/transactions/:checkoutRequestId/retry`, operator((req, res, business) => {

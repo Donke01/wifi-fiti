@@ -259,4 +259,14 @@ function publicTool(row) {
 
 function listTools(locationId) { settleStale(locationId); return recentTools.all(locationId).map(publicTool); }
 
-module.exports = { queueTool, nextToolScript, recordAnswer, listTools, hasQueuedTool, restartPending, allowSpeedDownload, toolScript, publicTool, TOOLS, SPEED_BYTES, _test: { bytes, seconds } };
+/** The last finished Router health check, for the router card: { cpu, freeMemory, totalMemory, uptime, hotspotUsers, at } or null. */
+const lastHealth = db.prepare(`SELECT * FROM tenant_router_tools WHERE location_id=? AND tool='health' AND status='done' ORDER BY id DESC LIMIT 1`);
+function latestHealth(locationId) {
+  const run = publicTool(lastHealth.get(locationId));
+  if (!run || run.summary.error) return null;
+  const { cpu, freeMemory, totalMemory, uptime, hotspotUsers } = run.summary;
+  const number = (value) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value));
+  return { cpu: number(cpu), freeMemory: number(freeMemory), totalMemory: number(totalMemory), uptime: uptime || null, hotspotUsers: number(hotspotUsers), at: run.updatedAt };
+}
+
+module.exports = { queueTool, nextToolScript, recordAnswer, listTools, latestHealth, hasQueuedTool, restartPending, allowSpeedDownload, toolScript, publicTool, TOOLS, SPEED_BYTES, _test: { bytes, seconds } };
