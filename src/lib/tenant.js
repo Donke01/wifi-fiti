@@ -1423,6 +1423,27 @@ const paidTransactionByReceipt = db.prepare(`
    WHERE location_id=? AND phone=? AND mpesa_receipt=? AND status='paid'
    ORDER BY updated_at DESC, created_at DESC LIMIT 1
 `);
+// Why a recovery found nothing, so the customer gets the right next step
+// (payment-recover). Only this business's own records are looked at.
+const receiptAnywhere = db.prepare(`SELECT t.location_id, t.business_id, t.phone, t.status, t.payment_source, t.result_desc, l.name AS location_name
+  FROM tenant_transactions t LEFT JOIN locations l ON l.id=t.location_id WHERE t.mpesa_receipt=? ORDER BY t.updated_at DESC LIMIT 1`);
+const recentForPhone = db.prepare(`SELECT status, mpesa_receipt, payment_source, result_desc, created_at FROM tenant_transactions
+  WHERE location_id=? AND phone=? AND created_at >= datetime('now','-7 days') ORDER BY created_at DESC LIMIT 20`);
+function paymentRecoveryMiss(location, phone, receipt) {
+  const byReceipt = receiptAnywhere.get(receipt);
+  if (byReceipt && byReceipt.business_id === location.business_id) {
+    if (byReceipt.location_id !== location.id) return { reason: 'other_location', locationName: byReceipt.location_name || 'another' };
+    if (byReceipt.phone !== phone) return { reason: 'other_phone' };
+    if (byReceipt.status === 'pending') return { reason: 'pending' };
+    if (byReceipt.status === 'failed' || byReceipt.status === 'cancelled') return { reason: 'failed' };
+  }
+  const recent = recentForPhone.all(location.id, phone);
+  // Confirmed by an M-Pesa status query: paid, but its code never arrived.
+  if (recent.some((row) => row.status === 'paid' && !row.mpesa_receipt)) return { reason: 'receipt_unknown' };
+  if (recent.some((row) => row.status === 'pending')) return { reason: 'pending' };
+  if (recent.some((row) => row.status === 'failed' && /No confirmation was received/i.test(String(row.result_desc || '')))) return { reason: 'not_confirmed' };
+  return { reason: 'not_found' };
+}
 const setTransactionDevice = db.prepare(`UPDATE tenant_transactions SET device_type=@deviceType, device_label=@deviceLabel WHERE checkout_request_id=@checkoutRequestId`);
 const setSubscriptionDevice = db.prepare(`UPDATE tenant_subscriptions SET device_type=@deviceType, device_label=@deviceLabel WHERE id=@id AND location_id=@locationId`);
 const setTransactionResult = db.prepare(`
@@ -4601,7 +4622,7 @@ module.exports = {
   provisionRemoteVpn, allocateDesiredVpnPeer, desiredVpnPeersForGateway, reportVpnGatewaySync,
   recordVpnGatewayPeer, recordVpnGatewayError, recordVpnPeerHandshake, revokeVpnPeer,
   pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,
-  packageForLocation, packagesForLocation, insertTransaction, getTransaction, paidTransactionByReceipt, setTransactionDevice,
+  packageForLocation, packagesForLocation, insertTransaction, getTransaction, paidTransactionByReceipt, paymentRecoveryMiss, setTransactionDevice,
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, latestPaidTransactionForSubscription, setSubscriptionMac,
   grantSubscription, provisionPaidTransaction, createPaymentClaim, claimPaymentDevice, recordUsage, expiredSubscriptions, activeMeter,
