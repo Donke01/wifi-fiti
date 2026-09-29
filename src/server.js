@@ -2254,8 +2254,7 @@ app.post('/api/business/packages', (req, res) => {
   const factors = { hour: 1, hours: 1, day: 24, days: 24, week: 168, weeks: 168, month: 720, months: 720 };
   const hours = value * (factors[unit] || NaN);
   const rate = normaliseRateLimit(req.body && req.body.rateLimit);
-  const serviceScope = String(body.serviceScope || 'hotspot').toLowerCase();
-  if (!['hotspot', 'pppoe', 'both'].includes(serviceScope)) return res.status(400).json({ error: 'Choose HotSpot, PPPoE, or Both services.' });
+  const serviceScope = 'hotspot';
   if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31 || !rate.valid) {
     return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }
@@ -2281,8 +2280,7 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
   const factors = { hour: 1, hours: 1, day: 24, days: 24, week: 168, weeks: 168, month: 720, months: 720 };
   const hours = value * (factors[unit] || NaN);
   const rate = normaliseRateLimit(req.body && req.body.rateLimit === undefined ? current.rate_limit : req.body.rateLimit);
-  const serviceScope = body.serviceScope === undefined ? (current.service_scope || 'hotspot') : String(body.serviceScope).toLowerCase();
-  if (!['hotspot', 'pppoe', 'both'].includes(serviceScope)) return res.status(400).json({ error: 'Choose HotSpot, PPPoE, or Both services.' });
+  const serviceScope = 'hotspot';
   if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31 || !rate.valid) {
     return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }

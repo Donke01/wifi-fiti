@@ -463,18 +463,8 @@ function attachPppoeRoutes(app, { businessAuth, subscriptionBlock = null, userEx
     const message = typeof blocked === 'string' ? blocked : blocked.message;
     throw Object.assign(new Error(message), { status: 402, needs: typeof blocked === 'object' && blocked.needs ? blocked.needs : null });
   };
-  app.get('/api/business/pppoe', operator((req, res, b) => res.json({ profiles: profilesFor(b), users: usersFor(b, req.query.locationId || null), routers: routersFor(b), packages: db.packagesForBusiness.all(b) })));
+  app.get('/api/business/pppoe', operator((req, res, b) => res.json({ profiles: profilesFor(b), users: usersFor(b, req.query.locationId || null), routers: routersFor(b) })));
   app.post('/api/business/pppoe/profiles', operator((req, res, b) => res.status(201).json({ profile: profileCreate({ businessId: b, name: req.body?.name, downloadRate: req.body?.downloadRate, uploadRate: req.body?.uploadRate, maxSessions: req.body?.maxSessions, sessionTimeoutSeconds: req.body?.sessionTimeoutSeconds, idleTimeoutSeconds: req.body?.idleTimeoutSeconds }) })));
-  app.post('/api/business/pppoe/profiles/from-package', operator((req, res, b) => {
-    const packageId = Number(req.body?.packageId);
-    const pkg = db.packagesForBusiness.all(b).find((p) => p.id === packageId && p.active);
-    if (!pkg) throw new Error('Choose an active package first.');
-    const parts = String(pkg.rate_limit || '').split('/');
-    if (parts.length !== 2) throw new Error('Add an internal upload/download speed to this package before importing it to PPPoE.');
-    const profile = profileCreate({ businessId: b, name: pkg.name, downloadRate: parts[1], uploadRate: parts[0] });
-    db.prepare('UPDATE pppoe_profiles SET price=?, period_days=?, updated_at=datetime(\'now\') WHERE id=?').run(pkg.price, Math.max(1, Math.min(366, Math.round((pkg.seconds || 2592000) / 86400))), profile.id);
-    res.status(201).json({ profile: db.prepare('SELECT * FROM pppoe_profiles WHERE id=?').get(profile.id) });
-  }));
   app.post('/api/business/pppoe/users', operator((req, res, b, current) => {
     guard(current, true);
     const checked = userExtras ? userExtras.check(req.body || {}) : null;
