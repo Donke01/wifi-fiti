@@ -231,7 +231,7 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
 - **What it does:** a public, Safaricom-Home-style page for each PPPoE
   business: hero, package cards from its priced plans, a "Get connected"
   coverage form, "Already connected?" pay box and FAQs.
-  `public/pppoe-home.html` (self-contained, the business's colour and logo,
+  `public/pppoe-home.html` (self-contained, Wi-Fi Fiti colours with the business's name and logo,
   everything written with textContent).
 - **Where:** `/home/<pay code>` on cloud; `/home` → `/home/<code>` on the
   tenant's own address through the Worker (needs the Worker redeployed, the
