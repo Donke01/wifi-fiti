@@ -212,6 +212,20 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
   - then a small board (hAP lite).
   - `ROUTER_TELEMETRY=off` on Railway stops it on every router at once.
 
+### Live refresh (branch `live-refresh`)
+
+- **What it does:** every 2 s the dashboard reads `/me`, sales and vouchers.
+  - It redraws only when something really changed. `liveStable` ignores
+    `*_at`, `since` and countdown fields, so a router check-in alone redraws
+    nothing.
+  - On Routers it also refreshes the card, the charts and the last check-in.
+    On Customers it refreshes the list.
+  - Active users refreshes every 2 s.
+- **When it pauses:** while hidden, in setup, with a field focused, within
+  8 s of typing, with a dialog or the map review open, or while text is
+  selected.
+- **Server load:** three light requests every 2 s per open dashboard.
+
 ### Portal templates (merged in `7c5befe`)
 
 - **One gallery:** `PORTAL_TEMPLATE_CATALOG` in `public/business.html` holds all 15 designs. **Never add a second gallery script.**
