@@ -606,7 +606,31 @@ function validateNetworkPlan(input, layout) {
     }
     return { interface: name, job, alreadyRunning, ...(wifi ? { wifi } : {}), ...(adopt ? { adopt } : {}) };
   });
-  if (!bridges.length && !existing.length) throw planError('Add a bridge or choose an existing bridge or VLAN first.');
+  const rawVlans = Array.isArray(input && input.vlans) ? input.vlans : [];
+  if (rawVlans.length > 4) throw planError('Add up to 4 new VLANs.');
+  const vlans = rawVlans.map((raw) => {
+    const name = String(raw && raw.name || '').trim();
+    if (!PLAN_BRIDGE_NAME.test(name)) throw planError('Give each new VLAN a short name: letters, numbers, - or _, starting with a letter.');
+    if (byName.has(name)) throw planError(`${name} already exists on the router. Choose another name.`);
+    if (names.has(name)) throw planError(`Two new interfaces are both called ${name}.`);
+    names.add(name);
+    const vlanId = Number(raw && raw.vlanId);
+    if (!Number.isInteger(vlanId) || vlanId < 1 || vlanId > 4094) throw planError(`Give ${name} a VLAN ID from 1 to 4094.`);
+    const job = String(raw && raw.job || '');
+    if (!PLAN_JOBS.has(job)) throw planError(`Choose Hotspot or PPPoE for ${name}.`);
+    const parent = String(raw && raw.parent || '').trim();
+    const item = byName.get(parent);
+    if (!item) throw planError(`${parent || 'That port'} is not on this router's latest report.`);
+    if (!item.physical) throw planError(`${parent} is not a physical port. Choose an Ethernet port for ${name}.`);
+    if (item.internet) throw planError(`${parent} carries the internet connection. Choose another port for ${name}.`);
+    if (!item.free) throw planError(`${parent} is already in use on the router, so it stays as it is. Choose a free port for ${name}.`);
+    if (keep.includes(parent)) throw planError(`${parent} is reserved for managing the router. Choose another port for ${name}.`);
+    if (usedPorts.has(parent)) throw planError(`${parent} is already used elsewhere on this map.`);
+    usedPorts.add(parent);
+    jobs.push(job);
+    return { name, vlanId, parent, job };
+  });
+  if (!bridges.length && !existing.length && !vlans.length) throw planError('Add a bridge, a VLAN, or choose an existing bridge or VLAN first.');
   keep.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   // A Wi-Fi Fiti bridge keeps at least one port, so whatever runs on it
   // (e.g. the hotspot on bridge-hs) still has somewhere for customers to connect.
@@ -620,13 +644,13 @@ function validateNetworkPlan(input, layout) {
   if (jobs.filter((j) => j === 'pppoe').length > 1) throw planError('Choose one place for PPPoE customers.');
   // One customer Hotspot per router: if the router already runs one somewhere
   // else, the plan must use that one rather than add a second.
-  const hotspotPlan = [...bridges, ...existing].find((entry) => entry.job === 'hotspot');
+  const hotspotPlan = [...bridges, ...existing, ...vlans].find((entry) => entry.job === 'hotspot');
   const runningHotspot = [...hotspotOn.keys()][0];
   if (hotspotPlan && runningHotspot && (hotspotPlan.interface || hotspotPlan.name) !== runningHotspot) {
     throw planError(`This router already runs a hotspot on ${runningHotspot}. Use it for hotspot customers instead of adding another.`);
   }
   moves.sort((a, b) => a.interface.localeCompare(b.interface, undefined, { numeric: true }));
-  return { version: 1, bridges, existing, moves, keep };
+  return { version: 1, bridges, existing, vlans, moves, keep };
 }
 
 module.exports = {

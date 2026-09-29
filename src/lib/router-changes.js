@@ -96,6 +96,18 @@ function reviewPlan(plan, layout) {
       wifi: bridge.job === 'hotspot' && bridge.wifi ? bridge.wifi : undefined,
       title: `${bridge.name} · ${jobLabel(bridge.job)}${bridge.job === 'hotspot' && bridge.wifi ? ` · Wi-Fi "${bridge.wifi.ssid}"` : ''}`, lines });
   }
+  for (const v of plan && plan.vlans || []) {
+    const lines = [`Create VLAN ${v.vlanId} (${v.name}) on ${v.parent}. Only traffic tagged VLAN ${v.vlanId} on ${v.parent} is used; anything else on that port is left alone.`];
+    if (v.job === 'hotspot') {
+      if (running) { blockers.push(`This router already runs a hotspot on ${running.interface}.`); continue; }
+      if (!wan) { blockers.push('The router has not reported which connection carries the internet, so a hotspot cannot be started yet.'); continue; }
+      lines.push(...hotspotLines(v.name, true));
+    } else {
+      lines.push(...pppoeLines(v.name));
+    }
+    changes.push({ kind: 'vlan', target: v.name, job: v.job, parent: v.parent, vlanId: v.vlanId, ports: [], moves: [],
+      title: `${v.name} · VLAN ${v.vlanId} on ${v.parent} · ${jobLabel(v.job)}`, lines });
+  }
   for (const entry of plan && plan.existing || []) {
     const item = byName.get(entry.interface) || {};
     if (entry.job === 'hotspot') {
@@ -143,7 +155,7 @@ function reviewPlan(plan, layout) {
   }
   // Keep a way in for the owner: a port kept for management, or a warning
   // when every free port is about to become a customer port.
-  const used = new Set((plan && plan.bridges || []).flatMap((b) => b.ports));
+  const used = new Set([...(plan && plan.bridges || []).flatMap((b) => b.ports), ...(plan && plan.vlans || []).map((v) => v.parent)]);
   const kept = (plan && plan.keep) || [];
   if (kept.length) notes.push(`${kept.join(' and ')} ${kept.length > 1 ? 'are' : 'is'} reserved for you to manage the router with WinBox (connect by MAC address).`);
   else if (changes.length && !(layout && layout.interfaces || []).some((i) => i.physical && i.free && i.type === 'ether' && !used.has(i.name))) {
@@ -212,10 +224,16 @@ function undoLines(change, id) {
     for (const move of change.moves) lines.push(`:do { :if ([:len [/interface bridge port find where interface="${safe(move.interface)}"]] = 0) do={ /interface bridge port add bridge="${safe(move.from)}" interface="${safe(move.interface)}" } } on-error={}`);
     lines.push(`:do { /interface bridge remove [find where name="${target}"] } on-error={}`);
   }
+  if (change.kind === 'vlan') {
+    lines.push(`:do { /interface vlan remove [find where name="${target}"] } on-error={}`);
+  }
   // Check the router is really back, before letting go of the reboot guard.
   if (change.kind === 'bridge') {
     lines.push(`:if ([:len [/interface find where name="${target}"]] > 0) do={ :error "fiti-undo-incomplete" }`);
     for (const move of change.moves) lines.push(`:if ([:len [/interface bridge port find where interface="${safe(move.interface)}" and bridge="${safe(move.from)}"]] != 1) do={ :error "fiti-undo-incomplete" }`);
+  }
+  if (change.kind === 'vlan') {
+    lines.push(`:if ([:len [/interface find where name="${target}"]] > 0) do={ :error "fiti-undo-incomplete" }`);
   }
   if (change.job === 'hotspot') {
     lines.push(`:if (([:len [/ip hotspot find where profile="fiti-hs-${id}"]] > 0) || ([:len [/ip address find where comment="${tag}"]] > 0)) do={ :error "fiti-undo-incomplete" }`);
@@ -632,6 +650,12 @@ function applyScript(change, id, context) {
       lines.push(`:if ([:len [/interface bridge port find where bridge="${safe(from)}"]] <= ${count}) do={ :set fitiWhy "bridge_would_empty" }`);
       lines.push(`:do { :if ([/interface bridge get [find where name="${safe(from)}"] vlan-filtering] = true) do={ :set fitiWhy "vlan_filtering" } } on-error={ :set fitiWhy "port_changed" }`);
     }
+  } else if (change.kind === 'vlan') {
+    const vTarget = safe(change.target);
+    const parent = safe(change.parent);
+    lines.push(`:if ([:len [/interface find where name="${vTarget}"]] > 0) do={ :set fitiWhy "name_taken" }`);
+    lines.push(`:if ([:len [/interface find where name="${parent}"]] != 1) do={ :set fitiWhy "port_changed" }`);
+    lines.push(...portFreeChecks(parent));
   } else {
     lines.push(`:if ([:len [/interface find where name="${safe(change.target)}"]] != 1) do={ :set fitiWhy "interface_missing" }`);
   }
@@ -714,6 +738,10 @@ function applyScript(change, id, context) {
       if (from) body.push(`/interface bridge port remove [find where interface="${safe(port)}" and bridge="${safe(from)}"]`);
       body.push(`/interface bridge port add bridge="${name}" interface="${safe(port)}"`);
     }
+  } else if (change.kind === 'vlan') {
+    const vlanId = Number(change.vlanId);
+    if (!Number.isInteger(vlanId) || vlanId < 1 || vlanId > 4094) throw changeError('Unexpected VLAN id.');
+    body.push(`/interface vlan add name="${safe(change.target)}" vlan-id=${vlanId} interface="${safe(change.parent)}" comment="Wi-Fi Fiti customer network (${jobLabel(change.job)})"`);
   }
   if (change.job === 'hotspot') { body.push(step('hotspot')); body.push(...hotspotApplyLines(change, id, context)); }
   if (change.kind === 'adopt') { body.push(step('adopt')); body.push(...adoptApplyLines(change, id, context)); }
@@ -859,9 +887,11 @@ const setStatus = db.prepare(`UPDATE tenant_router_changes SET status=@status, r
 
 function publicChange(row) {
   let spec = {}; try { spec = JSON.parse(row.spec_json); } catch (_) {}
-  return { id: row.id, batchId: row.batch_id, kind: row.kind, target: row.target, job: row.job, title: spec.title || row.target,
+  const out = { id: row.id, batchId: row.batch_id, kind: row.kind, target: row.target, job: row.job, title: spec.title || row.target,
     lines: spec.lines || [], status: row.status, reason: row.reason || null, createdAt: row.created_at, updatedAt: row.updated_at,
     canUndo: ['applied', 'verified', 'mismatch'].includes(row.status) || row.reason === 'undo_incomplete' };
+  if (row.kind === 'vlan') { out.parent = spec.parent; out.vlanId = spec.vlanId; }
+  return out;
 }
 
 function listChanges(locationId) {
@@ -886,7 +916,7 @@ function queueBatch(locationId, changes) {
   db.exec('BEGIN IMMEDIATE');
   try {
     changes.forEach((change, seq) => insertChange.run({ locationId, batchId, seq, kind: change.kind, target: change.target, job: change.job,
-      spec: JSON.stringify({ title: change.title, lines: change.lines, ports: change.ports, moves: change.moves, from: change.from, wifi: change.wifi, hotspotName: change.hotspotName }) }));
+      spec: JSON.stringify({ title: change.title, lines: change.lines, ports: change.ports, moves: change.moves, from: change.from, wifi: change.wifi, hotspotName: change.hotspotName, parent: change.parent, vlanId: change.vlanId }) }));
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
   return batchId;
@@ -950,7 +980,7 @@ function nextScript(location, context, now = Date.now()) {
   if (!row) return '';
   let spec = {}; try { spec = JSON.parse(row.spec_json); } catch (_) {}
   if (row.status === 'undo-queued') { const script = undoScript(row.id); setStatus.run({ id: row.id, status: 'undo-sent', reason: null }); return script; }
-  const change = { kind: row.kind, target: row.target, job: row.job, ports: spec.ports || [], moves: spec.moves || [], title: spec.title || row.target, from: spec.from, wifi: spec.wifi, hotspotName: spec.hotspotName };
+  const change = { kind: row.kind, target: row.target, job: row.job, ports: spec.ports || [], moves: spec.moves || [], title: spec.title || row.target, from: spec.from, wifi: spec.wifi, hotspotName: spec.hotspotName, parent: spec.parent, vlanId: spec.vlanId };
   let script;
   try { script = applyScript(change, row.id, context); } catch (error) {
     // Built before it is marked sent, so a change that cannot be built is

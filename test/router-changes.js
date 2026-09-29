@@ -340,6 +340,72 @@ function blank(extra = []) {
   assert.match(rc.undoScript(7), /\/system script run fiti-undo-7/);
 }
 
+// ---- New VLAN from a free port --------------------------------------------
+{
+  require('../src/lib/tenant');
+  const rc = require('../src/lib/router-changes');
+  const { validateNetworkPlan } = require('../src/lib/router-topology');
+  const layout = parseRouterInventory(blank());
+
+  // Plan validation: name, VLAN ID range, and the port itself.
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'bad name', vlanId: 20, parent: 'ether2', job: 'hotspot' }] }, layout), /short name/);
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'v20', vlanId: 0, parent: 'ether2', job: 'hotspot' }] }, layout), /VLAN ID from 1 to 4094/);
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'v20', vlanId: 4095, parent: 'ether2', job: 'hotspot' }] }, layout), /VLAN ID from 1 to 4094/);
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'v20', vlanId: 20, parent: 'ether1', job: 'hotspot' }] }, layout), /carries the internet connection/, 'the WAN port cannot carry a VLAN');
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'v20', vlanId: 20, parent: 'ether9', job: 'hotspot' }] }, layout), /not on this router's latest report/);
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'v20', vlanId: 20, parent: 'ether2', job: 'hotspot' }, { name: 'v20', vlanId: 21, parent: 'ether3', job: 'pppoe' }] }, layout), /Two new interfaces are both called v20/);
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'v20', vlanId: 20, parent: 'ether2', job: 'hotspot' }, { name: 'v21', vlanId: 21, parent: 'ether2', job: 'pppoe' }] }, layout), /already used elsewhere on this map/, 'one port cannot carry two new VLANs at once');
+
+  const onBusy = parseRouterInventory(rb951());
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'v20', vlanId: 20, parent: 'ether2', job: 'hotspot' }] }, onBusy), /already in use on the router/, 'a port already in bridge-hs is not free');
+
+  const plan = validateNetworkPlan({ vlans: [{ name: 'fiti-v20', vlanId: 20, parent: 'ether2', job: 'hotspot' }], keep: ['ether3'] }, layout);
+  assert.deepEqual(plan.vlans, [{ name: 'fiti-v20', vlanId: 20, parent: 'ether2', job: 'hotspot' }]);
+
+  const review = rc.reviewPlan(plan, layout);
+  assert.equal(review.changes.length, 1);
+  assert.equal(review.changes[0].kind, 'vlan');
+  assert.equal(review.changes[0].target, 'fiti-v20');
+  assert.equal(review.changes[0].parent, 'ether2');
+  assert.equal(review.changes[0].vlanId, 20);
+  assert.match(review.changes[0].title, /fiti-v20 · VLAN 20 on ether2 · Hotspot/);
+  assert.match(review.changes[0].lines.join(' '), /Create VLAN 20 \(fiti-v20\) on ether2/);
+  assert.match(review.changes[0].lines.join(' '), /Start a new hotspot/);
+  assert.doesNotMatch(review.notes.join(' '), /No free Ethernet port is left for you/, 'ether3 was kept for management');
+
+  const script = rc.applyScript(review.changes[0], 51, { wan: 'ether1', cloudHost: 'cloud.wififiti.co.ke', portalHost: 'kitale.wififiti.co.ke' });
+  const at = (pattern) => { const i = script.search(pattern); assert.ok(i >= 0, `missing ${pattern}`); return i; };
+  // Preflight: the port must still be exactly free, and neither the VLAN name
+  // nor id may already exist - before anything is written.
+  assert.match(script, /:if \(\[:len \[\/interface find where name="fiti-v20"\]\] > 0\) do=\{ :set fitiWhy "name_taken" \}/);
+  assert.match(script, /:if \(\[:len \[\/interface find where name="ether2"\]\] != 1\) do=\{ :set fitiWhy "port_changed" \}/);
+  assert.match(script, /:if \(\[:len \[\/interface vlan find where interface="ether2"\]\] > 0\) do=\{ :set fitiWhy "port_in_use" \}/, 'a port already carrying a VLAN is not free');
+  const preflight = at(/name="ether2"\]\] != 1\) do=\{ :set fitiWhy "port_changed" \}/);
+  const stop = at(/:error "fiti-change-preflight"/);
+  const undoWritten = at(/\/system script add name="fiti-undo-51"/);
+  const vlanAdd = at(/\/interface vlan add name="fiti-v20" vlan-id=20 interface="ether2"/);
+  const hotspotAdd = at(/\/ip hotspot add name="fiti-hotspot" interface="fiti-v20"/);
+  assert.ok(preflight < stop && stop < undoWritten && undoWritten < vlanAdd && vlanAdd < hotspotAdd, 'preflight, then undo, then the VLAN, then the hotspot on it');
+  assert.doesNotMatch(script, /\/interface bridge add|\/interface bridge port add/, 'no bridge is created for a VLAN job');
+
+  const undoSource = rc.undoLines(review.changes[0], 51);
+  assert.ok(undoSource.some((l) => l === '  :do { /interface vlan remove [find where name="fiti-v20"] } on-error={}'.trim() || l === ':do { /interface vlan remove [find where name="fiti-v20"] } on-error={}'), 'undo removes the VLAN interface');
+  assert.ok(undoSource.some((l) => /:if \(\[:len \[\/interface find where name="fiti-v20"\]\] > 0\) do=\{ :error "fiti-undo-incomplete" \}/.test(l)), 'undo is not considered complete until the VLAN is gone');
+
+  // PPPoE on a new VLAN: same shape, no hotspot lines.
+  const pppoePlan = validateNetworkPlan({ vlans: [{ name: 'fiti-v30', vlanId: 30, parent: 'ether3', job: 'pppoe' }] }, layout);
+  const pppoeReview = rc.reviewPlan(pppoePlan, layout);
+  assert.match(pppoeReview.changes[0].lines.join(' '), /PPPoE customers connect on fiti-v30/);
+  const pppoeScript = rc.applyScript(pppoeReview.changes[0], 52, { wan: 'ether1' });
+  assert.match(pppoeScript, /\/interface vlan add name="fiti-v30" vlan-id=30 interface="ether3"/);
+  assert.match(pppoeScript, /\/interface pppoe-server server set \[find where comment="Wi-Fi Fiti PPPoE"\] interface="fiti-v30"/);
+  assert.doesNotMatch(pppoeScript, /\/ip hotspot add/, 'a PPPoE VLAN starts no hotspot');
+
+  // A second hotspot plan is still refused once one is already running.
+  assert.throws(() => validateNetworkPlan({ vlans: [{ name: 'fiti-v40', vlanId: 40, parent: 'ether5', job: 'hotspot' }] }, parseRouterInventory(rb951())),
+    /already runs a hotspot on bridge-hs/);
+}
+
 // ---- The cloud: review, apply, deliver, confirm, verify, undo ------------
 let server;
 const originalListen = http.Server.prototype.listen;
