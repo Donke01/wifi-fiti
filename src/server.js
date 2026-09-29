@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
+const { WebSocketServer } = require('ws');
 
 const config = require('./config');
 const db = require('./lib/db');
@@ -34,6 +35,8 @@ const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
 const mpesaCallbackGuard = require('./lib/mpesa-callback-guard');
 const serviceBilling = require('./lib/service-billing');
+const terminal = require('./lib/router-terminal');
+const terminalLink = require('./lib/terminal-link');
 const { createTumaTenants } = require('./lib/tuma-tenants');
 const { createTumaFee, FEE_KES: TUMA_FEE_KES } = require('./lib/tuma-fee');
 // One free trial per owner phone, payout account and ID name.
@@ -2227,6 +2230,157 @@ app.post('/api/internal/vpn-gateways/:gatewayId/sync', (req, res) => {
     res.status(status).json({ error: status === 400 ? error.message : 'VPN gateway sync failed.' });
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* Router terminal: arbitrary commands over the WireGuard tunnel.       */
+/* Owner-only (see team.js ROUTES), enrolled routers only, every       */
+/* session audit-logged. The router password is supplied by the owner  */
+/* at session start over the dashboard WebSocket and is never stored.  */
+/* ------------------------------------------------------------------ */
+
+function terminalLocationContext(business, locationId) {
+  const location = tenant.locationForBusiness.get(String(locationId || ''), business.id);
+  if (!location) throw Object.assign(new Error('Router not found.'), { status: 404 });
+  const remoteAccess = tenant.remoteAccessForLocation(location);
+  if (!terminal.terminalEligible(remoteAccess)) {
+    throw Object.assign(new Error('The router terminal needs remote access to be fully connected first.'), { status: 409 });
+  }
+  const gatewayId = tenant.vpnGatewayIdForLocation(location.id) || config.vpnGateway.id;
+  return { location, remoteAccess, gatewayId };
+}
+
+function terminalTransportStatus(gatewayId) {
+  const online = terminalLink.channelOnline(gatewayId);
+  const capabilities = terminalLink.channelCapabilities(gatewayId);
+  const direct = online && capabilities.includes('tcp-relay')
+    ? { available: true }
+    : { available: false, reason: online ? 'The gateway agent has not enabled the TCP relay.' : 'The gateway agent is not connected.' };
+  const approved = terminal.gatewayTransportApproved();
+  const gateway = online && capabilities.includes('shell-proxy') && approved
+    ? { available: true }
+    : { available: false, approved, reason: !online ? 'The gateway agent is not connected.' : !capabilities.includes('shell-proxy') ? 'The gateway agent has not enabled the shell proxy.' : 'Needs platform admin approval.' };
+  return { direct, gateway };
+}
+
+app.get('/api/business/locations/:locationId/terminal/status', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const { location, remoteAccess, gatewayId } = terminalLocationContext(business, req.params.locationId);
+    const transports = terminalTransportStatus(gatewayId);
+    res.json({
+      eligible: true,
+      location: { id: location.id, name: location.name },
+      managementAddress: remoteAccess.managementAddress,
+      gatewayOnline: terminalLink.channelOnline(gatewayId),
+      transports,
+    });
+  } catch (error) {
+    if (error.status === 404) return res.status(404).json({ error: error.message });
+    // 409 (not enrolled) is a normal UI state, not a failure.
+    res.json({ eligible: false, reason: error.message, gatewayOnline: false, transports: { direct: { available: false }, gateway: { available: false } } });
+  }
+});
+
+app.post('/api/business/locations/:locationId/terminal', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    terminal.checkRateLimit(business.id);
+    const { location, gatewayId } = terminalLocationContext(business, req.params.locationId);
+    const wanted = String((req.body && req.body.transport) || 'direct');
+    if (!terminal.TRANSPORTS[wanted]) throw Object.assign(new Error('Unknown terminal transport.'), { status: 400 });
+    const status = terminalTransportStatus(gatewayId)[wanted];
+    if (!status.available) throw Object.assign(new Error(status.reason || 'That transport is not available right now.'), { status: 503 });
+    if (terminalLink.getSession(location.id)) {
+      throw Object.assign(new Error('A terminal session is already open for this router.'), { status: 409 });
+    }
+    const ticket = terminal.createTicket({ businessId: business.id, locationId: location.id, transport: wanted });
+    res.json({ ticket, socketPath: '/api/business/terminal-socket', transport: wanted });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('[terminal] open failed:', error.message);
+    res.status(status).json({ error: error.message || 'Could not open the router terminal.' });
+  }
+});
+
+/** Recent terminal sessions for the signed-in business (audit trail). */
+app.get('/api/business/terminal/audit', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  res.json({ sessions: terminal.recentSessions(business.id, 50) });
+});
+
+/** The dashboard WebSocket for one terminal session (ticket auth). */
+function attachTerminalSocket(ws, ticket) {
+  const send = (frame) => { if (ws.readyState === 1) { try { ws.send(JSON.stringify(frame)); } catch (_) {} } };
+  let session = null;
+  let started = false;
+  const fail = (message) => {
+    send({ type: 'error', message: String(message || 'Could not open the terminal.') });
+    try { ws.close(1008, 'terminal failed'); } catch (_) {}
+  };
+  const startTimeout = setTimeout(() => {
+    if (!started) { try { ws.close(1008, 'Timed out waiting for start.'); } catch (_) {} }
+  }, 30_000);
+  if (startTimeout.unref) startTimeout.unref();
+
+  ws.on('message', async (raw) => {
+    let msg = null;
+    try { msg = JSON.parse(String(raw)); } catch (_) { return; }
+    if (!started) {
+      if (!msg || msg.type !== 'start') { fail('Send a start message first.'); return; }
+      started = true;
+      clearTimeout(startTimeout);
+      try {
+        const location = tenant.locationForBusiness.get(ticket.locationId, ticket.businessId);
+        if (!location) throw Object.assign(new Error('Router not found.'), { status: 404 });
+        const remoteAccess = tenant.remoteAccessForLocation(location);
+        if (!terminal.terminalEligible(remoteAccess)) {
+          throw Object.assign(new Error('Remote access is no longer active for this router.'), { status: 409 });
+        }
+        if (!remoteAccess.managementAddress) throw Object.assign(new Error('This router has no tunnel address.'), { status: 409 });
+        const gatewayId = tenant.vpnGatewayIdForLocation(location.id) || config.vpnGateway.id;
+        const availability = terminalTransportStatus(gatewayId)[ticket.transport];
+        if (!availability || !availability.available) {
+          throw Object.assign(new Error(availability.reason || 'That transport is not available right now.'), { status: 503 });
+        }
+        session = terminalLink.createTerminalSession({
+          businessId: ticket.businessId,
+          locationId: ticket.locationId,
+          transport: ticket.transport,
+          gatewayId,
+          managementAddress: remoteAccess.managementAddress,
+        });
+        session.onOutput = (chunk) => send({ type: 'data', chunk });
+        session.onBlocked = (line, label) => send({
+          type: 'blocked',
+          message: `Blocked: "${label}" is not allowed in the router terminal. The attempt was logged.`,
+        });
+        session.onClosed = (reason) => {
+          send({ type: 'closed', reason: String(reason || 'closed') });
+          try { ws.close(1000, 'session closed'); } catch (_) {}
+        };
+        await session.start({ username: msg.username, password: msg.password, cols: msg.cols, rows: msg.rows });
+        // Drop the password reference the moment the session is up.
+        msg.password = '';
+        msg = null;
+        send({ type: 'ready' });
+      } catch (error) { fail(error.message); }
+      return;
+    }
+    if (!session || session.closed) return;
+    if (msg.type === 'data' && typeof msg.chunk === 'string') {
+      session.handleUserData(msg.chunk.slice(0, 65536));
+    } else if (msg.type === 'resize') {
+      session.resize(msg.cols, msg.rows);
+    } else if (msg.type === 'ping') {
+      send({ type: 'pong' });
+    }
+  });
+  ws.on('close', () => {
+    clearTimeout(startTimeout);
+    if (session) session.close('dashboard disconnected');
+  });
+  ws.on('error', () => { try { ws.close(); } catch (_) {} });
+}
 
 /** A replacement credential is shown once. It is staged for 24 hours, so the
  * current router remains connected until the replacement makes its first
@@ -4924,6 +5078,26 @@ app.patch('/api/admin/locations/:locationId/remote-access', (req, res) => {
   }
 });
 
+/**
+ * Platform admin approval for the gateway (VPS-side SSH proxy) terminal
+ * transport. The direct transport never sends the router password to the
+ * VPS; the gateway transport does, so it stays off until a platform admin
+ * deliberately enables it here AND the VPS operator sets
+ * WIFI_FITI_TERMINAL_PROXY=1 on the gateway.
+ */
+app.get('/api/admin/settings/terminal', (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: 'forbidden' });
+  res.json({ gatewayTransport: terminal.gatewayTransportApproved() ? 'on' : 'off' });
+});
+
+app.patch('/api/admin/settings/terminal', (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: 'forbidden' });
+  const body = req.body || {};
+  const on = body.gatewayTransport === true || body.gatewayTransport === 'on' || body.gatewayTransport === 1;
+  terminal.setSetting('gateway_transport', on ? 'on' : 'off');
+  res.json({ gatewayTransport: on ? 'on' : 'off' });
+});
+
 app.get('/api/admin/ledger/:phone', (req, res) => {
   if (!adminOk(req)) return res.status(403).json({ error: 'forbidden' });
   const phone = mpesa.normalizePhone(req.params.phone);
@@ -6306,7 +6480,7 @@ if (config.mpesa.env !== 'production' && /^https:\/\//.test(String(config.public
   console.warn('*** WARNING: MPESA_ENV is not "production". Sandbox M-Pesa callbacks are trusted without a Daraja query. Set MPESA_ENV=production on a live deployment. ***');
 }
 
-app.listen(config.port, () => {
+const httpServer = app.listen(config.port, () => {
   console.log(`${config.brandName} hotspot billing on :${config.port}`);
   console.log(`M-Pesa environment: ${config.mpesa.env}`);
   console.log(`Callback URL: ${config.publicUrl}/api/mpesa/callback`);
@@ -6370,3 +6544,74 @@ app.listen(config.port, () => {
     );
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* WebSocket upgrades: gateway control channel + dashboard terminals   */
+/* ------------------------------------------------------------------ */
+
+const wssGateway = new WebSocketServer({ noServer: true });
+const wssTerminal = new WebSocketServer({ noServer: true });
+
+function gatewayHeaderSecret(req) {
+  return String(req.headers['x-wifi-fiti-gateway'] || '');
+}
+
+function gatewayUpgradeAuthenticated(req) {
+  if (!config.vpnGateway.enabled) return false;
+  const expected = Buffer.from(config.vpnGateway.controlSecret || '');
+  const supplied = Buffer.from(gatewayHeaderSecret(req));
+  return Boolean(expected.length && supplied.length === expected.length && crypto.timingSafeEqual(expected, supplied));
+}
+
+httpServer.on('upgrade', (req, socket, head) => {
+  let pathname = '';
+  let ticketParam = '';
+  try {
+    const url = new URL(String(req.url || ''), 'http://localhost');
+    pathname = url.pathname;
+    ticketParam = url.searchParams.get('ticket') || '';
+  } catch (_) { socket.destroy(); return; }
+
+  // The VPS gateway agent dials out and holds this channel for terminal
+  // relay/proxy frames. Authenticated with the gateway control secret.
+  if (config.vpnGateway.enabled && pathname === `/api/internal/vpn-gateways/${config.vpnGateway.id}/terminal-control`) {
+    if (!gatewayUpgradeAuthenticated(req)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    wssGateway.handleUpgrade(req, socket, head, (ws) => {
+      terminalLink.attachAgent(config.vpnGateway.id, ws);
+    });
+    return;
+  }
+
+  // Dashboard terminal sockets authenticate with a single-use ticket minted
+  // by POST /api/business/locations/:id/terminal, so the long-lived
+  // business session token never appears in a URL.
+  if (pathname === '/api/business/terminal-socket') {
+    const ticket = terminal.consumeTicket(ticketParam);
+    if (!ticket) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    wssTerminal.handleUpgrade(req, socket, head, (ws) => {
+      attachTerminalSocket(ws, ticket);
+    });
+    return;
+  }
+
+  socket.destroy();
+});
+
+// Close idle or over-long terminal sessions; sweep expired tickets.
+setInterval(() => {
+  try { terminal.sweepSessions(); } catch (error) { console.error('[terminal] sweep failed:', error.message); }
+  try { terminal.sweepTickets(); } catch (error) { console.error('[terminal] ticket sweep failed:', error.message); }
+}, 60_000).unref();
+
+if (config.vpnGateway.enabled) {
+  console.log('[terminal] router terminal enabled (direct transport: gateway agent TCP relay)');
+  console.log(`[terminal] gateway proxy transport: ${terminal.gatewayTransportApproved() ? 'APPROVED by platform admin' : 'off (needs platform admin approval)'}`);
+}

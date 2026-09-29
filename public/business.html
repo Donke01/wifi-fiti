@@ -1490,6 +1490,16 @@
         remoteDetail(details, 'Last secure handshake', remoteAccess && remoteAccess.lastHandshakeAt ? when(remoteAccess.lastHandshakeAt) : '');
         if (details.childElementCount) panel.appendChild(details);
         var actions = el('div', 'buttons');
+        // Router terminal: owner-only, and only once the secure tunnel is live.
+        // can('team') is true for owners only ('team' is not granted to staff).
+        var terminalLive = remoteAccess && String(remoteAccess.status) === 'configured' &&
+          String(remoteAccess.gatewayState) === 'ready' && remoteAccess.lastHandshakeAt;
+        if (terminalLive && window.RouterTerminal && can('team')) {
+          var terminalButton = el('button', 'secondary', 'Open router terminal'); terminalButton.type = 'button';
+          terminalButton.title = 'Run RouterOS commands on this router over the secure tunnel. Every command is logged.';
+          terminalButton.addEventListener('click', function () { window.RouterTerminal.open(location); });
+          actions.appendChild(terminalButton);
+        }
         if (remoteAccess && remoteAccess.canRequest) {
           var request = el('button', '', 'Request remote setup'); request.type = 'button';
           request.addEventListener('click', function () {
@@ -3906,6 +3916,7 @@
     }());
   </script>
   <script src="/fiti-actions.js"></script>
+  <script src="/terminal.js" defer></script>
   <script src="/tuma-payout.js" defer></script>
   <script src="/online-users.js" defer></script>
   <script src="/setup-flow.js" defer></script>

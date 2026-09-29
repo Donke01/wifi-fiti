@@ -1,0 +1,1 @@
+{"dependencies":{"ssh2":"^1.16.0","ws":"^8.18.0"},"description":"Wi-Fi Fiti WireGuard gateway reconciler (runs on the VPN VPS)","engines":{"node":">=22.5"},"name":"wifi-fiti-vpn-agent","private":true,"version":"1.0.0"}

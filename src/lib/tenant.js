@@ -1987,6 +1987,12 @@ function remoteAccessForLocation(location) {
   return remoteAccessPayload(location, remoteAccessByLocation.get(location.id));
 }
 
+/** The VPN gateway a location's remote access is provisioned on, if any. */
+function vpnGatewayIdForLocation(locationId) {
+  const record = remoteAccessByLocation.get(String(locationId || ''));
+  return record && record.vpn_gateway_id ? record.vpn_gateway_id : null;
+}
+
 function remoteAccessForBusiness({ locationId, businessId }) {
   const location = locationForBusiness.get(locationId, businessId);
   return remoteAccessForLocation(location);
@@ -4623,6 +4629,7 @@ module.exports = {
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
   remoteAccessForLocation, remoteAccessForBusiness, requestRemoteAccess, revokeRemoteAccessForBusiness, manageRemoteAccess, recordRemoteAccessEnrollment,
+  vpnGatewayIdForLocation,
   provisionRemoteVpn, allocateDesiredVpnPeer, desiredVpnPeersForGateway, reportVpnGatewaySync,
   recordVpnGatewayPeer, recordVpnGatewayError, recordVpnPeerHandshake, revokeVpnPeer,
   pendingRemoteSupportControls, markRemoteSupportControlDelivered, markRemoteSupportControlAcked,

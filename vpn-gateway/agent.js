@@ -383,6 +383,12 @@ async function cycle(config, { run = spawnSync, fetchImpl = fetch } = {}) {
 
 async function main() {
   const config = configFromEnv();
+  const terminalControl = terminalControlConfigFromEnv(process.env, config);
+  if (terminalControl) {
+    startTerminalControl(terminalControl);
+    console.log('[wifi-fiti-gateway] terminal control channel enabled' +
+      (terminalControl.allowProxy ? ' (shell proxy allowed)' : ' (TCP relay only)'));
+  }
   let delayMs = config.pollSeconds * 1000;
   for (;;) {
     try {
@@ -404,6 +410,302 @@ if (require.main === module) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Terminal control channel (router terminal feature)                  */
+/*                                                                     */
+/* When WIFI_FITI_TERMINAL_CONTROL=1 the agent also holds a persistent */
+/* outbound WebSocket to the core. The core multiplexes terminal        */
+/* sessions over it; the agent never accepts inbound connections.      */
+/*                                                                     */
+/*   TCP relay (direct transport): the core asks the agent to open a   */
+/*   raw TCP connection to a router's tunnel address and relay bytes.  */
+/*   SSH itself terminates in the core app, so the agent only ever     */
+/*   sees SSH ciphertext. Targets are restricted to 10.254.0.0/16,     */
+/*   port 22, so this channel cannot become a general proxy.           */
+/*                                                                     */
+/*   Shell proxy (gateway transport): the agent terminates SSH itself  */
+/*   and relays PTY frames. The router password transits this VPS, so  */
+/*   it is additionally gated on WIFI_FITI_TERMINAL_PROXY=1 (VPS        */
+/*   operator opt-in) and on platform admin approval in the core app.   */
+/*                                                                     */
+/* `ws` and `ssh2` are required lazily so the base reconciler keeps    */
+/* working with zero npm dependencies when the terminal channel is    */
+/* disabled.                                                           */
+/* ------------------------------------------------------------------ */
+
+const TERMINAL_MAX_FRAME_BYTES = 256 * 1024;
+const TERMINAL_MAX_SESSIONS = 10;
+const TERMINAL_RELAY_PORT = 22;
+
+function truthyFlag(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
+/**
+ * Returns null when the terminal control channel is disabled, otherwise
+ * { coreUrl, gatewayId, secret, allowProxy }.
+ */
+function terminalControlConfigFromEnv(env = process.env, base = null) {
+  const source = env || {};
+  if (!truthyFlag(source.WIFI_FITI_TERMINAL_CONTROL)) return null;
+  const core = base || configFromEnv(source);
+  return {
+    coreUrl: core.coreUrl,
+    gatewayId: core.gatewayId,
+    secret: core.secret,
+    allowProxy: truthyFlag(source.WIFI_FITI_TERMINAL_PROXY),
+  };
+}
+
+function terminalControlUrl(config) {
+  return `${String(config.coreUrl).replace(/^https:/, 'wss:')}/api/internal/vpn-gateways/${encodeURIComponent(config.gatewayId)}/terminal-control`;
+}
+
+/** Relay targets must stay inside the management network, SSH port only. */
+function validRelayTarget(host, port) {
+  if (Number(port) !== TERMINAL_RELAY_PORT) return 'Relay is limited to the SSH port.';
+  if (!managementAllowedAddress(`${String(host || '').trim()}/32`)) {
+    return 'Relay targets must be inside the 10.254.0.0/16 management network.';
+  }
+  return null;
+}
+
+function lazyWs() {
+  try { return require('ws'); }
+  catch (error) { throw new Error('The terminal control channel needs the "ws" package: run `npm install` in vpn-gateway/.'); }
+}
+
+function lazyAgentSsh2() {
+  try { return require('ssh2'); }
+  catch (error) { throw new Error('The terminal shell proxy needs the "ssh2" package: run `npm install` in vpn-gateway/.'); }
+}
+
+function sendControlFrame(ws, frame) {
+  if (ws.readyState === 1) ws.send(JSON.stringify(frame));
+}
+
+function closeRelay(relays, id) {
+  const socket = relays.get(id);
+  if (socket) { relays.delete(id); try { socket.destroy(); } catch (_) {} }
+}
+
+function closeShell(shells, id, reason) {
+  const shell = shells.get(id);
+  if (!shell) return;
+  shells.delete(id);
+  try { if (shell.stream) shell.stream.close(); } catch (_) {}
+  try { if (shell.conn) shell.conn.end(); } catch (_) {}
+  if (shell.ws && reason !== undefined) {
+    sendControlFrame(shell.ws, { type: 'shell-closed', id, reason: String(reason).slice(0, 120) });
+  }
+}
+
+function handleTcpOpen({ ws, relays, frame, netImpl }) {
+  const id = String(frame.id || '');
+  if (!id || relays.has(id) || relays.size >= TERMINAL_MAX_SESSIONS) return;
+  const targetError = validRelayTarget(frame.host, frame.port);
+  if (targetError) {
+    sendControlFrame(ws, { type: 'tcp-error', id, message: targetError });
+    return;
+  }
+  const net = netImpl || require('node:net');
+  let socket = null;
+  try {
+    socket = net.connect({ host: String(frame.host).trim(), port: TERMINAL_RELAY_PORT, timeout: 8000 });
+  } catch (error) {
+    sendControlFrame(ws, { type: 'tcp-error', id, message: 'Could not open the relay connection.' });
+    return;
+  }
+  relays.set(id, socket);
+  const fail = (message) => {
+    if (!relays.has(id)) return;
+    closeRelay(relays, id);
+    sendControlFrame(ws, { type: 'tcp-error', id, message });
+  };
+  socket.on('connect', () => sendControlFrame(ws, { type: 'tcp-opened', id }));
+  socket.on('data', (chunk) => {
+    sendControlFrame(ws, { type: 'tcp-data', id, chunk: chunk.toString('base64') });
+  });
+  socket.on('timeout', () => fail('The router did not answer on the SSH port.'));
+  socket.on('error', () => fail('Could not reach the router over the secure tunnel.'));
+  socket.on('close', () => {
+    if (relays.delete(id)) sendControlFrame(ws, { type: 'tcp-closed', id });
+  });
+}
+
+function handleTcpData({ ws, relays, frame }) {
+  const socket = relays.get(String(frame.id || ''));
+  if (!socket || socket.destroyed || typeof frame.chunk !== 'string' || frame.chunk.length > TERMINAL_MAX_FRAME_BYTES) return;
+  try { socket.write(Buffer.from(frame.chunk, 'base64')); } catch (_) {}
+}
+
+function handleShellOpen({ ws, shells, frame, allowProxy }) {
+  const id = String(frame.id || '');
+  if (!id || shells.has(id) || shells.size >= TERMINAL_MAX_SESSIONS) return;
+  if (!allowProxy) {
+    sendControlFrame(ws, { type: 'shell-error', id, message: 'The shell proxy is not enabled on this gateway.' });
+    return;
+  }
+  const targetError = validRelayTarget(frame.host, frame.port);
+  if (targetError) {
+    sendControlFrame(ws, { type: 'shell-error', id, message: targetError });
+    return;
+  }
+  // The core sends shell-auth next; the shell waits for it before dialling.
+  shells.set(id, {
+    ws,
+    conn: null,
+    stream: null,
+    authed: false,
+    host: String(frame.host).trim(),
+    username: String(frame.username || 'admin').slice(0, 64),
+    cols: Math.min(Math.max(Number(frame.cols) || 80, 20), 400),
+    rows: Math.min(Math.max(Number(frame.rows) || 24, 5), 200),
+  });
+  sendControlFrame(ws, { type: 'shell-auth-required', id });
+}
+
+function handleShellAuth({ ws, shells, frame }) {
+  const id = String(frame.id || '');
+  const shell = shells.get(id);
+  if (!shell || shell.authed) return;
+  shell.authed = true;
+  let secret = String(frame.password || '');
+  if (!secret) {
+    closeShell(shells, id);
+    sendControlFrame(ws, { type: 'shell-error', id, message: 'SSH authentication failed.' });
+    return;
+  }
+  let Client = null;
+  try { ({ Client } = lazyAgentSsh2()); }
+  catch (error) { secret = ''; closeShell(shells, id); sendControlFrame(ws, { type: 'shell-error', id, message: error.message }); return; }
+  const conn = new Client();
+  shell.conn = conn;
+  const fail = (message) => {
+    secret = '';
+    if (shells.has(id)) { closeShell(shells, id); sendControlFrame(ws, { type: 'shell-error', id, message }); }
+  };
+  conn.on('ready', () => {
+    conn.shell({ term: 'xterm-256color', cols: shell.cols, rows: shell.rows }, (error, stream) => {
+      if (error || !shells.has(id)) { fail('Could not open a shell on the router.'); return; }
+      shell.stream = stream;
+      sendControlFrame(ws, { type: 'shell-opened', id });
+      stream.on('data', (chunk) => {
+        sendControlFrame(ws, { type: 'shell-data', id, chunk: chunk.toString('base64') });
+      });
+      stream.on('close', () => closeShell(shells, id, 'shell closed'));
+      stream.stderr.on('data', (chunk) => {
+        sendControlFrame(ws, { type: 'shell-data', id, chunk: chunk.toString('base64') });
+      });
+    });
+  });
+  conn.on('error', () => fail('SSH authentication failed. Check the router username and password.'));
+  conn.on('close', () => { if (shells.has(id) && !shell.stream) fail('Could not reach the router over the secure tunnel.'); });
+  try {
+    conn.connect({ host: shell.host, port: TERMINAL_RELAY_PORT, username: shell.username, password: secret, readyTimeout: 15000, keepaliveInterval: 15000 });
+  } catch (_) { fail('Could not reach the router over the secure tunnel.'); }
+  finally { secret = ''; }
+}
+
+function handleShellData({ shells, frame }) {
+  const shell = shells.get(String(frame.id || ''));
+  if (!shell || !shell.stream || typeof frame.chunk !== 'string' || frame.chunk.length > TERMINAL_MAX_FRAME_BYTES) return;
+  try { shell.stream.write(Buffer.from(frame.chunk, 'base64')); } catch (_) {}
+}
+
+function handleShellResize({ shells, frame }) {
+  const shell = shells.get(String(frame.id || ''));
+  if (!shell || !shell.stream) return;
+  const cols = Math.min(Math.max(Number(frame.cols) || 80, 20), 400);
+  const rows = Math.min(Math.max(Number(frame.rows) || 24, 5), 200);
+  try { shell.stream.setWindow(rows, cols, 0, 0); } catch (_) {}
+}
+
+/**
+ * Start the outbound terminal control channel. Runs alongside the poll
+ * loop; reconnects with backoff when the connection drops. Returns a
+ * function that stops reconnection.
+ */
+function startTerminalControl(config, { wsImpl = null, netImpl = null, connectDelayMs = 1000 } = {}) {
+  const WebSocket = wsImpl || lazyWs();
+  const url = terminalControlUrl(config);
+  const relays = new Map();
+  const shells = new Map();
+  let stopped = false;
+  let delayMs = connectDelayMs;
+  let current = null;
+
+  const capabilities = ['tcp-relay'];
+  if (config.allowProxy) capabilities.push('shell-proxy');
+
+  function cleanup() {
+    for (const id of [...relays.keys()]) closeRelay(relays, id);
+    for (const id of [...shells.keys()]) closeShell(shells, id);
+  }
+
+  function scheduleReconnect() {
+    if (stopped) return;
+    const wait = delayMs;
+    delayMs = Math.min(delayMs * 2, 60_000);
+    const timer = setTimeout(connect, wait);
+    if (timer.unref) timer.unref();
+  }
+
+  function routeFrame(ws, raw) {
+    let frame;
+    try { frame = JSON.parse(String(raw)); } catch (_) { return; }
+    if (!frame || typeof frame.type !== 'string') return;
+    const context = { ws, relays, shells, frame, allowProxy: config.allowProxy, netImpl };
+    switch (frame.type) {
+      case 'ping': sendControlFrame(ws, { type: 'pong' }); break;
+      case 'tcp-open': handleTcpOpen(context); break;
+      case 'tcp-data': handleTcpData(context); break;
+      case 'tcp-close': closeRelay(relays, String(frame.id || '')); break;
+      case 'shell-open': handleShellOpen(context); break;
+      case 'shell-auth': handleShellAuth(context); break;
+      case 'shell-data': handleShellData(context); break;
+      case 'shell-resize': handleShellResize(context); break;
+      case 'shell-close': closeShell(shells, String(frame.id || ''), 'closed by user'); break;
+      default: break; // unknown frames are ignored
+    }
+  }
+
+  function connect() {
+    if (stopped) return;
+    let ws = null;
+    try {
+      ws = new WebSocket(url, { headers: { 'X-WiFi-Fiti-Gateway': config.secret }, handshakeTimeout: 12000 });
+    } catch (error) {
+      console.error(`[wifi-fiti-gateway] terminal control failed: ${error.message}`);
+      scheduleReconnect();
+      return;
+    }
+    current = ws;
+    const heartbeat = setInterval(() => {
+      if (ws.readyState !== 1) { clearInterval(heartbeat); return; }
+      try { ws.ping(); } catch (_) {}
+    }, 25000);
+    if (heartbeat.unref) heartbeat.unref();
+
+    ws.on('open', () => {
+      delayMs = connectDelayMs;
+      sendControlFrame(ws, { type: 'hello', capabilities });
+      console.log('[wifi-fiti-gateway] terminal control channel connected');
+    });
+    ws.on('message', (raw) => routeFrame(ws, raw));
+    ws.on('close', () => {
+      clearInterval(heartbeat);
+      cleanup();
+      if (current === ws) current = null;
+      scheduleReconnect();
+    });
+    ws.on('error', () => { try { ws.close(); } catch (_) {} });
+  }
+
+  connect();
+  return () => { stopped = true; cleanup(); try { if (current) current.close(); } catch (_) {} };
+}
+
 module.exports = {
   acknowledgeReport,
   configFromEnv,
@@ -419,4 +721,8 @@ module.exports = {
   validDesiredPeer,
   writeState,
   cycle,
+  terminalControlConfigFromEnv,
+  terminalControlUrl,
+  validRelayTarget,
+  startTerminalControl,
 };

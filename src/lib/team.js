@@ -134,6 +134,11 @@ const ROUTES = [
   ['GET', `${B}/locations/:locationId/remote-access`, 'remote'],
   ['POST', `${B}/locations/:locationId/remote-access`, 'remote', 'Changed remote access'],
   ['PATCH', `${B}/locations/:locationId/remote-access`, 'remote', 'Changed remote access'],
+  // Router terminal: arbitrary commands over the WireGuard tunnel. Owner
+  // only, enrolled routers only; every session is audit-logged.
+  ['GET', `${B}/locations/:locationId/terminal/status`, 'owner'],
+  ['POST', `${B}/locations/:locationId/terminal`, 'owner', 'Opened a router terminal'],
+  ['GET', `${B}/terminal/audit`, 'owner'],
 
   // Customer portal, SMS, support
   ['PATCH', `${B}/branding`, 'portal', 'Changed the customer portal'], ['POST', `${B}/branding/logo`, 'portal', 'Changed the logo'],

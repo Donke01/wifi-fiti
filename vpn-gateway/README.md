@@ -56,11 +56,20 @@ an agent credential, not a WireGuard key and not an administrator password.
 
 ## Install on Ubuntu
 
-Install Node.js 18+ and copy the two repository files to the VPS:
+Install Node.js 18+ and copy the repository files to the VPS:
 
 ```text
 /opt/wifi-fiti-vpn-agent/agent.js
+/opt/wifi-fiti-vpn-agent/package.json
 /etc/systemd/system/wifi-fiti-vpn-agent.service
+```
+
+The base reconciler needs no npm dependencies. The optional router-terminal
+control channel (below) needs `ws`, and the gateway shell proxy additionally
+needs `ssh2`:
+
+```bash
+cd /opt/wifi-fiti-vpn-agent && npm install --omit=dev
 ```
 
 Create `/etc/wifi-fiti-vpn-agent.env` with mode `0600`:
@@ -101,3 +110,31 @@ Do not create router peers manually on `wg-fiti`. Wi-Fi Fiti owns peers that
 its agent has recorded under `/var/lib/wifi-fiti-vpn-agent/state.json`. Keep
 that state directory in VPS backups: if it is deliberately removed, the agent
 will safely leave an unknown old peer alone rather than deleting it.
+
+## Router terminal control channel (optional)
+
+The router-terminal dashboard feature needs the agent to relay terminal
+sessions. It is off by default; add to `/etc/wifi-fiti-vpn-agent.env`:
+
+```text
+WIFI_FITI_TERMINAL_CONTROL=1
+```
+
+With only this set, the agent offers a **TCP relay**: the cloud app asks the
+agent to open a raw TCP connection to a router's tunnel address (port 22)
+and relay bytes. SSH terminates in the cloud app, so the agent only ever
+sees SSH ciphertext, and relay targets are restricted to `10.254.0.0/16`
+port 22 — the channel cannot be used as a general proxy.
+
+```text
+WIFI_FITI_TERMINAL_PROXY=1
+```
+
+Additionally allows the **shell proxy**: the agent terminates SSH itself and
+relays PTY frames. The router password transits this VPS in that mode, so it
+also requires explicit platform admin approval in the cloud app before any
+session can use it. Leave this off unless the business owner has asked for
+the gateway transport and the platform admin has approved it.
+
+After changing the environment file, `npm install --omit=dev` in
+`/opt/wifi-fiti-vpn-agent` (for `ws`/`ssh2`) and restart the service.
