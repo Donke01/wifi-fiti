@@ -1725,6 +1725,14 @@ const salesTransactions = db.prepare(`
    WHERE t.business_id=? AND t.created_at >= ?
    ORDER BY t.created_at DESC LIMIT ?
 `);
+// Paid revenue grouped by package, for the revenue report: what customers
+// are actually buying, not just the total.
+const salesByPackage = db.prepare(`
+  SELECT t.package_name AS package, COUNT(*) AS count, COALESCE(SUM(t.amount), 0) AS amount
+    FROM tenant_transactions t
+   WHERE t.business_id=? AND t.status='paid' AND t.created_at >= ?
+   GROUP BY t.package_name ORDER BY amount DESC
+`);
 const paymentConnectionSummary = db.prepare(`
   SELECT collection_name, shortcode, transaction_type, last_verified_at, updated_at
     FROM tenant_mpesa_connections WHERE business_id=?
@@ -4625,7 +4633,7 @@ module.exports = {
   insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
   transferSubscription, removeTvDevice, linkedTvForMac, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,
-  issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions,
+  issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions, salesByPackage,
   paymentConnectionSummary, savePaymentConnection, paymentCredentials,
   insertBusinessBilling, businessBillingTransaction, setBusinessBillingResult, staleBusinessBilling,
   paidBusinessBilling, duplicateBusinessBillingReceipt, activateBusinessBilling,

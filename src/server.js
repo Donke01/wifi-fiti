@@ -15,6 +15,9 @@ const { fulfil } = require('./lib/fulfil');
 const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup, buildUniversalRouterKit } = require('./lib/router-setup');
 const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topology');
 const routerChanges = require('./lib/router-changes');
+const { buildReceiptDocx, buildReceiptPdf } = require('./lib/documents/receipt');
+const { buildReportXlsx, buildReportPdf } = require('./lib/documents/report');
+const { formatDate, formatDateTime, formatKes } = require('./lib/documents/brand');
 const routerTools = require('./lib/router-tools');
 const hotspotSessions = require('./lib/hotspot-sessions');
 const team = require('./lib/team');
@@ -2377,6 +2380,74 @@ app.get('/api/business/dashboard', (req, res) => {
   });
 });
 
+// Branded revenue/ledger documents (.xlsx, the primary format for numbers
+// someone will re-sort or drop into their own spreadsheet, and .pdf, the
+// fixed printable version) built from the same sales data as the dashboard
+// above, so the report always matches what the owner sees on screen.
+function reportRangeLabel(sinceIso) {
+  const since = new Date(String(sinceIso).replace(' ', 'T') + 'Z');
+  return `${formatDate(since)} – ${formatDate(new Date())}`;
+}
+function sendReportDocument(res, format, filenameBase, spec) {
+  const build = format === 'pdf' ? buildReportPdf : buildReportXlsx;
+  const extension = format === 'pdf' ? 'pdf' : 'xlsx';
+  build(spec).then((buffer) => {
+    res.set('Content-Disposition', `attachment; filename="${filenameBase}.${extension}"`);
+    res.type(extension).send(buffer);
+  }).catch((error) => { console.error(`[${filenameBase} report]`, error.message); res.status(500).json({ error: 'Could not build this report right now.' }); });
+}
+app.get('/api/business/reports/revenue', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const period = String(req.query.period || '30d');
+  const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
+  const since = new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+  const totals = tenant.salesSummary.get(business.id, since);
+  const gross = Number(totals.gross || 0);
+  const payments = Number(totals.payments || 0);
+  const format = String(req.query.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
+  sendReportDocument(res, format, 'revenue-report', {
+    business, title: 'Revenue report', rangeLabel: reportRangeLabel(since), generatedAt: new Date().toISOString(),
+    summary: [
+      { label: 'Total collected', value: formatKes(gross) },
+      { label: 'Transactions', value: String(payments) },
+      { label: 'Customers', value: String(Number(totals.customers || 0)) },
+      { label: 'Avg. ticket', value: formatKes(payments ? gross / payments : 0) },
+    ],
+    columns: [
+      { key: 'package', label: 'Package', width: format === 'pdf' ? 30 : 26 },
+      { key: 'count', label: 'Purchases', width: format === 'pdf' ? 18 : 14, align: 'right' },
+      { key: 'amount', label: 'Revenue', width: format === 'pdf' ? 20 : 18, align: 'right', money: true },
+    ],
+    rows: tenant.salesByPackage.all(business.id, since).map((row) => ({ package: row.package || 'Package', count: Number(row.count || 0), amount: Number(row.amount || 0) })),
+  });
+});
+app.get('/api/business/reports/ledger', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const period = String(req.query.period || '30d');
+  const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
+  const since = new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+  const rows = tenant.salesTransactions.all(business.id, since, 2000);
+  const paidTotal = rows.reduce((sum, row) => sum + (row.status === 'paid' ? Number(row.amount || 0) : 0), 0);
+  const format = String(req.query.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
+  sendReportDocument(res, format, 'transaction-ledger', {
+    business, title: 'Transaction ledger', rangeLabel: reportRangeLabel(since), generatedAt: new Date().toISOString(),
+    summary: [{ label: 'Rows', value: String(rows.length) }, { label: 'Total paid', value: formatKes(paidTotal) }],
+    columns: [
+      { key: 'date', label: 'Date', width: 22 },
+      { key: 'phone', label: 'Phone', width: 16 },
+      { key: 'package', label: 'Package', width: 16 },
+      { key: 'amount', label: 'Amount', width: 12, align: 'right', money: true },
+      { key: 'status', label: 'Status', width: 10 },
+      { key: 'receipt', label: 'M-Pesa code', width: 16 },
+    ],
+    rows: rows.map((row) => ({
+      date: formatDateTime(row.created_at), phone: row.phone || '', package: row.package_name || '',
+      amount: Number(row.amount || 0), status: String(row.status || '').replace(/^\w/, (c) => c.toUpperCase()),
+      receipt: row.mpesa_receipt || '—',
+    })),
+  });
+});
+
 app.get('/api/business/router-telemetry', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const locationId = String(req.query.locationId || '');
@@ -2750,6 +2821,38 @@ app.post('/api/tenant/:locationId/receipt/:subscriptionId', (req, res) => {
   // from the browser, with the receipt still carrying a stable filename.
   res.set('Content-Disposition', `inline; filename="wifi-fiti-receipt-${subscription.id}.html"`);
   res.type('html').send(html);
+});
+
+// Same auth as the HTML receipt above (session token in the POST body, not
+// the URL): a printable PDF slip, and a .docx for a customer who wants to
+// attach it to an email or a record-keeping app instead.
+function receiptDocumentContext(req, res) {
+  const location = publicLocation(req.params.locationId, res); if (!location) return null;
+  const subscription = tenantAccess.authenticate(location.id, String(req.body && req.body.sessionToken || ''), '');
+  if (!subscription || subscription.id !== req.params.subscriptionId) { res.status(403).type('text/plain').send('Receipt access expired. Reconnect and try again.'); return null; }
+  const payment = tenant.latestPaidTransactionForSubscription.get(subscription.id, subscription.location_id);
+  if (!payment) { res.status(404).type('text/plain').send('No paid transaction found for this receipt yet.'); return null; }
+  return {
+    business: { business_name: location.business_name, portal_name: location.portal_name, support_phone: location.support_phone, brand_primary_color: location.brand_primary_color },
+    transaction: { checkout_request_id: payment.checkout_request_id, phone: subscription.payer_phone, package_name: payment.package_name,
+      amount: payment.amount, mpesa_receipt: payment.mpesa_receipt, status: 'paid', created_at: payment.created_at, updated_at: payment.updated_at,
+      location_name: location.name },
+    subscriptionId: subscription.id,
+  };
+}
+app.post('/api/tenant/:locationId/receipt/:subscriptionId/pdf', (req, res) => {
+  const ctx = receiptDocumentContext(req, res); if (!ctx) return;
+  buildReceiptPdf(ctx).then((buffer) => {
+    res.set('Content-Disposition', `inline; filename="wifi-fiti-receipt-${ctx.subscriptionId}.pdf"`);
+    res.type('pdf').send(buffer);
+  }).catch((error) => { console.error('[receipt pdf]', error.message); res.status(500).type('text/plain').send('Could not build the receipt right now.'); });
+});
+app.post('/api/tenant/:locationId/receipt/:subscriptionId/docx', (req, res) => {
+  const ctx = receiptDocumentContext(req, res); if (!ctx) return;
+  buildReceiptDocx(ctx).then((buffer) => {
+    res.set('Content-Disposition', `attachment; filename="wifi-fiti-receipt-${ctx.subscriptionId}.docx"`);
+    res.type('docx').send(buffer);
+  }).catch((error) => { console.error('[receipt docx]', error.message); res.status(500).type('text/plain').send('Could not build the receipt right now.'); });
 });
 
 app.post('/api/tenant/:locationId/session/connect', (req, res) => {

@@ -1,5 +1,8 @@
 'use strict';
 
+const { buildReportXlsx, buildReportPdf } = require('./documents/report');
+const { formatKes } = require('./documents/brand');
+
 // Read-only platform control-plane data. Mutating router/payment operations
 // remain behind their existing, purpose-specific admin endpoints.
 function attachPlatformAdmin(app, { db, adminOk }) {
@@ -40,6 +43,42 @@ function attachPlatformAdmin(app, { db, adminOk }) {
     res.json({ transactions: db.prepare(`SELECT t.checkout_request_id,t.business_id,b.name AS business_name,t.location_id,
       t.phone,t.package_name,t.amount,t.status,t.mpesa_receipt,t.provisioned,t.created_at,t.updated_at
       FROM tenant_transactions t JOIN businesses b ON b.id=t.business_id ORDER BY t.created_at DESC LIMIT ?`).all(limit) });
+  }));
+  // A branded, printable platform-wide report (.xlsx or .pdf): every
+  // tenant, its main location, paid transactions and revenue - the numbers
+  // above, handed to whoever needs a file rather than a dashboard.
+  app.get('/api/admin/platform/report', guard((req, res) => {
+    const format = String(req.query.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
+    const rows = db.prepare(`SELECT b.name AS tenant, b.plan AS plan,
+        (SELECT l.name FROM locations l WHERE l.business_id=b.id ORDER BY l.created_at ASC LIMIT 1) AS location,
+        (SELECT COUNT(*) FROM tenant_transactions t WHERE t.business_id=b.id AND t.status='paid') AS transactions,
+        (SELECT COALESCE(SUM(t.amount),0) FROM tenant_transactions t WHERE t.business_id=b.id AND t.status='paid') AS amount
+      FROM businesses b ORDER BY amount DESC`).all();
+    const totals = db.prepare(`SELECT COUNT(*) AS tenants,
+        (SELECT COUNT(*) FROM tenant_transactions WHERE status='paid') AS transactions,
+        (SELECT COALESCE(SUM(amount),0) FROM tenant_transactions WHERE status='paid') AS revenue
+      FROM businesses`).get();
+    const spec = {
+      business: null, title: 'Platform report', rangeLabel: 'All time', generatedAt: new Date().toISOString(),
+      summary: [
+        { label: 'Tenants', value: String(totals.tenants || 0) },
+        { label: 'Total collected', value: formatKes(totals.revenue || 0) },
+        { label: 'Transactions', value: String(totals.transactions || 0) },
+      ],
+      columns: [
+        { key: 'tenant', label: 'Tenant', width: 26 },
+        { key: 'location', label: 'Location', width: 18 },
+        { key: 'transactions', label: 'Transactions', width: 14, align: 'right' },
+        { key: 'amount', label: 'Revenue', width: 16, align: 'right', money: true },
+        { key: 'plan', label: 'Plan', width: 12 },
+      ],
+      rows: rows.map((row) => ({ tenant: row.tenant, location: row.location || '—', transactions: Number(row.transactions || 0), amount: Number(row.amount || 0), plan: row.plan || 'Starter' })),
+    };
+    const build = format === 'pdf' ? buildReportPdf : buildReportXlsx;
+    build(spec).then((buffer) => {
+      res.set('Content-Disposition', `attachment; filename="platform-report.${format}"`);
+      res.type(format).send(buffer);
+    }).catch((error) => { console.error('[platform report]', error.message); res.status(500).json({ error: 'Could not build the platform report right now.' }); });
   }));
 }
 
