@@ -1072,7 +1072,7 @@ async function memberLogin(req, res, password) {
 function memberSignedIn(res, member) {
   const account = db.businessById.get(member.business_id);
   if (!account) return res.status(401).json({ error: 'Email or password is incorrect.' });
-  res.json({ token: issueBusinessSession(account.id, member.id), business: account, member: team.publicMember(member),
+  res.json({ token: issueBusinessSession(account.id, member.id), business: account, member: team.whoFor({ role: member.role, member }, account),
     onboarding: onboardingState(account, tenant.locationsForBusiness.all(account.id)) });
 }
 

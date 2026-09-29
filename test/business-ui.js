@@ -482,7 +482,7 @@ assert.match(html, /input\.value = toolCustomerInput/, 'the customer box keeps i
 assert.match(html, /el\('button', '', 'Router map'\)[\s\S]{0,300}openRouterMap\(location\)/, 'every universal router has a Router map button on the Routers page');
 assert.match(html, /model\.mappingConfirmed && onboardingFlowState\(model\)\.active && !\(model\.location && model\.location\.router_kit === 'universal'\)/, 'an open universal map is not closed under the owner');
 assert.match(html, /model\.needsRouterMapping \|\| universalMapOpen\(model\)/, 'an open map keeps refreshing');
-assert.match(html, /renderOverviewInsights\(\); renderGoLiveOverview\(\);/, 'and on Overview');
+assert.match(html, /renderOverviewInsights\(\); (?:if \(can\('routers\.view'\)\) )?renderGoLiveOverview\(\);/, 'and on Overview');
 assert.match(html, /\}, busy \? 5000 : 20000\);/, 'fast only while a purchase is happening');
 assert.match(html, /if \(document\.visibilityState === 'hidden'\) \{ scheduleGoLive\(\); return; \}/, 'no checks from a hidden tab');
 assert.match(html, /localStorage\.setItem\('fiti_golive_done:' \+ id, '1'\)/, 'the celebration shows once');
@@ -506,3 +506,21 @@ assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer W
 assert.match(html, /'Wi-Fi can only join a hotspot bridge\. PPPoE customers connect by cable\.'/, 'a radio dropped on a PPPoE bridge is refused with a reason');
 assert.match(html, /goes\.textContent = item\.shareWifi \? '📶 can add a separate customer Wi-Fi' : '📶 can broadcast customer Wi-Fi'/, 'free radios say they can broadcast customer Wi-Fi');
 assert.match(html, /var radioHint = isRadio\(item\) && \(item\.free \|\| item\.shareWifi\)/, 'a radio already in a Wi-Fi Fiti bridge is not offered again');
+
+// Team accounts: every dashboard section has a permission in public/team.js
+// (a section missing there is shown to the owner only), so rearranging the
+// pages keeps each role's view. Add new section ids to SECTIONS.
+{
+  const teamUi = fs.readFileSync(path.join(__dirname, '../public/team.js'), 'utf8');
+  const sectionsBlock = teamUi.match(/var SECTIONS = \{([\s\S]*?)\};/);
+  assert.ok(sectionsBlock, 'team.js maps sections to permissions');
+  const mapped = new Set(Array.from(sectionsBlock[1].matchAll(/'?([a-z-]+)'?:/g), (match) => match[1]));
+  const modules = html.match(/var moduleSections = \{([\s\S]*?)\};/);
+  assert.ok(modules, 'the dashboard lists each page\'s sections');
+  // Quoted page names ('router-setup', 'portal-templates') are keys, not sections.
+  const ids = new Set(Array.from(modules[1].matchAll(/\[([^\]]*)\]/g), (match) => match[1]).join(',').match(/[a-z-]+/g));
+  for (const id of ids) assert.ok(mapped.has(id), `section ${id} has a team permission in public/team.js`);
+  assert.match(html, /remove\.setAttribute\('data-permission', 'routers\.delete'\)/, 'Delete router is hidden from roles that cannot delete routers');
+  assert.match(html, /tool: 'backup', permission: 'backups'/, 'router backups are hidden from a Technician');
+  assert.match(html, /window\.FitiTeam\.apply\(data\.member, moduleSections\)/, 'the dashboard applies the signed-in role');
+}

@@ -472,9 +472,10 @@ function teamFor(businessId) {
 /** Who is signed in, for /me and the dashboard. */
 function whoFor(session, business) {
   if (!session || session.role === 'owner') {
-    return { id: null, role: 'owner', roleLabel: ROLES.owner.label, name: business && business.owner_name || '', email: business && business.email || '', phone: null, permissions: permissionsFor('owner') };
+    return { id: null, role: 'owner', roleLabel: ROLES.owner.label, name: business && business.owner_name || '', email: business && business.email || '', phone: null, permissions: permissionsFor('owner'), denied: [] };
   }
-  return { ...publicMember(session.member), permissions: permissionsFor(session.role) };
+  const permissions = permissionsFor(session.role);
+  return { ...publicMember(session.member), permissions, denied: ALL_PERMISSIONS.filter((item) => !permissions.includes(item)) };
 }
 
 module.exports = {
