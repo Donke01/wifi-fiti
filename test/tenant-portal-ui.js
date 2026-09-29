@@ -139,6 +139,8 @@ function createPage(options = {}) {
       if (body === undefined && request.path === '/subscriptions/check') body = { found: false, subscriptions: [] };
       if (body === undefined && request.path === '/pay') body = { ...pendingCheckout, checkoutRequestId: 'unexpected-new-checkout' };
       assert.notEqual(body, undefined, 'unexpected portal request: ' + request.method + ' ' + request.path);
+      // A response can stand in for a server refusal: { __status: 403, error }.
+      if (body && body.__status) return { ok: false, status: body.__status, json: async () => body };
       return { ok: true, status: 200, json: async () => body };
     },
   };
@@ -336,6 +338,11 @@ async function test(name, callback) {
     assert.equal(page.visible('paybill-section'), false);
     assert.equal(page.element('buy').classList.contains('no-paybill'), true, 'the voucher tile fills the empty row');
     assert.match(html, /#buy\.no-paybill #open-voucher\{grid-column:1\/-1\}/);
+    // The tiles are placed in two columns, so narrow phones (360 px) keep a
+    // real two-column grid instead of one column plus an uneven extra one.
+    const narrow = html.match(/@media\(max-width:380px\)\{([\s\S]*?)\n    \}/)[1];
+    assert.match(narrow, /\.utilities\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
+    assert.doesNotMatch(narrow, /\.utilities\{grid-template-columns:1fr\}/);
   });
 
   await test('Lipa na PayBill shows the business PayBill and its account number', async () => {
@@ -375,6 +382,7 @@ async function test(name, callback) {
     const choices = page.element('tv-plans').children;
     assert.deepEqual(choices.map(item => item.children[0].children[0].textContent), ['One hour', 'One day']);
     assert.equal(page.element('tv-existing').textContent, 'A TV needs its own package. Choose it below, then pick the TV.');
+    assert.equal(page.visible('remove-tv'), false, 'no remove button without a linked TV');
     assert.equal(page.element('add-tv').textContent, 'LIPA NA M-PESA FOR TV · KES 20');
     await choices[1].onclick();
     assert.equal(choices[1].classList.contains('active'), true);
@@ -387,7 +395,42 @@ async function test(name, callback) {
     assert.deepEqual({ packageId: pay.body.packageId, deviceType: pay.body.deviceType, mac: pay.body.mac, phone: pay.body.phone },
       { packageId: '2', deviceType: 'tv', mac: 'AA:BB:CC:DD:EE:77', phone: activeSession.payerPhone });
     assert.equal(page.count('/devices/add'), 0, 'a TV is never added to the phone package');
-    assert.doesNotMatch(html, /devices\/add|remove-tv/, 'the portal has no add-a-TV-to-my-package path');
+    assert.doesNotMatch(html, /devices\/add/, 'the portal has no add-a-TV-to-my-package path');
+  });
+
+  await test('a TV linked to the phone package before TVs bought their own can be removed', async () => {
+    const linkedTv = { mac: 'AA:BB:CC:DD:EE:99', label: 'Living room TV', subscription_id: activeSession.subscriptionId };
+    let refuse = true;
+    const page = createPage({
+      config: { location: { businessName: 'Test WiFi', name: 'Test location' }, packages: [{ id: 1, name: 'One hour', price: 20, seconds: 3600 }] },
+      localData: new Map([[storagePrefix + '_session', JSON.stringify('tv-remove-capability')]]),
+      respond(request) {
+        if (request.path.startsWith('/session?')) return { ...activeSession, device: { ...linkedTv } };
+        if (request.path === '/session/connect') return { ...activeSession, device: { ...linkedTv }, provisioningJobId: 32 };
+        if (request.path === '/router-jobs/32') return { ready: true };
+        if (request.path === '/devices/remove') return refuse ? { __status: 403, error: 'The selected device or WiFi password is not correct.' } : { ok: true };
+      },
+    });
+    await page.flush();
+    await page.advance(1500);
+    await page.click('manage-tv');
+    assert.equal(page.visible('tv-section'), true);
+    assert.match(page.element('tv-existing').textContent, /A TV linked earlier to this package: Living room TV · AA:BB:CC:DD:EE:99\. Remove it here/);
+    assert.equal(page.visible('remove-tv'), true, 'the linked TV has a remove button');
+    // A refusal is shown and nothing changes.
+    await page.click('remove-tv');
+    assert.equal(page.element('tv-error').textContent, 'The selected device or WiFi password is not correct.');
+    assert.equal(page.visible('remove-tv'), true);
+    refuse = false;
+    await page.click('remove-tv');
+    const removals = page.requests.filter(request => request.path === '/devices/remove');
+    assert.equal(removals.length, 2);
+    assert.deepEqual(removals[1].body, { phone: activeSession.payerPhone, subscriptionId: activeSession.subscriptionId,
+      password: activeSession.password, mac: linkedTv.mac }, 'the removal proves the package with its number and recovery code');
+    assert.equal(page.visible('remove-tv'), false, 'the button goes once the TV is removed');
+    assert.equal(page.element('tv-existing').textContent, 'TV removed from this package. Choose a package below, then pick the TV.');
+    assert.equal(page.element('tv-error').textContent, '');
+    assert.equal(page.visible('tv-section'), true, 'the customer can buy the TV its own package straight away');
   });
 
   console.log('\nTenant portal UI: ' + passed + ' passed, ' + failures.length + ' failed.');

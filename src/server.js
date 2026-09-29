@@ -2770,6 +2770,14 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
       ? 'This TV already has a package bought with another number. Use that package until it ends.'
       : 'This device already has a package bought with another number. Use that package, or check its time with that number.' });
   }
+  // A TV still linked to a running phone package (from before TVs bought
+  // their own) could not be switched on: say so before any money is taken.
+  const linkedTv = deviceType === 'tv' ? tenant.linkedTvForMac(location.id, mac) : null;
+  if (linkedTv && linkedTv.live) {
+    return res.status(409).json({ code: 'tv_linked', error: linkedTv.subscription.payer_phone === phone
+      ? 'This TV is still linked to your phone package. Remove it first: on your phone package, tap Buy for TV, then Remove this TV.'
+      : 'This TV is still linked to a package bought with another number. Remove it from that package first, or wait until it ends.' });
+  }
   const capacityBlocked = hotspotCapacityBlock(location, Boolean(existingSubscription));
   if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
   const pendingPayment = tenant.pendingPaymentForPhone.get(location.id, phone);
@@ -3081,6 +3089,10 @@ app.post('/api/tenant/:locationId/devices/add', (req, res) => {
   res.status(402).json({ error: 'TV access requires a separate package. Choose Buy for TV.' });
 });
 
+// Remove a TV linked to a phone's package before TVs bought their own, so it
+// can buy its own. Only for this location, the paying number and that
+// package's recovery code; rate-limited with the other customer lookups
+// (SECRET_CHECKING_POSTS above).
 app.post('/api/tenant/:locationId/devices/remove', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const phone = mpesa.normalizePhone(req.body && req.body.phone);

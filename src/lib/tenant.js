@@ -4054,7 +4054,11 @@ function grantSubscription({ transaction, profile = 'standard' }) {
     if (subscriptionLive(existingBinding)) throw deviceTakenError();
     releaseEndedSubscription(existingBinding);
   }
-  if (deviceByMac.get(transaction.location_id, targetMac)) throw new Error('Remove the existing linked TV before buying a separate package.');
+  // A TV linked to a phone's package before TVs bought their own. Once that
+  // package has ended the link is stale: drop it so the TV can have its own.
+  const linkedTv = linkedTvForMac(transaction.location_id, targetMac);
+  if (linkedTv && linkedTv.live) throw new Error('Remove the existing linked TV before buying a separate package.');
+  if (linkedTv) removeDevice.run({ locationId: transaction.location_id, mac: targetMac, subscriptionId: linkedTv.device.subscription_id });
   const existing = subscriptionByMac.get(transaction.location_id, transaction.mac);
   const id = existing?.id || `sub-${crypto.randomBytes(10).toString('hex')}`;
   const routerUsername = usernameFor({ locationId: transaction.location_id, payerPhone: transaction.phone, mac: transaction.mac });
@@ -4105,6 +4109,15 @@ function transferSubscription({ locationId, payerPhone, subscriptionId, password
     ip: subscription.device_type === 'tv' ? null : (ip || null),
     action: subscription.device_type === 'tv' ? 'tv-upsert' : 'transfer' });
   return { ...subscription, mac, provisioningJobId: Number(job.lastInsertRowid) };
+}
+
+// A TV linked to a phone's package (before TVs bought their own), with
+// whether that package is still running.
+function linkedTvForMac(locationId, mac) {
+  const device = mac ? deviceByMac.get(locationId, mac) : null;
+  if (!device) return null;
+  const subscription = subscriptionById.get(device.subscription_id, locationId);
+  return { device, subscription: subscription || null, live: Boolean(subscription && subscriptionLive(subscription)) };
 }
 
 function removeTvDevice({ locationId, payerPhone, subscriptionId, password, mac }) {
@@ -4517,7 +4530,7 @@ module.exports = {
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, latestPaidTransactionForSubscription, setSubscriptionMac,
   grantSubscription, provisionPaidTransaction, createPaymentClaim, claimPaymentDevice, recordUsage, expiredSubscriptions, activeMeter,
   insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
-  transferSubscription, removeTvDevice, deviceForSubscription, devicesForSubscription,
+  transferSubscription, removeTvDevice, linkedTvForMac, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,
   issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions,
   paymentConnectionSummary, savePaymentConnection, paymentCredentials,

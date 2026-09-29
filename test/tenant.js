@@ -654,6 +654,19 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   assert.strictEqual(tenant.removeTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
     password: firstGrant.password, mac: 'AA:BB:CC:DD:EE:99' }), true);
 
+  // A TV still linked to a phone package that has ended is not held by it:
+  // buying the TV its own package drops the stale link. While the phone
+  // package runs, the link holds (the portal asks to remove it first).
+  legacy.db.prepare(`INSERT INTO tenant_devices (location_id, mac, subscription_id, label)
+    VALUES (?, 'AA:BB:CC:DD:EE:98', ?, 'Bedroom TV')`).run(alpha.id, firstGrant.id);
+  assert.strictEqual(tenant.linkedTvForMac(alpha.id, 'AA:BB:CC:DD:EE:98').live, false, 'the phone package has ended');
+  addPaidTransaction({ checkoutRequestId: 'tenant-payment-tv-own', businessId: 'business-a', locationId: alpha.id,
+    packageId: alphaPackageId, packageName: 'Ten minutes', amount: 10, seconds: 600, phone, mac: 'AA:BB:CC:DD:EE:98' });
+  tenant.setTransactionDevice.run({ checkoutRequestId: 'tenant-payment-tv-own', deviceType: 'tv', deviceLabel: 'Bedroom TV' });
+  const tvGrant = tenant.grantSubscription({ transaction: tenant.getTransaction.get('tenant-payment-tv-own') });
+  assert.notStrictEqual(tvGrant.id, firstGrant.id, 'the TV gets its own package');
+  assert.strictEqual(tenant.linkedTvForMac(alpha.id, 'AA:BB:CC:DD:EE:98'), null, 'the stale link is gone');
+
   // Vouchers are location-scoped and claim atomically, so a used code cannot
   // credit a second device or a different business.
   const [voucher] = tenant.issueVouchers({ businessId: 'business-a', locationId: alpha.id,

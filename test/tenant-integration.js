@@ -710,6 +710,65 @@ async function main() {
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'acknowledged expiry is not emitted forever');
   });
 
+  await test('a TV linked to a phone package before TVs bought their own is removed by its customer only, then buys its own', async () => {
+    const granted = await voucher(alpha, 'AA:BB:CC:00:00:70', '254712000070');
+    const tvMac = 'AA:BB:CC:00:00:71';
+    database.prepare(`INSERT INTO tenant_devices (location_id, mac, subscription_id, label) VALUES (?, ?, ?, 'Old TV')`)
+      .run(alpha.location.id, tvMac, granted.subscriptionId);
+    const linked = () => database.prepare('SELECT COUNT(*) AS n FROM tenant_devices WHERE location_id=? AND mac=?').get(alpha.location.id, tvMac).n;
+    const prompts = () => darajaCalls.filter((call) => call.path === '/mpesa/stkpush/v1/processrequest').length;
+    const buyTv = (phone) => api(endpoint(alpha.location, 'pay'), { method: 'POST', body: {
+      packageId: alpha.package.id, phone, mac: tvMac, deviceType: 'tv', deviceLabel: 'Old TV' } });
+    // While it is linked to a running package the TV cannot be switched on,
+    // so no M-Pesa prompt is sent.
+    const promptsBefore = prompts();
+    const own = await buyTv('0712000070');
+    assert.equal(own.status, 409, JSON.stringify(own.body));
+    assert.equal(own.body.code, 'tv_linked');
+    assert.match(own.body.error, /Remove this TV/);
+    const stranger = await buyTv('0712000079');
+    assert.equal(stranger.status, 409);
+    assert.match(stranger.body.error, /another number/);
+    assert.doesNotMatch(stranger.body.error, /0712000070|254712000070/, 'the other number is never shown');
+    assert.equal(prompts(), promptsBefore, 'no prompt is sent for a TV that could not be switched on');
+    // Removal needs this location, the paying number, the package and its recovery code.
+    const removal = { phone: '0712000070', subscriptionId: granted.subscriptionId, password: granted.password, mac: tvMac };
+    for (const [body, where] of [[{ ...removal, password: 'NOTMINE' }, alpha], [{ ...removal, phone: '0712000079' }, alpha],
+      [{ ...removal, mac: 'AA:BB:CC:00:00:72' }, alpha], [removal, bravo]]) {
+      const refused = await api(endpoint(where.location, 'devices/remove'), { method: 'POST', body });
+      assert.equal(refused.status, 403, JSON.stringify(body));
+      assert.equal(linked(), 1, 'a refused removal leaves the TV linked');
+    }
+    const removed = await api(endpoint(alpha.location, 'devices/remove'), { method: 'POST', body: removal });
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
+    assert.equal(linked(), 0);
+    const revoke = database.prepare("SELECT * FROM tenant_jobs WHERE location_id=? AND username=? AND action='revoke' ORDER BY id DESC").get(alpha.location.id, `${granted.username}-tv`);
+    assert.ok(revoke, 'the router is told to drop the old TV login');
+    assert.equal((await api(endpoint(alpha.location, 'devices/remove'), { method: 'POST', body: removal })).status, 403, 'a second removal finds nothing');
+    // Now the TV buys its own package.
+    const bought = await buyTv('0712000070');
+    assert.equal(bought.status, 200, JSON.stringify(bought.body));
+    const checkoutId = bought.body.checkoutRequestId;
+    payments.get(checkoutId).result = 0;
+    await callback(checkoutId);
+    await eventually(() => tenant.getTransaction.get(checkoutId).provisioned, 'the TV package was not provisioned');
+    const tvPackage = tenant.subscriptionByMac.get(alpha.location.id, tvMac);
+    assert.equal(tvPackage.device_type, 'tv');
+    assert.notEqual(tvPackage.id, granted.subscriptionId, 'the TV has its own package');
+  });
+
+  await test('removing a linked TV is rate-limited like the other customer lookups', async () => {
+    const granted = await voucher(alpha, 'AA:BB:CC:00:00:80', '254712000080');
+    const guess = { phone: '0712000080', subscriptionId: granted.subscriptionId, mac: 'AA:BB:CC:00:00:81' };
+    for (let attempt = 1; attempt <= 20; attempt++) {
+      const refused = await api(endpoint(alpha.location, 'devices/remove'), { method: 'POST', body: { ...guess, password: `WRONG${attempt}` } });
+      assert.equal(refused.status, 403, `attempt ${attempt}`);
+    }
+    const limited = await api(endpoint(alpha.location, 'devices/remove'), { method: 'POST', body: { ...guess, password: granted.password } });
+    assert.equal(limited.status, 429, 'the 21st recovery-code try for one number within 15 minutes is refused');
+    assert.ok(Number(limited.headers.get('retry-after')) > 0);
+  });
+
   await test('prepaid service payment requires verified settlement and activates exactly once', async () => {
     // Starter/Growth plans can no longer be bought; choosing one never charges.
     const preference = await api('/api/business/billing-plan', { method: 'POST', token: alpha.token,
