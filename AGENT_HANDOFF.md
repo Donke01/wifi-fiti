@@ -9,6 +9,12 @@ branch and do not put production secrets, router keys, database files, or
 **Merged to `main` on 29 Sep at Don's request, in this order:** #18 → #13 →
 #14 → #16 → #15 → #17 (this handoff). A push to `main` redeploys Railway.
 
+**PPPoE has its own sidebar item (29 Sep, Don's choice).** The sidebar now
+has 9 items: PPPoE sits between Customers and Money and opens `/pppoe.html` in
+one click. It was a tab under Routers, which Don could not find. `#pppoe`
+still shows its dashboard card, which is also where `pppoe.html` "Back"
+returns, so there is no loop. Owner and Manager only (`customers.edit`).
+
 **`ADMIN_PASSWORD` is set on Railway (done 29 Sep).** Don set it and the
 command center opens with it. It is now both the platform-admin sign-in (it
 replaces `ADMIN_TOKEN` when both exist) and the confirmation for plan

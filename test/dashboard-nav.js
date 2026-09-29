@@ -1,6 +1,6 @@
 'use strict';
 
-// The business dashboard has exactly eight pages, and every older page name
+// The business dashboard has exactly nine pages, and every older page name
 // or #hash (bookmarks, emails, buttons, other scripts) lands on the page that
 // now holds it. Unknown names land on Home.
 const assert = require('node:assert/strict');
@@ -11,7 +11,7 @@ const vm = require('node:vm');
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 const html = read('public/business.html');
 
-// The sidebar: exactly these eight buttons, in this order.
+// The sidebar: exactly these nine buttons, in this order (PPPoE added 29 Sep).
 const aside = html.match(/<aside class="sidebar glass"[\s\S]*?<\/aside>/);
 assert.ok(aside, 'the dashboard has its sidebar');
 const nav = aside[0].match(/<nav class="nav"[^>]*>([\s\S]*?)<\/nav>/)[1];
@@ -19,11 +19,12 @@ const items = [...nav.matchAll(/<button type="button" data-module="([a-z-]+)"><s
   .map((m) => [m[1], m[2].replace(/&amp;/g, '&')]);
 assert.deepEqual(items, [
   ['overview', 'Home'], ['routers', 'Routers'], ['packages', 'Packages & vouchers'], ['customers', 'Customers'],
-  ['money', 'Money'], ['portal', 'Customer portal'], ['sms', 'SMS'], ['settings', 'Settings'],
-], 'the sidebar has exactly the eight pages');
+  ['pppoe', 'PPPoE'], ['money', 'Money'], ['portal', 'Customer portal'], ['sms', 'SMS'], ['settings', 'Settings'],
+], 'the sidebar has exactly the nine pages');
 assert.equal(nav.replace(/<button type="button" data-module="[a-z-]+"><span class="symbol" aria-hidden="true">[^<]*<\/span>[^<]+<\/button>/g, ''), '',
   'nothing else sits in the sidebar menu (no labels, links or extra pages)');
 assert.doesNotMatch(html, /nav-extended'|installExtendedNavigation|installPppoeNavLink|data-pppoe-link/, 'no script adds more sidebar items later');
+assert.match(html, /if \(module === 'pppoe'\) \{ window\.location\.href = '\/pppoe\.html'; return; \}/, 'the PPPoE menu item opens the PPPoE page in one click');
 for (const file of ['public/billing-hub.js', 'public/tuma-payout.js', 'public/setup-flow.js', 'public/fiti-actions.js']) {
   assert.doesNotMatch(read(file), /\.sidebar|\.nav\b|data-module/, file + ' adds nothing to the sidebar');
 }
@@ -43,11 +44,11 @@ const pageOf = (name) => dashboardPages.find((page) => page.parts.some((part) =>
 
 const expected = {
   // New names and the pages themselves.
-  overview: 'overview', home: 'overview', routers: 'routers', packages: 'packages', customers: 'customers', money: 'money',
+  overview: 'overview', home: 'overview', routers: 'routers', packages: 'packages', customers: 'customers', pppoe: 'pppoe', money: 'money',
   portal: 'portal', sms: 'sms', settings: 'settings',
   // Every older page name and hash.
   onboarding: 'overview', setup: 'overview', locations: 'routers', 'router-map': 'routers', 'router-setup': 'routers',
-  tools: 'routers', 'router-tools': 'routers', remote: 'routers', 'remote-access': 'routers', pppoe: 'routers',
+  tools: 'routers', 'router-tools': 'routers', remote: 'routers', 'remote-access': 'routers',
   vouchers: 'packages', support: 'customers', analytics: 'overview', sales: 'money', transactions: 'money',
   disbursements: 'money', payouts: 'money', branding: 'portal', 'portal-templates': 'portal', templates: 'portal',
   account: 'settings', billing: 'settings', payments: 'settings', plan: 'settings', 'payment-collection': 'settings',
@@ -143,4 +144,4 @@ for (const text of ['Renew it in Settings → Billing & payments.', 'Pay it in S
 assert.match(html, /if \(model && onboardingFlowState\(model\)\.active\) \{ setSequentialOnboarding\(true\); moduleView = 'onboarding'; return; \}/);
 assert.match(html, /#dashboard\.sequential-onboarding \.page-tabs,#dashboard:not\(\.module-view\) \.page-tabs\{display:none\}/);
 
-console.log('Dashboard navigation: eight pages and every old link passed.');
+console.log('Dashboard navigation: nine pages and every old link passed.');
