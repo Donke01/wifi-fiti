@@ -2814,7 +2814,11 @@ app.get('/api/business/locations/:locationId/go-live', (req, res) => {
   // The same location record a customer's purchase is checked against.
   const location = tenant.locationById.get(owned.id);
   res.setHeader('Cache-Control', 'no-store');
-  res.json(goLiveStatus(location));
+  const status = goLiveStatus(location);
+  // The card also shows on the router map: a Technician sees no money or prices.
+  if (status.sale && !team.can(req, ['sales.view', 'sales.today'])) delete status.sale.amount;
+  if (status.packages.cheapest && !team.can(req, 'packages.view')) status.packages.cheapest = { name: status.packages.cheapest.name };
+  res.json(status);
 });
 // ---- Router tools: run and follow from the dashboard --------------------
 function toolLocation(req, res) {
@@ -2825,18 +2829,21 @@ function toolLocation(req, res) {
   return location;
 }
 // A customer check: what Wi-Fi Fiti knows (package, payment) next to what the
-// router sees for that device.
-function customerAccount(locationId, mac) {
+// router sees for that device. The amount paid is left out for a role that
+// sees no money (a Technician).
+function customerAccount(locationId, mac, showMoney = true) {
   const sub = tenant.subscriptionByMac.get(locationId, mac);
   if (!sub) return null;
   const expires = Date.parse(String(sub.expires_at).replace(' ', 'T') + 'Z');
   const pay = db.db.prepare(`SELECT package_name AS packageName, amount, status, mpesa_receipt AS receipt, updated_at AS at FROM tenant_transactions WHERE location_id=? AND mac=? ORDER BY updated_at DESC LIMIT 1`).get(locationId, mac);
+  if (pay && !showMoney) delete pay.amount;
   return { phone: String(sub.payer_phone || '').replace(/^(\d{3})\d+(\d{3})$/, '$1•••$2'), expiresAt: sub.expires_at, hasTime: Number.isFinite(expires) && expires > Date.now(), active: Boolean(sub.is_active), lastPayment: pay || null };
 }
 app.get('/api/business/locations/:locationId/tools', (req, res) => {
   const location = toolLocation(req, res); if (!location) return;
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ runs: routerTools.listTools(location.id).map((run) => (run.tool === 'customer' && run.args.mac ? { ...run, account: customerAccount(location.id, run.args.mac) } : run)) });
+  const showMoney = team.can(req, ['sales.view', 'sales.today']);
+  res.json({ runs: routerTools.listTools(location.id).map((run) => (run.tool === 'customer' && run.args.mac ? { ...run, account: customerAccount(location.id, run.args.mac, showMoney) } : run)) });
 });
 app.post('/api/business/locations/:locationId/tools', (req, res) => {
   const location = toolLocation(req, res); if (!location) return;
@@ -5847,7 +5854,9 @@ app.get('/api/business/pppoe/billing', pppoeOwnerRoute((req, res, business) => {
     settings, payPage: pppoeBilling.payPageUrl(business.id), payBill: pppoePayBill(business.id),
     serving: pppoeBilling.ownerCanServe(db.businessById.get(business.id)),
     subscribers: Object.fromEntries(users.map((u) => [u.id, pppoeBilling.ownerView(u, { settings })])),
-    payments: pppoeBilling.paymentsForOwner(business.id, { limit: 50 }),
+    // The payment list is for roles that see sales over time (not an
+    // Attendant, who sees today's sales only).
+    payments: team.can(req, 'sales.view') ? pppoeBilling.paymentsForOwner(business.id, { limit: 50 }) : [],
   });
 }));
 app.put('/api/business/pppoe/billing/settings', pppoeOwnerRoute((req, res, business) => {

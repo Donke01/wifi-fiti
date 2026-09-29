@@ -305,6 +305,50 @@ async function test(name, fn) {
     const viewer = await call('GET', '/api/business/tenant-dashboard?period=30d', null, members.viewer.token);
     assert.equal(viewer.body.summary.payments, 2, 'a Viewer sees the full period');
   });
+  console.log('\nMoney stays with the roles that see it');
+  await test('the customer check hides the amount paid from a Technician', async () => {
+    database.prepare(`INSERT INTO tenant_subscriptions (id, business_id, location_id, router_username, payer_phone, mac, password, total_seconds, expires_at)
+      VALUES ('sub-check', 'biz', 'loc', 'u-check', '254711000009', 'AA:BB:CC:00:00:09', 'pw', 86400, datetime('now','+1 day'))`).run();
+    database.prepare(`INSERT INTO tenant_router_tools (location_id, tool, args_json, status, result) VALUES ('loc', 'customer', '{"mac":"AA:BB:CC:00:00:09"}', 'done', 'active=1')`).run();
+    const lastPayment = async (token) => {
+      const response = await call('GET', `${loc}/tools`, null, token);
+      assert.equal(response.status, 200, JSON.stringify(response.body));
+      const run = response.body.runs.find((item) => item.tool === 'customer');
+      assert.ok(run && run.account && run.account.lastPayment, JSON.stringify(response.body));
+      return run.account.lastPayment;
+    };
+    const tech = await lastPayment(members.technician.token);
+    assert.equal('amount' in tech, false, 'no amount for a Technician');
+    assert.equal(tech.status, 'paid', 'the Technician still sees that it was paid');
+    assert.equal((await lastPayment(ownerToken)).amount, 20);
+    assert.equal((await lastPayment(members.manager.token)).amount, 20);
+  });
+  await test('the go-live card shows a Technician no sale amount or package price', async () => {
+    const owner = await call('GET', `${loc}/go-live`, null, ownerToken);
+    assert.equal(owner.status, 200, JSON.stringify(owner.body));
+    const tech = await call('GET', `${loc}/go-live`, null, members.technician.token);
+    assert.equal(tech.status, 200, JSON.stringify(tech.body));
+    assert.equal(owner.body.sale.amount, 20);
+    assert.equal('amount' in tech.body.sale, false);
+    assert.equal(tech.body.sale.packageName, owner.body.sale.packageName, 'the rest of the card is the same');
+    assert.equal(typeof owner.body.packages.cheapest.price, 'number');
+    assert.deepEqual(Object.keys(tech.body.packages.cheapest), ['name']);
+  });
+  await test('PPPoE payments are listed for roles that see sales, not for an Attendant', async () => {
+    database.prepare(`INSERT INTO pppoe_payments (business_id, user_id, username, kind, method, amount) VALUES ('biz', 'pppoe-user', 'jane', 'renewal', 'cash', 1500)`).run();
+    const owner = await call('GET', '/api/business/pppoe/billing', null, ownerToken);
+    assert.equal(owner.status, 200, JSON.stringify(owner.body));
+    assert.equal(owner.body.payments.length, 1);
+    assert.equal((await call('GET', '/api/business/pppoe/billing', null, members.manager.token)).body.payments.length, 1);
+    const attendant = await call('GET', '/api/business/pppoe/billing', null, members.attendant.token);
+    assert.equal(attendant.status, 200);
+    assert.deepEqual(attendant.body.payments, []);
+    assert.equal((await call('GET', '/api/business/pppoe/payments', null, members.attendant.token)).status, 403);
+    assert.equal((await call('GET', '/api/business/pppoe/billing', null, members.technician.token)).status, 403, 'a Technician has no PPPoE customers');
+    assert.equal((await call('GET', '/api/business/operations/payouts', null, members.manager.token)).status, 403, 'payouts stay owner-only');
+    assert.equal((await call('GET', '/api/business/operations/billing', null, members.manager.token)).status, 403, 'receipts stay owner-only');
+    assert.equal((await call('GET', '/api/business/operations/tickets', null, members.technician.token)).status, 200, 'a Technician can use support');
+  });
   await test('today starts at midnight in Nairobi', () => {
     assert.equal(team.todayStart(Date.parse('2026-09-29T20:59:00Z')), '2026-09-28 21:00:00');
     assert.equal(team.todayStart(Date.parse('2026-09-29T21:00:00Z')), '2026-09-29 21:00:00');
