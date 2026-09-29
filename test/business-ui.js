@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '../public/business.html'), 'utf8');
 
-assert.match(html, /<section class="section" id="remote-section">[^\n]*Customer traffic and payments never use this path[^\n]*It is off by default\. Once a router has connected through setup, you can request it/, 'the Remote access part explains the path, that it stays off until requested, and only after a router has connected');
+assert.match(html, /<section class="section" id="remote-section">[^\n]*Customer traffic and payments never use this path[^\n]*It turns on by itself once a new router finishes setup\. You can turn it off for any router below at any time, and it stays off until you turn it on again\./, 'the Remote access part explains the path, that it starts only after setup, and that turning it off sticks');
 assert.match(html, /Remote setup/, 'each location exposes managed setup without hiding it in a support-only view');
 assert.match(html, /\/remote-access/, 'the UI calls a location-scoped remote-access API');
 assert.match(html, /consent:\s*true/, 'a business owner must explicitly consent before remote access is requested');

@@ -147,7 +147,7 @@ table also scrolls sideways on a phone now.
 
 - **Don:** rotate the Daraja sandbox key, and replace the `MIKROTIK_*` placeholders and `MPESA_ENV` on Railway.
 - **Don:** hardware tests; see "Next steps" in the 28 Sep handover below.
-- **Don:** decide on `changes.diff`. It was not touched.
+- ~~**Don:** decide on `changes.diff`.~~ Done 29 Sep: remote support is on by default for new routers (`auto-remote-support`).
 - **Don:** set `ADMIN_PASSWORD` on Railway (#18). If any router still uses the old single-site portal, set `LEGACY_SITE_ENABLED=true` until it has been moved.
 - Payouts/disbursements (left for now). They are still only in the unlinked `operations.html`. Plan receipts and support tickets now live in Settings → Receipts & help (#16).
 - **#13:**
@@ -180,9 +180,10 @@ table also scrolls sideways on a phone now.
 - Stage 3 still needs a real-router test of "add Wi-Fi to a running hotspot"
   (see Next steps).
 - `test/ceiling.js` flakes with the clock; rerun it before assuming a failure.
-- **Don't apply `changes.diff`** (repo root). It turns on remote access and
-  the VPN automatically, without the owner's explicit consent, which the
-  Architecture section forbids. Offer the owner to delete it.
+- **`changes.diff` is gone** (29 Sep). Don decided remote support should be
+  on by default, so its idea was rebuilt on current code (branch
+  `auto-remote-support`) and the stale patch file was deleted. See
+  Architecture for the rule now.
 
 ### Stage 3 (network changes from the map): status
 
@@ -508,9 +509,13 @@ VPN gateway ── outbound HTTPS ──> cloud.wififiti.co.ke
 
 The WireGuard path is private management only. Customer internet traffic and
 payments do not travel through it. Each router receives its own key and
-management address only after a verified cloud check-in and explicit owner
-consent; never embed a shared VPN private key or gateway peer in a generic
-RouterOS kit.
+management address only after a verified cloud check-in. Remote support is
+on by default (Don's decision, 29 Sep 2026): `autoRequestRemoteAccess` asks for
+it once, at the moment a router first proves its setup, and logs the request as
+the system. It never switches on a router that already has a remote-support
+record, so an owner who turned it off keeps it off, and routers verified before
+29 Sep keep the manual Remote setup button. Never embed a shared VPN private key
+or gateway peer in a generic RouterOS kit.
 
 ## Router onboarding contract
 

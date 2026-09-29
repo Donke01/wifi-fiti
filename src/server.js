@@ -5472,6 +5472,9 @@ app.post('/api/router/sync', (req, res) => {
       return res.type('text/plain').send(routerSetupReceiptScript(receipt.challenge));
     }
     let readyLocation = tenant.autoCompleteCustomerPortal(receipt.location.id) || receipt.location;
+    // Remote support is on by default for a router that has only now proved
+    // its setup; an owner who turned it off keeps it off.
+    if (receipt.setupJustVerified) readyLocation = tenant.autoRequestRemoteAccess(readyLocation) || readyLocation;
     // Automatic kits discover the live Hotspot and customer bridge on the
     // router. Persist those detected names before emitting queued jobs so a
     // custom Hotspot is never addressed as the default `hotspot1`.
