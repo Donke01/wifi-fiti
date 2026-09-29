@@ -266,9 +266,66 @@ for (const stmt of [
   // Deleted packages that have sales or vouchers are archived, not removed,
   // so receipts and reports keep their name.
   `ALTER TABLE business_packages ADD COLUMN deleted_at TEXT`,
+  // Team accounts: a session belongs to a person. NULL is the business
+  // owner (every session made before team accounts existed).
+  `ALTER TABLE business_sessions ADD COLUMN member_id TEXT`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }
+
+/* Team accounts. The owner stays on the businesses row (email and
+   password unchanged); staff are business_members. Invites store only a
+   hash of their one-time token. */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS business_members (
+    id              TEXT PRIMARY KEY,
+    business_id     TEXT NOT NULL REFERENCES businesses(id),
+    role            TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    email           TEXT,
+    phone           TEXT,
+    password_hash   TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'active',
+    invited_by      TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    removed_at      TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_business_members_business ON business_members(business_id, status);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_business_members_email ON business_members(email) WHERE status='active' AND email IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_business_members_phone ON business_members(phone) WHERE status='active' AND phone IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS business_invites (
+    id              TEXT PRIMARY KEY,
+    business_id     TEXT NOT NULL REFERENCES businesses(id),
+    kind            TEXT NOT NULL DEFAULT 'join',
+    role            TEXT NOT NULL,
+    name            TEXT,
+    email           TEXT,
+    phone           TEXT,
+    member_id       TEXT,
+    token_hash      TEXT NOT NULL UNIQUE,
+    created_by      TEXT,
+    expires_at      TEXT NOT NULL,
+    used_at         TEXT,
+    revoked_at      TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_business_invites_business ON business_invites(business_id, used_at, revoked_at);
+
+  CREATE TABLE IF NOT EXISTS business_activity (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_id     TEXT NOT NULL,
+    member_id       TEXT,
+    actor_name      TEXT,
+    actor_role      TEXT NOT NULL,
+    action          TEXT NOT NULL,
+    target          TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_business_activity_business ON business_activity(business_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_business_sessions_member ON business_sessions(member_id);
+`);
 db.exec(`UPDATE accounts SET payer_phone = phone WHERE payer_phone IS NULL`);
 
 // One-time migration for balances created by the earlier usage-based model.
@@ -647,8 +704,8 @@ const businessById = db.prepare(`SELECT id, name, owner_name, owner_phone, email
   pppoe_users, pppoe_billing_expires_at, hotspot_concurrent, hotspot_billing_expires_at, planned_hotspot, planned_pppoe, trial_ended_reason, owner_phone_verified
   FROM businesses WHERE id = ?`);
 const addBusinessSession = db.prepare(`
-  INSERT INTO business_sessions (token_hash, business_id, expires_at)
-  VALUES (@tokenHash, @businessId, @expiresAt)
+  INSERT INTO business_sessions (token_hash, business_id, member_id, expires_at)
+  VALUES (@tokenHash, @businessId, @memberId, @expiresAt)
 `);
 const businessForSession = db.prepare(`
   SELECT b.id, b.name, b.owner_name, b.owner_phone, b.email, b.plan, b.collection_mode, b.billing_status, b.billing_expires_at,

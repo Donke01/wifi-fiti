@@ -42,4 +42,20 @@ function verificationEmail(code, purpose, recipientName = '') {
   };
 }
 
-module.exports = { sendEmail, verificationEmail };
+/** A team invite (or a password reset link the owner made for a member). */
+function inviteEmail({ link, businessName, ownerName, roleLabel, name, reset = false, days = 7 }) {
+  const greeting = greetingFor(name);
+  const business = businessName || 'a business';
+  const line = reset
+    ? `Use the link below to set a new password for ${business} on Wi-Fi Fiti.`
+    : `${ownerName || 'The owner'} invited you to help run ${business} on Wi-Fi Fiti as ${roleLabel}. Use the link below to set your password.`;
+  const note = `The link works once and expires in ${days} days. If you did not expect it, you can ignore this email.`;
+  const button = reset ? 'Set a new password' : 'Join the team';
+  return {
+    subject: reset ? `Set a new Wi-Fi Fiti password for ${business}` : `Join ${business} on Wi-Fi Fiti`,
+    text: `${greeting}\n\n${line}\n\n${link}\n\n${note}\n\nWi-Fi Fiti`,
+    html: `<!doctype html><html><body style="margin:0;background:#f4f7fb;padding:28px 14px;color:#142746;font-family:Arial,Helvetica,sans-serif"><div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #dce5f0;border-radius:18px;padding:30px"><div style="font-size:22px;font-weight:800;color:#1769d8;margin-bottom:18px">Wi-Fi Fiti</div><p style="font-size:17px;font-weight:700;margin:0 0 14px">${escapeHtml(greeting)}</p><p style="font-size:15px;line-height:1.6;margin:0 0 20px">${escapeHtml(line)}</p><p style="margin:0 0 20px"><a href="${escapeHtml(link)}" style="display:inline-block;background:#1769d8;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:10px">${escapeHtml(button)}</a></p><p style="font-size:13px;line-height:1.6;color:#637792;margin:0">${escapeHtml(note)}</p></div></body></html>`,
+  };
+}
+
+module.exports = { sendEmail, verificationEmail, inviteEmail };
