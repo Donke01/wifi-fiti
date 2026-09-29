@@ -140,6 +140,8 @@ table also scrolls sideways on a phone now.
   - The Manager also gets sales, remote access, customer portal, SMS settings, router backups and PPPoE cash payments; Don's spec didn't mention these either way.
   - Buying SMS credits and paying Wi-Fi Fiti are owner only.
 - **Team routes (#15):** every `/api/business/*` route is in one table in `src/lib/team.js`. Anything unlisted is refused for non-owners.
+- **Team accounts v1: no per-location limits.** A role applies to every location of the business; there is no "this person may only see location X". Don decides whether that is needed (see open questions below).
+- **Router tokens in URLs (#19):** older kits send the router token in the URL: the legacy site's poll (`routeros/poll-setup.rsc`, `public/router-poll-install.rsc`, `?token=`) and early tenant kits calling `router-login?token=`. They keep working, and no router has to change; a router paired in header mode is refused a query token. Every kit generated now sends it only in the `X-WiFi-Fiti-Router` header. `test/security.js` fails if a `?token=` appears, or if a RouterOS fetch without that header mentions a token or `/api/`. Switching off the legacy site (#18) left every tenant router route, and the legacy site's own poll, untouched.
 
 ### What is left
 
@@ -157,6 +159,42 @@ table also scrolls sideways on a phone now.
 - **#16:** SMS and email reminders say "Settings > Billing & payments". The arrow is left out on purpose, because it would make an SMS Unicode, which costs more per message.
 - **#15:** the invite email hasn't been sent through real Resend.
 - **Firefox:** nothing overnight was checked in Firefox.
+
+### Follow-ups after the merge (29 Sep, day)
+
+| Item | Branch | PR | State |
+|---|---|---|---|
+| Router token only in the header (brief item 8) | `security-fixes-2` | #19 | Pushed `c17c004` on `main` `83e5290`, `npm test` green |
+| Customers → "Contact Wi-Fi Fiti support"; Usage analytics on Home (item 6) | `dashboard-flow` | none yet | Built as `a0f55d8` in an agent worktree, **not on `main`, not pushed** |
+| Portal fonts that phones have; Rounded dropped (item 7) | `flow-fixes` | none yet | Built as `6ac9016` in an agent worktree, **not on `main`, not pushed** |
+
+- The two unpushed commits were written on the old branch heads, before #13 and #16 merged. The auto-mode safety check refused to rebase them onto `main`, so they still need to be put on `main`, tested again (`npm test`, Chromium) and pushed as new PRs.
+- **Item 6 (`a0f55d8`):**
+  - "Contact Wi-Fi Fiti support" becomes a Customers tab, section `support-tickets-section`, using the existing `/api/business/operations/tickets` routes. It replaces the Settings ticket screen, so there is one ticket screen.
+  - Settings keeps plan receipts in a tab renamed "Receipts".
+  - Usage analytics (`analytics-section`) moves to Home, below the overview.
+  - On `main`, `public/team.js` needs `'support-tickets-section': 'support'` in place of `tickets-section`.
+  - Expect a conflict in `public/business.html`.
+- **Item 7 (`6ac9016`):**
+  - The portal loads no web fonts, so only fonts the phone already has count.
+  - Condensed is `"Avenir Next Condensed"` (iPhone), then `sans-serif-condensed` (Android), then `sans-serif`, with `font-stretch: condensed`.
+  - Mono is `ui-monospace`, then Menlo, then `monospace`.
+  - Rounded is dropped, because Android ships no rounded font. A saved "rounded" is served as "modern" (`portalFont()` in `src/lib/tenant-portal-templates.js`).
+  - Not yet seen on a real Android phone or iPhone.
+
+### Portal templates (merged in `7c5befe`)
+
+- **One gallery:** `PORTAL_TEMPLATE_CATALOG` in `public/business.html` holds all 15 designs. **Never add a second gallery script.**
+- **Contrast:** every accent keeps 4.5:1 contrast on white. `test/business-ui.js` checks it.
+- **Validation:** `test/business-ui.js` posts each design through the server's validation.
+- **Welcome message:** the customer portal shows the welcome message the owner writes.
+- **Midnight:** the midnight background has light header text, so it stays readable.
+
+### Open questions for Don
+
+1. **Payouts:** manual or automatic? On what schedule? With a minimum amount, or a fee? They are still only in the unlinked `operations.html`.
+2. **Portal designs:** which of the 15 to keep?
+3. **Team access:** does any business need a staff member limited to one location? Team accounts v1 has no per-location limits.
 
 ## Handover — 28 Sep 2026, night
 
