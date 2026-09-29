@@ -142,13 +142,15 @@ table also scrolls sideways on a phone now.
   - The Manager also gets sales, remote access, customer portal, SMS settings, router backups and PPPoE cash payments; Don's spec didn't mention these either way.
   - Buying SMS credits and paying Wi-Fi Fiti are owner only.
 - **Team routes (#15):** every `/api/business/*` route is in one table in `src/lib/team.js`. Anything unlisted is refused for non-owners.
+- **Team accounts v1: no per-location limits.** A role applies to every location of the business; there is no "this person may only see location X". Don decides whether that is needed (see open questions below).
+- **Router tokens in URLs (#19):** older kits send the router token in the URL: the legacy site's poll (`routeros/poll-setup.rsc`, `public/router-poll-install.rsc`, `?token=`) and early tenant kits calling `router-login?token=`. They keep working, and no router has to change; a router paired in header mode is refused a query token. Every kit generated now sends it only in the `X-WiFi-Fiti-Router` header. `test/security.js` fails if a `?token=` appears, or if a RouterOS fetch without that header mentions a token or `/api/`. Switching off the legacy site (#18) left every tenant router route, and the legacy site's own poll, untouched.
 
 ### What is left
 
 - **Don:** rotate the Daraja sandbox key, and replace the `MIKROTIK_*` placeholders and `MPESA_ENV` on Railway.
 - **Don:** hardware tests; see "Next steps" in the 28 Sep handover below.
 - ~~**Don:** decide on `changes.diff`.~~ Done 29 Sep: remote support is on by default for new routers (`auto-remote-support`).
-- **Don:** set `ADMIN_PASSWORD` on Railway (#18). If any router still uses the old single-site portal, set `LEGACY_SITE_ENABLED=true` until it has been moved.
+- **Done:** `ADMIN_PASSWORD` is set on Railway. **Don:** if any router still uses the old single-site portal, set `LEGACY_SITE_ENABLED=true` until it has been moved.
 - Payouts/disbursements (left for now). They are still only in the unlinked `operations.html`. Plan receipts and support tickets now live in Settings → Receipts & help (#16).
 - **#13:**
   - The dashboard preview of the portal on a phone is slightly wider than its frame. This was already the case before #13; the real portal is fine.
@@ -159,6 +161,45 @@ table also scrolls sideways on a phone now.
 - **#16:** SMS and email reminders say "Settings > Billing & payments". The arrow is left out on purpose, because it would make an SMS Unicode, which costs more per message.
 - **#15:** the invite email hasn't been sent through real Resend.
 - **Firefox:** nothing overnight was checked in Firefox.
+
+### Follow-ups after the merge (29 Sep, day): all merged
+
+Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 → #20 (this handoff). Before merging, `main` with all five merged together passed `npm test`. It was also checked in Chromium: the portal fonts at 360, 390 and 1280 px; the dashboard at 390 and 1280 px as the Owner and as a Technician; and the portal form at 390 and 1280 px.
+
+| Item | Branch | PR | State |
+|---|---|---|---|
+| Router token only in the header (brief item 8) | `security-fixes-2` | #19 | Merged |
+| Customers → "Contact Wi-Fi Fiti support"; Usage analytics on Home (item 6) | `dashboard-flow` | #22 | Merged |
+| Portal fonts that phones have; Rounded dropped (item 7) | `flow-fixes` | #21 | Merged |
+| Portal form on phones: normal checkboxes, preset titles above descriptions | `portal-form-phone` | #23 | Merged |
+
+- #21 and #22 were built on the old branch heads. With Don's go-ahead they were cherry-picked onto `main`: #21 needed an import line in `src/server.js`, #22 a `business.html` conflict and `public/team.js`. Both were tested again there.
+- **Item 6 (`a0f55d8`):**
+  - "Contact Wi-Fi Fiti support" becomes a Customers tab, section `support-tickets-section`, using the existing `/api/business/operations/tickets` routes. It replaces the Settings ticket screen, so there is one ticket screen.
+  - Settings keeps plan receipts in a tab renamed "Receipts".
+  - Usage analytics (`analytics-section`) moves to Home, below the overview.
+  - `public/team.js` now has `'support-tickets-section': 'support'` in place of `tickets-section`.
+- **Item 7 (`6ac9016`):**
+  - The portal loads no web fonts, so only fonts the phone already has count.
+  - Condensed is `"Avenir Next Condensed"` (iPhone), then `sans-serif-condensed` (Android), then `sans-serif`, with `font-stretch: condensed`.
+  - Mono is `ui-monospace`, then Menlo, then `monospace`.
+  - Rounded is dropped, because Android ships no rounded font. A saved "rounded" is served as "modern" (`portalFont()` in `src/lib/tenant-portal-templates.js`).
+  - Not yet seen on a real Android phone or iPhone.
+- **#23:** the "Design your portal" form had 47 px, full-width checkboxes, and preset titles ran into their descriptions, at every width. The cause was the global `button{display:inline-flex}` and `input{width:100%;min-height:47px}` rules. The presets are now blocks, and `label.check` in the form is a flex row with a 20 px checkbox. `test/business-ui.js` checks both.
+
+### Portal templates (merged in `7c5befe`)
+
+- **One gallery:** `PORTAL_TEMPLATE_CATALOG` in `public/business.html` holds all 15 designs. **Never add a second gallery script.**
+- **Contrast:** every accent keeps 4.5:1 contrast on white. `test/business-ui.js` checks it.
+- **Validation:** `test/business-ui.js` posts each design through the server's validation.
+- **Welcome message:** the customer portal shows the welcome message the owner writes.
+- **Midnight:** the midnight background has light header text, so it stays readable.
+
+### Open questions for Don
+
+1. **Payouts:** manual or automatic? On what schedule? With a minimum amount, or a fee? They are still only in the unlinked `operations.html`.
+2. **Portal designs:** which of the 15 to keep?
+3. **Team access:** does any business need a staff member limited to one location? Team accounts v1 has no per-location limits.
 
 ## Handover — 28 Sep 2026, night
 
