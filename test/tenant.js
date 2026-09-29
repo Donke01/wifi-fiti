@@ -631,16 +631,13 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'moving time onto another existing subscription must be rejected cleanly'
   );
 
-  // One physical TV can be attached to a subscription. The router receives a
-  // dedicated MAC-bound account, and a second TV is refused.
-  const tv = tenant.addTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
-    password: firstGrant.password, mac: 'AA:BB:CC:DD:EE:99', label: 'Living room TV' });
-  assert.ok(tv.provisioningJobId > 0);
+  // A TV now buys its own package, but a TV linked to a phone's package
+  // before that change can still be on file. Its separate router identity
+  // must still expire and be removable.
+  assert.strictEqual(tenant.addTvDevice, undefined, 'a TV can no longer be added to a phone package');
+  legacy.db.prepare(`INSERT INTO tenant_devices (location_id, mac, subscription_id, label)
+    VALUES (?, 'AA:BB:CC:DD:EE:99', ?, 'Living room TV')`).run(alpha.id, firstGrant.id);
   assert.strictEqual(tenant.deviceForSubscription.get(alpha.id, firstGrant.id).label, 'Living room TV');
-  assert.strictEqual(tenant.addTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
-    password: firstGrant.password, mac: 'AA:BB:CC:DD:EE:98', label: 'Second TV' }).error, 'limit');
-  assert.strictEqual(tenant.addTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
-    password: firstGrant.password, mac, label: 'Phone again' }).error, 'same-device');
 
   // Expiry is server wall-clock based. The linked TV uses a distinct router
   // identity, so both identities must receive a single idempotent revoke.
@@ -656,6 +653,19 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     'an expired subscription must not create revoke jobs on every router poll');
   assert.strictEqual(tenant.removeTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
     password: firstGrant.password, mac: 'AA:BB:CC:DD:EE:99' }), true);
+
+  // A TV still linked to a phone package that has ended is not held by it:
+  // buying the TV its own package drops the stale link. While the phone
+  // package runs, the link holds (the portal asks to remove it first).
+  legacy.db.prepare(`INSERT INTO tenant_devices (location_id, mac, subscription_id, label)
+    VALUES (?, 'AA:BB:CC:DD:EE:98', ?, 'Bedroom TV')`).run(alpha.id, firstGrant.id);
+  assert.strictEqual(tenant.linkedTvForMac(alpha.id, 'AA:BB:CC:DD:EE:98').live, false, 'the phone package has ended');
+  addPaidTransaction({ checkoutRequestId: 'tenant-payment-tv-own', businessId: 'business-a', locationId: alpha.id,
+    packageId: alphaPackageId, packageName: 'Ten minutes', amount: 10, seconds: 600, phone, mac: 'AA:BB:CC:DD:EE:98' });
+  tenant.setTransactionDevice.run({ checkoutRequestId: 'tenant-payment-tv-own', deviceType: 'tv', deviceLabel: 'Bedroom TV' });
+  const tvGrant = tenant.grantSubscription({ transaction: tenant.getTransaction.get('tenant-payment-tv-own') });
+  assert.notStrictEqual(tvGrant.id, firstGrant.id, 'the TV gets its own package');
+  assert.strictEqual(tenant.linkedTvForMac(alpha.id, 'AA:BB:CC:DD:EE:98'), null, 'the stale link is gone');
 
   // Vouchers are location-scoped and claim atomically, so a used code cannot
   // credit a second device or a different business.
