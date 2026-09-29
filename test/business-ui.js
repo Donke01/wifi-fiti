@@ -506,3 +506,52 @@ assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer W
 assert.match(html, /'Wi-Fi can only join a hotspot bridge\. PPPoE customers connect by cable\.'/, 'a radio dropped on a PPPoE bridge is refused with a reason');
 assert.match(html, /goes\.textContent = item\.shareWifi \? '📶 can add a separate customer Wi-Fi' : '📶 can broadcast customer Wi-Fi'/, 'free radios say they can broadcast customer Wi-Fi');
 assert.match(html, /var radioHint = isRadio\(item\) && \(item\.free \|\| item\.shareWifi\)/, 'a radio already in a Wi-Fi Fiti bridge is not offered again');
+// Step 2 for a router that paired and then went quiet (for example during
+// step 3): it is offline, so say what to check instead of "correct a setting".
+{
+  for (const name of ['routerPairingPending', 'routerSuccessfullyPaired', 'routerSyncHealthy', 'routerWentQuiet', 'routerHealthLabel', 'appendConnectionState']) {
+    const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
+    assert.ok(declaration, name + ' is available to exercise');
+    vm.runInContext(declaration[0], context);
+  }
+  const stateCard = (location) => {
+    const body = new TestElement('div');
+    context.appendConnectionState(body, { location, paired: context.routerSuccessfullyPaired(location),
+      syncHealthy: context.routerSyncHealthy(location), freshKitRequired: false });
+    return descendants(body).map((node) => node.textContent).filter(Boolean).join(' | ');
+  };
+  const quiet = { id: 'loc-quiet', router_kit: 'universal', last_successful_sync_at: '2026-09-29 08:00:00', router_status: 'offline',
+    router_sync_healthy: false, router_setup_health: 'awaiting-map' };
+  const offlineText = stateCard(quiet);
+  assert.match(offlineText, /Router is offline/);
+  assert.match(offlineText, /has power and that the internet cable is in its WAN port/);
+  assert.match(offlineText, /then wait a minute\. It reconnects by itself/);
+  assert.doesNotMatch(offlineText, /needs attention|Correct the router setting|map its network next/, 'an offline router is not told to correct a setting');
+  // A router that still polls but reports a real fault keeps that message.
+  assert.match(stateCard({ ...quiet, id: 'loc-faulty', router_status: 'online', router_setup_health: 'hotspot-missing' }),
+    /Router setup needs attention \| Hotspot missing\. Correct the router setting/);
+  // "Paired · map its network next" is a status, not a fault.
+  assert.doesNotMatch(stateCard({ ...quiet, id: 'loc-waiting', router_status: 'online' }), /needs attention/);
+}
+// "Back to workspace" works before the first router exists: leaving stays
+// left (in this tab), and the overview offers "Add your first router".
+{
+  const progress = new Map();
+  const flowContext = vm.createContext({ sessionStorage: { getItem: (key) => progress.get(key) ?? null, setItem: (key, value) => progress.set(key, value) } });
+  for (const name of ['onboardingProgressKey', 'readOnboardingProgress', 'saveOnboardingProgress', 'onboardingMaximumStage', 'onboardingFlowState']) {
+    vm.runInContext(html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function )'))[0], flowContext);
+  }
+  const noRouter = { business: { id: 'biz-new' }, configured: false, syncHealthy: false };
+  assert.equal(flowContext.onboardingFlowState(noRouter).active, true, 'a new owner starts in the setup guide');
+  flowContext.saveOnboardingProgress(noRouter.business, { active: false, stage: 1, unlocked: 1 });
+  assert.equal(flowContext.onboardingFlowState(noRouter).active, false, 'Back to workspace leaves the guide with no router');
+  flowContext.saveOnboardingProgress(noRouter.business, { active: true, stage: 1, unlocked: 1 });
+  assert.equal(flowContext.onboardingFlowState(noRouter).active, true, 'Add your first router re-enters it');
+  assert.match(html, /noRouter \? 'NO ROUTER YET'/);
+  assert.match(html, /if \(noRouter\) \{ setupAction\(compactActions, 'Add your first router', '', function \(\) \{ startNewOnboardingFlow\(model\.business\); setTimeout\(openRouterDraftModal, 0\); \}\);/);
+}
+// Portal templates load once when their page opens: not also at sign-in, and
+// not again on each workspace refresh while the page stays open.
+assert.doesNotMatch(html, /if \(token\) reloadPortalTemplates\(\);/, 'no second load at sign-in');
+assert.match(html, /if \(requested === 'portal-templates'\) \{ if \(!portalTemplatesOpen && token && reloadPortalTemplates\) reloadPortalTemplates\(\); portalTemplatesOpen = true; \} else portalTemplatesOpen = false;/);
+console.log('Business UI: step 2 offline card, leaving setup without a router, and one portal template load passed.');
