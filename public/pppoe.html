@@ -443,15 +443,20 @@ a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.bu
       h('input', { type: 'hidden', name: 'maxSessions', value: '1' }), h('input', { type: 'hidden', name: 'idleTimeoutSeconds', value: '900' }),
       h('div', {}, [h('button', { type: 'submit', text: 'Add plan' })]),
     ]);
+    var reusable = (state.packages || []).filter(function (p) { return p.active !== 0; });
+    var importBox = h('div', { class: 'form', style: 'margin-top:14px' });
+    var packageSelect = h('select', {}, reusable.map(function (p) { return h('option', { value: String(p.id), text: p.name + ' · ' + kes(p.price) + (p.rate_limit ? ' · ' + p.rate_limit : '') }); }));
+    var importButton = h('button', { type: 'button', class: 'secondary', text: 'Import package to PPPoE', disabled: !reusable.length, onclick: function () { api('/api/business/pppoe/profiles/from-package', { method: 'POST', body: { packageId: Number(packageSelect.value) } }).then(function () { return reload('Package imported as a PPPoE plan.'); }).catch(function (e) { msg(box, e.message); }); } });
+    importBox.appendChild(h('label', {}, [h('span', { class: 'l', text: 'Reuse any package from Customer packages' }), packageSelect])); importBox.appendChild(importButton);
     return h('section', { class: 'card' }, [
       h('h2', { text: 'Plans and prices' }),
-      h('p', { class: 'lead', text: 'A plan with a price is paid for by customers. A boost price lets slower plans borrow this speed for 24 hours.' }),
+      h('p', { class: 'lead', text: 'A plan with a price is paid for by customers. A boost price lets slower plans borrow this speed for 24 hours. You can create PPPoE-only packages or reuse a shared package from Customer packages.' }),
       box,
       h('div', { class: 'table-wrap' }, [h('table', { style: 'min-width:560px' }, [
         h('thead', {}, [h('tr', {}, ['Plan', 'Price (KES)', 'Days', 'Boost 24 h', 'Self-service', ''].map(function (t) { return h('th', { text: t }); }))]),
         h('tbody', {}, rows.length ? rows : [h('tr', {}, [h('td', { colspan: '6', class: 'muted', text: 'No plans yet.' })])]),
       ])]),
-      add,
+      importBox, add,
     ]);
   }
 

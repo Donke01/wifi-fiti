@@ -1402,14 +1402,14 @@ const acknowledgedRemoteSupportActivation = db.prepare(`
 `);
 
 const packageForLocation = db.prepare(`
-  SELECT p.id, p.name, p.price, p.seconds, p.rate_limit
+  SELECT p.id, p.name, p.price, p.seconds, p.rate_limit, p.service_scope
     FROM business_packages p JOIN locations l ON l.business_id = p.business_id
-   WHERE p.id = ? AND l.id = ? AND p.active = 1
+   WHERE p.id = ? AND l.id = ? AND p.active = 1 AND p.service_scope IN ('hotspot','both')
 `);
 const packagesForLocation = db.prepare(`
-  SELECT p.id, p.name, p.price, p.seconds, p.rate_limit FROM business_packages p
+  SELECT p.id, p.name, p.price, p.seconds, p.rate_limit, p.service_scope FROM business_packages p
    JOIN locations l ON l.business_id = p.business_id
-   WHERE l.id = ? AND p.active = 1 ORDER BY p.price
+   WHERE l.id = ? AND p.active = 1 AND p.service_scope IN ('hotspot','both') ORDER BY p.price
 `);
 
 const insertTransaction = db.prepare(`
@@ -1660,7 +1660,7 @@ const businessPackageById = db.prepare(`
   SELECT * FROM business_packages WHERE id=? AND business_id=? AND deleted_at IS NULL
 `);
 const updateBusinessPackage = db.prepare(`
-  UPDATE business_packages SET name=@name, price=@price, seconds=@seconds, rate_limit=@rateLimit
+  UPDATE business_packages SET name=@name, price=@price, seconds=@seconds, rate_limit=@rateLimit, service_scope=@serviceScope
    WHERE id=@id AND business_id=@businessId
 `);
 const setBusinessPackageActive = db.prepare(`

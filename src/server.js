@@ -2248,8 +2248,14 @@ app.post('/api/business/packages', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const name = String(req.body && req.body.name || '').trim().slice(0, 48);
   const price = Number(req.body && req.body.price);
-  const hours = Number(req.body && req.body.hours);
+  const body = req.body || {};
+  const unit = String(body.durationUnit || 'hours').toLowerCase();
+  const value = body.durationValue === undefined ? Number(body.hours) : Number(body.durationValue);
+  const factors = { hour: 1, hours: 1, day: 24, days: 24, week: 168, weeks: 168, month: 720, months: 720 };
+  const hours = value * (factors[unit] || NaN);
   const rate = normaliseRateLimit(req.body && req.body.rateLimit);
+  const serviceScope = String(body.serviceScope || 'hotspot').toLowerCase();
+  if (!['hotspot', 'pppoe', 'both'].includes(serviceScope)) return res.status(400).json({ error: 'Choose HotSpot, PPPoE, or Both services.' });
   if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31 || !rate.valid) {
     return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }
@@ -2258,7 +2264,7 @@ app.post('/api/business/packages', (req, res) => {
     if (hours > TRIAL_LIMITS.maxPackageHours) return res.status(400).json({ error: `During your free trial, packages last up to ${TRIAL_LIMITS.maxPackageHours} hours. ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'duration' });
     if (db.packagesForBusiness.all(business.id).length >= TRIAL_LIMITS.maxPackages) return res.status(400).json({ error: `Your free trial includes up to ${TRIAL_LIMITS.maxPackages} packages. ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'count' });
   }
-  db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
+  db.addBusinessPackage.run({ businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value, serviceScope });
   res.status(201).json({ packages: db.packagesForBusiness.all(business.id) });
 });
 
@@ -2269,8 +2275,14 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
   if (!current) return res.status(404).json({ error: 'Package not found.' });
   const name = String(req.body && req.body.name || current.name).trim().slice(0, 48);
   const price = req.body && req.body.price === undefined ? current.price : Number(req.body.price);
-  const hours = req.body && req.body.hours === undefined ? current.seconds / 3600 : Number(req.body.hours);
+  const body = req.body || {};
+  const unit = String(body.durationUnit || 'hours').toLowerCase();
+  const value = body.durationValue === undefined && body.hours === undefined ? current.seconds / 3600 : Number(body.durationValue === undefined ? body.hours : body.durationValue);
+  const factors = { hour: 1, hours: 1, day: 24, days: 24, week: 168, weeks: 168, month: 720, months: 720 };
+  const hours = value * (factors[unit] || NaN);
   const rate = normaliseRateLimit(req.body && req.body.rateLimit === undefined ? current.rate_limit : req.body.rateLimit);
+  const serviceScope = body.serviceScope === undefined ? (current.service_scope || 'hotspot') : String(body.serviceScope).toLowerCase();
+  if (!['hotspot', 'pppoe', 'both'].includes(serviceScope)) return res.status(400).json({ error: 'Choose HotSpot, PPPoE, or Both services.' });
   if (!name || !Number.isInteger(price) || price < 1 || !Number.isFinite(hours) || hours <= 0 || hours > 24 * 31 || !rate.valid) {
     return res.status(400).json({ error: 'Enter a package name, price, duration up to 31 days, and a valid upload/download speed such as 2M/5M.' });
   }
@@ -2280,7 +2292,7 @@ app.patch('/api/business/packages/:packageId', (req, res) => {
   if (trialLimited(business) && hours > TRIAL_LIMITS.maxPackageHours) {
     return res.status(400).json({ error: `During your free trial, packages last up to ${TRIAL_LIMITS.maxPackageHours} hours. ${TRIAL_LIMIT_NOTE}`, needs: SUBSCRIBE_TRIAL, trialLimit: 'duration' });
   }
-  tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value });
+  tenant.updateBusinessPackage.run({ id, businessId: business.id, name, price, seconds: Math.round(hours * 3600), rateLimit: rate.value, serviceScope });
   res.json({ packages: db.packagesForBusiness.all(business.id) });
 });
 
@@ -2428,7 +2440,7 @@ app.post('/api/business/vouchers', (req, res) => {
   const count = Math.min(Math.max(Math.floor(Number(req.body && req.body.count) || 1), 1), 200);
   const location = tenant.locationForBusiness.get(locationId, business.id);
   const pkg = tenant.businessPackageById.get(packageId, business.id);
-  if (!location || !pkg || !pkg.active) return res.status(400).json({ error: 'Choose one of your active packages and locations.' });
+  if (!location || !pkg || !pkg.active || !['hotspot', 'both'].includes(pkg.service_scope || 'hotspot')) return res.status(400).json({ error: 'Choose one of your active HotSpot packages and locations.' });
   if (trialLimited(business)) {
     const issued = db.db.prepare('SELECT COUNT(*) AS n FROM tenant_vouchers WHERE business_id=?').get(business.id).n;
     if (issued + count > TRIAL_LIMITS.maxVouchers) {
@@ -2697,7 +2709,9 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
   res.json({ location: { id: location.id, name: location.name, businessName: branding.name },
     portalUrl: portalUrlForLocation(location), branding,
     template: portalTemplate ? { id: portalTemplate.id, name: portalTemplate.name, layout: portalTemplate.layout, accentColor: portalTemplate.accent_color, welcomeMessage: portalTemplate.welcome_message, showPackages: Boolean(portalTemplate.show_packages), showUtilities: Boolean(portalTemplate.show_utilities), fontFamily: portalFont(portalTemplate.font_family), textAlign: portalTemplate.text_align || 'center', packageStyle: portalTemplate.package_style || 'stacked', backgroundStyle: portalTemplate.background_style || 'aurora' } : null,
-    packages: tenant.packagesForLocation.all(location.id), supportPhone: branding.supportPhone,
+    // Speed caps and service scope are tenant controls, never customer-facing
+    // portal data. The router still receives the cap during provisioning.
+    packages: tenant.packagesForLocation.all(location.id).map(({ id, name, price, seconds }) => ({ id, name, price, seconds })), supportPhone: branding.supportPhone,
     paybill });
 });
 

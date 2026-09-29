@@ -205,6 +205,7 @@ db.exec(`
     price           INTEGER NOT NULL,
     seconds         INTEGER NOT NULL,
     rate_limit      TEXT,
+    service_scope   TEXT NOT NULL DEFAULT 'hotspot',
     active          INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -263,6 +264,7 @@ for (const stmt of [
   `ALTER TABLE locations ADD COLUMN router_pending_setup_json TEXT`,
   `ALTER TABLE locations ADD COLUMN router_portal_applied_host TEXT`,
   `ALTER TABLE business_packages ADD COLUMN rate_limit TEXT`,
+  `ALTER TABLE business_packages ADD COLUMN service_scope TEXT NOT NULL DEFAULT 'hotspot'`,
   // Deleted packages that have sales or vouchers are archived, not removed,
   // so receipts and reports keep their name.
   `ALTER TABLE business_packages ADD COLUMN deleted_at TEXT`,
@@ -762,11 +764,11 @@ const locationsForBusiness = db.prepare(`
   SELECT id, name, router_token, router_name, created_at FROM locations WHERE business_id = ? ORDER BY created_at
 `);
 const addBusinessPackage = db.prepare(`
-  INSERT INTO business_packages (business_id, name, price, seconds, rate_limit)
-  VALUES (@businessId, @name, @price, @seconds, @rateLimit)
+  INSERT INTO business_packages (business_id, name, price, seconds, rate_limit, service_scope)
+  VALUES (@businessId, @name, @price, @seconds, @rateLimit, COALESCE(@serviceScope, 'hotspot'))
 `);
 const packagesForBusiness = db.prepare(`
-  SELECT id, name, price, seconds, rate_limit, active FROM business_packages WHERE business_id = ? AND deleted_at IS NULL ORDER BY price
+  SELECT id, name, price, seconds, rate_limit, service_scope, active FROM business_packages WHERE business_id = ? AND deleted_at IS NULL ORDER BY price
 `);
 
 module.exports = {
