@@ -1,18 +1,14 @@
 'use strict';
 
-function attachPppoeAdmin(app, { db: suppliedDb, adminOk, confirmationPhrase } = {}) {
+const { requireAdminPassword } = require('./confirm');
+
+function attachPppoeAdmin(app, { db: suppliedDb, adminOk } = {}) {
   const db = suppliedDb.db || suppliedDb;
-  const phrase = String(confirmationPhrase || process.env.ADMIN_CONFIRMATION_PHRASE || 'CONFIRM');
   const guard = handler => (req, res) => {
     if (!adminOk(req)) return res.status(403).json({ error: 'Platform administrator access is required.' });
     try { res.set('Cache-Control', 'no-store'); return handler(req, res); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
   };
-  const confirm = req => {
-    const password = String(req.body?.adminPassword || req.headers['x-admin-password'] || '');
-    if (process.env.ADMIN_PASSWORD && password === String(process.env.ADMIN_PASSWORD)) return;
-    if (!process.env.ADMIN_PASSWORD && String(req.body?.confirmation || '') === phrase) return;
-    const e = new Error(process.env.ADMIN_PASSWORD ? 'Administrator password is required.' : 'Confirmation phrase is required.'); e.status = 400; throw e;
-  };
+  const confirm = requireAdminPassword;
   app.get('/api/admin/pppoe/profiles', guard((req, res) => res.json({ profiles: db.prepare(`SELECT p.*,COUNT(u.id) subscriber_count FROM pppoe_profiles p LEFT JOIN pppoe_users u ON u.profile_id=p.id GROUP BY p.id ORDER BY p.name`).all() })));
   app.get('/api/admin/pppoe/subscribers', guard((req, res) => res.json({ subscribers: db.prepare(`SELECT u.id,u.business_id,u.location_id,u.username,u.service_name,u.status,u.created_at,u.updated_at,p.name profile_name,(p.download_rate||'')||'/'||(p.upload_rate||'') rate_limit,COALESCE(h.status,'unknown') connection_status FROM pppoe_users u JOIN pppoe_profiles p ON p.id=u.profile_id LEFT JOIN pppoe_health h ON h.business_id=u.business_id AND h.location_id=u.location_id ORDER BY u.created_at DESC`).all() })));
   app.get('/api/admin/pppoe/security-events', guard((req, res) => res.json({ events: db.prepare(`SELECT * FROM pppoe_security_events ORDER BY id DESC LIMIT 200`).all() })));

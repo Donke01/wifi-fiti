@@ -379,6 +379,22 @@ Keep the legacy root API paths live until every router has been tested and old
 pending payments have settled. Do not use a browser-only redirect for router
 polling or M-Pesa callbacks: they must keep reaching the same backend directly.
 
+### The old single-site portal is off by default
+
+The original one-location portal (`public/index.html`, `/legacy`, and the
+root `/api/config`, `/api/session`, `/api/pay`, `/api/status/:id`,
+`/api/payment/recover`, `/api/session/lookup`, `/api/subscriptions/*`,
+`/api/device/*` and `/api/voucher/redeem` routes) now answers `410 Gone`
+unless `LEGACY_SITE_ENABLED=true`. `/` and `/index.html` redirect to the
+dashboard instead. Tenant portals, the demo, M-Pesa/C2B callbacks and router
+polling are unaffected. When it is switched back on, credentials by MAC are
+handed out only to the address the site's router last polled from, and not
+at all until it has polled within the last 15 minutes.
+
+Dangerous platform-admin actions need `ADMIN_PASSWORD` typed as a
+confirmation, on top of the admin token. There is no fallback phrase: with
+`ADMIN_PASSWORD` unset, those actions are refused.
+
 ---
 
 ## Railway and production configuration

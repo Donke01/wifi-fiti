@@ -264,8 +264,11 @@ async function main() {
     const appLink = await api('/business.html?do-not-forward=this', { host: root, redirect: 'manual' });
     assert.equal(appLink.status, 302);
     assert.equal(appLink.headers.get('location'), 'https://cloud.wififiti.co.ke/business.html');
+    assert.doesNotMatch(marketing.text, /\/legacy/, 'marketing never links to the old portal');
+    assert.match(marketing.text, /href="https:\/\/cloud\.wififiti\.co\.ke\/demo\/try">View captive portal/);
+    assert.equal((marketing.text.match(/View captive portal/g) || []).length, 1, 'one "View captive portal" link');
     const rootApi = await api('/api/config', { host: root, redirect: 'manual' });
-    assert.equal(rootApi.status, 200, 'legacy portal API must remain live during migration');
+    assert.equal(rootApi.status, 410, 'the old portal API is off by default');
     assert.equal(rootApi.headers.get('x-robots-tag'), 'noindex, nofollow');
     const rootPoll = await api('/api/router/sync?site=nope', { method: 'POST', body: {}, host: root, redirect: 'manual' });
     assert.equal(rootPoll.status, 403, 'legacy router polling must reach the application during migration');
@@ -279,17 +282,33 @@ async function main() {
     const cloudRoot = await api('/', { host: cloudHost, redirect: 'manual' });
     assert.equal(cloudRoot.status, 302);
     assert.equal(cloudRoot.headers.get('location'), '/business.html');
-    assert.equal((await api('/api/config', { host: cloudHost, redirect: 'manual' })).status, 200,
-      'the live cloud host must serve the application API');
+    assert.equal((await api('/api/config', { host: cloudHost, redirect: 'manual' })).status, 410,
+      'the old portal API is off on the cloud host too');
     const forwardedHost = await api('/', { host: cloudHost, forwardedHost: root, redirect: 'manual' });
     assert.equal(forwardedHost.status, 302, 'host routing must use Host, not a forwarded host value');
-    const legacyAtCloud = await api('/legacy?mac=AA:BB:CC:00:00:01', { host: cloudHost, redirect: 'manual' });
-    assert.equal(legacyAtCloud.status, 200);
-    assert.match(legacyAtCloud.text, /Wi-Fi Fiti/);
-    const oldRouterPortal = await api('/?mac=AA:BB:CC:00:00:01', { host: root, redirect: 'manual' });
-    assert.equal(oldRouterPortal.status, 200);
-    assert.equal(oldRouterPortal.headers.get('x-robots-tag'), 'noindex, nofollow');
-    assert.match(oldRouterPortal.text, /Wi-Fi Fiti/);
+    assert.equal((await api('/legacy?mac=AA:BB:CC:00:00:01', { host: cloudHost, redirect: 'manual' })).status, 404);
+    const cloudOldRedirect = await api('/?mac=AA:BB:CC:00:00:01&ip=10.0.0.2', { host: cloudHost, redirect: 'manual' });
+    assert.equal(cloudOldRedirect.status, 302);
+    assert.equal(cloudOldRedirect.headers.get('location'), '/business.html');
+    const rootOldRedirect = await api('/?mac=AA:BB:CC:00:00:01', { host: root, redirect: 'manual' });
+    assert.equal(rootOldRedirect.status, 200);
+    assert.match(rootOldRedirect.text, /Run your Wi‑Fi business/, 'an old router redirect sees the public landing');
+
+    // An operator can switch the old portal back on with one variable.
+    process.env.LEGACY_SITE_ENABLED = 'true';
+    try {
+      const rootApiOn = await api('/api/config', { host: root, redirect: 'manual' });
+      assert.equal(rootApiOn.status, 200, 'legacy portal API is live when switched on');
+      assert.equal(rootApiOn.headers.get('x-robots-tag'), 'noindex, nofollow');
+      assert.equal((await api('/api/config', { host: cloudHost, redirect: 'manual' })).status, 200);
+      const legacyAtCloud = await api('/legacy?mac=AA:BB:CC:00:00:01', { host: cloudHost, redirect: 'manual' });
+      assert.equal(legacyAtCloud.status, 200);
+      assert.match(legacyAtCloud.text, /Wi-Fi Fiti/);
+      const oldRouterPortal = await api('/?mac=AA:BB:CC:00:00:01', { host: root, redirect: 'manual' });
+      assert.equal(oldRouterPortal.status, 200);
+      assert.equal(oldRouterPortal.headers.get('x-robots-tag'), 'noindex, nofollow');
+      assert.match(oldRouterPortal.text, /Wi-Fi Fiti/);
+    } finally { delete process.env.LEGACY_SITE_ENABLED; }
     const absentWww = await api('/', { host: 'www.wififiti.co.ke', redirect: 'manual' });
     assert.equal(absentWww.status, 421, 'www is not part of this two-domain deployment');
     const unknownHost = await api('/api/config', { host: 'unexpected.example.test', redirect: 'manual' });

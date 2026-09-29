@@ -73,6 +73,11 @@ async function test(name, fn) {
     return { status: response.status, body: await response.json().catch(() => ({})) };
   };
   const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
+  // The old single-site portal is off by default; switch it on for one test.
+  const legacyOn = async (fn) => {
+    process.env.LEGACY_SITE_ENABLED = 'true';
+    try { return await fn(); } finally { delete process.env.LEGACY_SITE_ENABLED; }
+  };
   const tx = (receipt) => database.prepare('SELECT * FROM tenant_transactions WHERE mpesa_receipt=?').get(receipt);
   const c2bBody = (receipt, extra = {}) => ({ TransID: receipt, TransAmount: '20', BusinessShortCode: '600100', BillRefNumber: '0711000001', MSISDN: '254711000001', ...extra });
 
@@ -136,7 +141,7 @@ async function test(name, fn) {
     const legacy = await call('POST', '/api/mpesa/c2b/confirmation', { TransID: 'SITE002', TransAmount: '50', BusinessShortCode: '174379', BillRefNumber: '0722000009' });
     assert.equal(legacy.body.ResultCode, 0, 'Safaricom still gets an acknowledgement');
     await settle();
-    const lookup = await call('POST', '/api/session/lookup', { phone: '0722000009' });
+    const lookup = await legacyOn(() => call('POST', '/api/session/lookup', { phone: '0722000009' }));
     assert.equal(lookup.body.found, false, 'a forged site confirmation grants no time');
   });
 
@@ -232,9 +237,33 @@ async function test(name, fn) {
     assert.equal(other.body.password, undefined);
     assert.equal(other.body.sessionToken, undefined);
   });
-  await test('legacy lookup by phone gives the password only to the device that owns the time', async () => {
+  await test('the old single-site portal answers 410 on every route while it is off', async () => {
+    const gets = ['/api/config', '/api/session?mac=AA:BB:CC:00:10:01', '/api/payment/recover?mac=AA:BB:CC:00:10:01', '/api/status/ws_CO_ANY'];
+    const posts = ['/api/pay', '/api/session/lookup', '/api/subscriptions/check', '/api/subscriptions/transfer',
+      '/api/device/add', '/api/device/list', '/api/device/remove', '/api/voucher/redeem'];
+    for (const url of gets) assert.equal((await call('GET', url)).status, 410, url);
+    for (const url of posts) assert.equal((await call('POST', url, { phone: '0722000010' })).status, 410, url);
+    const page = await fetch(`${origin}/legacy?mac=AA:BB:CC:00:10:01`, { headers: { Host: 'cloud.wififiti.co.ke' }, redirect: 'manual' });
+    assert.equal(page.status, 404, 'the old portal page is not served');
+    const root = await fetch(`${origin}/?mac=AA:BB:CC:00:10:01&ip=10.0.0.2`, { headers: { Host: 'cloud.wififiti.co.ke' }, redirect: 'manual' });
+    assert.equal(root.status, 302);
+    assert.equal(root.headers.get('location'), '/business.html');
+    const local = await fetch(`${origin}/index.html`, { headers: { Host: 'localhost' }, redirect: 'manual' });
+    assert.equal(local.status, 302, 'public/index.html is not served statically');
+    assert.equal(local.headers.get('location'), '/business.html');
+  });
+  await test('legacy lookup by phone gives the password only to the device that owns the time', () => legacyOn(async () => {
     await call('POST', `/api/c2b/site/${SITE_C2B_TOKEN}/confirm`, { TransID: 'SITE003', TransAmount: '50', BusinessShortCode: '174379', BillRefNumber: '0722000010' });
     await settle(); await settle();
+    // Until the site's router has polled, nothing is handed out: no password
+    // and no TV added, even from the paying device.
+    const early = await call('POST', '/api/session/lookup', { phone: '0722000010', mac: 'AA:BB:CC:00:10:01' });
+    assert.equal(early.body.found, true);
+    assert.equal(early.body.password, undefined, 'no password before a router poll');
+    const earlyTv = await call('POST', '/api/device/add', { phone: '0722000010', mac: 'AA:BB:CC:00:10:09', ownerMac: 'AA:BB:CC:00:10:01' });
+    assert.notEqual(earlyTv.status, 200, 'no TV added before a router poll');
+    const poll = await fetch(`${origin}/api/router/jobs?site=site&token=site-token`, { headers: { Host: 'cloud.wififiti.co.ke' } });
+    assert.equal(poll.status, 200);
     const bare = await call('POST', '/api/session/lookup', { phone: '0722000010' });
     assert.equal(bare.body.found, true);
     assert.equal(bare.body.password, undefined, 'no device, no password');
@@ -245,13 +274,13 @@ async function test(name, fn) {
     assert.equal(theirs.body.password, undefined);
     const check = await call('POST', '/api/subscriptions/check', { phone: '0722000010' });
     assert.doesNotMatch(JSON.stringify(check.body), /AA:BB:CC:00:10:01/);
-  });
-  await test('legacy TV add needs the paying device, not just the number', async () => {
+  }));
+  await test('legacy TV add needs the paying device, not just the number', () => legacyOn(async () => {
     const byPhone = await call('POST', '/api/device/add', { phone: '0722000010', mac: 'AA:BB:CC:00:10:09' });
     assert.equal(byPhone.status, 409);
     const fromOwner = await call('POST', '/api/device/add', { phone: '0722000010', mac: 'AA:BB:CC:00:10:09', ownerMac: 'AA:BB:CC:00:10:01' });
     assert.equal(fromOwner.status, 200, JSON.stringify(fromOwner.body));
-  });
+  }));
 
   console.log('\nRate limits');
   await test('one package cannot be guessed at more than 20 times in 15 minutes', async () => {
@@ -441,7 +470,7 @@ async function test(name, fn) {
   });
 
   console.log('\nLegacy portal');
-  await test('legacy credentials by MAC only reach the site\'s own connection', async () => {
+  await test('legacy credentials by MAC only reach the site\'s own connection', () => legacyOn(async () => {
     database.prepare(`INSERT INTO accounts (phone, total_seconds, password) VALUES ('254733000077', 3600, 'LEG123')`).run();
     database.prepare(`UPDATE accounts SET last_mac='AA:BB:CC:77:00:01', payer_phone='254733000077', expires_at=datetime('now','+1 hour') WHERE phone='254733000077'`).run();
     const poll = await fetch(`${origin}/api/router/jobs?site=site&token=site-token`, { headers: { Host: 'cloud.wififiti.co.ke' } });
@@ -451,6 +480,90 @@ async function test(name, fn) {
     const onSite = await call('GET', '/api/session?mac=AA:BB:CC:77:00:01');
     assert.equal(onSite.body.found, true);
     assert.equal(onSite.body.password, 'LEG123');
+  }));
+
+  console.log('\nLookup and voucher limits');
+  database.prepare(`INSERT INTO locations (id, business_id, name, router_token) VALUES ('loc-rl', 'biz', 'Limits', 'rt-rl')`).run();
+  const tenantAccessLib = require('../src/lib/tenant-access');
+  await test('phone lookups are capped at 60 per address per location in 15 minutes', async () => {
+    let last;
+    for (let i = 0; i < 61; i += 1) {
+      last = await call('POST', '/api/tenant/loc-rl/subscriptions/check', { phone: `07111${String(i).padStart(5, '0')}` });
+      if (i < 60) assert.equal(last.status, 200, `lookup ${i + 1}`);
+    }
+    assert.equal(last.status, 429);
+    const list = await call('POST', '/api/tenant/loc-rl/devices/list', { phone: '0711199999' });
+    assert.equal(list.status, 429, 'device lists share the same budget');
+    const elsewhere = await call('POST', '/api/tenant/loc-rl/subscriptions/check', { phone: '0711100001' }, edge('203.0.113.61'));
+    assert.equal(elsewhere.status, 200, 'another address still has its own budget');
+  });
+  await test('the portal treats a refused silent lookup as nothing found', () => {
+    const portal = fs.readFileSync(path.join(__dirname, '..', 'public', 'tenant-portal.html'), 'utf8');
+    assert.match(portal, /if \(silent && error\.status === 429\) return false;/);
+  });
+  await test('voucher redeem allows 10 tries a minute per address', async () => {
+    let last;
+    for (let i = 0; i < 11; i += 1) {
+      last = await call('POST', '/api/tenant/loc-rl/voucher/redeem', { code: `WRONG${i}X`, phone: '0711200001', mac: 'AA:BB:CC:55:00:01' }, edge('203.0.113.70'));
+      if (i < 10) assert.equal(last.status, 409, `try ${i + 1}: ${JSON.stringify(last.body)}`);
+    }
+    assert.equal(last.status, 429);
+  });
+  await test('wrong voucher codes run out per address and per location', async () => {
+    for (let i = 0; i < 30; i += 1) tenantAccessLib.allowed('voucher-failures:loc-rl:203.0.113.71', 30, 15 * 60_000);
+    const address = await call('POST', '/api/tenant/loc-rl/voucher/redeem', { code: 'WRONGAA', phone: '0711200002', mac: 'AA:BB:CC:55:00:02' }, edge('203.0.113.71'));
+    assert.equal(address.status, 429, 'one address used up its wrong codes');
+    const other = await call('POST', '/api/tenant/loc-rl/voucher/redeem', { code: 'WRONGAB', phone: '0711200003', mac: 'AA:BB:CC:55:00:03' }, edge('203.0.113.72'));
+    assert.equal(other.status, 409, 'another address can still try');
+    for (let i = 0; i < 300; i += 1) tenantAccessLib.allowed('voucher-failures:loc-rl', 300, 10 * 60_000);
+    const location = await call('POST', '/api/tenant/loc-rl/voucher/redeem', { code: 'WRONGAC', phone: '0711200004', mac: 'AA:BB:CC:55:00:04' }, edge('203.0.113.73'));
+    assert.equal(location.status, 429, 'the location used up its wrong codes');
+  });
+
+  console.log('\nPlatform admin');
+  const adminCall = (url, body, token) => fetch(origin + url, { method: 'POST', headers: { 'Content-Type': 'application/json', Host: 'cloud.wififiti.co.ke', 'X-Admin-Token': token }, body: JSON.stringify(body) })
+    .then(async (response) => ({ status: response.status, body: await response.json().catch(() => ({})) }));
+  await test('admin confirmations need ADMIN_PASSWORD; the word CONFIRM is not enough', async () => {
+    const unset = await adminCall('/api/admin/pppoe/subscribers/nobody/toggle', { confirmation: 'CONFIRM' }, 'admin');
+    assert.equal(unset.status, 503, 'no password set: dangerous actions are off');
+    process.env.ADMIN_PASSWORD = 'security-admin-password';
+    try {
+      const phrase = await adminCall('/api/admin/pppoe/subscribers/nobody/toggle', { confirmation: 'CONFIRM' }, 'security-admin-password');
+      assert.equal(phrase.status, 400);
+      const wrong = await adminCall('/api/admin/pppoe/subscribers/nobody/toggle', { adminPassword: 'security-admin-passwore' }, 'security-admin-password');
+      assert.equal(wrong.status, 400);
+      const right = await adminCall('/api/admin/pppoe/subscribers/nobody/toggle', { adminPassword: 'security-admin-password' }, 'security-admin-password');
+      assert.equal(right.status, 404, 'the password is accepted and the missing subscriber is reported');
+      const signal = await adminCall('/api/admin/fiti-signal/control/provider/pause', { confirmation: 'CONFIRM' }, 'security-admin-password');
+      assert.equal(signal.status, 400, 'FitiSignal controls need the password too');
+    } finally { delete process.env.ADMIN_PASSWORD; }
+  });
+  await test('the PPPoE admin page escapes tenant-set names', async () => {
+    const vm = require('node:vm');
+    const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'pppoe-admin.html'), 'utf8');
+    const script = html.slice(html.lastIndexOf('<script>') + 8, html.lastIndexOf('</script>'));
+    const nodes = {};
+    const node = (id) => nodes[id] || (nodes[id] = { id, innerHTML: '', textContent: '', value: '', hidden: false });
+    nodes['#token'] = { value: 'admin' };
+    const evil = '<img src=x onerror=alert(1)>';
+    const replies = {
+      '/api/admin/pppoe/profiles': { profiles: [{ name: evil, rate_limit: evil, active: 1 }] },
+      '/api/admin/pppoe/subscribers': { subscribers: [{ id: '"><b>', username: evil, profile_name: evil, enabled: 1, connection_status: evil }] },
+    };
+    const context = { document: { querySelector: node }, prompt: () => null, fetch: async (url) => ({ ok: true, json: async () => replies[url] }) };
+    vm.runInNewContext(script, context);
+    node('#open').onclick();
+    await settle();
+    for (const id of ['#profiles', '#subs']) {
+      assert.doesNotMatch(node(id).innerHTML, /<img/, `${id} renders markup from a tenant`);
+      assert.match(node(id).innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    }
+    assert.match(node('#subs').innerHTML, /<td>enabled<\/td>/, 'the status column shows the status');
+    assert.doesNotMatch(node('#subs').innerHTML, /data-id="">/);
+  });
+  await test('RouterOS strings escape $ and line breaks', () => {
+    const { ros } = require('../src/lib/router-setup');
+    assert.equal(ros('a$b"c\\d\r\ne'), '"a\\$b\\"c\\\\d\\r\\ne"');
   });
 
   console.log('\nAccount recovery');

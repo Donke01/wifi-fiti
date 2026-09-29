@@ -15,6 +15,8 @@ process.env.SITE_ID = 'kitale-1';
 process.env.SITE_TOKEN = 'tok-led';
 process.env.ADMIN_TOKEN = 'admin-led';
 process.env.DATABASE_PATH = '/tmp/led-test.db';
+// These tests exercise the old single-site portal, which is off by default.
+process.env.LEGACY_SITE_ENABLED = 'true';
 for (const s of ['', '-wal', '-shm']) { try { fs.unlinkSync('/tmp/led-test.db' + s); } catch {} }
 
 const realFetch = global.fetch;

@@ -10,6 +10,8 @@ process.env.MPESA_CONSUMER_KEY = 'k'; process.env.MPESA_CONSUMER_SECRET = 's';
 process.env.MPESA_SHORTCODE = '174379'; process.env.MPESA_PASSKEY = 'p';
 process.env.PROVISION_MODE = 'poll'; process.env.SITE_ID = 'kitale-1';
 process.env.SITE_TOKEN = 'tok-ceil'; process.env.DATABASE_PATH = '/tmp/ceil.db';
+// These tests exercise the old single-site portal, which is off by default.
+process.env.LEGACY_SITE_ENABLED = 'true';
 for (const s of ['', '-wal', '-shm']) { try { fs.unlinkSync('/tmp/ceil.db' + s); } catch {} }
 
 require('../src/server');

@@ -521,7 +521,12 @@
         if (result.found) { renderExisting(result.subscriptions); return true; }
         if (!silent) message('error', 'No active package was found for this number at this location.');
         return false;
-      } catch (error) { message('error', error.message); throw error; }
+      } catch (error) {
+        // A busy hotspot can hit the lookup limit. The silent check before a
+        // purchase then counts as "nothing found" so the sale still goes on.
+        if (silent && error.status === 429) return false;
+        message('error', error.message); throw error;
+      }
     }
     async function recoverPayment() {
       var payingPhone = String($('recover-phone').value || phone() || '').trim();

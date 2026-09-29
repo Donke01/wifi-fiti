@@ -306,15 +306,24 @@ function localDevelopmentHost(host) {
   return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost');
 }
 
+// The original single-site portal (public/index.html and the root /api/*
+// customer routes) is off unless an operator switches it back on. Read per
+// request so a test or an operator can flip it without a code change.
+function legacySiteEnabled() {
+  return ['1', 'true', 'on', 'yes'].includes(String(process.env.LEGACY_SITE_ENABLED || '').trim().toLowerCase());
+}
+
 function legacyPortalRequest(req) {
   // A legacy Hotspot redirect always contains RouterOS identity values. Keep
   // it working on the former application root while a normal human visit sees
   // the public Wi-Fi Fiti Business site.
+  if (!legacySiteEnabled()) return false;
   const search = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?') + 1) : '';
   return /(?:^|&)(?:mac|ip|link-login-only|link-orig|error)=/i.test(search);
 }
 
 function sendLegacyPortal(res) {
+  if (!legacySiteEnabled()) return res.status(404).type('text/plain').send('Not found.');
   return res.sendFile(path.join(publicDirectory, 'index.html'));
 }
 
@@ -415,6 +424,23 @@ app.use((req, res, next) => {
   return res.status(421).type('text/plain').send('Misdirected request.');
 });
 
+// While the old single-site portal is off, its customer routes answer 410
+// and its page is never served. Tenant portals, the demo, M-Pesa/C2B
+// callbacks and router polling have their own routes and are unaffected.
+const LEGACY_SITE_GETS = /^\/api\/(?:config|session|payment\/recover|status\/[^/]+)$/;
+const LEGACY_SITE_POSTS = new Set(['/api/pay', '/api/session/lookup', '/api/subscriptions/check', '/api/subscriptions/transfer',
+  '/api/device/add', '/api/device/list', '/api/device/remove', '/api/voucher/redeem']);
+app.use((req, res, next) => {
+  if (legacySiteEnabled()) return next();
+  const isGet = req.method === 'GET' || req.method === 'HEAD';
+  if ((isGet && LEGACY_SITE_GETS.test(req.path)) || (req.method === 'POST' && LEGACY_SITE_POSTS.has(req.path))) {
+    return res.status(410).json({ error: 'This old portal is switched off. Reconnect to the Wi-Fi to open its login page.' });
+  }
+  // Without this, the static handler below would serve public/index.html.
+  if (isGet && (req.path === '/' || req.path === '/index.html')) return res.redirect(302, '/business.html');
+  next();
+});
+
 // The router's usage report must be parsed as raw text, and this has to
 // be registered BEFORE the JSON/urlencoded parsers below. RouterOS sends
 // it as application/x-www-form-urlencoded, so urlencoded() would claim it
@@ -502,6 +528,8 @@ app.get('/vpn-gateway/wifi-fiti-vpn-agent.service', (req, res) =>
 // window. A service restart must not reset these limits.
 const LEGACY_CUSTOMER_POSTS = new Set(['/api/session/lookup', '/api/subscriptions/check', '/api/subscriptions/transfer',
   '/api/device/add', '/api/device/list', '/api/device/remove', '/api/voucher/redeem', '/api/pay']);
+// Routes that answer "what does this phone number have here?".
+const PHONE_LOOKUP_POSTS = /^\/api\/tenant\/[^/]+\/(?:subscriptions\/check|devices\/list)$/;
 // Routes that check a secret (recovery code, receipt, claim code, voucher).
 const SECRET_CHECKING_POSTS = /\/(subscriptions\/transfer|devices\/(add|remove)|payment-recover|voucher\/redeem|claim)$/;
 app.use((req, res, next) => {
@@ -542,7 +570,13 @@ app.use((req, res, next) => {
     const perIp = tenantAccess.allowed(scope + ':ip:' + req.ip, 600, 5 * 60_000);
     const secretGuess = SECRET_CHECKING_POSTS.test(path) && identity
       ? tenantAccess.allowed(path + ':id:' + identity, 20, 15 * 60_000) : { allowed: true };
-    const blocked = [perIpIdentity, perIp, secretGuess].find((limit) => !limit.allowed);
+    // Phone lookups are cheap to script against a list of numbers. Generous
+    // budgets, because a whole hotspot shares one address and a refused
+    // silent check never stops a purchase.
+    const phoneLookup = PHONE_LOOKUP_POSTS.test(path);
+    const lookupPerIp = phoneLookup ? tenantAccess.allowed(scope + ':lookup:ip:' + req.ip, 60, 15 * 60_000) : { allowed: true };
+    const lookupPerLocation = phoneLookup ? tenantAccess.allowed(scope + ':lookup', 600, 15 * 60_000) : { allowed: true };
+    const blocked = [perIpIdentity, perIp, secretGuess, lookupPerIp, lookupPerLocation].find((limit) => !limit.allowed);
     if (blocked) return res.status(429).set('Retry-After', String(blocked.retryAfter))
       .json({ error: 'Too many attempts. Please wait a few minutes before trying again.' });
   }
@@ -2701,6 +2735,10 @@ app.get('/api/tenant/:locationId/router-jobs/:jobId', (req, res) => {
 });
 
 const paymentClaimAttempts = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 60_000;
+  for (const [key, attempt] of paymentClaimAttempts) if (attempt.at < cutoff) paymentClaimAttempts.delete(key);
+}, 60_000).unref();
 app.post('/api/tenant/:locationId/claim', async (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
   const code = String(req.body && req.body.code || '').replace(/\D/g, '');
@@ -2848,11 +2886,23 @@ app.post('/api/tenant/:locationId/voucher/redeem', (req, res) => {
   const phone = mpesa.normalizePhone(req.body && req.body.phone);
   const mac = cleanMac(req.body && req.body.mac);
   const ip = cleanIp(req.body && req.body.ip);
+  // Persisted like /claim's budgets, so a restart does not hand out fresh
+  // guesses: 10 tries a minute per address, then a cap on wrong codes per
+  // address and per location (a guesser rotating addresses still runs out).
+  const tries = tenantAccess.allowed(`voucher-tries:${location.id}:${req.ip}`, 10, 60_000);
+  const failuresByIp = `voucher-failures:${location.id}:${req.ip}`;
+  const failuresHere = `voucher-failures:${location.id}`;
+  const budget = [tries, tenantAccess.peek(failuresByIp, 30), tenantAccess.peek(failuresHere, 300)].find((limit) => !limit.allowed);
+  if (budget) return res.status(429).set('Retry-After', String(budget.retryAfter)).json({ error: 'Too many voucher attempts. Wait a few minutes and try again.' });
   if (code.length < 6 || !phone || !mac) return res.status(400).json({ error: 'Enter a valid voucher code, phone number, and reconnect to this WiFi.' });
   const capacityBlocked = hotspotCapacityBlock(location, Boolean(tenant.subscriptionByMac.get(location.id, mac)));
   if (capacityBlocked) return res.status(402).json({ error: capacityBlocked });
   try {
     const result = tenant.redeemVoucher({ locationId: location.id, code, phone, mac, ip });
+    if (!result) {
+      tenantAccess.allowed(failuresByIp, 30, 15 * 60_000);
+      tenantAccess.allowed(failuresHere, 300, 10 * 60_000);
+    }
     if (!result) return res.status(409).json({ error: 'That voucher is not available at this location, has already been used, or is paused.' });
     res.json({ status: 'pending', provisioningJobId: result.provisioningJobId,
       ...tenantSessionPayload(tenant.subscriptionById.get(result.id, location.id), true) });
@@ -3604,7 +3654,13 @@ async function reconcile() {
   }
 }
 
-setInterval(() => reconcile().catch((e) => console.error('[reconcile]', e)), RECONCILE_EVERY_MS).unref();
+// One sweep at a time: slow M-Pesa queries must not overlap the next tick.
+let reconcileRunning = false;
+setInterval(() => {
+  if (reconcileRunning) return;
+  reconcileRunning = true;
+  reconcile().catch((e) => console.error('[reconcile]', e)).finally(() => { reconcileRunning = false; });
+}, RECONCILE_EVERY_MS).unref();
 
 /* ------------------------------------------------------------------ */
 /* Session: what does this customer already have?                      */
@@ -3622,13 +3678,12 @@ const { findPackage: pkgById, PACKAGES: ALL_PACKAGES } = require('./packages');
 // redirect. A MAC typed in from anywhere else on the internet proves nothing,
 // so credentials and payment details go only to requests arriving from the
 // site's own connection: the address the router last polled from. Until the
-// router has polled (e.g. just after a restart) the check stays open.
+// router has polled (e.g. just after a restart), or when it has been quiet
+// for 15 minutes, the check fails closed: nothing is handed out.
 let legacySiteSeen = null;
 function fromLegacySite(req) {
-  // Escape hatch for a site whose router polls over a different connection
-  // (e.g. a VPN) from its customers.
-  if (String(process.env.LEGACY_SITE_IP_CHECK || '').toLowerCase() === 'off') return true;
-  if (!legacySiteSeen || Date.now() - legacySiteSeen.at > 15 * 60_000) return true;
+  if (!legacySiteEnabled()) return false;
+  if (!legacySiteSeen || Date.now() - legacySiteSeen.at > 15 * 60_000) return false;
   return String(req.ip || '') === legacySiteSeen.ip;
 }
 
@@ -4231,10 +4286,10 @@ function rebuildLedger(phone, apply) {
 function adminOk(req) {
   const admin = process.env.ADMIN_PASSWORD || process.env.ADMIN_TOKEN;
   const supplied = String(req.headers['x-admin-password'] || req.headers['x-admin-token'] || '');
-  if (!admin) return false;
-  const expectedBytes = Buffer.from(admin);
-  const suppliedBytes = Buffer.from(supplied);
-  return expectedBytes.length === suppliedBytes.length && crypto.timingSafeEqual(expectedBytes, suppliedBytes);
+  if (!admin || !supplied) return false;
+  // Compare digests so the time taken says nothing about the length either.
+  const digest = (value) => crypto.createHash('sha256').update(value).digest();
+  return crypto.timingSafeEqual(digest(supplied), digest(admin));
 }
 
 /** Platform lifecycle for a business-owned remote-support request. This is
@@ -5036,8 +5091,16 @@ const runServiceReminders = () => serviceReminders.run().catch((err) => console.
 setTimeout(runServiceReminders, 60_000).unref();
 setInterval(runServiceReminders, 60 * 60_000).unref();
 if (smsProvider) {
-  const smsWorker = () => fitiSignal.processQueue(smsProvider, { limit: 50 })
-    .catch((error) => console.error('[fiti-signal] provider worker failed:', error.message));
+  // One batch at a time: a slow provider must not let the next tick pick up
+  // the same queued messages and send each of them twice.
+  let smsBatchRunning = false;
+  const smsWorker = () => {
+    if (smsBatchRunning) return;
+    smsBatchRunning = true;
+    fitiSignal.processQueue(smsProvider, { limit: 50 })
+      .catch((error) => console.error('[fiti-signal] provider worker failed:', error.message))
+      .finally(() => { smsBatchRunning = false; });
+  };
   smsWorker();
   const smsWorkerTimer = setInterval(smsWorker, 5000);
   smsWorkerTimer.unref?.();
