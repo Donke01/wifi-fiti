@@ -268,8 +268,11 @@ remote support:
 2. The router completes an authenticated outbound HTTPS poll. Billing,
    provisioning and customer service now work without exposing a management
    service to the public internet.
-3. The owner can explicitly request managed remote setup from the location
-   card. The platform records consent, approval, allocation and revocation as
+3. Remote support turns on by itself for a router that has just finished
+   setup (the same request as the Routers → Remote access "Remote setup"
+   button, logged as the system). Routers set up before 29 Sep 2026 keep the
+   button. Once the owner turns it off it stays off until they turn it on
+   again. The platform records request, approval, allocation and revocation as
    separate audited states. After platform configuration, the router receives
    a narrowly-scoped prepare command through its normal poll: it creates a
    **disabled** native WireGuard interface and reports only its public key.
@@ -278,7 +281,7 @@ remote support:
 
 The polling path remains the product's source of truth. A support connection
 must never carry customer browsing traffic or be required for payment
-fulfilment. A router with no remote-support consent continues working normally.
+fulfilment. A router with remote support turned off continues working normally.
 
 The generated RouterOS kit includes a dormant native WireGuard support
 bootstrap. It is disabled by default, stores no private VPN material in the

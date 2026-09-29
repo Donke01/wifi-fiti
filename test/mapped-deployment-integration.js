@@ -121,17 +121,20 @@ function map(location, token) {
   });
 }
 
-async function enableAndHandshakeVpn(location, token) {
+async function enableAndHandshakeVpn(location, token, pairedSyncResponse) {
   const remoteEndpoint = `/api/business/locations/${encodeURIComponent(location.id)}/remote-access`;
   const supportEndpoint = `/api/router/support-enroll?site=${encodeURIComponent(location.id)}`;
   const gatewayEndpoint = '/api/internal/vpn-gateways/primary/sync';
   const requested = await api(remoteEndpoint, { method: 'POST', token, body: { consent: true } });
   assert.equal(requested.status, 200, JSON.stringify(requested.body));
-  const prepare = await api(`/api/router/sync?site=${encodeURIComponent(location.id)}&ack=`, {
-    method: 'POST', routerToken: location.routerToken, body: '', contentType: 'text/plain',
-  });
-  const prepareAck = prepare.text.match(/:global fitiSupportAck "(\d+)"/);
-  assert.ok(prepareAck, 'remote access queues the separate harmless prepare control');
+  // Remote access is now requested automatically the moment a router's
+  // setup is independently verified - see autoRequestRemoteAccess. The
+  // prepare acknowledgement therefore already arrived in the sync response
+  // where that verification completed, not in a fresh one issued after
+  // this consent call.
+  const prepareAck = pairedSyncResponse.text.match(/:global fitiSupportAck "(\d+)"/);
+  assert.ok(prepareAck,
+    'automatic remote-access request should have queued router preparation on the verified sync');
   const enrolled = await api(supportEndpoint, {
     method: 'POST', routerToken: location.routerToken, body: supportEnrollment(location.id), contentType: 'text/plain',
   });
@@ -198,7 +201,7 @@ async function main() {
   assert.equal(beforeVpn.status, 409, 'a current map alone cannot authorize remote deployment');
   assert.match(beforeVpn.body.error, /secure remote access|VPN/i);
 
-  await enableAndHandshakeVpn(location, ownerToken);
+  await enableAndHandshakeVpn(location, ownerToken, paired);
   const ready = await api(deploymentEndpoint, { token: ownerToken });
   assert.equal(ready.status, 200, JSON.stringify(ready.body));
   assert.equal(ready.body.canRequest, true);
