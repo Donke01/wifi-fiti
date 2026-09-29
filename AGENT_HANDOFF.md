@@ -226,6 +226,32 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
   selected.
 - **Server load:** three light requests every 2 s per open dashboard.
 
+### PPPoE Home internet page (branch `pppoe-home-page`)
+
+- **What it does:** a public, Safaricom-Home-style page for each PPPoE
+  business: hero, package cards from its priced plans, a "Get connected"
+  coverage form, "Already connected?" pay box and FAQs.
+  `public/pppoe-home.html` (self-contained, the business's colour and logo,
+  everything written with textContent).
+- **Where:** `/home/<pay code>` on cloud; `/home` → `/home/<code>` on the
+  tenant's own address through the Worker (needs the Worker redeployed, the
+  same deploy as the pay page). Off until the owner ticks "Show the page"
+  (`pppoe_billing_settings.home_page`, plus `home_headline`, `home_areas`,
+  `home_install_fee`).
+- **API:** `GET /api/pppoe-pay/:code/home`, `POST /api/pppoe-pay/:code/connect`
+  (10 per address per 15 min, hidden `website` bot field, one open request per
+  phone, 200 new a day per business). Owner: `GET /api/business/pppoe/requests`
+  (customers.view), `PATCH /api/business/pppoe/requests/:id` (customers.edit).
+- **Owner page:** `public/pppoe.html` shows "Connection requests" at the top
+  while any are open, with Call, Add as subscriber (fills the add form, marks
+  the request connected and links the subscriber) and a status menu, and a
+  "Home internet page" card with the settings and the page address.
+- **Not done:** no SMS or push to the owner for a new request; the business
+  dashboard's PPPoE card does not show the count yet.
+- Tests: `test/pppoe-pay-integration.js` (page off/on, field checks,
+  duplicates, bot field, rate limit, owner list and isolation) and
+  `test/edge-gateway.js` (`/home` on the tenant address).
+
 ### PPPoE on the tenant's portal address (branch `pppoe-portal-address`)
 
 - **What it does:** a tenant's portal address (e.g. `kitale.wififiti.co.ke`)

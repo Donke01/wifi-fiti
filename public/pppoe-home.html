@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Home internet</title>
+<meta name="description" content="Home internet packages, coverage and installation.">
+<!-- Self-contained like the pay page: no outside fonts or scripts. The
+     business's colour comes from its branding; everything the API returns
+     is written with textContent. -->
+<style>
+:root{color-scheme:light;--brand:#1769d8;--brand-ink:#fff;--brand-deep:#0f3f86;--brand-soft:#eef4fd;
+  --ink:#132742;--muted:#5b6d86;--line:#dce5f0;--bg:#f6f8fc;--card:#fff;--good:#127a55;--good-soft:#e6f6ef;--good-ink:#0e5f43;
+  --bad-soft:#fdecef;--bad-ink:#8c2238;--shadow:0 18px 40px -28px rgba(19,39,66,.55)}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;overflow-x:hidden}
+a{color:var(--brand-deep)}
+.wrap{width:min(1120px,100%);margin:0 auto;padding:0 16px}
+@media (min-width:720px){.wrap{padding:0 24px}}
+.hidden{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:3px solid #9cc2f5;outline-offset:2px}
+
+/* Top bar */
+.top{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);backdrop-filter:saturate(1.4) blur(8px)}
+.top .wrap{display:flex;align-items:center;gap:12px;min-height:60px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0;text-decoration:none;color:var(--ink)}
+.logo{width:36px;height:36px;border-radius:11px;background:var(--brand);display:grid;place-items:center;overflow:hidden;flex:none}
+.logo img{width:100%;height:100%;object-fit:cover}
+.brand strong{font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+nav.links{display:none;gap:4px;margin-left:auto}
+nav.links a{padding:8px 12px;border-radius:10px;text-decoration:none;color:var(--ink);font-weight:650;font-size:14px}
+nav.links a:hover{background:var(--brand-soft)}
+.top .pay{margin-left:auto}
+@media (min-width:860px){nav.links{display:flex}.top .pay{margin-left:8px}}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 20px;border-radius:999px;border:0;background:var(--brand);color:var(--brand-ink);font:inherit;font-weight:800;font-size:15px;text-decoration:none;cursor:pointer}
+.btn:hover{filter:brightness(.95)}
+.btn.small{min-height:38px;padding:0 16px;font-size:14px}
+.btn.light{background:#fff;color:var(--ink)}
+.btn.line{background:transparent;color:inherit;box-shadow:inset 0 0 0 2px currentColor}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+
+/* Hero */
+.hero{background:linear-gradient(135deg,var(--brand-deep),var(--brand));color:#fff;overflow:hidden}
+.hero .wrap{display:grid;gap:24px;padding-top:36px;padding-bottom:40px;align-items:center}
+@media (min-width:860px){.hero .wrap{grid-template-columns:1.15fr .85fr;padding-top:64px;padding-bottom:72px}}
+.eyebrow{display:inline-block;padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.16);font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.hero h1{margin:14px 0 10px;font-size:clamp(30px,7vw,52px);line-height:1.06;letter-spacing:-.025em;overflow-wrap:anywhere}
+.hero p.lead{margin:0 0 22px;font-size:17px;max-width:34em;opacity:.92}
+.hero .ctas{display:flex;flex-wrap:wrap;gap:10px}
+.facts{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:26px;font-size:14px;font-weight:650}
+.facts span{display:flex;align-items:center;gap:8px}
+.facts svg{flex:none}
+.art{display:none}
+@media (min-width:860px){.art{display:block}}
+.art svg{width:100%;height:auto;max-width:420px;margin-left:auto;display:block}
+
+/* Section tabs (mobile quick links, like the reference) */
+.tabs{background:#fff;border-bottom:1px solid var(--line)}
+.tabs .wrap{display:flex;gap:6px;overflow-x:auto;padding-top:10px;padding-bottom:10px;scrollbar-width:none}
+.tabs .wrap::-webkit-scrollbar{display:none}
+.tabs a{flex:none;padding:8px 14px;border-radius:999px;border:1.5px solid var(--line);text-decoration:none;color:var(--ink);font-weight:700;font-size:13px;white-space:nowrap}
+.tabs a:first-child{background:var(--ink);border-color:var(--ink);color:#fff}
+@media (min-width:860px){.tabs{display:none}}
+
+section.block{padding:44px 0}
+@media (min-width:860px){section.block{padding:64px 0}}
+.head{text-align:center;margin:0 auto 26px;max-width:40em}
+.head h2{margin:0 0 6px;font-size:clamp(24px,5vw,34px);letter-spacing:-.02em}
+.head p{margin:0;color:var(--muted)}
+
+/* Packages */
+.plans{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,82%);gap:14px;overflow-x:auto;padding:4px 2px 14px;scroll-snap-type:x mandatory;overscroll-behavior-x:contain}
+.plans>*{scroll-snap-align:start}
+@media (min-width:720px){.plans{grid-auto-flow:row;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));overflow:visible}}
+.plan{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:var(--shadow);min-width:0}
+.plan .band{padding:12px 18px;background:var(--brand);color:var(--brand-ink);font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:13px;overflow-wrap:anywhere}
+.plan .band.popular{display:flex;justify-content:space-between;gap:8px}
+.plan .band.popular small{font-size:11px;letter-spacing:.02em;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.22)}
+.plan .body{padding:18px;display:flex;flex-direction:column;gap:14px;flex:1}
+.speed{display:flex;align-items:baseline;gap:6px}
+.speed strong{font-size:48px;line-height:1;letter-spacing:-.03em}
+.speed span{font-weight:800;color:var(--muted)}
+.plan ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px;font-size:14px}
+.plan li{display:flex;gap:10px;align-items:flex-start}
+.plan li svg{flex:none;margin-top:2px}
+.price{margin-top:auto;padding-top:12px;border-top:1px solid #edf2f8}
+.price strong{display:block;font-size:26px;letter-spacing:-.02em}
+.price small{color:var(--muted)}
+.plan .btn{width:100%}
+.empty{padding:22px;border-radius:18px;background:#fff;border:1px dashed var(--line);text-align:center;color:var(--muted)}
+
+/* Get connected */
+.connect{background:#fff;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.split{display:grid;gap:28px}
+@media (min-width:860px){.split{grid-template-columns:.9fr 1.1fr;gap:48px;align-items:start}}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:18px}
+.steps li{display:flex;gap:14px}
+.steps b{display:block;font-size:16px}
+.steps span{color:var(--muted);font-size:14px}
+.num{flex:none;width:36px;height:36px;border-radius:50%;background:var(--brand-soft);color:var(--brand-deep);display:grid;place-items:center;font-weight:900}
+.install{margin-top:22px;padding:14px 16px;border-radius:14px;background:var(--bg);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px;box-shadow:var(--shadow)}
+@media (min-width:720px){.card{padding:26px}}
+.card h3{margin:0 0 4px;font-size:20px}
+.card p.sub{margin:0 0 16px;color:var(--muted);font-size:14px}
+form.fields{display:grid;gap:14px}
+@media (min-width:560px){form.fields .pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}}
+form.fields .pair{display:grid;gap:14px}
+label.f{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:700;min-width:0}
+label.f small{font-weight:500;color:var(--muted)}
+input,select,textarea{width:100%;min-height:48px;padding:0 14px;border:1.5px solid #c8d5e6;border-radius:12px;font:inherit;font-size:16px;color:var(--ink);background:#fff}
+textarea{min-height:84px;padding:12px 14px;resize:vertical}
+select{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%235b6d86' stroke-width='2'%3E%3Cpath d='M1 1l5 5 5-5'/%3E%3C/svg%3E") no-repeat right 14px center;padding-right:38px}
+.trap{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.msg{padding:12px 14px;border-radius:12px;font-size:14px}
+.msg.err{background:var(--bad-soft);color:var(--bad-ink)}
+.done{text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0}
+.tick{width:64px;height:64px;border-radius:50%;background:var(--good);display:grid;place-items:center}
+.done h3{margin:6px 0 0}
+.done p{margin:0;color:var(--muted);max-width:26em}
+
+/* Pay */
+.paygrid{display:grid;gap:16px}
+@media (min-width:860px){.paygrid.both{grid-template-columns:1fr 1fr}}
+.paygrid:not(.both){max-width:560px;margin:0 auto}
+.acct{display:flex;gap:10px;flex-wrap:wrap}
+.acct input{flex:1 1 180px}
+.acct .btn{flex:none}
+.bill{display:flex;flex-direction:column;gap:10px;font-size:14px}
+.bill div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #edf2f8}
+.bill div:first-child{border-top:0}
+.bill span{color:var(--muted)}
+.bill strong{text-align:right;overflow-wrap:anywhere}
+
+/* FAQs */
+.faqs{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+details{background:#fff;border:1px solid var(--line);border-radius:16px;padding:0 18px}
+summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:12px;align-items:center;min-height:56px;font-weight:750}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-size:22px;font-weight:500;color:var(--muted);flex:none}
+details[open] summary::after{content:"−"}
+details p{margin:0 0 16px;color:var(--muted)}
+
+footer{background:#0f1d31;color:#c6d3e4;padding:34px 0 40px;font-size:14px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:12px 24px;justify-content:space-between;align-items:center}
+footer a{color:#fff}
+footer strong{color:#fff}
+.loading{padding:80px 16px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <span class="logo" id="logo" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16.2a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1"/></svg></span>
+      <strong id="brand-name">Home internet</strong>
+    </a>
+    <nav class="links" aria-label="Sections">
+      <a href="#packages">Packages</a><a href="#get-connected">Get connected</a><a href="#pay">Pay</a><a href="#faqs">Help</a>
+    </nav>
+    <a class="btn small pay" id="top-pay" href="#pay">Pay bill</a>
+  </div>
+</header>
+
+<main id="top">
+  <div id="loading" class="loading" aria-live="polite">Loading…</div>
+  <div id="page" class="hidden">
+    <section class="hero">
+      <div class="wrap">
+        <div>
+          <span class="eyebrow">Home internet</span>
+          <h1 id="headline"></h1>
+          <p class="lead" id="lead"></p>
+          <div class="ctas">
+            <a class="btn light" href="#get-connected">Get connected</a>
+            <a class="btn line" href="#packages">Explore packages</a>
+          </div>
+          <div class="facts" id="facts"></div>
+        </div>
+        <div class="art" aria-hidden="true">
+          <svg viewBox="0 0 420 320" fill="none">
+            <circle cx="300" cy="120" r="110" fill="#fff" fill-opacity=".07"/>
+            <circle cx="300" cy="120" r="70" fill="#fff" fill-opacity=".08"/>
+            <path d="M70 300V170l110-80 110 80v130" stroke="#fff" stroke-opacity=".9" stroke-width="10" stroke-linejoin="round"/>
+            <rect x="140" y="215" width="80" height="85" rx="8" fill="#fff" fill-opacity=".18"/>
+            <path d="M225 70a110 110 0 0 1 150 0" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+            <path d="M250 100a70 70 0 0 1 100 0" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+            <path d="M276 130a32 32 0 0 1 48 0" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+            <circle cx="300" cy="158" r="9" fill="#fff"/>
+            <path d="M30 300h360" stroke="#fff" stroke-opacity=".5" stroke-width="6" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="Sections">
+      <div class="wrap"><a href="#get-connected">Get connected</a><a href="#packages">Explore packages</a><a href="#pay">Pay bill</a><a href="#faqs">FAQs</a></div>
+    </nav>
+
+    <section class="block" id="packages" aria-labelledby="packages-title">
+      <div class="wrap">
+        <div class="head"><h2 id="packages-title">Home internet packages</h2><p id="packages-lead">No data limit. Pay with M-Pesa.</p></div>
+        <div class="plans" id="plans"></div>
+      </div>
+    </section>
+
+    <section class="block connect" id="get-connected" aria-labelledby="connect-title">
+      <div class="wrap split">
+        <div>
+          <div class="head" style="text-align:left;margin:0 0 22px"><h2 id="connect-title">Get connected</h2><p id="connect-lead">Tell us where you are. We check coverage and call you to book the installation.</p></div>
+          <ol class="steps">
+            <li><span class="num">1</span><div><b>Tell us where you are</b><span>Your area, estate or building, and a landmark near you.</span></div></li>
+            <li><span class="num">2</span><div><b>We call you</b><span id="step-two">We confirm we cover your home and agree a day to install.</span></div></li>
+            <li><span class="num">3</span><div><b>Get online</b><span>Pay your first month with M-Pesa and start browsing.</span></div></li>
+          </ol>
+          <div class="install hidden" id="install"></div>
+        </div>
+        <div class="card" id="connect-card">
+          <div id="connect-form-wrap">
+            <h3>Check coverage</h3>
+            <p class="sub">It takes a minute. We only use your number to call you about this.</p>
+            <form class="fields" id="connect-form" novalidate>
+              <label class="f" id="area-label">Area
+                <select id="area" name="area" required></select>
+                <input id="area-text" name="area-text" class="hidden" maxlength="60" autocomplete="address-level2" placeholder="e.g. Milimani">
+              </label>
+              <div class="pair">
+                <label class="f"><span>Estate or building <small id="estate-hint">(optional)</small></span><input id="estate" name="estate" maxlength="80" placeholder="e.g. Sunrise Apartments"></label>
+                <label class="f"><span>Closest landmark <small>(optional)</small></span><input id="landmark" name="landmark" maxlength="80" placeholder="e.g. Near St. Joseph's church"></label>
+              </div>
+              <label class="f">Package
+                <select id="plan" name="plan"></select>
+              </label>
+              <div class="pair">
+                <label class="f">Your name<input id="name" name="name" maxlength="80" autocomplete="name" required></label>
+                <label class="f">Phone number<input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="07xx xxx xxx" required></label>
+              </div>
+              <label class="f"><span>Anything we should know? <small>(optional)</small></span><textarea id="note" name="note" maxlength="300" placeholder="e.g. Third floor, best time to call"></textarea></label>
+              <label class="trap" aria-hidden="true">Website<input id="website" name="website" tabindex="-1" autocomplete="off"></label>
+              <div id="connect-msg" aria-live="polite"></div>
+              <button class="btn" id="connect-send" type="submit">Get connected</button>
+            </form>
+          </div>
+          <div class="done hidden" id="connect-done" role="status">
+            <span class="tick" aria-hidden="true"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+            <h3>Request sent</h3>
+            <p id="done-text"></p>
+            <button class="btn small line" type="button" id="connect-again" style="color:var(--brand-deep)">Send another request</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="pay" aria-labelledby="pay-title">
+      <div class="wrap">
+        <div class="head"><h2 id="pay-title">Already connected?</h2><p>Pay for your internet, see your receipts or change your package.</p></div>
+        <div class="paygrid">
+          <div class="card">
+            <h3>Pay online</h3>
+            <p class="sub">Enter your account number. It is your internet username.</p>
+            <form class="acct" id="account-form">
+              <label class="sr" for="account">Account number</label>
+              <input id="account" maxlength="96" autocapitalize="none" autocomplete="username" spellcheck="false" placeholder="Account number" required>
+              <button class="btn" type="submit">Continue</button>
+            </form>
+          </div>
+          <div class="card hidden" id="paybill-card">
+            <h3>Pay with M-Pesa PayBill</h3>
+            <p class="sub">Your payment is matched to your account by itself.</p>
+            <div class="bill" id="paybill"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="faqs" aria-labelledby="faqs-title" style="padding-top:0">
+      <div class="wrap">
+        <div class="head"><h2 id="faqs-title">Questions</h2></div>
+        <div class="faqs" id="faq-list"></div>
+      </div>
+    </section>
+  </div>
+</main>
+<footer>
+  <div class="wrap">
+    <div><strong id="foot-name">Home internet</strong><div id="foot-support"></div></div>
+    <div>Powered by Wi‑Fi Fiti</div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var code = (location.pathname.match(/^\/home\/([a-z0-9]{4,16})\/?$/) || [])[1];
+  var data = null;
+  function $(id) { return document.getElementById(id); }
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      if (k === 'text') node.textContent = attrs[k];
+      else if (k === 'class') node.className = attrs[k];
+      else if (k.indexOf('on') === 0) node.addEventListener(k.slice(2), attrs[k]);
+      else node.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) { if (c != null && c !== false) node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+    return node;
+  }
+  var SVG = 'http://www.w3.org/2000/svg';
+  function icon(kind, color) {
+    var svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('width', '18'); svg.setAttribute('height', '18'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'none');
+    svg.style.stroke = color || 'currentColor'; svg.setAttribute('stroke-width', '2.4'); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    var d = { tick: 'M5 12.5l4.5 4.5L19 7.5', down: 'M12 4v14M6 12l6 6 6-6', up: 'M12 20V6M6 12l6-6 6 6', bolt: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z', infinity: 'M7 9a3 3 0 1 0 0 6c3 0 7-6 10-6a3 3 0 1 1 0 6c-3 0-7-6-10-6z', phone: 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2' }[kind];
+    var path = document.createElementNS(SVG, 'path'); path.setAttribute('d', d); svg.appendChild(path);
+    return svg;
+  }
+  function kes(n) { return 'KES ' + Math.round(Number(n) || 0).toLocaleString('en-KE'); }
+  // RouterOS rates: 10M, 512k, 1G, or plain bits per second.
+  function rate(value) {
+    var m = String(value || '').trim().match(/^(\d+(?:\.\d+)?)\s*([kKmMgG])?$/);
+    if (!m) return { n: String(value || ''), unit: '' };
+    var n = Number(m[1]); var u = (m[2] || '').toLowerCase();
+    if (!u) { if (n >= 1e6) { n = n / 1e6; u = 'm'; } else if (n >= 1e3) { n = n / 1e3; u = 'k'; } }
+    return { n: String(Math.round(n * 10) / 10), unit: { k: 'Kbps', m: 'Mbps', g: 'Gbps' }[u] || 'bps' };
+  }
+  function rateText(value) { var r = rate(value); return (r.n + ' ' + r.unit).trim(); }
+  function period(days) { return days === 30 ? '30 days' : days === 7 ? 'week' : days === 1 ? 'day' : days + ' days'; }
+
+  // The business's colour, kept readable: white text on a dark enough
+  // colour, dark text otherwise, and a deeper shade for the hero.
+  function applyColor(hex) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) return;
+    var n = parseInt(m[1], 16); var rgb = [n >> 16 & 255, n >> 8 & 255, n & 255];
+    var lum = rgb.map(function (c) { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); });
+    var L = 0.2126 * lum[0] + 0.7152 * lum[1] + 0.0722 * lum[2];
+    var root = document.documentElement.style;
+    root.setProperty('--brand', '#' + m[1]);
+    root.setProperty('--brand-ink', L > 0.4 ? '#132742' : '#fff');
+    var deep = rgb.map(function (c) { return Math.round(c * 0.55 + 12 * 0.45); });
+    root.setProperty('--brand-deep', 'rgb(' + deep.join(',') + ')');
+    root.setProperty('--brand-soft', 'rgba(' + rgb.join(',') + ',.1)');
+    var meta = document.createElement('meta'); meta.name = 'theme-color'; meta.content = '#' + m[1]; document.head.appendChild(meta);
+  }
+
+  function fail(text) { $('loading').textContent = text; }
+  if (!code) { fail('This page was not found.'); return; }
+  fetch('/api/pppoe-pay/' + code + '/home', { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) { if (!r.ok) throw new Error(b.error || 'This page could not load.'); return b; }); })
+    .then(function (b) { data = b; draw(); })
+    .catch(function (e) { fail(e.message || 'This page could not load. Check your connection and try again.'); });
+
+  function draw() {
+    var biz = data.business || {}; var name = biz.name || 'Home internet'; var plans = data.plans || [];
+    document.title = name + ' · Home internet';
+    applyColor(biz.color);
+    $('brand-name').textContent = name; $('foot-name').textContent = name;
+    if (biz.logoUrl) { var logo = $('logo'); logo.textContent = ''; logo.appendChild(el('img', { src: biz.logoUrl, alt: '' })); }
+    $('headline').textContent = data.headline || 'Fast, reliable internet for your home';
+    var cheapest = plans.length ? plans.reduce(function (a, p) { return p.price < a.price ? p : a; }) : null;
+    var fastest = plans.length ? plans.reduce(function (a, p) { return toBps(p.downloadRate) > toBps(a.downloadRate) ? p : a; }) : null;
+    $('lead').textContent = 'Home internet from ' + name + '. Connect every phone, TV and laptop at home' + (cheapest ? ', from ' + kes(cheapest.price) + ' for ' + period(cheapest.periodDays) + '.' : '.');
+    var facts = $('facts');
+    [fastest ? ['bolt', 'Up to ' + rateText(fastest.downloadRate)] : null, ['infinity', 'No data limit'], ['phone', 'Pay with M-Pesa']].forEach(function (f) {
+      if (f) facts.appendChild(el('span', {}, [icon(f[0], '#fff'), f[1]]));
+    });
+
+    drawPlans(plans);
+    drawForm(plans);
+    drawPay();
+    drawFaqs(name, plans);
+
+    var phone = biz.supportPhone;
+    if (phone) {
+      $('foot-support').appendChild(el('a', { href: 'tel:' + phone.replace(/\s/g, ''), text: 'Call ' + phone }));
+      $('step-two').textContent = 'We confirm we cover your home and agree a day to install. You can also call us on ' + phone + '.';
+    }
+    $('loading').classList.add('hidden'); $('page').classList.remove('hidden');
+    if (location.hash) { var target = document.getElementById(location.hash.slice(1)); if (target) target.scrollIntoView(); }
+  }
+  function toBps(value) {
+    var r = rate(value); var n = Number(r.n) || 0;
+    return n * ({ Kbps: 1e3, Mbps: 1e6, Gbps: 1e9 }[r.unit] || 1);
+  }
+
+  function drawPlans(plans) {
+    var box = $('plans');
+    if (!plans.length) { box.appendChild(el('div', { class: 'empty', text: 'Packages are being updated. Send a request below and we will call you with prices.' })); return; }
+    // The middle package of three or more is marked popular, as most pages do.
+    var popular = plans.length >= 3 ? plans[Math.floor(plans.length / 2)].id : null;
+    plans.forEach(function (p) {
+      var down = rate(p.downloadRate);
+      var features = [
+        ['down', 'Download up to ' + rateText(p.downloadRate)],
+        ['up', 'Upload up to ' + rateText(p.uploadRate)],
+        ['infinity', 'No data limit, all devices at home'],
+      ];
+      if (data.features && data.features.boosts && p.boostPrice) features.push(['bolt', '24-hour speed boost for ' + kes(p.boostPrice)]);
+      box.appendChild(el('article', { class: 'plan' }, [
+        el('div', { class: 'band' + (p.id === popular ? ' popular' : '') }, [p.name, p.id === popular ? el('small', { text: 'Popular' }) : null]),
+        el('div', { class: 'body' }, [
+          el('div', { class: 'speed' }, [el('strong', { text: down.n }), el('span', { text: down.unit })]),
+          el('ul', {}, features.map(function (f) { return el('li', {}, [icon(f[0], 'var(--good)'), f[1]]); })),
+          el('div', { class: 'price' }, [el('strong', { text: kes(p.price) }), el('small', { text: 'for ' + period(p.periodDays) })]),
+          el('button', { class: 'btn', type: 'button', text: 'Get connected', 'aria-label': 'Get connected on ' + p.name, onclick: function () { choosePlan(p.id); } }),
+        ]),
+      ]));
+    });
+  }
+  function choosePlan(id) {
+    $('plan').value = id;
+    $('get-connected').scrollIntoView();
+    setTimeout(function () { var first = $('area').classList.contains('hidden') ? $('area-text') : $('area'); try { first.focus({ preventScroll: true }); } catch (_) { first.focus(); } }, 350);
+  }
+
+  function drawForm(plans) {
+    var areas = data.areas || [];
+    var select = $('area'); var typed = $('area-text');
+    if (areas.length) {
+      select.appendChild(el('option', { value: '', text: 'Choose your area' }));
+      areas.forEach(function (a) { select.appendChild(el('option', { value: a, text: a })); });
+      select.appendChild(el('option', { value: data.otherArea, text: data.otherArea }));
+      select.addEventListener('change', function () {
+        var other = select.value === data.otherArea;
+        $('estate-hint').textContent = other ? '(needed)' : '(optional)';
+        $('estate').required = other;
+      });
+    } else {
+      select.classList.add('hidden'); select.required = false;
+      typed.classList.remove('hidden'); typed.required = true;
+      $('area-label').htmlFor = 'area-text';
+    }
+    var planSelect = $('plan');
+    planSelect.appendChild(el('option', { value: '', text: plans.length ? 'Not sure yet' : 'We will advise you' }));
+    plans.forEach(function (p) { planSelect.appendChild(el('option', { value: p.id, text: p.name + ' · ' + rateText(p.downloadRate) + ' · ' + kes(p.price) })); });
+    if (data.installFee) {
+      var box = $('install'); box.classList.remove('hidden');
+      box.appendChild(el('b', { text: 'Installation: ' + kes(data.installFee) }));
+      box.appendChild(document.createTextNode(', paid once when we connect you.'));
+    }
+    $('phone').addEventListener('input', function (e) { e.target.value = e.target.value.replace(/[^\d+ ]/g, '').slice(0, 16); });
+    $('connect-form').addEventListener('submit', send);
+    $('connect-again').addEventListener('click', function () {
+      $('connect-done').classList.add('hidden'); $('connect-form-wrap').classList.remove('hidden');
+      $('connect-form').reset(); $('connect-msg').textContent = '';
+    });
+  }
+  function problem(text) {
+    var box = $('connect-msg'); box.textContent = '';
+    if (text) box.appendChild(el('div', { class: 'msg err', role: 'alert', text: text }));
+  }
+  function send(ev) {
+    ev.preventDefault();
+    var areaInput = $('area').classList.contains('hidden') ? $('area-text') : $('area');
+    var body = {
+      area: areaInput.value.trim(), estate: $('estate').value.trim(), landmark: $('landmark').value.trim(),
+      planId: $('plan').value || null, fullName: $('name').value.trim(), phone: $('phone').value.trim(),
+      note: $('note').value.trim(), website: $('website').value,
+    };
+    if (!body.area) { problem(areaInput.tagName === 'SELECT' ? 'Choose your area.' : 'Tell us your area.'); areaInput.focus(); return; }
+    if (body.area === data.otherArea && !body.estate) { problem('Tell us your estate or building so we can check.'); $('estate').focus(); return; }
+    if (body.fullName.length < 2) { problem('Please enter your name.'); $('name').focus(); return; }
+    if (!/^(?:\+?254|0)?[17]\d{8}$/.test(body.phone.replace(/\s/g, ''))) { problem('Enter a Kenyan phone number, like 0712 345 678.'); $('phone').focus(); return; }
+    problem('');
+    var button = $('connect-send'); button.disabled = true; button.textContent = 'Sending…';
+    fetch('/api/pppoe-pay/' + code + '/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) { if (!r.ok) throw new Error(b.error || 'Could not send. Please try again.'); return b; }); })
+      .then(function (b) {
+        var name = (data.business && data.business.name) || 'We';
+        var phone = (b.request && b.request.phone) || body.phone;
+        $('done-text').textContent = (b.updated ? 'We updated your earlier request. ' : '') + name + ' will call you on ' + phone + ' to confirm coverage and book your installation.';
+        var done = $('connect-done');
+        $('connect-form-wrap').classList.add('hidden'); done.classList.remove('hidden');
+        done.setAttribute('tabindex', '-1'); done.focus();
+      })
+      .catch(function (e) { problem(e.message); })
+      .then(function () { button.disabled = false; button.textContent = 'Get connected'; });
+  }
+
+  function drawPay() {
+    var payPath = data.payPath || ('/pay/' + code);
+    $('account-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var account = $('account').value.trim();
+      location.href = payPath + (account ? '/' + encodeURIComponent(account) : '');
+    });
+    $('top-pay').href = '#pay';
+    if (data.payBill) {
+      $('paybill-card').classList.remove('hidden'); $('paybill-card').parentNode.classList.add('both');
+      var rows = [['PayBill number', data.payBill.shortcode], ['Account number', (data.payBill.accountPrefix || '') + 'your account number']];
+      rows.forEach(function (r) { $('paybill').appendChild(el('div', {}, [el('span', { text: r[0] }), el('strong', { text: r[1] })])); });
+    }
+  }
+
+  function drawFaqs(name, plans) {
+    var f = data.features || {};
+    var list = [
+      ['How do I get connected?', 'Send the form above with your area and phone number. ' + name + ' calls you to confirm we cover your home and to agree a day to install.' + (data.installFee ? ' Installation is ' + kes(data.installFee) + ', paid once.' : '')],
+      ['How do I pay?', 'With M-Pesa on this page: enter your account number under Pay bill and confirm the prompt on your phone.' + (data.payBill ? ' You can also use PayBill ' + data.payBill.shortcode + ' with your account number.' : '') + ' Your internet is renewed as soon as the payment arrives.'],
+      ['What is my account number?', 'Your internet username. It is on the SMS and receipt you get when you are connected.'],
+      ['What happens when my days end?', data.graceDays ? 'Your internet stays on for ' + data.graceDays + ' more day' + (data.graceDays > 1 ? 's' : '') + ' so you have time to pay. Paying continues from your old date.' : 'Your internet pauses until you pay. It comes back on by itself once the payment arrives.'],
+      ['Is there a data limit?', 'No. Use it on every phone, TV and laptop at home. Your package sets the speed.'],
+    ];
+    if (f.changePlan && plans.length > 1) list.push(['Can I change my package?', 'Yes, from your own pay link. Going faster starts now and you pay only the difference for the days left. Going cheaper starts at your next renewal.']);
+    if (f.boosts && plans.some(function (p) { return p.boostPrice; })) list.push(['What is a speed boost?', 'A faster package for 24 hours, for when you need it. Buy one from your pay link. Your package returns by itself.']);
+    list.push(['Can I pay for someone else?', f.payForOthers ? 'Yes. Enter their account number under Pay bill. You see only their package and the amount due.' : 'Ask them for their account number. The phone number on the account is needed to pay.']);
+    var box = $('faq-list');
+    list.forEach(function (q) { box.appendChild(el('details', {}, [el('summary', { text: q[0] }), el('p', { text: q[1] })])); });
+  }
+})();
+</script>
+</body>
+</html>

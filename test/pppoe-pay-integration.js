@@ -90,6 +90,11 @@ async function boot() {
   origin = `http://127.0.0.1:${server.address().port}`;
   database = require('../src/lib/db').db;
 }
+// The limiter stores hashed keys: clear the connect form's budget for this address.
+function resetConnectLimit() {
+  const hash = (key) => require('node:crypto').createHash('sha256').update(key).digest('hex');
+  for (const ip of ['127.0.0.1', '::ffff:127.0.0.1', '::1']) database.prepare('DELETE FROM request_limits WHERE key=?').run(hash(`pppoe-pay:connect:${ip}`));
+}
 const sql = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
 const DAY = 86400_000;
 
@@ -260,6 +265,93 @@ async function main() {
     const intruder = await api('/api/business/register', { method: 'POST', body: {
       name: 'Other', ownerName: 'O', phone: '0713000002', email: 'other@example.test', password: 'integration-password', plan: 'starter', collectionMode: 'fiti' } });
     assert.equal((await api(`/api/business/pppoe/users/${jane.id}/payments`, { method: 'POST', token: intruder.body.token, body: { amount: 500 } })).status, 404, 'another business cannot touch this subscriber');
+  });
+
+  await test('the Home internet page is off until the owner turns it on, then lists priced plans', async () => {
+    assert.equal((await api(`/home/${code}`)).status, 404, 'off by default');
+    assert.equal((await api(`/api/pppoe-pay/${code}/home`)).status, 404);
+    assert.equal((await api(`/api/pppoe-pay/${code}/connect`, { method: 'POST', body: { fullName: 'Amina', phone: '0712000009', area: 'Milimani' } })).status, 404);
+    const bad = await api('/api/business/pppoe/billing/settings', { method: 'PUT', token, body: { homeHeadline: 'x'.repeat(91) } });
+    assert.equal(bad.status, 400);
+    const saved = await api('/api/business/pppoe/billing/settings', { method: 'PUT', token, body: {
+      homePage: true, homeHeadline: '  Fibre-fast  home internet ', homeAreas: 'Milimani\nSection 6\n\nmilimani\nKiminini', homeInstallFee: 2500 } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.deepEqual(saved.body.settings.homeAreas, ['Milimani', 'Section 6', 'Kiminini'], 'areas are trimmed and deduplicated');
+    assert.equal(saved.body.settings.homeHeadline, 'Fibre-fast home internet');
+    const billing = await api('/api/business/pppoe/billing', { token });
+    assert.equal(billing.body.homePage, `https://wifi-fiti.example.test/home/${code}`);
+    const page = await api(`/home/${code}`);
+    assert.equal(page.status, 200); assert.match(page.text, /Get connected/);
+    const view = await api(`/api/pppoe-pay/${code}/home`);
+    assert.equal(view.status, 200, JSON.stringify(view.body));
+    assert.equal(view.body.business.name, 'Kitale WiFi');
+    assert.deepEqual(view.body.plans.map((p) => [p.name, p.price, p.downloadRate]), [['Home', 1500, '10M'], ['Fast', 2500, '20M']]);
+    assert.equal(view.body.installFee, 2500); assert.equal(view.body.payPath, `/pay/${code}`);
+    assert.equal(JSON.stringify(view.body).includes('jane'), false, 'no subscriber appears on the public page');
+    assert.equal(JSON.stringify(view.body).includes(businessId), false, 'no business id on the public page');
+  });
+
+  let requestId;
+  await test('the Get connected form checks its fields, keeps one open request per phone and ignores bots', async () => {
+    const send = (body) => api(`/api/pppoe-pay/${code}/connect`, { method: 'POST', body });
+    assert.equal((await send({ fullName: 'A', phone: '0712000009', area: 'Milimani' })).status, 400, 'a name is needed');
+    assert.equal((await send({ fullName: 'Amina', phone: '12345', area: 'Milimani' })).status, 400, 'a Kenyan phone is needed');
+    assert.equal((await send({ fullName: 'Amina', phone: '0712000009', area: 'Nairobi CBD' })).status, 400, 'an area off the list is refused');
+    assert.equal((await send({ fullName: 'Amina', phone: '0712000009', area: 'Somewhere else' })).status, 400, 'somewhere else needs an estate');
+    assert.equal((await send({ fullName: 'Amina', phone: '0712000009', area: 'milimani', planId: 'someone-elses-plan' })).status, 400);
+    // Every try counts against the address; start the saving part afresh.
+    resetConnectLimit();
+    const first = await send({ fullName: 'Amina Otieno', phone: '0712 000 009', area: 'milimani', estate: 'Sunrise Apts', landmark: 'Near the church', planId: fast.id });
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    assert.deepEqual(first.body.request.phone, '0712 000 009'); assert.equal(first.body.request.area, 'Milimani', 'the area is saved as the owner wrote it');
+    const again = await send({ fullName: 'Amina Otieno', phone: '254712000009', area: 'Section 6' });
+    assert.equal(again.status, 200); assert.equal(again.body.updated, true, 'the same phone updates its open request');
+    const bot = await send({ fullName: 'Bot', phone: '0712000010', area: 'Milimani', website: 'http://spam.example' });
+    assert.equal(bot.status, 201);
+    assert.equal(database.prepare('SELECT COUNT(*) n FROM pppoe_connection_requests').get().n, 1, 'the bot request is not saved');
+    const other = await send({ fullName: 'Brian', phone: '0712000011', area: 'Somewhere else', estate: 'Kipsongo' });
+    assert.equal(other.status, 201);
+  });
+
+  await test('the owner sees requests, moves them along and links the new subscriber; others cannot', async () => {
+    const list = await api('/api/business/pppoe/requests', { token });
+    assert.equal(list.status, 200);
+    assert.equal(list.body.requests.length, 2); assert.equal(list.body.counts.new, 2);
+    const amina = list.body.requests.find((r) => r.fullName === 'Amina Otieno');
+    requestId = amina.id;
+    assert.equal(amina.area, 'Section 6'); assert.equal(amina.plan, null, 'the update replaced the earlier choice');
+    assert.equal(amina.phoneE164, '+254712000009');
+    assert.equal((await api(`/api/business/pppoe/requests/${requestId}`, { method: 'PATCH', token, body: { status: 'bogus' } })).status, 400);
+    const called = await api(`/api/business/pppoe/requests/${requestId}`, { method: 'PATCH', token, body: { status: 'contacted', ownerNote: 'Install Friday' } });
+    assert.equal(called.status, 200); assert.equal(called.body.request.status, 'contacted'); assert.equal(called.body.request.ownerNote, 'Install Friday');
+    const linked = await api(`/api/business/pppoe/requests/${requestId}`, { method: 'PATCH', token, body: { status: 'connected', userId: jane.id } });
+    assert.equal(linked.body.request.userId, jane.id);
+    const after = await api('/api/business/pppoe/requests', { token });
+    assert.deepEqual(after.body.counts, { new: 1, contacted: 0, scheduled: 0 });
+    assert.equal(after.body.requests[0].fullName, 'Brian', 'open requests come first');
+    const intruder = await api('/api/business/login', { method: 'POST', body: { email: 'other@example.test', password: 'integration-password' } });
+    const otherToken = intruder.body.token;
+    assert.ok(otherToken, JSON.stringify(intruder.body));
+    assert.equal((await api('/api/business/pppoe/requests', { token: otherToken })).body.requests.length, 0);
+    assert.equal((await api(`/api/business/pppoe/requests/${requestId}`, { method: 'PATCH', token: otherToken, body: { status: 'declined' } })).status, 404);
+    assert.equal((await api(`/api/business/pppoe/requests/${requestId}`, { method: 'PATCH', token, body: { userId: 'not-a-subscriber' } })).status, 404);
+    assert.equal((await api('/api/business/pppoe/requests')).status, 401);
+  });
+
+  await test('one address can send only a few requests', async () => {
+    resetConnectLimit();
+    const statuses = [];
+    for (let i = 0; i < 11; i++) statuses.push((await api(`/api/pppoe-pay/${code}/connect`, { method: 'POST', body: { fullName: 'Flood', phone: `07120001${String(i).padStart(2, '0')}`, area: 'Milimani' } })).status);
+    assert.deepEqual(statuses.slice(-1), [429]); assert.equal(statuses.filter((n) => n === 201).length, 10);
+    database.prepare(`DELETE FROM pppoe_connection_requests WHERE full_name='Flood'`).run();
+    resetConnectLimit();
+  });
+
+  await test('turned off again, the page and its form are gone', async () => {
+    assert.equal((await api('/api/business/pppoe/billing/settings', { method: 'PUT', token, body: { homePage: false } })).status, 200);
+    assert.equal((await api(`/home/${code}`)).status, 404);
+    assert.equal((await api(`/api/pppoe-pay/${code}/connect`, { method: 'POST', body: { fullName: 'Late', phone: '0712000012', area: 'Milimani' } })).status, 404);
+    assert.equal((await api('/api/business/pppoe/billing', { token })).body.settings.homeAreas.length, 3, 'its settings are kept');
   });
 
   console.log(`\nPPPoE pay integration: ${passed} passed, ${failures.length} failed`);
