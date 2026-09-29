@@ -462,6 +462,8 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   }
   assert.deepStrictEqual(tenant.portalDomainsForLocation.all(alpha.id).filter((d) => d.status === 'active').map((d) => d.hostname),
     ['alpha-four.fiti.test'], 'a location has one working address');
+  assert.strictEqual(tenant.portalDomainByHostname.get('collision.fiti.test').location_id, collisionOwner.id,
+    "changing one router's address leaves the business's other routers' addresses working");
   assert.throws(() => tenant.setManagedPortalHostname({ locationId: collisionOwner.id, businessId: 'business-a', slug: 'alpha-one' }),
     (error) => error && error.status === 409 && /already in use/.test(error.message),
     'another tenant cannot take over a retired address and catch its old links');
