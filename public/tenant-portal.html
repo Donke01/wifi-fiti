@@ -27,13 +27,13 @@
     body[data-portal-align="left"] #buy > .copy.owner-message{text-align:left}
     label{color:#47617e}input{color:var(--ink);border-color:#cdd9e8;background:#fff;box-shadow:inset 0 1px 2px #193d7108}input::placeholder{color:#91a0b3}
     .primary{color:#fff;background:linear-gradient(110deg,#1157ba,#1769d8 55%,#3187e6);box-shadow:0 12px 25px #1769d826}.secondary{color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px #193d7108}.text-button{color:var(--blue)}
-    .mpesa-button{color:#31ad4b;background:#fff;border:2px solid #37b957;box-shadow:0 10px 22px rgba(33,163,73,.16);gap:0;white-space:nowrap}.mpesa-button:hover{background:#f4fff6;border-color:#1e9b46}.mpesa-word{display:inline-flex;align-items:center;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;font-size:24px;font-weight:950;letter-spacing:-.06em;line-height:1}.mpesa-logo{width:34px;height:43px;flex:none;margin:0 1px}.mpesa-button .mpesa-label{margin-right:12px;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;font-size:19px;font-weight:900;letter-spacing:-.02em}
+    .mpesa-button{color:#31ad4b;background:#fff;border:2px solid #37b957;box-shadow:0 10px 22px rgba(33,163,73,.16);gap:0;white-space:nowrap}.mpesa-button:hover{background:#f4fff6;border-color:#1e9b46}.mpesa-word{display:inline-flex;align-items:center;font-family:"Avenir Next Condensed",sans-serif-condensed,sans-serif;font-stretch:condensed;font-size:24px;font-weight:950;letter-spacing:-.06em;line-height:1}.mpesa-logo{width:34px;height:43px;flex:none;margin:0 1px}.mpesa-button .mpesa-label{margin-right:12px;font-family:"Avenir Next Condensed",sans-serif-condensed,sans-serif;font-stretch:condensed;font-size:19px;font-weight:900;letter-spacing:-.02em}
     .utility{color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px #193d7108}.utility b{color:var(--blue)}.utility small{color:var(--muted)}.error{color:var(--bad)}
     .utilities{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
     .utility{display:flex;min-height:124px;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:18px 15px;text-align:center;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
     .utility-icon{display:inline-grid;place-items:center;width:31px;height:31px;margin-bottom:7px;border-radius:10px}.utility-icon svg{width:19px;height:19px}
     .utility:hover{transform:translateY(-3px);box-shadow:0 10px 22px rgba(32,57,86,.12)}
-    .utility b{margin:0;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;font-size:18px;line-height:1.15;letter-spacing:-.025em;text-transform:uppercase;white-space:normal;overflow-wrap:anywhere}
+    .utility b{margin:0;font-family:"Avenir Next Condensed",sans-serif-condensed,sans-serif;font-stretch:condensed;font-size:18px;line-height:1.15;letter-spacing:-.025em;text-transform:uppercase;white-space:normal;overflow-wrap:anywhere}
     .utility small{display:none}
     .portal-reminder{margin:18px auto 0;padding:11px 12px;border:1px solid var(--line);border-radius:13px;background:#f7fbff;text-align:left}.portal-reminder small{display:block;color:var(--muted);font-size:11px;margin-bottom:4px}.portal-reminder a{display:block;color:var(--blue);font-size:13px;font-weight:800;overflow-wrap:anywhere;text-decoration:none}.portal-reminder button{margin-top:6px;padding:0;color:var(--blue);background:none;border:0;font-size:12px;font-weight:800}
     #buy-tv-start{border-color:#c6d8f7;background:linear-gradient(145deg,#f7faff,#edf4ff)}#buy-tv-start b{color:#255eb7}
@@ -117,9 +117,13 @@
     body[data-portal-align="left"] :is(.brand,#buy > h1,.recovery-jump){text-align:left}
     body[data-portal-align="left"] .brand-mark{margin-left:0;margin-right:0}
     body[data-portal-align="left"] .brand-location{margin-left:0}
-    body[data-portal-font="rounded"]{font-family:"Avenir Next Rounded","Trebuchet MS",ui-sans-serif,sans-serif}
-    body[data-portal-font="condensed"]{font-family:"Arial Narrow","Roboto Condensed",Inter,sans-serif}
-    body[data-portal-font="mono"]{font-family:"IBM Plex Mono",ui-monospace,monospace}
+    /* Portal fonts: only fonts that phones already have (the portal loads no
+       web fonts behind the walled garden). Condensed: Avenir Next Condensed
+       on iPhone, Roboto Condensed ("sans-serif-condensed") on Android. Mono:
+       SF Mono or Menlo on iPhone, Droid Sans Mono on Android. There is no
+       rounded font on Android, so a saved "rounded" design shows as modern. */
+    body[data-portal-font="condensed"]{font-family:"Avenir Next Condensed",sans-serif-condensed,sans-serif;font-stretch:condensed}
+    body[data-portal-font="mono"]{font-family:ui-monospace,Menlo,monospace}
     body[data-portal-background="midnight"]{background:radial-gradient(circle at 90% 0,#7c5cfa36,transparent 28rem),#090b1c}
     /* The name and location sit on the page background, so they need light text on midnight. */
     body[data-portal-background="midnight"] .brand-name{color:#fff}body[data-portal-background="midnight"] .brand-location{color:#c9d4ff}
@@ -285,7 +289,7 @@
       // (Branding or the published template) is shown.
       $('portal-message').classList.toggle('owner-message', Boolean(branding.message || template.welcomeMessage));
       if (template.layout) document.body.dataset.portalLayout = template.layout;
-      if (template.fontFamily) document.body.dataset.portalFont = template.fontFamily;
+      if (template.fontFamily) document.body.dataset.portalFont = template.fontFamily === 'rounded' ? 'modern' : template.fontFamily;
       if (template.textAlign) document.body.dataset.portalAlign = template.textAlign;
       if (template.packageStyle) document.body.dataset.portalPackageStyle = template.packageStyle;
       if (template.backgroundStyle) document.body.dataset.portalBackground = template.backgroundStyle;
