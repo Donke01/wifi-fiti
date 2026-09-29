@@ -21,6 +21,10 @@
 
 const GRACE_DAYS = 3;
 const DAY_MS = 86400_000;
+// Where an owner renews, in SMS and email reminders. Plain ">" rather than
+// an arrow keeps the SMS in the GSM-7 alphabet (one arrow makes it Unicode,
+// which fits far fewer characters per paid SMS).
+const BILLING_PLACE = 'Settings > Billing & payments';
 
 function parseTime(raw) {
   const text = String(raw || '').trim();
@@ -142,9 +146,9 @@ function reminderText(kind, stage, expiresRaw, businessName) {
   const expiresAt = parseTime(expiresRaw);
   const day = (ms) => new Date(ms).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', timeZone: 'Africa/Nairobi' });
   const name = businessName ? `${businessName}: ` : '';
-  if (stage === 'before') return `${name}your Wi-Fi Fiti ${label} subscription ends on ${day(expiresAt)}. Renew in your dashboard (Billing & payments) to keep taking payments.`;
+  if (stage === 'before') return `${name}your Wi-Fi Fiti ${label} subscription ends on ${day(expiresAt)}. Renew in your dashboard (${BILLING_PLACE}) to keep taking payments.`;
   if (stage === 'grace') return `${name}your Wi-Fi Fiti ${label} subscription has ended. Sales continue for ${GRACE_DAYS} grace days, until ${day(expiresAt + GRACE_DAYS * DAY_MS)}. Renew now to avoid interruption.`;
-  return `${name}new ${label} sales have stopped because the subscription was not renewed. Customers already online keep their time. Renew in your dashboard to resume.`;
+  return `${name}new ${label} sales have stopped because the subscription was not renewed. Customers already online keep their time. Renew in your dashboard (${BILLING_PLACE}) to resume.`;
 }
 
 // ---- Capacity: prices, usage and mid-period upgrades ------------------------
@@ -208,5 +212,5 @@ function upgradeQuote(business, { hotspotConcurrent, pppoeUsers } = {}, now = Da
 
 module.exports = {
   hotspotPrice, pppoePrice, capacityUsage, upgradeQuote,
-  GRACE_DAYS, parseTime, periodState, summary, hotspotSaleBlock, pppoeAddBlock, pppoeAddBlockDetail, routerLimitLifted, dueReminders, reminderText,
+  GRACE_DAYS, BILLING_PLACE, parseTime, periodState, summary, hotspotSaleBlock, pppoeAddBlock, pppoeAddBlockDetail, routerLimitLifted, dueReminders, reminderText,
 };

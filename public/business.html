@@ -164,6 +164,22 @@
     #dashboard .page-tabs button{width:auto;min-height:38px;margin:0;padding:8px 14px;color:var(--muted);border:1px solid var(--line);border-radius:999px;background:#fff;box-shadow:none;font-size:13px;font-weight:750}
     #dashboard .page-tabs button[aria-current="page"]{color:var(--blue);border-color:#c8dcf5;background:#f2f7ff}
     #dashboard.sequential-onboarding .page-tabs,#dashboard:not(.module-view) .page-tabs{display:none}
+    /* Settings → Receipts & help: plan receipts and questions to Wi-Fi Fiti. */
+    #tickets-section label{display:block;margin-bottom:12px}
+    #tickets-section textarea{display:block;width:100%;min-height:110px;padding:11px 12px;border:1px solid #cfdbe9;border-radius:12px;color:var(--ink);background:#fff;font:inherit;line-height:1.45;resize:vertical}
+    #tickets-section textarea:focus-visible{outline:3px solid #1769d86b;outline-offset:3px}
+    .help-list{margin-top:4px}
+    .help-list .setting-row>div{min-width:0;overflow-wrap:anywhere}
+    .help-list .setting-row>button{flex:0 0 auto;width:auto;min-height:40px;padding:8px 14px;font-size:13px}
+    .help-list~.buttons:has(>button.hidden:only-child){display:none}
+    #receipts-note:empty,#tickets-note:empty{min-height:0;margin:0}
+    .help-thread{margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:14px;background:#fbfdff}
+    .help-thread-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px}
+    .help-thread-head h3{margin:0;color:var(--ink);font-size:16px;overflow-wrap:anywhere}
+    .help-thread-head button{flex:0 0 auto;width:auto}
+    .help-message{margin:10px 0;padding:10px 12px;border-radius:12px;background:#f2f7ff;color:var(--ink);font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+    .help-message.admin{background:#eaf9f2}
+    .help-message small{display:block;margin-bottom:4px;color:var(--muted);font-size:12px;white-space:normal}
     #dashboard.module-view .content>.module-hidden{display:none!important}
     #dashboard.module-view .content>.module-active{animation:fitiModuleIn .22s ease both}
     #dashboard.module-view .content>.section.module-active{scroll-margin-top:18px}
@@ -681,6 +697,10 @@
 
         <section class="section" id="integrations-section"><div class="section-head"><div><h2>Payment integrations</h2><p>Choose how this workspace collects customer payments. Credentials are configured only inside the selected provider.</p></div></div><div class="panel"><div class="fields"><label><span>Collection method</span><select id="integration-provider"></select></label><div><span class="form-note" id="integration-description"></span></div></div><div class="fields hidden" id="c2b-settings"><label><span>PayBill shortcode</span><input id="c2b-shortcode" inputmode="numeric" placeholder="e.g. 123456"></label><label><span>Router</span><select id="c2b-location"></select></label></div><div class="buttons"><button type="button" id="save-integration">Save integration</button><button type="button" class="secondary" id="test-integration">Run readiness test</button><button type="button" class="secondary hidden" id="save-c2b">Save C2B settings</button></div><div class="connection" id="integration-status" aria-live="polite"></div><div class="form-note hidden" id="c2b-callback-note"></div></div></section>
 
+        <section class="section" id="receipts-section"><div class="section-head"><div><h2>Plan receipts</h2><p>A receipt for each payment you made to Wi-Fi Fiti for your plan. These are payment records, not tax invoices.</p></div></div><div class="panel"><div class="help-list" id="receipts-list"><div class="module-empty"><strong>Loading receipts…</strong></div></div><div class="buttons"><button type="button" class="secondary hidden" id="receipts-more">Show more receipts</button></div><p class="form-note" id="receipts-note" role="alert"></p></div></section>
+
+        <section class="section" id="tickets-section"><div class="section-head"><div><h2>Ask Wi-Fi Fiti</h2><p>Send a question to the Wi-Fi Fiti team. Their replies show here, next to your question. You won't get an SMS or email, so check back here.</p></div></div><div class="panel"><form id="ticket-form"><div class="fields"><label><span>What is it about?</span><select name="category"><option value="payment">A customer payment</option><option value="connection">Customers can't connect</option><option value="router">A router</option><option value="billing">My Wi-Fi Fiti plan</option><option value="other">Something else</option></select></label><label><span>Router</span><select name="locationId" id="ticket-location"><option value="">All my routers</option></select></label></div><label><span>Subject</span><input name="subject" required minlength="3" maxlength="120" placeholder="For example: a customer paid but is not online"></label><label><span>Your question</span><textarea name="message" required maxlength="4000" placeholder="What happened? Add the M-Pesa code if it helps. Never send passwords."></textarea></label><div class="buttons"><button type="submit" id="ticket-send">Send question</button></div><p class="form-note" id="ticket-error" role="alert"></p></form></div><div class="panel" style="margin-top:14px"><h3 style="margin:0 0 6px">Your questions</h3><div class="help-list" id="tickets-list"><div class="module-empty"><strong>Loading questions…</strong></div></div><div class="buttons"><button type="button" class="secondary hidden" id="tickets-more">Show more questions</button></div><p class="form-note" id="tickets-note" role="alert"></p><div class="help-thread hidden" id="ticket-detail" aria-live="polite"></div></div></section>
+
         <section class="section" id="sms-section" data-module="sms" aria-labelledby="sms-title"><div class="module-heading"><div><h2 id="sms-title">FitiSignal SMS</h2><p>Prepaid customer and tenant notifications. Choose what to send, control costs and use credits only after a confirmed event.</p></div></div><div class="panel"><div class="sms-balance"><article class="metric"><div class="metric-label">SMS credits</div><div class="metric-value" id="sms-credits">0</div><div class="metric-foot" id="sms-credits-foot">No package purchased yet</div></article><article class="metric"><div class="metric-label">Sent this month</div><div class="metric-value" id="sms-sent">0</div><div class="metric-foot">Confirmed message segments</div></article><article class="metric"><div class="metric-label">Estimated usage</div><div class="metric-value" id="sms-usage">KES 0</div><div class="metric-foot">Based on KES 1 per SMS segment</div></article></div><div class="section-head"><div><h3>Buy SMS credits</h3><p>Credits are prepaid per tenant. One SMS segment costs KES 1; longer messages may use more than one credit.</p></div></div><div class="sms-packages" id="sms-packages"></div><div class="sms-custom"><label><span>Custom amount (KES)</span><input id="sms-custom-amount" type="number" min="1" step="1" inputmode="numeric" placeholder="Enter amount"></label><button type="button" id="sms-custom-buy">Buy custom credits</button></div><div class="section-head" style="margin-top:24px"><div><h3>Notification services</h3><p>Services are preconfigured but remain off until you enable them.</p></div></div><div class="sms-service-list" id="sms-services"></div><div class="section-head" style="margin-top:24px"><div><h3>Cost Controls</h3><p>These safeguards reduce unnecessary messages and protect your prepaid balance.</p></div></div><div class="sms-cost-controls" id="sms-cost-controls"></div><div class="buttons" style="margin-top:15px"><button type="button" id="sms-save-settings">Save SMS settings</button><span class="form-note" id="sms-settings-note" aria-live="polite">Settings are saved per tenant.</span></div></div></section>
 
         <section class="section" id="branding-section"><div class="section-head"><div><h2>Customer portal branding</h2><p>Make every customer portal look like your business. Branding stays in the cloud, so it works on every paired router.</p></div></div><div class="panel"><form id="branding-form" novalidate><div class="fields"><label><span>Customer-facing business name</span><input id="portal-name" name="portalName" maxlength="80" required autocomplete="organization" placeholder="Example WiFi Services"></label><label><span>Support phone <em class="muted">(optional)</em></span><input id="portal-support-phone" name="supportPhone" inputmode="tel" autocomplete="tel" placeholder="0712 345 678"></label></div><div class="fields"><label><span>Primary colour</span><input id="portal-colour" class="colour-input" name="primaryColor" type="color" value="#1769D8" aria-label="Primary brand colour"></label><label><span>Short portal message <em class="muted">(optional)</em></span><input id="portal-message-input" name="portalMessage" maxlength="120" autocomplete="off" placeholder="Fast Wi-Fi for everyone"></label></div><div class="buttons"><button type="submit" id="save-branding">Save portal branding</button><span class="form-note">The name, colour and support details appear on every customer portal.</span></div><div class="error" id="branding-error" aria-live="polite"></div></form><div class="wizard-subsection"><h3>Business logo</h3><p>Upload a PNG, JPEG or WebP logo up to 360 KB. Wi-Fi Fiti serves it from the same cloud domain, so customers can see it before they are online.</p><div class="fields"><label><span>Logo image</span><input id="branding-logo" type="file" accept="image/png,image/jpeg,image/webp"></label><div class="buttons"><button type="button" id="upload-logo">Upload logo</button></div></div><div class="logo-help" id="logo-help" aria-live="polite"></div><div class="branding-preview"><img id="branding-logo-preview" src="/assets/wifi-fiti-logo.png" alt="Business logo preview"><div><strong id="branding-preview-name">Your WiFi business</strong><small id="branding-preview-detail">Customer portal identity</small></div></div></div></div></section>
@@ -781,7 +801,7 @@
       function storedRouterKitIsStale(setup) { return Boolean(storedRouterKitHasScript(setup) && !storedRouterKitIsCurrent(setup)); }
       function clearPairingSecrets() { try { Object.keys(sessionStorage).filter(function (key) { return key.indexOf('fiti_location_setup_secrets_') === 0; }).forEach(function (key) { sessionStorage.removeItem(key); }); } catch (_) {} }
       function clearAuthForms() { stopVerificationTimer(); ['login', 'register', 'verification', 'forgot-password', 'reset-password'].forEach(function (id) { var form = $(id); if (form) { form.reset(); form.setAttribute('autocomplete', 'off'); Array.prototype.forEach.call(form.querySelectorAll('input'), function (input) { input.value = ''; }); } }); ['register-error', 'login-error', 'verification-error', 'forgot-password-error', 'reset-password-error'].forEach(function (id) { if ($(id)) $(id).textContent = ''; }); ['verification-resend', 'reset-password-resend'].forEach(function (id) { if ($(id)) { $(id).classList.add('hidden'); $(id).disabled = false; $(id).textContent = 'Resend code'; } }); if ($('reset-password')) $('reset-password').dataset.verificationId = ''; if ($('verification-email')) $('verification-email').textContent = ''; if ($('reset-password-email')) $('reset-password-email').textContent = ''; verificationState = null; window.setTimeout(function () { ['login', 'register', 'verification', 'forgot-password', 'reset-password'].forEach(function (id) { var form = $(id); if (form) Array.prototype.forEach.call(form.querySelectorAll('input'), function (input) { input.value = ''; }); }); }, 0); }
-      function clearSession() { clearBillingPolling(); clearOnboardingPolling(); clearMappedDeploymentPolling(); clearPairingSecrets(); localStorage.removeItem('fiti_business_token'); token = null; billingRecoveryPending = false; onboardingPanel = ''; routerDraftModalOpen = false; state = { workspace: null, dashboard: null, vouchers: [], customers: [], payment: null, issuedCodes: [], billing: null, sms: null }; if ($('billing-phone')) $('billing-phone').value = ''; if ($('payment-form')) $('payment-form').reset(); clearAuthForms(); if ($('organisation-form')) $('organisation-form').reset(); if ($('router-draft-form')) $('router-draft-form').reset(); showWelcome(); }
+      function clearSession() { clearReceiptsAndHelp(); clearBillingPolling(); clearOnboardingPolling(); clearMappedDeploymentPolling(); clearPairingSecrets(); localStorage.removeItem('fiti_business_token'); token = null; billingRecoveryPending = false; onboardingPanel = ''; routerDraftModalOpen = false; state = { workspace: null, dashboard: null, vouchers: [], customers: [], payment: null, issuedCodes: [], billing: null, sms: null }; if ($('billing-phone')) $('billing-phone').value = ''; if ($('payment-form')) $('payment-form').reset(); clearAuthForms(); if ($('organisation-form')) $('organisation-form').reset(); if ($('router-draft-form')) $('router-draft-form').reset(); showWelcome(); }
       function portalAddressing() { var details = state.workspace && state.workspace.portalAddressing; return details && typeof details === 'object' ? details : { enabled: false, rootDomain: '', kind: 'managed-subdomain' }; }
       function portalHostname(location) { return String(location && (location.portal_hostname || location.portalHostname) || '').trim().toLowerCase(); }
       function portalSlug(location) { var hostname = portalHostname(location); return hostname ? hostname.split('.')[0] : ''; }
@@ -975,11 +995,11 @@
         { id: 'money', label: 'Money', parts: [{ id: 'sales', label: 'Sales', sections: ['sales-section'] }, { id: 'transactions', label: 'Transactions', sections: ['transactions-section'] }] },
         { id: 'portal', label: 'Customer portal', parts: [{ id: 'branding', label: 'Branding', sections: ['branding-section'] }, { id: 'portal-templates', label: 'Portal templates', sections: ['portal-templates-section'] }] },
         { id: 'sms', label: 'SMS', parts: [{ id: 'sms', sections: ['sms-section'] }] },
-        { id: 'settings', label: 'Settings', parts: [{ id: 'account', label: 'Account & limits', sections: ['account-section'] }, { id: 'payments', label: 'Billing & payments', sections: ['billing-section', 'network-services-section', 'integrations-section'] }, { id: 'team', label: 'Team', sections: ['team-section'] }] }
+        { id: 'settings', label: 'Settings', parts: [{ id: 'account', label: 'Account & limits', sections: ['account-section'] }, { id: 'payments', label: 'Billing & payments', sections: ['billing-section', 'network-services-section', 'integrations-section'] }, { id: 'receipts', label: 'Receipts & help', sections: ['receipts-section', 'tickets-section'] }, { id: 'team', label: 'Team', sections: ['team-section'] }] }
       ];
       // Older page names still open the page that now holds them (bookmarks,
       // emails, buttons). Payouts are not offered yet: they open Money.
-      var moduleAliases = { home: 'overview', onboarding: 'overview', setup: 'overview', locations: 'routers', 'router-map': 'routers', 'router-setup': 'routers', 'router-tools': 'tools', 'remote-access': 'remote', disbursements: 'sales', payouts: 'sales', billing: 'payments', plan: 'payments', 'payment-collection': 'payments', integrations: 'payments', templates: 'portal-templates' };
+      var moduleAliases = { home: 'overview', onboarding: 'overview', setup: 'overview', locations: 'routers', 'router-map': 'routers', 'router-setup': 'routers', 'router-tools': 'tools', 'remote-access': 'remote', disbursements: 'sales', payouts: 'sales', billing: 'payments', plan: 'payments', 'payment-collection': 'payments', integrations: 'payments', templates: 'portal-templates', tickets: 'receipts', help: 'receipts' };
       var moduleSections = {}; var modulePages = {};
       dashboardPages.forEach(function (page) { page.parts.forEach(function (part) { moduleSections[part.id] = part.sections; modulePages[part.id] = page; }); });
       // A page, part or older name → the part to show. Unknown → Home.
@@ -1138,7 +1158,7 @@
         var footer = content.querySelector('.footer');
         var wrap = document.createElement('div'); wrap.innerHTML = '<section class="section" id="transactions-section" data-module="transactions"><div class="module-heading"><div><h2>Transactions</h2><p>Review completed payments, billing activity and account movements.</p></div><div class="section-actions"><button type="button" class="secondary" data-export-table="transactions">Export CSV</button></div></div><div class="panel"><div class="toolbar-row"><input type="search" placeholder="Search transaction ID, memo or phone" aria-label="Search transactions" id="transactions-search"><select aria-label="Transaction status" id="transactions-status"><option value="all">All statuses</option><option value="paid">Paid</option><option value="pending">Pending</option><option value="failed">Failed</option></select></div><div class="payments" id="transactions-list"><div class="module-empty"><strong>No transactions loaded</strong>Completed payment records will appear here as router acknowledgements arrive.</div></div></div></section>';
         var nodes = Array.from(wrap.children); nodes.forEach(function (node) { content.insertBefore(node, footer); });
-        var additions = document.createElement('div'); additions.innerHTML = '<section class="section" id="team-section" data-module="team"><div class="module-heading"><div><h2>Team</h2><p>Staff accounts with their own sign-in are coming. For now, only you can sign in to this workspace.</p></div></div></section><section class="section" id="account-section" data-module="account"><div class="module-heading"><div><h2>Account &amp; limits</h2><p>Review workspace capacity and prepaid service entitlements.</p></div></div><div class="panel"><div class="module-grid"><article class="metric"><div class="metric-label">Workspace access</div><div class="metric-value">Included</div><div class="metric-foot">No platform subscription</div></article><article class="metric"><div class="metric-label">Router limit</div><div class="metric-value">1</div><div class="metric-foot">Paired routers</div></article><article class="metric"><div class="metric-label">Active-device limit</div><div class="metric-value">—</div><div class="metric-foot">Based on your service setup</div></article><article class="metric"><div class="metric-label">Support</div><div class="metric-value">Ready</div><div class="metric-foot">Contact Wi-Fi Fiti support</div></article></div><div class="module-empty" style="margin-top:16px"><strong>Prepaid services are separate</strong>Manage PPPoE/static IP and hotspot capacity under Billing &amp; payments.</div></div></section>'; Array.from(additions.children).forEach(function (node) { content.insertBefore(node, footer); });
+        var additions = document.createElement('div'); additions.innerHTML = '<section class="section" id="team-section" data-module="team"><div class="module-heading"><div><h2>Team</h2><p>Staff accounts with their own sign-in are coming. For now, only you can sign in to this workspace.</p></div></div></section><section class="section" id="account-section" data-module="account"><div class="module-heading"><div><h2>Account &amp; limits</h2><p>Review workspace capacity and prepaid service entitlements.</p></div></div><div class="panel"><div class="module-grid"><article class="metric"><div class="metric-label">Workspace access</div><div class="metric-value">Included</div><div class="metric-foot">No platform subscription</div></article><article class="metric"><div class="metric-label">Router limit</div><div class="metric-value">1</div><div class="metric-foot">Paired routers</div></article><article class="metric"><div class="metric-label">Active-device limit</div><div class="metric-value">—</div><div class="metric-foot">Based on your service setup</div></article><article class="metric"><div class="metric-label">Support</div><div class="metric-value">Ready</div><div class="metric-foot">Contact Wi-Fi Fiti support</div></article></div><div class="module-empty" style="margin-top:16px"><strong>Prepaid services are separate</strong>Manage PPPoE/static IP and hotspot capacity in Settings → Billing &amp; payments.</div></div></section>'; Array.from(additions.children).forEach(function (node) { content.insertBefore(node, footer); });
         content.querySelectorAll('[data-open-module]').forEach(function (button) { button.addEventListener('click', function () { activateDashboardModule(button.dataset.openModule); }); });
       }
       // Ready-made portal designs: the only gallery list (an older second
@@ -1185,6 +1205,8 @@
         if (model && onboardingFlowState(model).active) { setSequentialOnboarding(true); moduleView = 'onboarding'; return; }
         moduleView = requested; var dashboard = $('dashboard'); if (!dashboard) return; dashboard.classList.add('module-view');
         if (requested === 'portal-templates' && token && reloadPortalTemplates) reloadPortalTemplates();
+        // Receipts & help loads when opened, not on every background redraw.
+        if (requested === 'receipts' && token && !(options.silent && helpLoaded)) loadReceiptsAndHelp();
         var targets = moduleSections[requested] || moduleSections.overview;
         document.querySelectorAll('#dashboard .content>.hero,#dashboard .content>.metrics,#dashboard .content>.section,#dashboard .content>#overview-insights-section,#dashboard .content>#overview-golive,#dashboard .content>.overview-controls').forEach(function (node) { var visible = targets.indexOf(node.id) !== -1 || (node.classList.contains('overview-controls') && requested === 'overview'); node.classList.toggle('module-hidden', !visible); node.classList.toggle('module-active', visible); });
         var tabs = renderPageTabs(page, requested);
@@ -3144,6 +3166,114 @@
       }
       function loadCustomers() { var section = $('customers-section'); if (!section) return Promise.resolve(); var query = String(($('customers-search') && $('customers-search').value) || '').trim(); return api('/api/business/operations/customers?limit=500&q=' + encodeURIComponent(query)).then(function (result) { state.customers = Array.isArray(result.customers) ? result.customers : []; renderCustomers(); return result; }).catch(function (error) { state.customers = []; renderCustomers(); $('workspace-error').textContent = error.message || 'Customer records could not be loaded.'; return null; }); }
       function clearBillingPolling() { billingPollVersion += 1; if (billingPollTimer) { clearTimeout(billingPollTimer); billingPollTimer = null; } }
+      // Settings → Receipts & help. Plan receipts and questions to Wi-Fi Fiti
+      // use the same owner APIs as operations.html. Payouts are not shown.
+      var helpNext = { receipts: null, tickets: null }; var helpLoading = null; var helpLoaded = false;
+      function planReceiptLabel(plan) {
+        var raw = String(plan || '');
+        var known = { 'services-hotspot': 'Hotspot users', 'services-pppoe': 'PPPoE + Static IP users', 'services-combined': 'Hotspot and PPPoE users', 'services-upgrade': 'More users', starter: 'Starter plan', growth: 'Growth plan', custom: 'Workspace plan' };
+        if (Object.prototype.hasOwnProperty.call(known, raw)) return known[raw];
+        if (/^sms-/.test(raw)) return 'SMS credits';
+        var text = raw.replace(/[-_]+/g, ' ').trim(); return text ? text.charAt(0).toUpperCase() + text.slice(1) : 'Wi-Fi Fiti payment';
+      }
+      function supportTicketStatus(status) { var raw = String(status || ''); return ({ open: 'Open', in_progress: 'In progress', resolved: 'Resolved' })[raw] || raw.replace(/_/g, ' ') || 'Open'; }
+      function helpEmpty(box, title, text) { var none = add(box, 'div', 'module-empty'); add(none, 'strong', '', title); add(none, 'span', '', text); }
+      function drawPlanReceipts(box, records, append) {
+        if (!append) clear(box);
+        if (!append && !records.length) { helpEmpty(box, 'No plan receipts yet', 'A receipt shows here after you pay Wi-Fi Fiti for a plan. The free trial has no receipt.'); return; }
+        records.forEach(function (record) {
+          var row = add(box, 'article', 'setting-row'); var info = add(row, 'div');
+          add(info, 'strong', '', planReceiptLabel(record.plan) + ' · ' + kes(record.amount));
+          add(info, 'small', '', 'Paid ' + when(record.paid_at) + ' · Valid until ' + when(record.expires_at) + (record.mpesa_receipt ? ' · M-Pesa ' + record.mpesa_receipt : ''));
+          var download = add(row, 'button', 'secondary', 'Download receipt'); download.type = 'button';
+          download.addEventListener('click', function () { downloadPlanReceipt(record, download); });
+        });
+      }
+      function drawSupportTickets(box, tickets, append) {
+        if (!append) clear(box);
+        if (!append && !tickets.length) { helpEmpty(box, 'No questions yet', 'Questions you send, and Wi-Fi Fiti’s replies, show here.'); return; }
+        tickets.forEach(function (ticket) {
+          var row = add(box, 'article', 'setting-row'); var info = add(row, 'div');
+          add(info, 'strong', '', ticket.subject);
+          add(info, 'small', '', supportTicketStatus(ticket.status) + ' · ' + (ticket.location_name || 'All my routers') + ' · Updated ' + when(ticket.updated_at));
+          var open = add(row, 'button', 'secondary', 'Read replies'); open.type = 'button';
+          open.addEventListener('click', function () { openSupportTicket(ticket.id, open); });
+        });
+      }
+      function drawSupportThread(box, data) {
+        clear(box); var ticket = data.ticket || {};
+        var head = add(box, 'div', 'help-thread-head'); var copy = add(head, 'div'); add(copy, 'h3', '', ticket.subject);
+        add(copy, 'p', 'form-note', supportTicketStatus(ticket.status) + ' · ' + (ticket.location_name || 'All my routers'));
+        var close = add(head, 'button', 'quiet', 'Close'); close.type = 'button';
+        close.addEventListener('click', function () { box.classList.add('hidden'); clear(box); });
+        (data.messages || []).forEach(function (message) {
+          var item = add(box, 'div', 'help-message' + (message.author === 'admin' ? ' admin' : ''));
+          add(item, 'small', '', (message.author === 'admin' ? 'Wi-Fi Fiti support' : 'You') + ' · ' + when(message.created_at)); add(item, 'div', '', message.body);
+        });
+        var form = add(box, 'form'); var label = add(form, 'label'); add(label, 'span', '', 'Your reply'); var input = add(label, 'textarea'); input.name = 'message'; input.required = true; input.maxLength = 4000;
+        var actions = add(form, 'div', 'buttons'); var send = add(actions, 'button', '', 'Send reply'); send.type = 'submit';
+        var error = add(form, 'p', 'form-note'); error.setAttribute('role', 'alert');
+        form.addEventListener('submit', function (event) {
+          event.preventDefault(); error.textContent = ''; setBusy(send, true, 'Sending…');
+          api('/api/business/operations/tickets/' + encodeURIComponent(ticket.id) + '/messages', { method: 'POST', body: JSON.stringify({ message: input.value }) })
+            .then(function (result) { drawSupportThread(box, result); return loadSupportTickets(0); })
+            .catch(function (failure) { error.textContent = failure.message; setBusy(send, false); });
+        });
+      }
+      function downloadPlanReceipt(record, button) {
+        var note = $('receipts-note'); note.textContent = ''; setBusy(button, true, 'Downloading…');
+        fetch('/api/business/operations/billing/' + encodeURIComponent(record.checkout_request_id) + '/receipt', { headers: token ? { Authorization: 'Bearer ' + token } : {}, cache: 'no-store' }).then(function (response) {
+          if (!response.ok) return response.json().catch(function () { return {}; }).then(function (body) { throw new Error(body.error || 'Could not download this receipt. Please try again.'); });
+          return response.blob().then(function (blob) { var url = URL.createObjectURL(blob); var link = document.createElement('a'); link.href = url; link.download = 'wifi-fiti-receipt-' + String(record.paid_at || '').slice(0, 10) + '.txt'; document.body.appendChild(link); link.click(); link.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000); });
+        }).catch(function (error) { note.textContent = error.message; }).finally(function () { setBusy(button, false); });
+      }
+      function loadPlanReceipts(offset) {
+        offset = offset || 0; var box = $('receipts-list'); if (!box) return Promise.resolve();
+        return api('/api/business/operations/billing?offset=' + offset).then(function (result) {
+          drawPlanReceipts(box, result.records || [], offset > 0); helpNext.receipts = result.nextOffset == null ? null : result.nextOffset;
+          $('receipts-more').classList.toggle('hidden', helpNext.receipts === null);
+        });
+      }
+      function loadSupportTickets(offset) {
+        offset = offset || 0; var box = $('tickets-list'); if (!box) return Promise.resolve();
+        return api('/api/business/operations/tickets?offset=' + offset).then(function (result) {
+          drawSupportTickets(box, result.tickets || [], offset > 0); helpNext.tickets = result.nextOffset == null ? null : result.nextOffset;
+          $('tickets-more').classList.toggle('hidden', helpNext.tickets === null);
+        });
+      }
+      function openSupportTicket(id, button) {
+        var box = $('ticket-detail'); $('tickets-note').textContent = ''; if (button) setBusy(button, true, 'Opening…');
+        return api('/api/business/operations/tickets/' + encodeURIComponent(id)).then(function (data) {
+          drawSupportThread(box, data); box.classList.remove('hidden'); box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }).catch(function (error) { $('tickets-note').textContent = error.message; }).finally(function () { if (button) setBusy(button, false); });
+      }
+      function fillTicketRouters() {
+        var select = $('ticket-location'); if (!select) return; var current = select.value; clear(select);
+        add(select, 'option', '', 'All my routers').value = '';
+        ((state.workspace && state.workspace.locations) || []).forEach(function (location) { add(select, 'option', '', location.name || 'Router').value = location.id; });
+        if (Array.prototype.some.call(select.options, function (option) { return option.value === current; })) select.value = current;
+      }
+      function loadReceiptsAndHelp() {
+        if (!token || !$('receipts-list')) return Promise.resolve(); if (helpLoading) return helpLoading;
+        helpLoaded = true; fillTicketRouters(); $('receipts-note').textContent = ''; $('tickets-note').textContent = '';
+        helpLoading = Promise.all([
+          loadPlanReceipts(0).catch(function (error) { $('receipts-note').textContent = error.message; }),
+          loadSupportTickets(0).catch(function (error) { $('tickets-note').textContent = error.message; })
+        ]).finally(function () { helpLoading = null; });
+        return helpLoading;
+      }
+      function clearReceiptsAndHelp() {
+        ['receipts-list', 'tickets-list', 'ticket-detail', 'receipts-note', 'tickets-note', 'ticket-error'].forEach(function (id) { if ($(id)) clear($(id)); });
+        if ($('ticket-detail')) $('ticket-detail').classList.add('hidden'); if ($('ticket-form')) $('ticket-form').reset();
+        helpNext = { receipts: null, tickets: null }; helpLoaded = false;
+      }
+      function sendSupportTicket(event) {
+        event.preventDefault(); var form = event.currentTarget; var button = $('ticket-send'); var note = $('ticket-error'); note.textContent = ''; setBusy(button, true, 'Sending…');
+        api('/api/business/operations/tickets', { method: 'POST', body: jsonString(form) }).then(function (result) {
+          form.reset(); note.textContent = 'Sent. The reply will show under Your questions.';
+          return loadSupportTickets(0).then(function () { return openSupportTicket(result.ticket.id); });
+        }).catch(function (error) { note.textContent = error.message; }).finally(function () { setBusy(button, false); });
+      }
       function renderBillingAccount() {
         var business = state.workspace.business; var plan = state.workspace.plan || {}; var raw = business.billing_expires_at; var expiry = raw ? Date.parse(/(?:Z|[+-]\d\d:?\d\d)$/.test(String(raw)) ? String(raw) : String(raw).replace(' ', 'T') + 'Z') : NaN;
         var expired = Number.isFinite(expiry) && expiry <= Date.now(); var trial = business.billing_status === 'trial';
@@ -3331,7 +3461,7 @@
       }
       function renderPaymentCollection() {
         var summary = state.payment || {}; var box = $('payment-connection'); var form = $('payment-form'); if (!box || !form) return; clear(box);
-        if (summary.mode !== 'own') { add(box, 'strong', '', 'Wi-Fi Fiti collection is selected'); add(box, 'p', '', 'Your workspace is currently using Wi-Fi Fiti collection. Choose “My Till / PayBill” in Billing & payments before connecting business-owned Daraja credentials.'); form.classList.add('hidden'); return; }
+        if (summary.mode !== 'own') { add(box, 'strong', '', 'Wi-Fi Fiti collection is selected'); add(box, 'p', '', 'Your workspace is currently using Wi-Fi Fiti collection. Choose “My Till / PayBill” in Settings → Billing & payments before connecting business-owned Daraja credentials.'); form.classList.add('hidden'); return; }
         if (!summary.secureStorageReady) { add(box, 'strong', '', 'Secure credential storage is not ready'); add(box, 'p', '', 'Wi-Fi Fiti cannot accept Daraja credentials until secure payment storage has been configured on this deployment. No credentials have been requested or saved.'); form.classList.add('hidden'); return; }
         if (summary.configured && summary.connection) { add(box, 'strong', '', (summary.connection.collectionName || 'Business M-Pesa') + ' is connected'); add(box, 'p', '', 'Shortcode ' + summary.connection.shortcode + ' · ' + (summary.connection.transactionType === 'CustomerBuyGoodsOnline' ? 'Buy Goods / Till' : 'PayBill') + ' · last verified ' + when(summary.connection.lastVerifiedAt) + '. Saved secrets are intentionally never displayed.'); } else { add(box, 'strong', '', 'No business M-Pesa connection yet'); add(box, 'p', '', 'Enter the credentials from your Daraja app to verify and securely connect your own collection account.'); }
         form.classList.remove('hidden');
@@ -3394,7 +3524,7 @@
         showDashboard(); $('business-name').textContent = business.name || 'Your business'; $('business-email').textContent = business.email || ''; $('copyright-business-name').textContent = business.name || 'Your business'; $('copyright-support').textContent = business.support_phone ? ' · Help: ' + business.support_phone : ''; $('hero-plan').textContent = planName(business.plan) + ' plan · ' + (business.collection_mode === 'fiti' ? 'Wi-Fi Fiti collection' : 'Own payment collection'); $('hero-message').textContent = activeLocations.length ? 'Your workspace has ' + plural(activeLocations.length, 'router') + '. Keep packages clear for customers and make sure each router checks in.' : 'Start with a router, connect it, then add customer packages for your Wi‑Fi service.';
         $('locations-count').textContent = activeLocations.length; $('packages-count').textContent = packages.length; $('active-count').textContent = active; $('locations-foot').textContent = online ? plural(online, 'router') + ' online' : activeLocations.length ? 'Awaiting router check-in' : 'Ready to set up'; $('packages-foot').textContent = packages.length ? 'Available across your business' : 'Add your first time plan'; $('active-foot').textContent = data.note || 'Measured at paired routers'; $('sidebar-plan-name').textContent = plan.trialUnlimited ? '7-day trial' : 'Prepaid services'; $('sidebar-plan-detail').textContent = plan.trialUnlimited ? '1 router · unlimited resources' : serviceLine().short;
         $('plan-choice').value = business.plan || 'starter'; $('collection-choice').value = business.collection_mode || 'own'; $('plan-summary').textContent = plan.trialUnlimited ? 'Seven-day trial · one router · unlimited customer devices, PPPoE and SMS access. No charge until the trial ends.' : serviceLine().long; $('collection-note').textContent = business.collection_mode === 'fiti' ? 'Wi-Fi Fiti collection applies a 5% platform fee to each completed customer payment. The sales balance subtracts the exact recorded fee; any provider charges are separate.' : 'With your own Till / PayBill, Wi-Fi Fiti does not charge a Wi‑Fi sales fee. You can connect verified Daraja credentials below.';
-        renderLocations(); renderRemoteRouters(); renderRouterObservability(); renderPackages(); renderVoucherChoices(); renderPaymentCollection(); renderBillingCheckout(); installNetworkServiceBilling(); renderBranding(); renderOnboarding(); renderSmsModule(); renderOverviewInsights(); renderGoLiveOverview(); renderTools(); installCardNavigation(); installControlEnhancements(); loadAnalytics().catch(function () {}); loadCustomers(); loadSmsModule(); activateDashboardModule(moduleView, { silent: true });
+        renderLocations(); renderRemoteRouters(); renderRouterObservability(); renderPackages(); renderVoucherChoices(); renderPaymentCollection(); renderBillingCheckout(); installNetworkServiceBilling(); renderBranding(); renderOnboarding(); renderSmsModule(); renderOverviewInsights(); renderGoLiveOverview(); renderTools(); fillTicketRouters(); installCardNavigation(); installControlEnhancements(); loadAnalytics().catch(function () {}); loadCustomers(); loadSmsModule(); activateDashboardModule(moduleView, { silent: true });
       }
       function load() {
         if (!token) { clearOnboardingPolling(); showWelcome(); return Promise.resolve(); }
@@ -3504,6 +3634,9 @@
       $('copy-vouchers').addEventListener('click', function (event) { copyText((state.issuedCodes || []).join('\n'), event.currentTarget); });
       $('sms-custom-buy').addEventListener('click', function (event) { var amount = Number($('sms-custom-amount').value); if (!Number.isFinite(amount) || amount < 1) { $('sms-settings-note').textContent = 'Enter a custom amount of at least KES 1.'; return; } buySmsCredits(Math.floor(amount), event.currentTarget); });
       $('sms-save-settings').addEventListener('click', saveSmsSettings);
+      $('ticket-form').addEventListener('submit', sendSupportTicket);
+      $('receipts-more').addEventListener('click', function () { var button = this; setBusy(button, true, 'Loading…'); loadPlanReceipts(helpNext.receipts).catch(function (error) { $('receipts-note').textContent = error.message; }).finally(function () { setBusy(button, false); }); });
+      $('tickets-more').addEventListener('click', function () { var button = this; setBusy(button, true, 'Loading…'); loadSupportTickets(helpNext.tickets).catch(function (error) { $('tickets-note').textContent = error.message; }).finally(function () { setBusy(button, false); }); });
       $('sales-period').addEventListener('change', function (event) { salesPeriod = event.currentTarget.value; api('/api/business/dashboard?period=' + encodeURIComponent(salesPeriod)).then(function (dashboard) { state.dashboard = dashboard; renderSales(); }).catch(function (error) { $('workspace-error').textContent = error.message; }); });
       if ($('transactions-search')) $('transactions-search').addEventListener('input', renderTransactions);
       if ($('transactions-status')) $('transactions-status').addEventListener('change', renderTransactions);

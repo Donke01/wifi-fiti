@@ -2649,9 +2649,9 @@ function goLiveStatus(location) {
   let blocked = null; let fix = collection.ready ? null : 'payments';
   if (phoneBlock) { blocked = phoneBlock; fix = 'verify_phone'; }
   else if (String(location.billing_status || '').toLowerCase() === 'suspended') { blocked = 'Your Wi-Fi Fiti account is paused, so customers can’t buy yet. Contact Wi-Fi Fiti support.'; fix = null; }
-  else if (serviceBlock) { blocked = 'Your hotspot subscription needs renewing before customers can buy. Renew it in Billing & payments.'; fix = 'payments'; }
-  else if (feeBlock) { blocked = 'The Tuma fee is overdue, so new sales are paused. Pay it in Billing & payments.'; fix = 'payments'; }
-  else if (hotspotCapacityBlock(location, false)) { blocked = trialLimited(location) ? `Your free trial allows ${TRIAL_LIMITS.maxHotspotUsers} customers online at once, and it is full right now. New customers can buy once someone's time ends, or subscribe for more.` : 'Your hotspot is full right now: new customers can buy once someone\u2019s time ends, or raise your plan in Billing & payments.'; fix = 'payments'; }
+  else if (serviceBlock) { blocked = 'Your hotspot subscription needs renewing before customers can buy. Renew it in Settings → Billing & payments.'; fix = 'payments'; }
+  else if (feeBlock) { blocked = 'The Tuma fee is overdue, so new sales are paused. Pay it in Settings → Billing & payments.'; fix = 'payments'; }
+  else if (hotspotCapacityBlock(location, false)) { blocked = trialLimited(location) ? `Your free trial allows ${TRIAL_LIMITS.maxHotspotUsers} customers online at once, and it is full right now. New customers can buy once someone's time ends, or subscribe for more.` : 'Your hotspot is full right now: new customers can buy once someone\u2019s time ends, or raise your plan in Settings → Billing & payments.'; fix = 'payments'; }
   const sale = tenant.latestSale(location.id);
   return {
     locationId: location.id,

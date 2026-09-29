@@ -238,7 +238,7 @@
     payPage.appendChild(backButton());
     if (guidedStep) payPage.appendChild(h('p', { class: 'gs-step', text: 'Step 2 of 2 · Set up payments' }));
     payPage.appendChild(h('h2', { text: 'How customers pay you' }));
-    payPage.appendChild(h('p', { text: 'Choose one. You can change it later from the Billing & payments tile.' }));
+    payPage.appendChild(h('p', { text: 'Choose one. You can change it later in Settings → Billing & payments.' }));
     var own = h('button', { type: 'button', class: 'bh-choice', 'aria-pressed': String(choice === 'own') }, [h('b', { text: 'My Till / PayBill / Tuma' }), h('span', { text: 'Money settles straight to your own account. No Wi‑Fi Fiti sales fee.' })]);
     var fiti = h('button', { type: 'button', class: 'bh-choice', 'aria-pressed': String(choice === 'fiti') }, [h('b', { text: 'Wi‑Fi Fiti collection' }), h('span', { text: 'No setup: we collect for you and pay out from your balance. 5% of each completed sale.' })]);
     own.addEventListener('click', function () { choice = 'own'; renderPay(); });

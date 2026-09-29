@@ -511,3 +511,57 @@ assert.match(html, /add\(wifiCopy, 'strong', '', radiosIn\.length \? 'Customer W
 assert.match(html, /'Wi-Fi can only join a hotspot bridge\. PPPoE customers connect by cable\.'/, 'a radio dropped on a PPPoE bridge is refused with a reason');
 assert.match(html, /goes\.textContent = item\.shareWifi \? '📶 can add a separate customer Wi-Fi' : '📶 can broadcast customer Wi-Fi'/, 'free radios say they can broadcast customer Wi-Fi');
 assert.match(html, /var radioHint = isRadio\(item\) && \(item\.free \|\| item\.shareWifi\)/, 'a radio already in a Wi-Fi Fiti bridge is not offered again');
+
+// Settings → Receipts & help: plan receipts and support tickets, drawn by the
+// page's own helpers in the tiny DOM. Text only, never HTML.
+{
+  const calls = [];
+  const help = vm.createContext({
+    document: { createElement: tag => new TestElement(tag) },
+    downloadPlanReceipt: (record) => calls.push(['download', record.checkout_request_id]),
+    openSupportTicket: (id) => calls.push(['open', id]),
+  });
+  for (const name of ['el', 'add', 'clear', 'kes', 'when', 'planReceiptLabel', 'supportTicketStatus', 'helpEmpty', 'drawPlanReceipts', 'drawSupportTickets', 'drawSupportThread']) {
+    const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n      // |\\n      var |\\n    \\}\\)\\(\\);)'));
+    assert.ok(declaration, name + ' is available to exercise');
+    vm.runInContext(declaration[0], help);
+  }
+  const texts = root => descendants(root).map(node => node.textContent).filter(Boolean);
+  const receipts = new TestElement('div');
+  help.drawPlanReceipts(receipts, [], false);
+  assert.ok(texts(receipts).includes('No plan receipts yet'), 'no receipts: a plain empty message');
+  help.drawPlanReceipts(receipts, [{ checkout_request_id: 'ws_CO_1', plan: 'services-hotspot', amount: 1000, mpesa_receipt: 'TST123', paid_at: '2026-09-01 10:00:00', expires_at: '2026-10-01 10:00:00' }], false);
+  assert.ok(texts(receipts).includes('Hotspot users · KES 1,000'), 'a receipt names what was paid for, in plain words');
+  assert.ok(texts(receipts).some(text => /^Paid .* · Valid until .* · M-Pesa TST123$/.test(text)), 'a receipt shows when it was paid, how long it lasts and the M-Pesa code');
+  const download = descendants(receipts).find(node => node.tagName === 'button');
+  assert.equal(download.textContent, 'Download receipt');
+  download.listeners.click(); assert.deepEqual(calls.pop(), ['download', 'ws_CO_1'], 'Download receipt downloads that receipt');
+  help.drawPlanReceipts(receipts, [{ checkout_request_id: 'ws_CO_2', plan: 'sms-7', amount: 200 }], true);
+  assert.equal(descendants(receipts).filter(node => node.textContent === 'Download receipt').length, 2, 'Show more adds to the list');
+  assert.equal(help.planReceiptLabel('services-pppoe'), 'PPPoE + Static IP users');
+  assert.equal(help.planReceiptLabel('sms-12'), 'SMS credits');
+  assert.equal(help.planReceiptLabel('tuma_fee'), 'Tuma fee');
+  assert.equal(help.planReceiptLabel(''), 'Wi-Fi Fiti payment');
+  assert.equal(help.planReceiptLabel('constructor'), 'Constructor', 'object keys are not plan names');
+
+  const tickets = new TestElement('div');
+  help.drawSupportTickets(tickets, [], false);
+  assert.ok(texts(tickets).includes('No questions yet'));
+  help.drawSupportTickets(tickets, [{ id: 'ticket-1', subject: '<b>Paid but offline</b>', status: 'in_progress', location_name: null, updated_at: '2026-09-02 08:00:00' }], false);
+  assert.ok(texts(tickets).includes('<b>Paid but offline</b>'), 'a subject is shown as text');
+  assert.ok(texts(tickets).some(text => /^In progress · All my routers · Updated /.test(text)), 'the status is in plain words');
+  descendants(tickets).find(node => node.textContent === 'Read replies').listeners.click();
+  assert.deepEqual(calls.pop(), ['open', 'ticket-1'], 'Read replies opens that ticket');
+
+  const thread = new TestElement('div');
+  help.drawSupportThread(thread, { ticket: { id: 'ticket-1', subject: 'Paid but offline', status: 'resolved', location_name: 'Kitale' }, messages: [
+    { author: 'operator', body: 'A customer paid.', created_at: '2026-09-02 08:00:00' }, { author: 'admin', body: 'Fixed now.', created_at: '2026-09-02 09:00:00' }] });
+  assert.ok(texts(thread).includes('Resolved · Kitale'));
+  assert.ok(texts(thread).some(text => /^You · /.test(text)) && texts(thread).some(text => /^Wi-Fi Fiti support · /.test(text)), 'each message says who wrote it');
+  assert.ok(texts(thread).includes('Fixed now.'));
+  assert.ok(descendants(thread).some(node => node.tagName === 'textarea' && node.required && node.maxLength === 4000), 'the owner can reply');
+  assert.ok(descendants(thread).some(node => node.textContent === 'Send reply' && node.type === 'submit'));
+}
+assert.match(html, /<section class="section" id="receipts-section">[^\n]*Plan receipts[^\n]*not tax invoices/, 'the receipts part says receipts are not tax invoices');
+assert.match(html, /<section class="section" id="tickets-section">[^\n]*Ask Wi-Fi Fiti[^\n]*You won't get an SMS or email, so check back here\.[^\n]*<form id="ticket-form">/, 'the tickets part says replies come here only');
+for (const value of ['payment', 'connection', 'router', 'billing', 'other']) assert.match(html, new RegExp('<option value="' + value + '">'), 'ticket category ' + value + ' matches the server');
