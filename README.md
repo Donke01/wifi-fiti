@@ -445,6 +445,20 @@ polling are unaffected. When it is switched back on, credentials by MAC are
 handed out only to the address the site's router last polled from, and not
 at all until it has polled within the last 15 minutes.
 
+Switching the old portal off leaves every router route alone: the legacy
+site's poll (`/api/router/sync`, `/api/router/jobs`) and all tenant router
+routes answer exactly as before.
+
+**Router tokens in URLs.** Older kits send the router token in the URL: the
+legacy site's poll (`routeros/poll-setup.rsc`, `public/router-poll-install.rsc`,
+`?token=`) and early tenant kits calling `router-login?token=`. The server
+still accepts them, so no router has to change; a tenant router that was
+paired in header mode is refused a query token. Every kit generated now
+(`public/tenant-router-install.rsc`, `src/lib/router-setup.js`, the PPPoE
+script and the dashboard's one-line installer) sends it only in the
+`X-WiFi-Fiti-Router` header, and `test/security.js` fails if a `?token=` or a
+fetch to the API without that header is added.
+
 Dangerous platform-admin actions need `ADMIN_PASSWORD` typed as a
 confirmation, on top of the admin token. There is no fallback phrase: with
 `ADMIN_PASSWORD` unset, those actions are refused.
