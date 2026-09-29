@@ -6,12 +6,13 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '../public/business.html'), 'utf8');
 
-assert.match(html, /id="remote-onboarding-section"/, 'the dashboard explains the two-stage onboarding path');
+assert.match(html, /<section class="section" id="remote-section">[^\n]*Customer traffic and payments never use this path[^\n]*It is off by default\. Once a router has connected through setup, you can request it/, 'the Remote access part explains the path, that it stays off until requested, and only after a router has connected');
 assert.match(html, /Remote setup/, 'each location exposes managed setup without hiding it in a support-only view');
 assert.match(html, /\/remote-access/, 'the UI calls a location-scoped remote-access API');
 assert.match(html, /consent:\s*true/, 'a business owner must explicitly consent before remote access is requested');
 assert.match(html, /action:\s*'revoke'/, 'an owner can revoke remote access');
 assert.match(html, /Customer traffic and payments never use this path/, 'the UI does not imply customer traffic is routed through support access');
+assert.match(html, /function renderRemoteRouters\(\) \{[\s\S]*?openRemoteAccess\(location, card, open\)/, 'the Remote access part opens the same consent-gated panel for each router');
 assert.doesNotMatch(html, /privateKey|private-key|vpnPrivate/i, 'the business UI must never render VPN private material');
 assert.match(html, /\/mapped-deployment/, 'the mapped deployment remains location-scoped and owner-authenticated');
 assert.match(html, /action:\s*'apply'/, 'the browser can request only the finite reviewed mapped-deployment action');
@@ -42,8 +43,10 @@ assert.match(html, /Start router setup again/,
   'each location offers a safe way to begin its router setup again');
 assert.doesNotMatch(html, /Offboard \/ remove router|\/offboard|OFFBOARD ROUTER/,
   'remote router offboarding is temporarily hidden from the dashboard');
-assert.match(html, /Clear setup form/,
-  'the setup wizard can clear only unsaved form choices');
+assert.doesNotMatch(html, /id="router-setup-section"|id="location-setup-section"|Generate secure router setup/,
+  'the old router wizard is gone: guided setup is the only way to create a router kit');
+assert.match(html, /\$\('add-router'\)\.addEventListener\('click', function \(\) \{ if \(state\.workspace\) startAdditionalRouter\(\); \}\);/,
+  'Add router on the Routers page starts guided setup');
 assert.match(html, /Remove unused setup/,
   'a location exposes only an explicit unused-draft removal action');
 assert.match(html, /function discardUnusedRouterSetup\(location, button, error\)/,
@@ -294,8 +297,8 @@ assert.match(compactKitUi[0], /storedRouterKitIsStale\(saved\)/,
   'an older cached script is detected instead of silently reused');
 assert.match(compactKitUi[0], /This saved connection kit is out of date and cannot be copied\./,
   'owners receive a direct fresh-kit instruction before a stale RouterOS command can be copied');
-assert.match(html, /item && item\.token && storedRouterKitIsCurrent\(item\)/,
-  'the legacy pairing-kit list also refuses to surface a stale cached command');
+assert.doesNotMatch(html, /function renderPairingKits\(/,
+  'the legacy pairing-kit list is gone, so no second list can surface a cached command');
 assert.match(html, /\/system device-mode update fetch=yes scheduler=yes hotspot=yes/,
   'the onboarding hint enables only the three required RouterOS device-mode features');
 assert.doesNotMatch(html, /\/system device-mode update mode=advanced/,
@@ -303,8 +306,11 @@ assert.doesNotMatch(html, /\/system device-mode update mode=advanced/,
 
 for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(match[1]);
 
-// Exercise all three public result screens: a button present somewhere in
-// the HTML is not enough if owners enter through a different setup screen.
+// Exercise every screen that shows a connection kit: a button present
+// somewhere in the HTML is not enough if owners enter through a different
+// setup screen. Guided setup is the only one; the old wizard result and the
+// saved-kit list are gone.
+assert.doesNotMatch(html, /id="router-setup-output"|id="setup-list"|id="router-setup-form"/, 'no second kit screen outside guided setup');
 const vm = require('node:vm');
 class TestElement {
   constructor(tag) { this.tagName = tag; this.children = []; this.textContent = ''; this.listeners = {}; this.classList = { add() {}, remove() {} }; }
@@ -335,16 +341,16 @@ const context = vm.createContext({
 vm.runInContext(html.match(/var ROUTER_ROOT_PINS = \[[^\]]*\];/)[0], context);
 for (const name of ['el', 'add', 'clear', 'setupAction', 'saveSetup', 'rosQuote', 'routerCommands', 'routerRootTrustSteps', 'routerCertificateFix', 'routerClockFix',
   'routerBootstrapCommand', 'storedRouterKitHasScript', 'storedRouterKitIsCurrent', 'storedRouterKitIsStale',
-  'appendRouterInstaller', 'appendSimpleRouterSetup', 'renderPairingKits', 'showRouterSetup']) {
+  'appendRouterInstaller', 'appendSimpleRouterSetup']) {
   const declaration = html.match(new RegExp('      function ' + name + '\\([^]*?(?=\\n      function |\\n    \\}\\)\\(\\);)'));
   assert.ok(declaration, name + ' is available to exercise');
   vm.runInContext(declaration[0], context);
 }
 for (const loaderStatus of ['ready', 'storage_not_configured', 'unavailable', '']) {
   const generated = { mode: 'auto', script: '# Test full kit\n:put "test"', loader: loaderStatus === 'ready', loaderStatus };
-  context.showRouterSetup({ location: uiLocation, portalUrl: context.publicPortal(), setup: generated });
+  context.saveSetup(uiLocation, context.publicPortal(), generated);
   const guided = new TestElement('div'); context.appendSimpleRouterSetup(guided, { location: uiLocation });
-  for (const [screen, root] of [['setup result', elements.get('router-setup-output')], ['saved kits', elements.get('setup-list')], ['guided setup', guided]]) {
+  for (const [screen, root] of [['guided setup', guided]]) {
     const nodes = descendants(root);
     const buttons = nodes.filter(node => node.tagName === 'button' && node.textContent === 'Copy connection kit');
     assert.equal(buttons.length, 1, screen + ' always identifies the secure connection kit');
@@ -468,8 +474,8 @@ assert.match(html, /'Add Wi-Fi to it below instead of a second one\.' : 'Use it 
 assert.match(html, /entry\.wifi = \{ ssid: defaultSsid\(\), radio: it\.name \};/, 'Wi-Fi can be added to a hotspot that already runs');
 assert.match(html, /undo removes only the Wi-Fi\./);
 assert.match(html, /hotspot_missing: 'The hotspot is no longer running on that bridge/);
-assert.match(html, /<select aria-label="Analytics location"><option value="">All locations<\/option><\/select>/, 'All locations sends no location filter');
-assert.match(html, /<select aria-label="Customer location"><option value="">All locations<\/option><\/select>/, 'All locations shows every customer');
+assert.match(html, /<select aria-label="Analytics location"><option value="">All routers<\/option><\/select>/, 'All routers sends no location filter');
+assert.match(html, /<select aria-label="Customer location"><option value="">All routers<\/option><\/select>/, 'All routers shows every customer');
 // Go live (stage 4): one card from a set-up router to the first paying customer.
 assert.match(html, /function appendGoLive\(parent, location, options\)/);
 assert.match(html, /'\/api\/business\/locations\/' \+ encodeURIComponent\(locationId\) \+ '\/go-live'/, 'the card reads the same checks a purchase uses');
@@ -495,8 +501,7 @@ assert.match(html, /if \(!radioItem \|\| radioItem\.shareWifi \|\| !WIFI_CHANNEL
 assert.match(html, /add\(more, 'summary', '', 'More Wi-Fi options'\)/);
 assert.match(html, /login_backup_failed: /);
 // Router tools page.
-assert.match(html, /<button type="button" data-module="tools"><span class="symbol" aria-hidden="true">⚒<\/span>Router tools<\/button>/);
-assert.match(html, /,tools: \['tools-section'\]/);
+assert.match(html, /\{ id: 'tools', label: 'Router tools', sections: \['tools-section'\] \}/, 'Router tools is a part of the Routers page');
 assert.match(html, /\{ tool: 'reboot', title: 'Restart the router'/);
 assert.match(html, /if \(card\.danger && !go\.dataset\.armed\) \{ go\.dataset\.armed = '1'; go\.textContent = 'Tap again to restart';/, 'a restart needs two taps');
 assert.match(html, /section\.offsetParent === null \|\| document\.visibilityState === 'hidden'\) \{ scheduleTools\(\); return; \}/, 'no checks from a hidden page');
