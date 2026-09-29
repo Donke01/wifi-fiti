@@ -635,12 +635,14 @@ function accountTokenOk(user, supplied) {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 function appUrl() { return String(config.domains.appUrl || config.publicUrl || '').replace(/\/$/, ''); }
+// On the tenant's own portal address when that is on (pppoe-address.js).
 function payLink(user, { privateLink = true } = {}) {
   const code = settingsFor(user.business_id).payCode;
-  const base = `${appUrl()}/pay/${code}/${encodeURIComponent(user.username)}`;
+  const origin = require('./pppoe-address').payOrigin({ businessId: user.business_id, locationId: user.location_id });
+  const base = `${origin}/pay/${code}/${encodeURIComponent(user.username)}`;
   return privateLink ? `${base}?k=${accountToken(user)}` : base;
 }
-function payPageUrl(businessId) { return `${appUrl()}/pay/${settingsFor(businessId).payCode}`; }
+function payPageUrl(businessId) { return `${require('./pppoe-address').payOrigin({ businessId })}/pay/${settingsFor(businessId).payCode}`; }
 
 /* ------------------------------------------------------------------ */
 /* Views                                                               */

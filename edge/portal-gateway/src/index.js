@@ -4,7 +4,8 @@
  * This Worker has no database and never handles router polling, M-Pesa
  * callbacks, dashboard traffic or credentials. Railway remains the source of
  * truth. The Worker resolves one allowed tenant hostname, then proxies only
- * that location's customer-facing portal surface to the canonical cloud app.
+ * that location's customer-facing portal surface, and its business's PPPoE
+ * pay page, to the canonical cloud app.
  */
 
 const RESOLVE_TIMEOUT_MS = 2_500;
@@ -180,6 +181,24 @@ async function resolvePortal(origin, env, host, runtime) {
   }
 }
 
+// The business's PPPoE pay page on the same address:
+//   /pay                     → 302 to /pay/<its code>
+//   /pay/<code>[/<account>]  → the pay page
+//   /api/pppoe-pay/<code>/…  → its API
+// Only that business's own code; any other code is not found.
+function pppoePayCode(portal) {
+  const code = String(portal && portal.pppoePayCode || '');
+  return /^[a-z0-9]{4,16}$/.test(code) ? code : null;
+}
+function pppoePagePath(pathname, code) {
+  const page = `/pay/${code}`;
+  return pathname === page || /^\/pay\/[a-z0-9]{4,16}\/[^/]{1,96}$/.test(pathname) && pathname.startsWith(`${page}/`);
+}
+function pppoeApiPath(pathname, code) {
+  const prefix = `/api/pppoe-pay/${code}`;
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
 function tenantApiPath(pathname, locationId) {
   const prefix = `/api/tenant/${encodeURIComponent(locationId)}`;
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -226,6 +245,23 @@ export async function handleRequest(request, env, runtime = globalThis) {
       const upstream = await fetchWithTimeout(runtime, upstreamRequest(request, origin, env, host, pathname), null, PROXY_TIMEOUT_MS);
       if (upstream.status >= 300 && upstream.status < 400) return response(502, 'Customer portal unavailable.');
       return copiedResponse(upstream, upstream.body);
+    } catch (_) {
+      return response(503, 'Customer portal unavailable.');
+    }
+  }
+
+  const payCode = pppoePayCode(portal);
+  if (payCode && (pathname === '/pay' || pathname === '/pay/')) {
+    if (request.method !== 'GET' && request.method !== 'HEAD') return response(405, 'Method not allowed.');
+    return new Response(null, { status: 302, headers: { location: `/pay/${payCode}`, 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow' } });
+  }
+  if (payCode && (pppoePagePath(pathname, payCode) || pppoeApiPath(pathname, payCode))) {
+    const api = pathname.startsWith('/api/');
+    if (!(api ? ['GET', 'POST'] : ['GET', 'HEAD']).includes(request.method)) return response(405, 'Method not allowed.');
+    try {
+      const upstream = await fetchWithTimeout(runtime, upstreamRequest(request, origin, env, host, pathname), null, PROXY_TIMEOUT_MS);
+      if (upstream.status >= 300 && upstream.status < 400) return response(502, 'Customer portal unavailable.');
+      return copiedResponse(upstream, request.method === 'HEAD' ? null : upstream.body);
     } catch (_) {
       return response(503, 'Customer portal unavailable.');
     }

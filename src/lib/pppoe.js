@@ -249,7 +249,8 @@ function expiredPageFor(locationId) {
     const row = db.prepare(`SELECT s.pay_code FROM pppoe_billing_settings s JOIN locations l ON l.business_id=s.business_id
       WHERE l.id=? AND s.expired_page=1`).get(locationId);
     if (!row || !/^[a-z0-9]{4,16}$/.test(String(row.pay_code))) return null;
-    const host = new URL(config.domains.appUrl).hostname;
+    // The router's own portal address when PPPoE uses it, else cloud.
+    const host = require('./pppoe-address').tenantHost({ locationId }) || new URL(config.domains.appUrl).hostname;
     if (!/^[a-z0-9.-]{1,253}$/i.test(host)) return null;
     return { host, target: `${host}/pay/${row.pay_code}` };
   } catch (_) { return null; } // billing tables not created yet
@@ -273,6 +274,9 @@ function expiredPageSetup(subnet, page) {
     ':do {',
     `  :if ([:len [/ppp profile find where name="fiti-expired"]] = 0) do={ /ppp profile add name="fiti-expired" local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" rate-limit="512k/512k" dns-server=1.1.1.1,8.8.8.8 only-one=yes comment="${tag}" } else={ /ppp profile set [find where name="fiti-expired"] local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" }`,
     `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${page.host}" comment="${tag}" }`,
+    // A router set up earlier follows a new pay-page address (e.g. the
+    // tenant's own portal address): only its own entry, only if different.
+    `  :do { :foreach fitiPayHost in=[/ip firewall address-list find where list="fiti-pay-host" and comment="${tag}"] do={ :if ([/ip firewall address-list get $fitiPayHost address] != "${page.host}") do={ /ip firewall address-list set $fitiPayHost address="${page.host}" } } } on-error={}`,
     `  :if ([:len [/ip firewall filter find where comment="${tag}"]] = 0) do={`,
     `    ${top('/ip firewall filter', `chain=forward action=drop src-address-list="fiti-pppoe-expired" comment="${tag}"`)}`,
     `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" protocol=udp dst-port=53 comment="${tag}"`)}`,
@@ -290,6 +294,8 @@ function expiredPageSetup(subnet, page) {
     // Nobody else may use the proxy.
     `    ${run(`/ip proxy access add action=deny comment="${tag}"`)}`,
     '  }',
+    // …and its redirect follows the new address too (RouterOS 7, then 6).
+    `  :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] action-data="${page.target}"`)} } on-error={ :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] redirect-to="${page.target}"`)} } on-error={} }`,
     '  :set fitiPppExpiredOk true',
     '} on-error={ :log warning "fiti: PPPoE pay page setup failed; expired customers are cut off instead" }',
   ].join('\n');
@@ -493,4 +499,4 @@ function attachPppoeRoutes(app, { businessAuth, subscriptionBlock = null, userEx
   });
 }
 
-module.exports = { customerBridgeFor, routersFor, routerRate, applyRouterReport, pppoeSubnetForLocation, encrypt, decrypt, profileCreate, profilesFor, userCreate, usersFor, jobFor, setUserLock, clearUserLock, claimJobs, markDelivered, markAcked, markFailed, recordHealth, healthFor, jobStatus, scriptForLocation, attachPppoeRoutes };
+module.exports = { _test: { expiredPageFor, expiredPageSetup }, customerBridgeFor, routersFor, routerRate, applyRouterReport, pppoeSubnetForLocation, encrypt, decrypt, profileCreate, profilesFor, userCreate, usersFor, jobFor, setUserLock, clearUserLock, claimJobs, markDelivered, markAcked, markFailed, recordHealth, healthFor, jobStatus, scriptForLocation, attachPppoeRoutes };

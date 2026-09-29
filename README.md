@@ -396,6 +396,25 @@ admin routes.
    kit for each existing router one at a time; old kits intentionally keep
    redirecting to `cloud` until then.
 
+**PPPoE on the tenant's address.** The same address also serves the business's
+PPPoE pay page, and only that business's page:
+- `kitale.wififiti.co.ke/pay` goes to `/pay/<its code>`;
+- `/pay/<code>/<account>` is a subscriber's page;
+- `/api/pppoe-pay/<code>/…` is its API.
+
+The resolver gives the Worker the business's pay code. Any other code is not
+found. Links move to the tenant address only when `PPPOE_TENANT_ADDRESS=true`.
+Those links are the SMS reminders, receipts, "Copy pay link", "Text link" and
+the expired-customer page on the router. So the order is:
+1. Deploy the updated `edge/portal-gateway` Worker (`wrangler deploy`).
+2. Check `https://<a tenant address>/pay` opens the pay page.
+3. Set `PPPOE_TENANT_ADDRESS=true` on Railway.
+
+Links already sent keep working on `cloud`. A subscriber's link uses their
+router's address; one with no router uses the business's first router with
+PPPoE subscribers. A router's expired-customer page follows the new address
+at its next expiry.
+
 The dashboard lets a tenant choose a managed first-level address. Changing it
 keeps the former hostname as a live alias so an already paired router does not
 break; each location is limited to three active addresses, after which support
