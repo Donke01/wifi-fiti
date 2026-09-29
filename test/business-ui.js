@@ -768,7 +768,7 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   console.log('Business UI: real exports, support search results and Account & limits passed.');
 }
 
-// Settings → Receipts & help: plan receipts and support tickets, drawn by the
+// Settings → Receipts and Customers → Contact Wi-Fi Fiti support, drawn by the
 // page's own helpers in the tiny DOM. Text only, never HTML.
 {
   const calls = [];
@@ -819,7 +819,7 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   assert.ok(descendants(thread).some(node => node.textContent === 'Send reply' && node.type === 'submit'));
 }
 assert.match(html, /<section class="section" id="receipts-section">[^\n]*Plan receipts[^\n]*not tax invoices/, 'the receipts part says receipts are not tax invoices');
-assert.match(html, /<section class="section" id="tickets-section">[^\n]*Ask Wi-Fi Fiti[^\n]*You won't get an SMS or email, so check back here\.[^\n]*<form id="ticket-form">/, 'the tickets part says replies come here only');
+assert.match(html, /<section class="section" id="support-section"[^\n]*\n        <section class="section" id="support-tickets-section">[^\n]*<h2>Contact Wi-Fi Fiti support<\/h2>[^\n]*You won't get an SMS or email, so check back here\.[^\n]*<form id="ticket-form">/, 'the support-ticket screen sits under Customers, next to Support search, and says replies come here only');
 for (const value of ['payment', 'connection', 'router', 'billing', 'other']) assert.match(html, new RegExp('<option value="' + value + '">'), 'ticket category ' + value + ' matches the server');
 
 // Team accounts: every dashboard section has a permission in public/team.js
