@@ -4,7 +4,53 @@ This repository is the source of truth for Wi-Fi Fiti. Work from the `main`
 branch and do not put production secrets, router keys, database files, or
 `.env` files into Git or support messages.
 
-## What changed overnight — 29 Sep 2026 (read this first)
+## Merged on 29 Sep 2026 (read this first)
+
+Everything below is on `main` and live on cloud.wififiti.co.ke; a push to
+`main` redeploys Railway. Merged at Don's request, in this order:
+
+| Time (UTC) | PR | What |
+|---|---|---|
+| 07:50 | #18 | Security: old single-site portal off (`LEGACY_SITE_ENABLED`), phone-lookup and voucher limits, `ADMIN_PASSWORD` required for admin confirmations (constant-time), PPPoE admin XSS fixed, SMS/reconcile one-at-a-time |
+| 07:50 | #13 | Portal and flow fixes: PayBill only when real, Buy for TV and removing an old linked TV, setup exits, offline router on step 2, template alignment, 360 px tiles |
+| 07:50 | #14 | Dashboard real data: exports, support search, router card from the last check-in, Account & limits, "—" for an empty CPU |
+| 07:50 | #16 | Dashboard in 8 pages with tabs; "Settings → Billing & payments" wording |
+| 07:50 | #15 | Team accounts: roles, one-time invites, one permission check per route, activity log; pppoe.html and operations.html role-gated; money hidden from the Technician |
+| 07:51 | #17 | Handoff: what changed overnight |
+| 08:03 | — | Handoff: `ADMIN_PASSWORD` is set on Railway |
+| 08:13 | #24 | Remote support switches on by itself for a **new** router at its first verified check-in; turning it off sticks; running routers untouched; `changes.diff` deleted |
+| 08:13 | #19 | New router kits send the router token only in the `X-WiFi-Fiti-Router` header (test enforces it) |
+| 08:13 | #21 | Portal fonts: only fonts phones have; "Rounded" dropped (saved as Modern) |
+| 08:13 | #22 | Customers → "Contact Wi-Fi Fiti support"; Usage analytics on Home; Settings → Receipts |
+| 08:13 | #23 | "Design your portal" form: normal checkboxes, preset titles above descriptions |
+| 08:15 | #20 | Handoff: follow-ups, portal templates, open questions |
+| 08:28 | #25 | PPPoE gets its own sidebar item (9 items) |
+| 09:27 | #26 | Router telemetry always on; **Active users** view; the concurrent-user limit counts customers actually online |
+| 09:42 | #27 | Faster: router report every 30 s (10 s while Active users is open), a chart point every minute, "not reporting" after 90 s |
+| 10:01 | #28 | Payment recovery in the portal says why it found nothing |
+| 10:01 | #29 | Dashboard refreshes itself every 2 seconds |
+
+**Check first on real hardware (nothing below has run on a router yet):**
+1. On CLOUDNET (RB951, 7.24.2), open Routers → Active users. It fills within
+   about 30 s, and each customer's "online this session" time looks right.
+   `[:tonum]` of the hotspot uptime and idle times must give seconds.
+2. The router's CPU card looks about the same as before #26/#27.
+3. Then a small board (SIRENDE's hAP lite, 32 MB) when Don is ready.
+4. If a router struggles, set `ROUTER_TELEMETRY=off` on Railway. Every router
+   stops reporting at once, and the limit counts packages with time left
+   again.
+
+**Still open:**
+- Payment recovery: a payment confirmed by an M-Pesa status query has no
+  code, so it can't be recovered by typing one. The owner switches the
+  customer on from Customers → Support search. Railway logs each failed
+  recovery as `[tenant recover] … <reason>`.
+- `test/ceiling.js` fails about 1 run in 8 with the clock (on `main` too). Rerun
+  it before assuming a failure; `npm test` stops at the first failure.
+- Firefox: nothing today was checked in Firefox.
+- Don's open questions: see "Open questions for Don" below.
+
+## What changed overnight — 29 Sep 2026
 
 **Merged to `main` on 29 Sep at Don's request, in this order:** #18 → #13 →
 #14 → #16 → #15 → #17 (this handoff). A push to `main` redeploys Railway.
@@ -157,12 +203,12 @@ table also scrolls sideways on a phone now.
 - **Don:** hardware tests; see "Next steps" in the 28 Sep handover below.
 - ~~**Don:** decide on `changes.diff`.~~ Done 29 Sep: remote support is on by default for new routers (`auto-remote-support`).
 - **Done:** `ADMIN_PASSWORD` is set on Railway. **Don:** if any router still uses the old single-site portal, set `LEGACY_SITE_ENABLED=true` until it has been moved.
-- Payouts/disbursements (left for now). They are still only in the unlinked `operations.html`. Plan receipts and support tickets now live in Settings → Receipts & help (#16).
+- Payouts/disbursements (left for now). They are still only in the unlinked `operations.html`. Plan receipts are in Settings → Receipts, and support tickets in Customers → Contact Wi-Fi Fiti support (#22).
 - **#13:**
   - The dashboard preview of the portal on a phone is slightly wider than its frame. This was already the case before #13; the real portal is fine.
   - "Remove this TV" shows only on the phone whose browser holds that package.
 - **#14:**
-  - Uptime, CPU and memory still need Router health or the telemetry test kit, because normal check-ins don't carry them.
+  - ~~Uptime, CPU and memory still need Router health.~~ Since #26 every router reports them every 30 s.
   - Older kits send no RouterOS version or board.
 - **#16:** SMS and email reminders say "Settings > Billing & payments". The arrow is left out on purpose, because it would make an SMS Unicode, which costs more per message.
 - **#15:** the invite email hasn't been sent through real Resend.
@@ -193,7 +239,7 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
   - Not yet seen on a real Android phone or iPhone.
 - **#23:** the "Design your portal" form had 47 px, full-width checkboxes, and preset titles ran into their descriptions, at every width. The cause was the global `button{display:inline-flex}` and `input{width:100%;min-height:47px}` rules. The presets are now blocks, and `label.check` in the form is a flex row with a 20 px checkbox. `test/business-ui.js` checks both.
 
-### Router telemetry and Active users (branch `router-telemetry`, not merged)
+### Router telemetry and Active users (#26, #27, merged)
 
 - **Charts and Active users:** the router charts and a live "Active users"
   view come from a short read-only report. Every 30 seconds (10 while the
@@ -212,7 +258,23 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
   - then a small board (hAP lite).
   - `ROUTER_TELEMETRY=off` on Railway stops it on every router at once.
 
-### Live refresh (branch `live-refresh`)
+### Payment recovery reasons (#28, merged)
+
+- "We could not find a confirmed payment" covered several cases. The portal
+  now says which one, with a `code`:
+  - `other_location`: paid on the business's other router; recover it there.
+  - `other_phone`: the code was paid from a different number.
+  - `pending`: still being confirmed.
+  - `failed`: not completed.
+  - `receipt_unknown`: confirmed by an M-Pesa status query, so there is no
+    code; the operator switches the customer on.
+  - `not_confirmed`: Tuma has not confirmed it within the hour; a late Tuma
+    confirmation still credits it.
+- **Privacy:** another business's payments always give `not_found`.
+- **Code:** `tenant.paymentRecoveryMiss` in `src/lib/tenant.js`; the tests are
+  in `test/security.js`.
+
+### Live refresh (#29, merged)
 
 - **What it does:** every 2 s the dashboard reads `/me`, sales and vouchers.
   - It redraws only when something really changed. `liveStable` ignores
