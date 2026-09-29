@@ -18,7 +18,9 @@ function attachTenantDashboardRoutes(app, { businessAuth, db }) {
     const businessId = business.id;
     const period = ['7d', '30d', '90d'].includes(String(req.query.period)) ? String(req.query.period) : '30d';
     const days = Number(period.slice(0, -1));
-    const since = sqlDate(Date.now() - days * 86400_000);
+    // An Attendant (team accounts) sees today only: the guard sets salesFrom.
+    const floor = req.salesFrom;
+    const since = floor && floor > sqlDate(Date.now() - days * 86400_000) ? floor : sqlDate(Date.now() - days * 86400_000);
     const locations = db.prepare(`
       SELECT l.id, l.name, l.router_name, l.router_status, l.router_model,
              l.last_seen_at, l.last_successful_sync_at, l.portal_setup_completed_at,

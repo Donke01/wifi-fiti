@@ -59,7 +59,11 @@
 
   var workspace = null;
   function refresh() {
-    return api('/api/business/me').then(function (data) { workspace = data; renderServicesStep(); renderChecklist(); }).catch(function () { /* signed out */ });
+    return api('/api/business/me').then(function (data) {
+      // The setup checklist is the owner's (team members don't set up payments).
+      if (data && data.member && data.member.role !== 'owner') { workspace = null; if (listBox) listBox.remove(); return; }
+      workspace = data; renderServicesStep(); renderChecklist();
+    }).catch(function () { /* signed out */ });
   }
 
   // ---- Step 1: choose services -------------------------------------------

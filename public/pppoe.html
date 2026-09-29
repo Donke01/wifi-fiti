@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Wi-Fi Fiti · PPPoE subscribers</title>
 <script src="/fiti-actions.js"></script>
+<script src="/team-gate.js"></script>
 <link rel="stylesheet" href="/assets/fiti-motion.css">
 <script src="/assets/fiti-motion.js" defer></script>
 <style>
@@ -20,7 +21,7 @@ a{color:var(--blue)}
 .back{padding:9px 12px;border:1px solid var(--line);border-radius:10px;color:#175aa7;background:#fff;font-weight:800;text-decoration:none}
 .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 20px;box-shadow:var(--shadow)}
 .card h2{margin:0;font-size:18px;letter-spacing:-.01em}.card>p.lead{margin:4px 0 14px;color:var(--muted)}
-.grid{display:grid;gap:16px}.two{grid-template-columns:1fr 1fr}
+.grid{display:grid;gap:16px}.grid>*{min-width:0}.two{grid-template-columns:1fr 1fr}
 .metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:0 0 16px}
 .metric{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 16px}.metric span{display:block;color:var(--muted);font-size:12px;font-weight:700}.metric strong{display:block;margin-top:4px;font-size:24px}
 .banner{display:flex;gap:12px;align-items:center;padding:14px 16px;border-radius:14px;margin-bottom:16px;flex-wrap:wrap}
@@ -108,6 +109,8 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
   var token = ''; try { token = localStorage.getItem('fiti_business_token') || ''; } catch (e) {}
   var app = document.getElementById('app');
   var state = null; var billing = null; var workspace = null; var filter = 'all'; var flash = null;
+  // What the signed-in person's role may do here (the server checks too).
+  function can(permission) { return !window.FitiGate || window.FitiGate.can(workspace && workspace.member, permission); }
   var DAY = 86400000;
 
   function h(tag, attrs, children) {
@@ -160,10 +163,15 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
   function sub(u) { return (billing.subscribers || {})[u.id] || { billing: {} }; }
 
   // ---- Page ---------------------------------------------------------------
-  Promise.all([api('/api/business/me'), api('/api/business/pppoe'), api('/api/business/pppoe/billing')]).then(function (r) {
-    workspace = r[0]; state = r[1]; billing = r[2]; draw();
-  }).catch(function () {
+  // Who is signed in first: a role without PPPoE customers gets a plain
+  // message instead of controls that would only be refused.
+  api('/api/business/me').then(function (me) {
+    workspace = me;
+    if (!can('customers.view')) { window.FitiGate.blocked(app, me.member, { cardClass: 'card', linkClass: 'back', what: 'PPPoE subscribers are for the owner, a Manager or an Attendant.' }); return null; }
+    return Promise.all([api('/api/business/pppoe'), api('/api/business/pppoe/billing')]).then(function (r) { state = r[0]; billing = r[1]; draw(); });
+  }).catch(function (e) {
     app.textContent = '';
+    if (e.status && e.status !== 401) { app.appendChild(h('section', { class: 'card' }, [h('h2', { text: 'Could not open this page' }), h('p', { class: 'lead', text: e.message }), h('a', { class: 'back', href: '/business.html', text: 'Back to the dashboard' })])); return; }
     app.appendChild(h('section', { class: 'card' }, [h('h2', { text: 'Sign in required' }), h('p', { class: 'lead', text: 'Open the business dashboard and sign in first.' }), h('a', { class: 'back', href: '/business.html', text: 'Open business dashboard' })]));
   });
 
@@ -173,8 +181,8 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
     var counts = { paid: 0, due: 0, ended: 0, credit: 0 };
     users.forEach(function (u) { var b = sub(u).billing; if (b.status === 'paid' || b.status === 'no_expiry') counts.paid++; if (b.status === 'due') counts.due++; if (b.status === 'grace' || b.status === 'expired') counts.ended++; counts.credit += b.credit || 0; });
     if (!billing.serving) app.appendChild(h('div', { class: 'banner warn', role: 'status' }, [
-      h('span', {}, [h('b', { text: 'Your PPPoE + Static IP plan has ended. ' }), 'Customer payments are refused until you renew, so nobody pays for internet you cannot switch back on. PayBill or cash that still arrives is kept as the customer’s credit.']),
-      h('button', { type: 'button', text: 'Renew plan', onclick: function () { if (window.FitiActions) window.FitiActions.open({ action: 'subscribe', service: 'pppoe', reason: 'expired' }).then(function (ok) { if (ok) reload('Plan renewed. Customer payments are open again.'); }); } }),
+      h('span', {}, [h('b', { text: 'Your PPPoE + Static IP plan has ended. ' }), 'Customer payments are refused until ' + (can('billing') ? 'you renew' : 'the owner renews') + ', so nobody pays for internet you cannot switch back on. PayBill or cash that still arrives is kept as the customer’s credit.']),
+      !can('billing') ? null : h('button', { type: 'button', text: 'Renew plan', onclick: function () { if (window.FitiActions) window.FitiActions.open({ action: 'subscribe', service: 'pppoe', reason: 'expired' }).then(function (ok) { if (ok) reload('Plan renewed. Customer payments are open again.'); }); } }),
     ]));
     if (flash) app.appendChild(h('div', { class: 'banner good', role: 'status' }, [h('span', { text: flash })]));
     app.appendChild(h('section', { class: 'metrics' }, [
@@ -182,9 +190,16 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
     ]));
     if ((state.routers || []).length) app.appendChild(routersSection());
     app.appendChild(subscribersSection());
-    app.appendChild(h('div', { class: 'grid two', style: 'margin-top:16px' }, [addSubscriberCard(), plansCard()]));
-    app.appendChild(h('div', { class: 'grid two', style: 'margin-top:16px' }, [howCustomersPayCard(), settingsCard()]));
-    app.appendChild(h('div', { style: 'margin-top:16px' }, [paymentsCard()]));
+    // Cards a role can't use are left out: adding subscribers needs
+    // customers.edit, plans and billing settings packages.edit, and the
+    // payment list sales.view.
+    row([can('customers.edit') ? addSubscriberCard() : null, can('packages.edit') ? plansCard() : null]);
+    row([howCustomersPayCard(), can('packages.edit') ? settingsCard() : null]);
+    if (can('sales.view')) app.appendChild(h('div', { style: 'margin-top:16px' }, [paymentsCard()]));
+  }
+  function row(cards) {
+    cards = cards.filter(Boolean); if (!cards.length) return;
+    app.appendChild(h('div', { class: cards.length > 1 ? 'grid two' : 'grid', style: 'margin-top:16px' }, cards));
   }
   function metric(label, value) { return h('div', { class: 'metric' }, [h('span', { text: label }), h('strong', { text: String(value) })]); }
 
@@ -199,7 +214,7 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
       ] : [
         h('strong', { text: r.name || r.id }), h('span', { text: 'Confirm this router’s map first' }),
         h('small', { text: 'Subscribers can’t connect until the customer bridge is confirmed. Subscribers you add now are sent as soon as it is.' }),
-        h('button', { type: 'button', class: 'secondary small', style: 'margin-top:8px', text: 'Confirm router map', onclick: function () {
+        !can('map') ? null : h('button', { type: 'button', class: 'secondary small', style: 'margin-top:8px', text: 'Confirm router map', onclick: function () {
           if (window.FitiActions) window.FitiActions.open({ action: 'confirm_router_map', locationId: r.id }).then(function (ok) { if (ok) reload('Router map confirmed. Waiting subscribers are on their way to the router.'); });
         } }),
       ]);
@@ -218,7 +233,7 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
     var rows = users.length ? users.map(function (u) { return subscriberRow(u, box); }) : [h('tr', {}, [h('td', { colspan: '7', class: 'muted', text: (state.users || []).length ? 'No subscribers match this filter.' : 'No PPPoE subscribers yet. Add one below.' })])];
     return h('section', { class: 'card' }, [
       h('h2', { text: 'Subscribers' }),
-      h('p', { class: 'lead', text: 'Customers pay by M-Pesa with their username as the account number. Paid days go on the router by themselves.' }),
+      h('p', { class: 'lead', text: 'Customers pay by M-Pesa with their username as the account number. Paid days go on the router by themselves.' + (can('customers.edit') ? '' : ' Your role can look up subscribers and copy their pay link; the owner or a Manager makes changes.') }),
       h('div', { class: 'filters', role: 'group', 'aria-label': 'Filter' }, [['all', 'All'], ['due', 'Due soon'], ['ended', 'Ended'], ['awaiting', 'Awaiting first payment'], ['credit', 'With credit']].map(function (f) {
         return h('button', { type: 'button', 'aria-pressed': String(filter === f[0]), text: f[1], onclick: function () { filter = f[0]; draw(); } });
       })),
@@ -241,15 +256,15 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
       h('td', {}, [h('span', { class: 'pill ' + st[1], text: st[0] })]),
       h('td', {}, [h('span', { class: 'delivery ' + d[1], text: d[0] })]),
       h('td', {}, [h('div', { class: 'actions' }, [
-        b.billed ? h('button', { type: 'button', class: 'small', text: 'Record payment', onclick: function () { openPay(u); } }) : null,
-        h('button', { type: 'button', class: 'secondary small', text: 'Edit', onclick: function () { openEdit(u); } }),
+        b.billed && can('payments.record') ? h('button', { type: 'button', class: 'small', text: 'Record payment', onclick: function () { openPay(u); } }) : null,
+        can('customers.edit') ? h('button', { type: 'button', class: 'secondary small', text: 'Edit', onclick: function () { openEdit(u); } }) : null,
         info.payLink ? h('button', { type: 'button', class: 'secondary small', text: 'Copy pay link', onclick: function () { copy(info.payLink, box); } }) : null,
-        info.payLink && info.phone ? h('button', { type: 'button', class: 'secondary small', text: 'Text link', onclick: function () {
+        info.payLink && info.phone && can('customers.edit') ? h('button', { type: 'button', class: 'secondary small', text: 'Text link', onclick: function () {
           api('/api/business/pppoe/users/' + encodeURIComponent(u.id) + '/send-link', { method: 'POST', body: {} }).then(function () { msg(box, 'Pay link sent to ' + info.phone + '.', true); }).catch(function (e) { msg(box, e.message); });
         } }) : null,
-        h('button', { type: 'button', class: 'secondary small', text: 'Send to router', onclick: function () {
+        can('customers.edit') ? h('button', { type: 'button', class: 'secondary small', text: 'Send to router', onclick: function () {
           api('/api/business/pppoe/users/' + encodeURIComponent(u.id) + '/provision', { method: 'POST', body: {} }).then(function () { return reload('Sent again. The router applies it on its next check-in.'); }).catch(function (e) { msg(box, e.message); });
-        } }),
+        } }) : null,
       ])]),
     ]);
   }

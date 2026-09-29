@@ -17,6 +17,8 @@
     // Every call here needs a signed-in owner. Signed out (the welcome page
     // loads this script too), fail as the server would, without a request.
     if (!token) { var signedOut = new Error('Please sign in.'); signedOut.status = 401; return Promise.reject(signedOut); }
+    // Owner only (team accounts): a staff role would only get 403s.
+    if (window.FitiTeam && !window.FitiTeam.can('payments.settings')) { var denied = new Error('Only the owner can do this.'); denied.status = 403; return Promise.reject(denied); }
     options.headers = Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {});
     return fetch(path, options).then(function (response) {
       return response.json().catch(function () { return {}; }).then(function (body) {

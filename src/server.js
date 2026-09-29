@@ -16,9 +16,10 @@ const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup, bui
 const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topology');
 const routerChanges = require('./lib/router-changes');
 const routerTools = require('./lib/router-tools');
+const team = require('./lib/team');
 const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
-const { sendEmail, verificationEmail } = require('./lib/email');
+const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const pppoeBilling = require('./lib/pppoe-billing');
@@ -574,7 +575,8 @@ app.use((req, res, next) => {
     maximum = path.endsWith('register') ? 20 : 50;
     windowMs = 15 * 60_000;
   } else if (req.method === 'POST' && ['/api/business/forgot-password', '/api/business/reset-password', '/api/business/verify-login',
-    '/api/business/verify-registration', '/api/business/resend-code', '/api/business/phone/verify/confirm'].includes(path)) {
+    '/api/business/verify-registration', '/api/business/resend-code', '/api/business/phone/verify/confirm',
+    '/api/business/invite/check', '/api/business/invite/accept'].includes(path)) {
     // Code-checking and code-sending routes, per address.
     key = path + ':' + req.ip;
     maximum = 20;
@@ -638,6 +640,9 @@ app.use((req, res, next) => {
   next();
 });
 setInterval(() => tenantAccess.purge(), 60 * 60_000).unref();
+// Team accounts: one permission check for every /api/business/* route
+// (explicit table in src/lib/team.js, deny by default for staff).
+app.use(team.guard);
 
 /* ------------------------------------------------------------------ */
 /* Throttle                                                            */
@@ -693,11 +698,13 @@ function passwordMatches(password, stored) {
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 
-function issueBusinessSession(businessId) {
+// memberId is null for the owner, or the team member's id.
+function issueBusinessSession(businessId, memberId = null) {
   const token = crypto.randomBytes(32).toString('base64url');
   db.addBusinessSession.run({
     tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
     businessId,
+    memberId,
     expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''),
   });
   return token;
@@ -707,7 +714,13 @@ function businessAuth(req, res) {
   const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (!token) { res.status(401).json({ error: 'Please sign in.' }); return null; }
   const business = db.businessForSession.get(crypto.createHash('sha256').update(token).digest('hex'));
-  if (!business) { res.status(401).json({ error: 'Your session has expired. Please sign in again.' }); return null; }
+  // A removed team member's session is no longer valid.
+  const session = req.teamSession !== undefined ? req.teamSession : team.sessionFor(token);
+  if (!business || !session || session.businessId !== business.id) { res.status(401).json({ error: 'Your session has expired. Please sign in again.' }); return null; }
+  req.teamSession = session;
+  // Deny by default: a staff session reaches a route only when the team
+  // guard's route table allowed it.
+  if (session.role !== 'owner' && !req.teamAllowed) { res.status(403).json({ error: 'Your role can\'t do this. Ask the owner.' }); return null; }
   return business;
 }
 
@@ -982,6 +995,11 @@ app.post('/api/business/register', async (req, res) => {
     return res.status(400).json({ error: 'Enter business details, a valid email and an 8-character password.' });
   }
   if (!validBusinessPlan(plan, collectionMode)) return res.status(400).json({ error: 'Choose a valid Wi-Fi Fiti plan.' });
+  if (team.memberForLogin(email)) {
+    // Same answer as for an owner's email, so the form does not reveal who is on a team.
+    if (emailVerificationEnabled()) return res.status(202).json({ verificationRequired: true, verificationId: businessId('verify'), email, message: 'Enter the verification code sent to your email.' });
+    return res.status(409).json({ error: 'An account with this email already exists.' });
+  }
   if (db.businessByEmail.get(email)) {
     // With email codes on, answer exactly as for a new sign-up so the form
     // cannot be used to find out who has an account. The owner gets an email
@@ -1044,6 +1062,7 @@ app.post('/api/business/verify-registration', (req, res) => {
   try {
     const row = consumeEmailVerification(String(req.body && req.body.verificationId || ''), req.body && req.body.code, 'register');
     const payload = JSON.parse(row.payload_json || '{}');
+    if (team.memberForLogin(row.email)) throw Object.assign(new Error('An account with this email already exists.'), { status: 409 });
     const id = businessId('biz');
     db.addBusiness.run({ id, name: payload.registrationIsComplete ? payload.name : '', ownerName: payload.registrationIsComplete ? payload.ownerName : '', ownerPhone: payload.registrationIsComplete ? payload.ownerPhone : '', email: row.email, passwordHash: payload.passwordHash, plan: payload.plan, collectionMode: payload.collectionMode, onboardingState: payload.registrationIsComplete ? 'complete' : 'organisation', organisationCompletedAt: payload.registrationIsComplete ? new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : null, hotspotName: payload.hotspotName });
     db.setBusinessTrial.run({ id, expiresAt: new Date(Date.now() + TRIAL_DAYS * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
@@ -1057,7 +1076,9 @@ app.post('/api/business/login', async (req, res) => {
   const email = String(req.body && req.body.email || '').trim().toLowerCase();
   const password = String(req.body && req.body.password || '');
   const business = db.businessByEmail.get(email);
-  if (!business || !passwordMatches(password, business.password_hash)) {
+  // Not an owner: a team member signs in with their email or phone.
+  if (!business) return memberLogin(req, res, password);
+  if (!passwordMatches(password, business.password_hash)) {
     return res.status(401).json({ error: 'Email or password is incorrect.' });
   }
   if (emailVerificationEnabled()) {
@@ -1070,6 +1091,27 @@ app.post('/api/business/login', async (req, res) => {
   res.json({ token: issueBusinessSession(business.id), business: account,
     onboarding: onboardingState(account, tenant.locationsForBusiness.all(business.id)) });
 });
+
+async function memberLogin(req, res, password) {
+  const member = team.memberForLogin(req.body && req.body.email);
+  if (!member || !passwordMatches(password, member.password_hash)) {
+    return res.status(401).json({ error: 'Email or password is incorrect.' });
+  }
+  // Same email code as the owner when email is set up and the member has one.
+  if (emailVerificationEnabled() && member.email) {
+    try {
+      const verificationId = await beginEmailVerification({ email: member.email, purpose: 'login', businessId: member.business_id, payload: { memberId: member.id }, recipientName: member.name });
+      return res.status(202).json({ verificationRequired: true, verificationId, email: member.email, message: 'Enter the verification code sent to your email.' });
+    } catch (error) { return res.status(error.status || 502).json({ error: error.message || 'Verification email could not be sent.' }); }
+  }
+  memberSignedIn(res, member);
+}
+function memberSignedIn(res, member) {
+  const account = db.businessById.get(member.business_id);
+  if (!account) return res.status(401).json({ error: 'Email or password is incorrect.' });
+  res.json({ token: issueBusinessSession(account.id, member.id), business: account, member: team.whoFor({ role: member.role, member }, account),
+    onboarding: onboardingState(account, tenant.locationsForBusiness.all(account.id)) });
+}
 
 // Google OAuth is intentionally configuration-gated. The controls are shown
 // consistently on login and registration, but no redirect is attempted until
@@ -1111,6 +1153,9 @@ app.get('/api/business/google/callback', async (req, res) => {
     if (profile.aud !== clientId || profile.email_verified !== 'true' || !/^\S+@\S+\.\S+$/.test(String(profile.email || ''))) throw new Error('Google account email could not be verified');
     const email = String(profile.email).toLowerCase();
     let account = db.businessByEmail.get(email);
+    // A team member's Google account signs in as that member.
+    const member = account ? null : team.memberForLogin(email);
+    if (member) return res.redirect(`${config.domains.appUrl}/business.html#google_token=${encodeURIComponent(issueBusinessSession(member.business_id, member.id))}`);
     if (!account) {
       const id = businessId('biz');
       db.addBusiness.run({ id, name: '', ownerName: String(profile.name || email.split('@')[0]).slice(0, 80), ownerPhone: '', email, passwordHash: hashPassword(crypto.randomBytes(32).toString('hex')), plan: 'starter', collectionMode: 'own', onboardingState: 'organisation', organisationCompletedAt: null, hotspotName: null });
@@ -1129,6 +1174,12 @@ app.get('/api/business/google/callback', async (req, res) => {
 app.post('/api/business/verify-login', (req, res) => {
   try {
     const row = consumeEmailVerification(String(req.body && req.body.verificationId || ''), req.body && req.body.code, 'login');
+    const memberId = (() => { try { return JSON.parse(row.payload_json || '{}').memberId || null; } catch (_) { return null; } })();
+    if (memberId) {
+      const member = db.db.prepare(`SELECT * FROM business_members WHERE id=? AND business_id=? AND status='active'`).get(memberId, row.business_id);
+      if (!member) throw Object.assign(new Error('Account no longer exists.'), { status: 404 });
+      return memberSignedIn(res, member);
+    }
     const account = db.businessById.get(row.business_id);
     if (!account) throw Object.assign(new Error('Account no longer exists.'), { status: 404 });
     res.json({ token: issueBusinessSession(account.id), business: account, onboarding: onboardingState(account, tenant.locationsForBusiness.all(account.id)) });
@@ -1154,6 +1205,9 @@ app.post('/api/business/resend-code', async (req, res) => {
   if (current.purpose === 'register') {
     try { payload = JSON.parse(current.payload_json || '{}'); } catch (_) { payload = {}; }
     recipientName = payload.ownerName || recipientName;
+  } else if (current.payload_json) {
+    // A team member's sign-in code keeps who it is for.
+    try { payload = JSON.parse(current.payload_json); } catch (_) { payload = null; }
   } else if (current.business_id) {
     const business = db.businessById.get(current.business_id);
     if (business) recipientName = business.owner_name || recipientName;
@@ -1197,8 +1251,9 @@ app.post('/api/business/reset-password', (req, res) => {
     const row = consumeEmailVerification(String(req.body && req.body.verificationId || ''), req.body && req.body.code, 'reset');
     if (!row.business_id) throw Object.assign(new Error('This reset request is invalid.'), { status: 400 });
     db.setBusinessPassword.run(hashPassword(password), row.business_id);
-    // Anyone signed in with the old password is signed out.
-    db.db.prepare('DELETE FROM business_sessions WHERE business_id=?').run(row.business_id);
+    // Anyone signed in with the old password is signed out. Team members
+    // have their own passwords and stay signed in.
+    db.db.prepare('DELETE FROM business_sessions WHERE business_id=? AND member_id IS NULL').run(row.business_id);
     res.json({ message: 'Password updated. You can now sign in.' });
   } catch (error) { res.status(error.status || 400).json({ error: error.message || 'Could not reset the password.' }); }
 });
@@ -1223,7 +1278,11 @@ app.get('/api/business/me', (req, res) => {
       // ever placed in the general dashboard response.
       routerMapping: tenant.routerMappingForLocation(location),
     }));
-  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), trialLimits: trialLimited(business) ? TRIAL_LIMITS : null, routerLimit: routerLimit(business), phoneVerification: { available: phoneVerification.available(), verified: phoneVerification.verified(business), required: Boolean(ownerPhoneBlock(business)) }, tumaFee: tumaFee.state(business.id), locations, packages: db.packagesForBusiness.all(business.id),
+  res.json({ business, onboarding: onboardingState(business, locations), plan: businessPlanEntitlements(business), services: serviceBilling.summary(business), serviceUsage: serviceUsage(business), servicePlan: servicePlan(business), trialLimits: trialLimited(business) ? TRIAL_LIMITS : null, routerLimit: routerLimit(business), phoneVerification: { available: phoneVerification.available(), verified: phoneVerification.verified(business), required: Boolean(ownerPhoneBlock(business)) }, tumaFee: tumaFee.state(business.id), locations,
+    // Who is signed in and what their role allows (the dashboard hides the rest).
+    member: team.whoFor(req.teamSession, business),
+    // Prices are hidden from roles that do not work with packages.
+    packages: team.can(req, 'packages.view') ? db.packagesForBusiness.all(business.id) : [],
     monthlyActiveDevices: tenant.activeMeter.get(business.id).n,
     // This is deliberately a public capability rather than configuration:
     // owners need to know whether a managed customer address can be chosen,
@@ -1234,6 +1293,85 @@ app.get('/api/business/me', (req, res) => {
       kind: 'managed-subdomain',
     },
     note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
+});
+
+/* ---- Team accounts (owner only, see src/lib/team.js) ---------------- */
+// An invite is a one-time link the owner shares on WhatsApp (and by email
+// when Resend is set up). The token sits in the URL fragment, so it never
+// reaches server logs; only its hash is stored.
+function inviteLinks(token, invite, business) {
+  const link = `${config.domains.appUrl}/business.html#invite=${encodeURIComponent(token)}`;
+  const who = invite.name ? `Hi ${invite.name}, ` : 'Hi, ';
+  const text = invite.kind === 'reset'
+    ? `${who}here is your link to set a new Wi-Fi Fiti password for ${business.name || 'our business'}. It works once and expires in ${team.INVITE_DAYS} days: ${link}`
+    : `${who}${business.owner_name || 'the owner'} invited you to help run ${business.name || 'our business'} on Wi-Fi Fiti as ${invite.roleLabel}. Open this link to set your password. It works once and expires in ${team.INVITE_DAYS} days: ${link}`;
+  const phone = invite.phone ? String(invite.phone).replace(/\D/g, '') : '';
+  return { link, text, whatsappUrl: `https://wa.me/${phone}?text=${encodeURIComponent(text)}` };
+}
+async function emailInvite(links, invite, business) {
+  if (!invite.email || !emailVerificationEnabled()) return false;
+  try {
+    await sendEmail({ to: invite.email, ...inviteEmail({ link: links.link, businessName: business.name, ownerName: business.owner_name, roleLabel: invite.roleLabel, name: invite.name, reset: invite.kind === 'reset', days: team.INVITE_DAYS }) });
+    return true;
+  } catch (error) { console.error('[team] invite email failed:', error.message); return false; }
+}
+function teamRoute(handler) {
+  return async (req, res) => {
+    const business = businessAuth(req, res); if (!business) return;
+    res.set('Cache-Control', 'no-store');
+    try { await handler(req, res, business); }
+    catch (error) {
+      if (!error.status) console.error('[team]', error.message);
+      res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not update your team. Please try again.' });
+    }
+  };
+}
+app.get('/api/business/team', teamRoute((req, res, business) => res.json(team.teamFor(business.id))));
+app.post('/api/business/team/invites', teamRoute(async (req, res, business) => {
+  const { token, invite } = team.createInvite(business.id, req.body || {});
+  const links = inviteLinks(token, invite, business);
+  res.status(201).json({ invite, ...links, emailed: await emailInvite(links, invite, business), team: team.teamFor(business.id) });
+}));
+// Only a hash is kept, so a lost link is replaced: the old one stops working.
+app.post('/api/business/team/invites/:inviteId/link', teamRoute(async (req, res, business) => {
+  const { token, invite } = team.rotateInvite(business.id, String(req.params.inviteId));
+  const links = inviteLinks(token, invite, business);
+  res.json({ invite, ...links, team: team.teamFor(business.id) });
+}));
+app.delete('/api/business/team/invites/:inviteId', teamRoute((req, res, business) => {
+  team.revokeInvite(business.id, String(req.params.inviteId));
+  res.json({ ok: true, team: team.teamFor(business.id) });
+}));
+app.patch('/api/business/team/members/:memberId', teamRoute((req, res, business) => {
+  const member = team.changeRole(business.id, String(req.params.memberId), req.body && req.body.role);
+  res.json({ member, team: team.teamFor(business.id) });
+}));
+app.delete('/api/business/team/members/:memberId', teamRoute((req, res, business) => {
+  team.removeMember(business.id, String(req.params.memberId));
+  res.json({ ok: true, team: team.teamFor(business.id) });
+}));
+// A team member who forgot their password gets a one-time link from the
+// owner (there is no self-service reset for staff).
+app.post('/api/business/team/members/:memberId/reset', teamRoute(async (req, res, business) => {
+  const { token, invite } = team.resetInvite(business.id, String(req.params.memberId));
+  const links = inviteLinks(token, invite, business);
+  res.status(201).json({ invite, ...links, emailed: await emailInvite(links, invite, business), team: team.teamFor(business.id) });
+}));
+// Public: what an invite link is for, then use it once.
+app.post('/api/business/invite/check', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try { res.json(team.inviteSummary(String(req.body && req.body.token || ''))); }
+  catch (error) { res.status(error.status || 400).json({ error: error.message }); }
+});
+app.post('/api/business/invite/accept', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const member = team.acceptInvite(String(req.body && req.body.token || ''), req.body || {}, hashPassword);
+    memberSignedIn(res, member);
+  } catch (error) {
+    if (!error.status) console.error('[team] invite accept failed:', error.message);
+    res.status(error.status || 400).json({ error: error.status ? error.message : 'Could not use this invite. Please try again.' });
+  }
 });
 
 /** Complete the organisation profile immediately after a trial account is
@@ -2202,9 +2340,10 @@ app.patch('/api/business/locations/:locationId/portal-address', (req, res) => {
 
 app.get('/api/business/dashboard', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  const period = String(req.query.period || '30d');
+  const period = req.salesFrom ? 'today' : String(req.query.period || '30d');
   const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
-  const since = new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+  // An Attendant sees today's sales only, whatever period is asked for.
+  const since = team.salesSince(req, new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''));
   const totals = tenant.salesSummary.get(business.id, since);
   const gross = Number(totals.gross || 0);
   const platformFee = Number(totals.platform_fee || 0);
@@ -2212,7 +2351,7 @@ app.get('/api/business/dashboard', (req, res) => {
     period, since, gross, payments: Number(totals.payments || 0), customers: Number(totals.customers || 0),
     platformFee, netToBusiness: gross - platformFee,
     byLocation: tenant.salesByLocation.all(since, business.id),
-    recentPayments: tenant.recentSales.all(business.id, 25),
+    recentPayments: tenant.recentSales.all(business.id, 25).filter((row) => !req.salesFrom || String(row.created_at) >= since),
     transactions: tenant.salesTransactions.all(business.id, since, 500),
   });
 });
@@ -2720,7 +2859,11 @@ app.get('/api/business/locations/:locationId/go-live', (req, res) => {
   // The same location record a customer's purchase is checked against.
   const location = tenant.locationById.get(owned.id);
   res.setHeader('Cache-Control', 'no-store');
-  res.json(goLiveStatus(location));
+  const status = goLiveStatus(location);
+  // The card also shows on the router map: a Technician sees no money or prices.
+  if (status.sale && !team.can(req, ['sales.view', 'sales.today'])) delete status.sale.amount;
+  if (status.packages.cheapest && !team.can(req, 'packages.view')) status.packages.cheapest = { name: status.packages.cheapest.name };
+  res.json(status);
 });
 // ---- Router tools: run and follow from the dashboard --------------------
 function toolLocation(req, res) {
@@ -2731,22 +2874,26 @@ function toolLocation(req, res) {
   return location;
 }
 // A customer check: what Wi-Fi Fiti knows (package, payment) next to what the
-// router sees for that device.
-function customerAccount(locationId, mac) {
+// router sees for that device. The amount paid is left out for a role that
+// sees no money (a Technician).
+function customerAccount(locationId, mac, showMoney = true) {
   const sub = tenant.subscriptionByMac.get(locationId, mac);
   if (!sub) return null;
   const expires = Date.parse(String(sub.expires_at).replace(' ', 'T') + 'Z');
   const pay = db.db.prepare(`SELECT package_name AS packageName, amount, status, mpesa_receipt AS receipt, updated_at AS at FROM tenant_transactions WHERE location_id=? AND mac=? ORDER BY updated_at DESC LIMIT 1`).get(locationId, mac);
+  if (pay && !showMoney) delete pay.amount;
   return { phone: String(sub.payer_phone || '').replace(/^(\d{3})\d+(\d{3})$/, '$1•••$2'), expiresAt: sub.expires_at, hasTime: Number.isFinite(expires) && expires > Date.now(), active: Boolean(sub.is_active), lastPayment: pay || null };
 }
 app.get('/api/business/locations/:locationId/tools', (req, res) => {
   const location = toolLocation(req, res); if (!location) return;
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ runs: routerTools.listTools(location.id).map((run) => (run.tool === 'customer' && run.args.mac ? { ...run, account: customerAccount(location.id, run.args.mac) } : run)) });
+  const showMoney = team.can(req, ['sales.view', 'sales.today']);
+  res.json({ runs: routerTools.listTools(location.id).map((run) => (run.tool === 'customer' && run.args.mac ? { ...run, account: customerAccount(location.id, run.args.mac, showMoney) } : run)) });
 });
 app.post('/api/business/locations/:locationId/tools', (req, res) => {
   const location = toolLocation(req, res); if (!location) return;
   const tool = String(req.body && req.body.tool || '');
+  if (tool === 'backup' && !team.can(req, 'backups')) return res.status(403).json({ error: 'Your role can\'t save router backups. Ask the owner.' });
   const args = { ...(req.body || {}) };
   // A phone number that bought a package here finds that customer's device.
   if (tool === 'customer' && args.phone && !args.mac) {
@@ -5775,7 +5922,9 @@ app.get('/api/business/pppoe/billing', pppoeOwnerRoute((req, res, business) => {
     settings, payPage: pppoeBilling.payPageUrl(business.id), payBill: pppoePayBill(business.id),
     serving: pppoeBilling.ownerCanServe(db.businessById.get(business.id)),
     subscribers: Object.fromEntries(users.map((u) => [u.id, pppoeBilling.ownerView(u, { settings })])),
-    payments: pppoeBilling.paymentsForOwner(business.id, { limit: 50 }),
+    // The payment list is for roles that see sales over time (not an
+    // Attendant, who sees today's sales only).
+    payments: team.can(req, 'sales.view') ? pppoeBilling.paymentsForOwner(business.id, { limit: 50 }) : [],
   });
 }));
 app.put('/api/business/pppoe/billing/settings', pppoeOwnerRoute((req, res, business) => {

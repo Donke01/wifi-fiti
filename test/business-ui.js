@@ -487,7 +487,7 @@ assert.match(html, /input\.value = toolCustomerInput/, 'the customer box keeps i
 assert.match(html, /el\('button', '', 'Router map'\)[\s\S]{0,300}openRouterMap\(location\)/, 'every universal router has a Router map button on the Routers page');
 assert.match(html, /model\.mappingConfirmed && onboardingFlowState\(model\)\.active && !\(model\.location && model\.location\.router_kit === 'universal'\)/, 'an open universal map is not closed under the owner');
 assert.match(html, /model\.needsRouterMapping \|\| universalMapOpen\(model\)/, 'an open map keeps refreshing');
-assert.match(html, /renderOverviewInsights\(\); renderGoLiveOverview\(\);/, 'and on Overview');
+assert.match(html, /renderOverviewInsights\(\); (?:if \(can\('routers\.view'\)\) )?renderGoLiveOverview\(\);/, 'and on Overview');
 assert.match(html, /\}, busy \? 5000 : 20000\);/, 'fast only while a purchase is happening');
 assert.match(html, /if \(document\.visibilityState === 'hidden'\) \{ scheduleGoLive\(\); return; \}/, 'no checks from a hidden tab');
 assert.match(html, /localStorage\.setItem\('fiti_golive_done:' \+ id, '1'\)/, 'the celebration shows once');
@@ -821,3 +821,75 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
 assert.match(html, /<section class="section" id="receipts-section">[^\n]*Plan receipts[^\n]*not tax invoices/, 'the receipts part says receipts are not tax invoices');
 assert.match(html, /<section class="section" id="tickets-section">[^\n]*Ask Wi-Fi Fiti[^\n]*You won't get an SMS or email, so check back here\.[^\n]*<form id="ticket-form">/, 'the tickets part says replies come here only');
 for (const value of ['payment', 'connection', 'router', 'billing', 'other']) assert.match(html, new RegExp('<option value="' + value + '">'), 'ticket category ' + value + ' matches the server');
+
+// Team accounts: every dashboard section has a permission in public/team.js
+// (a section missing there is shown to the owner only), so rearranging the
+// pages keeps each role's view. Add new section ids to SECTIONS.
+{
+  const teamUi = fs.readFileSync(path.join(__dirname, '../public/team.js'), 'utf8');
+  const sectionsBlock = teamUi.match(/var SECTIONS = \{([\s\S]*?)\};/);
+  assert.ok(sectionsBlock, 'team.js maps sections to permissions');
+  const mapped = new Set(Array.from(sectionsBlock[1].matchAll(/'?([a-z-]+)'?:/g), (match) => match[1]));
+  const modules = html.match(/var moduleSections = \{([\s\S]*?)\};/);
+  assert.ok(modules, 'the dashboard lists each page\'s sections');
+  // Quoted page names ('router-setup', 'portal-templates') are keys, not sections.
+  const ids = new Set(Array.from(modules[1].matchAll(/\[([^\]]*)\]/g), (match) => match[1]).join(',').match(/[a-z-]+/g));
+  for (const id of ids) assert.ok(mapped.has(id), `section ${id} has a team permission in public/team.js`);
+  assert.match(html, /remove\.setAttribute\('data-permission', 'routers\.delete'\)/, 'Delete router is hidden from roles that cannot delete routers');
+  assert.match(html, /tool: 'backup', permission: 'backups'/, 'router backups are hidden from a Technician');
+  assert.match(html, /window\.FitiTeam\.apply\(data\.member, moduleSections, dashboardPages\)/, 'the dashboard applies the signed-in role');
+}
+
+// Team accounts: pppoe.html and operations.html are gated by role too
+// (public/team-gate.js). A role without the page gets a plain message and a
+// link back; parts a role can't use are left out.
+{
+  const vm = require('node:vm');
+  const gateSource = fs.readFileSync(path.join(__dirname, '../public/team-gate.js'), 'utf8');
+  // A tiny DOM: createElement, appendChild, removeChild, textContent.
+  const node = (tag) => ({ tag, children: [], attrs: {}, className: '', textContent: '', href: '', id: '',
+    get firstChild() { return this.children[0] || null; },
+    appendChild(child) { this.children.push(child); return child; },
+    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); return child; },
+    setAttribute(key, value) { this.attrs[key] = value; } });
+  const document = { createElement: node };
+  const sandbox = { window: { document }, document };
+  sandbox.window.window = sandbox.window;
+  vm.createContext(sandbox);
+  vm.runInContext(gateSource, sandbox);
+  const gate = sandbox.window.FitiGate;
+  const tech = { role: 'technician', roleLabel: 'Technician', permissions: ['routers.view', 'tools', 'support'] };
+  assert.equal(gate.can(null, 'payouts'), true, 'no member (an older server) is the owner');
+  assert.equal(gate.can({ role: 'owner', permissions: [] }, 'payouts'), true, 'the owner may do everything');
+  assert.equal(gate.can(tech, 'customers.view'), false);
+  assert.equal(gate.can(tech, ['customers.view', 'support']), true, 'any one permission in a list is enough');
+  const target = node('section'); target.appendChild(node('div'));
+  const card = gate.blocked(target, tech, { cardClass: 'card', linkClass: 'back' });
+  assert.equal(target.children.length, 1, 'the page controls are replaced');
+  assert.equal(card.id, 'role-blocked');
+  assert.equal(card.children[0].textContent, 'Your role can’t open this page');
+  assert.match(card.children[1].textContent, /signed in as Technician\. .*Ask the owner/);
+  assert.equal(card.children[2].href, '/business.html', 'a link back to the dashboard');
+
+  const pppoe = fs.readFileSync(path.join(__dirname, '../public/pppoe.html'), 'utf8');
+  assert.match(pppoe, /<script src="\/team-gate\.js"><\/script>/);
+  assert.match(pppoe, /if \(!can\('customers\.view'\)\) \{ window\.FitiGate\.blocked\(app, me\.member/, 'pppoe.html checks the role before loading subscribers');
+  assert.match(pppoe, /b\.billed && can\('payments\.record'\) \? h\('button', \{ type: 'button', class: 'small', text: 'Record payment'/);
+  assert.match(pppoe, /can\('customers\.edit'\) \? h\('button', \{ type: 'button', class: 'secondary small', text: 'Edit'/);
+  assert.match(pppoe, /row\(\[can\('customers\.edit'\) \? addSubscriberCard\(\) : null, can\('packages\.edit'\) \? plansCard\(\) : null\]\)/);
+  assert.match(pppoe, /if \(can\('sales\.view'\)\) app\.appendChild\(h\('div', \{ style: 'margin-top:16px' \}, \[paymentsCard\(\)\]\)\)/);
+  assert.match(pppoe, /!can\('billing'\) \? null : h\('button', \{ type: 'button', text: 'Renew plan'/, 'only the owner renews the plan');
+
+  const ops = fs.readFileSync(path.join(__dirname, '../public/operations.html'), 'utf8');
+  assert.match(ops, /<script src="\/team-gate\.js"><\/script>/);
+  assert.match(ops, /var parts = \{ customers: 'customers\.view', support: 'support', billing: 'billing', payouts: 'payouts' \};/, 'receipts and payouts are owner-only');
+  assert.match(ops, /if \(!shown\.length\) \{ \$\('role-gate'\)\.classList\.remove\('hidden'\); window\.FitiGate\.blocked\(/);
+  assert.match(ops, /Promise\.allSettled\(shown\.map\(/, 'only the parts a role may use are loaded');
+  assert.match(ops, /if \(can\('payouts'\)\) \{\s*\$\('payout-form'\)/, 'payout details are filled for the owner only');
+
+  // The Attendant's sales card says Today; the customer check and the go-live
+  // card cope with no amount (the server leaves it out for a Technician).
+  assert.match(html, /\$\('sales-payments-foot'\)\.textContent = today \? 'Today' : 'In selected period'/);
+  assert.match(html, /acc\.lastPayment\.amount != null \? kes\(acc\.lastPayment\.amount\) \+ ' · ' : ''/);
+  assert.match(html, /var paid = sale && sale\.amount != null \? 'Paid ' \+ kes\(sale\.amount\) : 'Paid';/);
+}

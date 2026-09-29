@@ -22,6 +22,7 @@
   </style>
 <link rel="stylesheet" href="/assets/fiti-motion.css">
 <script src="/assets/fiti-motion.js" defer></script>
+<script src="/team-gate.js"></script>
 </head>
 <body>
 <main>
@@ -29,6 +30,7 @@
   <div class="hero"><span class="eyebrow">Your everyday control centre</span><h1>Keep business moving.</h1><p class="muted" id="identity">Customers, support, billing records and collection payouts.</p></div>
   <p class="error" id="page-error" role="alert"></p>
   <section id="sign-in" class="panel hidden"><h2>Sign in to your workspace</h2><p class="muted">Your business account keeps these customer and payment records private.</p><a href="/business.html">Go to sign in</a></section>
+  <div id="role-gate" class="hidden"></div>
   <div id="operator-workspace" class="hidden">
     <nav class="tabs" aria-label="Business operations"><a href="#customers">Customers</a><a href="#support">Support</a><a href="#billing">Receipts</a><a href="#payouts">Payouts</a></nav>
     <section class="panel" id="customers"><h2>Your customers</h2><p class="muted">Find a phone or device, review its remaining package and see its payment history.</p><form class="search" id="customer-search"><label>Phone, device MAC or WiFi username<input id="customer-query" placeholder="Search customer records" maxlength="80"></label><button type="submit">Search</button></form><div id="customer-list"></div><button class="secondary hidden" id="more-customers" type="button">Load more customers</button><div id="customer-detail" class="detail hidden" aria-live="polite"></div></section>
@@ -162,11 +164,26 @@
     if (adminMode) { $('admin-sign-in').classList.remove('hidden'); $('identity').textContent = 'Platform support and manual settlement records.'; return; }
     if (!token) { $('sign-in').classList.remove('hidden'); return; }
     var workspace = await api('/api/business/me'); $('identity').textContent = workspace.business.name + ' · Business operations';
-    (workspace.locations || []).forEach(function (item) { var option = add($('ticket-location'), 'option', item.name); option.value = item.id; });
-    $('payout-form').elements.destinationName.value = workspace.business.owner_name || workspace.business.name;
-    $('payout-form').elements.destinationAccount.value = workspace.business.owner_phone || '';
+    // Each part opens only for a role that may use it (the server checks
+    // too). Receipts and payouts are the owner's.
+    var member = workspace.member;
+    var can = function (permission) { return !window.FitiGate || window.FitiGate.can(member, permission); };
+    var parts = { customers: 'customers.view', support: 'support', billing: 'billing', payouts: 'payouts' };
+    var shown = Object.keys(parts).filter(function (id) { return can(parts[id]); });
+    if (!shown.length) { $('role-gate').classList.remove('hidden'); window.FitiGate.blocked($('role-gate'), member, { cardClass: 'panel', what: 'Customer records, support, receipts and payouts are not part of your role.' }); return; }
+    Object.keys(parts).forEach(function (id) {
+      var open = shown.indexOf(id) !== -1; $(id).classList.toggle('hidden', !open);
+      var tab = document.querySelector('.tabs a[href="#' + id + '"]'); if (tab) tab.classList.toggle('hidden', !open);
+    });
+    document.querySelector('.tabs').classList.toggle('hidden', shown.length < 2);
+    if (can('support')) (workspace.locations || []).forEach(function (item) { var option = add($('ticket-location'), 'option', item.name); option.value = item.id; });
+    if (can('payouts')) {
+      $('payout-form').elements.destinationName.value = workspace.business.owner_name || workspace.business.name;
+      $('payout-form').elements.destinationAccount.value = workspace.business.owner_phone || '';
+    }
     $('operator-workspace').classList.remove('hidden');
-    var results = await Promise.allSettled([loadCustomers(0), loadTickets(0, false), loadBilling(0), loadPayouts(0, false)]); results.forEach(function (result) { if (result.status === 'rejected') showError(result.reason); });
+    var loads = { customers: function () { return loadCustomers(0); }, support: function () { return loadTickets(0, false); }, billing: function () { return loadBilling(0); }, payouts: function () { return loadPayouts(0, false); } };
+    var results = await Promise.allSettled(shown.map(function (id) { return loads[id](); })); results.forEach(function (result) { if (result.status === 'rejected') showError(result.reason); });
   }
   start().catch(showError);
 }());
