@@ -103,6 +103,8 @@ const ROUTES = [
   ['GET', `${B}/support/search`, 'customers.view'], ['GET', `${B}/support/summary`, 'customers.view'],
   ['POST', `${B}/operations/transactions/:checkoutRequestId/retry`, 'payments.recover', 'Switched on a paid customer'],
   ['GET', `${B}/pppoe`, 'customers.view'], ['GET', `${B}/pppoe/billing`, 'customers.view'], ['GET', `${B}/pppoe/jobs/:jobId`, 'customers.view'],
+  ['GET', `${B}/pppoe/requests`, 'customers.view'],
+  ['PATCH', `${B}/pppoe/requests/:requestId`, 'customers.edit', 'Updated a connection request'],
   ['POST', `${B}/pppoe/users`, 'customers.edit', 'Added a PPPoE customer'],
   ['PATCH', `${B}/pppoe/users/:userId`, 'customers.edit', 'Changed a PPPoE customer'],
   ['POST', `${B}/pppoe/users/:userId/provision`, 'customers.edit', 'Sent a PPPoE customer to the router'],

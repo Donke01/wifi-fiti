@@ -60,6 +60,11 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
 .payments{display:grid;gap:0}.payments div{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid #edf2f8;font-size:13px}
 .payments div:first-child{border-top:0}
 .muted{color:var(--muted)}.hidden{display:none!important}
+textarea{width:100%;padding:8px 11px;border:1.5px solid #c8d5e6;border-radius:10px;color:var(--ink);background:#fff;font:inherit;resize:vertical}
+.requests{display:grid}.request{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 0;border-top:1px solid #edf2f8}
+.request:first-child{border-top:0}.request .who{min-width:0;flex:1 1 260px}.request .who small{display:block;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.request .actions{align-items:center}.request select.small-select{width:auto;min-height:34px;font-size:12px;padding:4px 8px}
+a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.button.small{min-height:34px;font-size:12px;padding:0 10px}
 @media(max-width:900px){.two{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
@@ -109,6 +114,9 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
   var token = ''; try { token = localStorage.getItem('fiti_business_token') || ''; } catch (e) {}
   var app = document.getElementById('app');
   var state = null; var billing = null; var workspace = null; var filter = 'all'; var flash = null;
+  // Connection requests from the "Home internet" page, and the one being
+  // turned into a subscriber (it fills the add form).
+  var requests = { requests: [], counts: {} }; var fromRequest = null;
   // What the signed-in person's role may do here (the server checks too).
   function can(permission) { return !window.FitiGate || window.FitiGate.can(workspace && workspace.member, permission); }
   var DAY = 86400000;
@@ -137,8 +145,13 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
         return b;
       }); });
   }
+  function load() {
+    return Promise.all([api('/api/business/pppoe'), api('/api/business/pppoe/billing'),
+      api('/api/business/pppoe/requests').catch(function () { return { requests: [], counts: {} }; })])
+      .then(function (r) { state = r[0]; billing = r[1]; requests = r[2]; });
+  }
   function reload(message) {
-    return Promise.all([api('/api/business/pppoe'), api('/api/business/pppoe/billing')]).then(function (r) { state = r[0]; billing = r[1]; flash = message || null; draw(); });
+    return load().then(function () { flash = message || null; draw(); });
   }
   function msg(box, text, ok) { box.textContent = ''; if (text) box.appendChild(h('div', { class: 'msg ' + (ok ? 'ok' : 'err'), role: ok ? 'status' : 'alert', text: text })); }
 
@@ -168,7 +181,7 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
   api('/api/business/me').then(function (me) {
     workspace = me;
     if (!can('customers.view')) { window.FitiGate.blocked(app, me.member, { cardClass: 'card', linkClass: 'back', what: 'PPPoE subscribers are for the owner, a Manager or an Attendant.' }); return null; }
-    return Promise.all([api('/api/business/pppoe'), api('/api/business/pppoe/billing')]).then(function (r) { state = r[0]; billing = r[1]; draw(); });
+    return load().then(draw);
   }).catch(function (e) {
     app.textContent = '';
     if (e.status && e.status !== 401) { app.appendChild(h('section', { class: 'card' }, [h('h2', { text: 'Could not open this page' }), h('p', { class: 'lead', text: e.message }), h('a', { class: 'back', href: '/business.html', text: 'Back to the dashboard' })])); return; }
@@ -189,12 +202,15 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
       metric('Subscribers', users.length), metric('Paid up', counts.paid), metric('Due in 3 days', counts.due), metric('Ended or in grace', counts.ended), metric('Credit held', kes(counts.credit)),
     ]));
     if ((state.routers || []).length) app.appendChild(routersSection());
+    var open = openRequests();
+    if (open) app.appendChild(h('div', { style: 'margin-bottom:16px' }, [requestsCard()]));
     app.appendChild(subscribersSection());
     // Cards a role can't use are left out: adding subscribers needs
     // customers.edit, plans and billing settings packages.edit, and the
     // payment list sales.view.
     row([can('customers.edit') ? addSubscriberCard() : null, can('packages.edit') ? plansCard() : null]);
     row([howCustomersPayCard(), can('packages.edit') ? settingsCard() : null]);
+    row([can('packages.edit') ? homePageCard() : null, !open && (requests.requests || []).length ? requestsCard() : null]);
     if (can('sales.view')) app.appendChild(h('div', { style: 'margin-top:16px' }, [paymentsCard()]));
   }
   function row(cards) {
@@ -350,7 +366,8 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
     var until = h('input', { type: 'date', name: 'paidUntil', id: 'new-until' });
     var untilLabel = h('label', { class: 'hidden' }, [h('span', { class: 'l', text: 'Paid until' }), until]);
     start.addEventListener('change', function () { untilLabel.classList.toggle('hidden', start.value !== 'paid'); });
-    var form = h('form', { class: 'form', onsubmit: function (ev) {
+    var request = fromRequest;
+    var form = h('form', { class: 'form', id: 'add-subscriber', onsubmit: function (ev) {
       ev.preventDefault(); var f = new FormData(form); var body = {};
       f.forEach(function (v, k) { body[k] = v; });
       body.installFee = parseInt(body.installFee, 10) || 0;
@@ -358,7 +375,10 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
       delete body.start; delete body.paidUntil;
       api('/api/business/pppoe/users', { method: 'POST', body: body }).then(function (r) {
         var u = r.user;
-        return (u.status === 'active' ? api('/api/business/pppoe/users/' + encodeURIComponent(u.id) + '/provision', { method: 'POST', body: { locationId: u.location_id } }) : Promise.resolve()).then(function () {
+        // Added from a connection request: mark it connected, linked to them.
+        var linked = request ? api('/api/business/pppoe/requests/' + encodeURIComponent(request.id), { method: 'PATCH', body: { status: 'connected', userId: u.id } }).catch(function () {}) : Promise.resolve();
+        if (request) fromRequest = null;
+        return linked.then(function () { return u.status === 'active' ? api('/api/business/pppoe/users/' + encodeURIComponent(u.id) + '/provision', { method: 'POST', body: { locationId: u.location_id } }) : null; }).then(function () {
           return reload(u.status === 'awaiting_payment' ? u.username + ' added. Send them their pay link: the login goes to the router as soon as they pay.' : u.username + ' added and sent to the router.');
         });
       }).catch(function (e) { msg(box, e.message); });
@@ -368,12 +388,12 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
         h('label', {}, [h('span', { class: 'l', text: 'Password' }), h('input', { name: 'secret', type: 'password', minlength: '8', required: true, placeholder: '8 characters or more' })]),
       ]),
       h('div', { class: 'pair' }, [
-        h('label', {}, [h('span', { class: 'l', text: 'Full name' }), h('input', { name: 'fullName', maxlength: '80' })]),
-        h('label', {}, [h('span', { class: 'l', text: 'Phone (reminders, receipts)' }), h('input', { name: 'phone', type: 'tel', placeholder: '07xx xxx xxx' })]),
+        h('label', {}, [h('span', { class: 'l', text: 'Full name' }), h('input', { name: 'fullName', maxlength: '80', value: request ? request.fullName : null })]),
+        h('label', {}, [h('span', { class: 'l', text: 'Phone (reminders, receipts)' }), h('input', { name: 'phone', type: 'tel', placeholder: '07xx xxx xxx', value: request ? request.phone : null })]),
       ]),
       h('div', { class: 'pair' }, [
         h('label', {}, [h('span', { class: 'l', text: 'Router' }), h('select', { name: 'locationId', required: true }, locs.map(function (x) { return h('option', { value: x.id, text: x.name || x.router_name || x.id }); }))]),
-        h('label', {}, [h('span', { class: 'l', text: 'Plan' }), h('select', { name: 'profileId', required: true }, profiles.map(function (p) { return h('option', { value: p.id, text: p.name + ' · ' + p.download_rate + '/' + p.upload_rate + (p.price ? ' · ' + kes(p.price) : ' · no price') }); }))]),
+        h('label', {}, [h('span', { class: 'l', text: 'Plan' }), h('select', { name: 'profileId', required: true }, profiles.map(function (p) { return h('option', { value: p.id, selected: Boolean(request && request.plan && request.plan.id === p.id), text: p.name + ' · ' + p.download_rate + '/' + p.upload_rate + (p.price ? ' · ' + kes(p.price) : ' · no price') }); }))]),
       ]),
       h('div', { class: 'pair' }, [
         h('label', {}, [h('span', { class: 'l', text: 'Installation fee (KES, optional)' }), h('input', { name: 'installFee', inputmode: 'numeric', placeholder: '0' })]),
@@ -384,7 +404,10 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
       box, h('div', {}, [h('button', { type: 'submit', disabled: !profiles.length || !locs.length, text: 'Add subscriber' })]),
       !profiles.length ? h('p', { class: 'muted', style: 'margin:0', text: 'Add a plan first.' }) : null,
     ]);
-    return h('section', { class: 'card' }, [h('h2', { text: 'Add a subscriber' }), h('p', { class: 'lead', text: 'On a priced plan, the login goes to the router once the first payment (and any installation fee) is in.' }), form]);
+    return h('section', { class: 'card', id: 'add-card' }, [h('h2', { text: 'Add a subscriber' }),
+      request ? h('div', { class: 'banner good', style: 'margin:8px 0 12px' }, [h('span', { text: 'From ' + request.fullName + '’s connection request. Saving marks it connected.' }),
+        h('button', { type: 'button', class: 'secondary small', text: 'Clear', onclick: function () { fromRequest = null; draw(); } })]) : null,
+      h('p', { class: 'lead', text: 'On a priced plan, the login goes to the router once the first payment (and any installation fee) is in.' }), form]);
   }
 
   // ---- Plans and prices ------------------------------------------------------
@@ -479,6 +502,81 @@ dialog form{padding:20px}dialog h3{margin:0 0 4px;font-size:18px}dialog .sub{mar
         box,
       ]),
     ]);
+  }
+
+  // ---- Home internet page and its connection requests ---------------------------
+  var REQUEST_STATUS = { new: ['New', 'info'], contacted: ['Called', 'warn'], scheduled: ['Installation booked', 'warn'], connected: ['Connected', 'good'], declined: ['Closed', 'bad'] };
+  function openRequests() { var c = requests.counts || {}; return (c.new || 0) + (c.contacted || 0) + (c.scheduled || 0); }
+  function requestsCard() {
+    var box = h('div'); var list = requests.requests || []; var c = requests.counts || {};
+    var edit = can('customers.edit');
+    return h('section', { class: 'card', id: 'requests' }, [
+      h('h2', { text: 'Connection requests' + (c.new ? ' · ' + c.new + ' new' : '') }),
+      h('p', { class: 'lead', text: 'From your Home internet page. Call them to confirm coverage, then add them as a subscriber.' }),
+      box,
+      h('div', { class: 'requests' }, list.map(function (r) {
+        var st = REQUEST_STATUS[r.status] || [r.status, ''];
+        var where = [r.area, r.estate, r.landmark].filter(Boolean).join(' · ');
+        var status = h('select', { 'aria-label': 'Status for ' + r.fullName, class: 'small-select', onchange: function () {
+          api('/api/business/pppoe/requests/' + encodeURIComponent(r.id), { method: 'PATCH', body: { status: status.value } })
+            .then(function () { return reload('Request from ' + r.fullName + ': ' + REQUEST_STATUS[status.value][0].toLowerCase() + '.'); })
+            .catch(function (e) { msg(box, e.message); });
+        } }, Object.keys(REQUEST_STATUS).map(function (k) { return h('option', { value: k, text: REQUEST_STATUS[k][0], selected: k === r.status }); }));
+        return h('div', { class: 'request' }, [
+          h('div', { class: 'who' }, [
+            h('b', { text: r.fullName }), ' ', h('span', { class: 'pill ' + st[1], text: st[0] }),
+            h('small', { text: where }),
+            h('small', { text: (r.plan ? r.plan.name + (r.plan.price ? ' · ' + kes(r.plan.price) : '') : 'No package chosen') + ' · ' + day(r.createdAt) }),
+            r.note ? h('small', { text: '“' + r.note + '”' }) : null,
+          ]),
+          h('div', { class: 'actions' }, [
+            h('a', { class: 'button secondary small', href: 'tel:' + r.phoneE164, text: 'Call ' + r.phone }),
+            edit && r.status !== 'connected' && r.status !== 'declined' ? h('button', { type: 'button', class: 'small', text: 'Add as subscriber', onclick: function () {
+              fromRequest = r; draw();
+              var card = document.getElementById('add-card'); if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              var first = document.querySelector('#add-subscriber input[name=username]'); if (first) setTimeout(function () { first.focus({ preventScroll: true }); }, 300);
+            } }) : null,
+            edit ? status : null,
+          ]),
+        ]);
+      })),
+    ]);
+  }
+  function homePageCard() {
+    var s = billing.settings; var box = h('div');
+    var on = h('input', { type: 'checkbox', checked: s.homePage });
+    var headline = h('input', { maxlength: '90', value: s.homeHeadline || '', placeholder: 'Fast, reliable internet for your home' });
+    var areas = h('textarea', { rows: '4', placeholder: 'One per line, e.g.\nMilimani\nSection 6\nKiminini' });
+    areas.value = (s.homeAreas || []).join('\n');
+    var fee = h('input', { inputmode: 'numeric', value: s.homeInstallFee == null ? '' : String(s.homeInstallFee), placeholder: 'e.g. 2500' });
+    fee.addEventListener('input', function () { fee.value = fee.value.replace(/\D/g, '').slice(0, 7); });
+    var link = h('input', { readonly: true, value: billing.homePage || '', 'aria-label': 'Home internet page address' });
+    var save = h('button', { type: 'button', text: 'Save page', onclick: function () {
+      save.disabled = true;
+      api('/api/business/pppoe/billing/settings', { method: 'PUT', body: { homePage: on.checked, homeHeadline: headline.value, homeAreas: areas.value, homeInstallFee: fee.value === '' ? null : parseInt(fee.value, 10) } })
+        .then(function (r) { billing.settings = r.settings; return reload(r.settings.homePage ? 'Home internet page saved. It is live.' : 'Home internet page saved. It is off.'); })
+        .catch(function (e) { msg(box, e.message); }).then(function () { save.disabled = false; });
+    } });
+    return h('section', { class: 'card', id: 'home-page' }, [
+      h('h2', { text: 'Home internet page' }),
+      h('p', { class: 'lead', text: 'A public page with your priced plans, how to pay, answers to common questions and a “Get connected” form. Requests appear here.' }),
+      h('div', { class: 'form' }, [
+        h('label', { class: 'check' }, [on, h('span', {}, [h('b', { text: 'Show the page' }), h('small', { text: 'Off: the address says the page was not found.' })])]),
+        h('label', {}, [h('span', { class: 'l', text: 'Headline (optional)' }), headline]),
+        h('label', {}, [h('span', { class: 'l', text: 'Areas you cover (optional, one per line)' }), areas]),
+        h('p', { class: 'muted', style: 'margin:-4px 0 0', text: 'Customers pick one, or “Somewhere else” with their estate. Empty: they type their area.' }),
+        h('label', {}, [h('span', { class: 'l', text: 'Installation fee to show (KES, optional)' }), fee]),
+        s.homePage && billing.homePage ? h('label', {}, [h('span', { class: 'l', text: 'Page address' }), h('div', { class: 'linkbox' }, [link,
+          h('button', { type: 'button', class: 'secondary small', text: 'Copy', onclick: function () { copyText(billing.homePage, box, 'Page address copied. Share it on WhatsApp, posters or your Wi‑Fi portal.'); } }),
+          h('a', { class: 'button secondary small', href: billing.homePage, target: '_blank', rel: 'noopener', text: 'Open' })])]) : null,
+        box, h('div', {}, [save]),
+      ]),
+    ]);
+  }
+  function copyText(text, box, done) {
+    var ok = function () { msg(box, done, true); };
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(ok, function () { prompt('Copy:', text); });
+    else prompt('Copy:', text);
   }
 
   // ---- Payments -------------------------------------------------------------------

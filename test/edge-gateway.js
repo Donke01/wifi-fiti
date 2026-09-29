@@ -16,7 +16,7 @@ function upstream(calls, options = {}) {
     calls.push(call);
     if (url.pathname === '/api/edge/portal/resolve') {
       if (options.missing) return new Response('Not found.', { status: 404 });
-      return Response.json(mapping);
+      return Response.json(options.payCode ? { ...mapping, pppoePayCode: options.payCode } : mapping);
     }
     if (url.pathname === `/p/${mapping.locationId}`) {
       return new Response('<!doctype html><html><head><title>Customer Wi-Fi</title></head><body>Portal</body></html>', {
@@ -37,6 +37,12 @@ function upstream(calls, options = {}) {
       return Response.json({ accepted: true });
     }
     if (url.pathname === `/media/logo/${mapping.businessId}`) return new Response('logo', { headers: { 'content-type': 'image/png' } });
+    if (url.pathname === '/home/abcd1234') return new Response('<!doctype html><title>Home internet</title>', { headers: { 'content-type': 'text/html' } });
+    if (/^\/pay\/abcd1234(?:\/|$)/.test(url.pathname)) return new Response('<!doctype html><title>Pay</title>', { headers: { 'content-type': 'text/html' } });
+    if (url.pathname.startsWith('/api/pppoe-pay/abcd1234')) {
+      call.body = request.method === 'POST' ? await request.text() : null;
+      return Response.json({ ok: true });
+    }
     throw new Error(`Unexpected upstream request: ${url}`);
   };
 }
@@ -132,6 +138,50 @@ function upstream(calls, options = {}) {
     assert.equal(result.status, 502, 'a core redirect is never reflected at the tenant hostname');
     assert.equal(result.headers.get('location'), null);
     assert.equal(result.headers.get('set-cookie'), null);
+  }
+
+  {
+    // The same address serves the business's PPPoE pay page, and only its own.
+    const pay = { payCode: 'abcd1234' };
+    const call = async (url, init) => { worker.clearPortalMappingCacheForTests(); const calls = []; const result = await worker.handleRequest(new Request(url, init), env, { fetch: upstream(calls, pay) }); return { result, calls }; };
+    let { result, calls } = await call(`https://${host}/pay`);
+    assert.equal(result.status, 302); assert.equal(result.headers.get('location'), '/pay/abcd1234', '/pay goes to the business\'s own pay page');
+    assert.equal(calls.length, 1, 'only resolution before the redirect');
+    ({ result, calls } = await call(`https://${host}/pay/abcd1234`));
+    assert.equal(result.status, 200); assert.equal(calls[1].url.pathname, '/pay/abcd1234');
+    ({ result, calls } = await call(`https://${host}/pay/abcd1234/jane.w?k=private-link`));
+    assert.equal(result.status, 200); assert.equal(calls[1].url.pathname, '/pay/abcd1234/jane.w');
+    assert.equal(calls[1].url.search, '?k=private-link', 'a subscriber\'s private link keeps its key');
+    const body = JSON.stringify({ phone: '0712000001', months: 1 });
+    ({ result, calls } = await call(`https://${host}/api/pppoe-pay/abcd1234/account/jane.w/pay`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: 'nope' }, body }));
+    assert.equal(result.status, 200); assert.equal(calls[1].body, body, 'a payment reaches the core intact');
+    assert.equal(calls[1].request.headers.get('cookie'), null);
+    ({ result, calls } = await call(`https://${host}/pay/zzzz9999`));
+    assert.equal(result.status, 404, 'another business\'s pay code is not served here'); assert.equal(calls.length, 1);
+    ({ result, calls } = await call(`https://${host}/api/pppoe-pay/zzzz9999/account/jane.w`));
+    assert.equal(result.status, 404); assert.equal(calls.length, 1);
+    ({ result } = await call(`https://${host}/pay/abcd1234/a/b`));
+    assert.equal(result.status, 404, 'only /pay/<code>/<account>');
+    ({ result } = await call(`https://${host}/api/pppoe-pay/abcd1234/account/jane.w`, { method: 'DELETE' }));
+    assert.equal(result.status, 405);
+    // The "Home internet" page: /home, its own code only, GET/HEAD only.
+    ({ result, calls } = await call(`https://${host}/home`));
+    assert.equal(result.status, 302); assert.equal(result.headers.get('location'), '/home/abcd1234');
+    ({ result, calls } = await call(`https://${host}/home/abcd1234`));
+    assert.equal(result.status, 200); assert.equal(calls[1].url.pathname, '/home/abcd1234');
+    assert.match(await result.text(), /Home internet/);
+    ({ result, calls } = await call(`https://${host}/home/zzzz9999`));
+    assert.equal(result.status, 404); assert.equal(calls.length, 1);
+    ({ result } = await call(`https://${host}/home/abcd1234`, { method: 'POST', body: '{}' }));
+    assert.equal(result.status, 405);
+    const request = JSON.stringify({ fullName: 'Amina', phone: '0712000002', area: 'Milimani' });
+    ({ result, calls } = await call(`https://${host}/api/pppoe-pay/abcd1234/connect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: request }));
+    assert.equal(result.status, 200); assert.equal(calls[1].body, request, 'a connection request reaches the core intact');
+    worker.clearPortalMappingCacheForTests();
+    const plain = await worker.handleRequest(new Request(`https://${host}/pay`), env, { fetch: upstream([]) });
+    assert.equal(plain.status, 404, 'a business without PPPoE billing has no pay page here');
+    worker.clearPortalMappingCacheForTests();
+    assert.equal((await worker.handleRequest(new Request(`https://${host}/home`), env, { fetch: upstream([]) })).status, 404);
   }
 
   {

@@ -442,6 +442,38 @@ async function main() {
     })).status, 404, 'the Worker resolver is available only at the cloud app host');
     const selectedAddress = await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' });
     assert.equal(selectedAddress.body.locationId, alpha.location.id, 'the selected hostname resolves to its router location');
+    assert.equal(selectedAddress.body.pppoePayCode, null, 'no PPPoE billing yet: no pay page on this address');
+
+    // PPPoE on the tenant's own address: the resolver hands the Worker the
+    // business's pay code, and links move to the address only once
+    // PPPOE_TENANT_ADDRESS=true (the Worker that serves PPPoE is deployed).
+    const pppoeBilling = require('../src/lib/pppoe-billing');
+    const payCode = pppoeBilling.settingsFor(alpha.business.id).payCode;
+    const withPay = await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' });
+    assert.equal(withPay.body.pppoePayCode, payCode);
+    const subscriber = { id: 'pppoe-user-1', business_id: alpha.business.id, location_id: alpha.location.id, username: 'jane.w' };
+    assert.match(pppoeBilling.payLink(subscriber), new RegExp(`^https://cloud\\.wififiti\\.co\\.ke/pay/${payCode}/jane\\.w\\?k=`), 'links stay on cloud until it is switched on');
+    assert.equal(pppoeBilling.payPageUrl(alpha.business.id), `https://cloud.wififiti.co.ke/pay/${payCode}`);
+    process.env.PPPOE_TENANT_ADDRESS = 'true';
+    try {
+      assert.equal(pppoeBilling.payLink(subscriber, { privateLink: false }), `https://${alpha.location.portalHostname}/pay/${payCode}/jane.w`);
+      assert.equal(pppoeBilling.payPageUrl(alpha.business.id), `https://${alpha.location.portalHostname}/pay/${payCode}`);
+      assert.match(pppoeBilling.payLink({ ...subscriber, location_id: null }), new RegExp(`^https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}/pay/`),
+        'a subscriber without a router uses the business\'s address');
+      const pppoeLib = require('../src/lib/pppoe');
+      database.prepare('UPDATE pppoe_billing_settings SET expired_page=1 WHERE business_id=?').run(alpha.business.id);
+      const page = pppoeLib._test.expiredPageFor(alpha.location.id);
+      assert.deepEqual(page, { host: alpha.location.portalHostname, target: `${alpha.location.portalHostname}/pay/${payCode}` },
+        'an expired customer is sent to the tenant address');
+      const setup = pppoeLib._test.expiredPageSetup({ gateway: '10.20.0.1', network: '10.20.0.0/24' }, page);
+      assert.match(setup, /\/ip firewall address-list set \$fitiPayHost address="[^"]+"/, 'a router set up earlier follows the new address');
+      assert.match(setup, /\/ip proxy access set \[find where comment=\\"Wi-Fi Fiti PPPoE expired\\" and src-address=\\"10\.20\.0\.0\/24\\"\] action-data=/);
+      assert.match(setup, /redirect-to=/, 'RouterOS 6 wording as the fallback');
+    } finally {
+      delete process.env.PPPOE_TENANT_ADDRESS;
+      database.prepare('UPDATE pppoe_billing_settings SET expired_page=0 WHERE business_id=?').run(alpha.business.id);
+    }
+    assert.equal(require('../src/lib/pppoe')._test.expiredPageFor(alpha.location.id), null);
     assert.equal((await api(`/api/business/locations/${alpha.location.id}/portal-address`, {
       method: 'PATCH', token: alpha.token, body: { slug: 'cloud' },
     })).status, 400, 'reserved Railway hostname cannot be claimed by a tenant');

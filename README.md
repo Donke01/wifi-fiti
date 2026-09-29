@@ -244,6 +244,17 @@ PPPoE subscribers pay the business for their own internet (code:
   its web proxy (port 8089) redirects plain web requests to the pay page. It
   never takes over a web proxy the owner already runs on another port; if any
   step fails, the customer is cut off as before.
+- **Home internet page** (owner setting, off by default): a public page at
+  `/home/<pay code>` (and `/home` on the tenant's own address) with the
+  business's priced plans as package cards, a "Get connected" coverage form,
+  how to pay (account number, PayBill) and answers built from the billing
+  settings. The owner sets an optional headline, the areas they cover and an
+  installation fee to show. Requests (`pppoe_connection_requests`,
+  `src/lib/pppoe-connect.js`) appear on the PPPoE page to call and move along
+  (new → called → installation booked → connected or closed); "Add as
+  subscriber" fills the add form and links the request. One open request per
+  phone, 10 tries per address per 15 minutes, a hidden bot field, and at most
+  200 new requests a day per business. No SMS is sent.
 
 ### Pairing-token safety
 
@@ -395,6 +406,27 @@ admin routes.
    specific tenant hostname in the Hotspot walled garden. Re-import a fresh
    kit for each existing router one at a time; old kits intentionally keep
    redirecting to `cloud` until then.
+
+**PPPoE on the tenant's address.** The same address also serves the business's
+PPPoE pay page, and only that business's page:
+- `kitale.wififiti.co.ke/pay` goes to `/pay/<its code>`;
+- `/pay/<code>/<account>` is a subscriber's page;
+- `kitale.wififiti.co.ke/home` goes to `/home/<its code>`, the Home internet
+  page (when the owner has turned it on);
+- `/api/pppoe-pay/<code>/…` is its API.
+
+The resolver gives the Worker the business's pay code. Any other code is not
+found. Links move to the tenant address only when `PPPOE_TENANT_ADDRESS=true`.
+Those links are the SMS reminders, receipts, "Copy pay link", "Text link" and
+the expired-customer page on the router. So the order is:
+1. Deploy the updated `edge/portal-gateway` Worker (`wrangler deploy`).
+2. Check `https://<a tenant address>/pay` opens the pay page.
+3. Set `PPPOE_TENANT_ADDRESS=true` on Railway.
+
+Links already sent keep working on `cloud`. A subscriber's link uses their
+router's address; one with no router uses the business's first router with
+PPPoE subscribers. A router's expired-customer page follows the new address
+at its next expiry.
 
 The dashboard lets a tenant choose a managed first-level address. Changing it
 keeps the former hostname as a live alias so an already paired router does not
