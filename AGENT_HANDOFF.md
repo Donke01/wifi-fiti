@@ -165,22 +165,22 @@ table also scrolls sideways on a phone now.
 | Item | Branch | PR | State |
 |---|---|---|---|
 | Router token only in the header (brief item 8) | `security-fixes-2` | #19 | Pushed `c17c004` on `main` `83e5290`, `npm test` green |
-| Customers → "Contact Wi-Fi Fiti support"; Usage analytics on Home (item 6) | `dashboard-flow` | none yet | Built as `a0f55d8` in an agent worktree, **not on `main`, not pushed** |
-| Portal fonts that phones have; Rounded dropped (item 7) | `flow-fixes` | none yet | Built as `6ac9016` in an agent worktree, **not on `main`, not pushed** |
+| Customers → "Contact Wi-Fi Fiti support"; Usage analytics on Home (item 6) | `dashboard-flow` | #22 | Pushed `5867dd6` on `main` `83e5290`, `npm test` green, Chromium 390/1280 as Owner and Technician |
+| Portal fonts that phones have; Rounded dropped (item 7) | `flow-fixes` | #21 | Pushed `09aa524` on `main` `83e5290`, `npm test` green, Chromium 360/390/1280 |
 
-- The two unpushed commits were written on the old branch heads, before #13 and #16 merged. The auto-mode safety check refused to rebase them onto `main`, so they still need to be put on `main`, tested again (`npm test`, Chromium) and pushed as new PRs.
+- #21 and #22 were built on the old branch heads. With Don's go-ahead they were cherry-picked onto `main`: #21 needed an import line in `src/server.js`, #22 a `business.html` conflict and `public/team.js`. Both were tested again there.
 - **Item 6 (`a0f55d8`):**
   - "Contact Wi-Fi Fiti support" becomes a Customers tab, section `support-tickets-section`, using the existing `/api/business/operations/tickets` routes. It replaces the Settings ticket screen, so there is one ticket screen.
   - Settings keeps plan receipts in a tab renamed "Receipts".
   - Usage analytics (`analytics-section`) moves to Home, below the overview.
-  - On `main`, `public/team.js` needs `'support-tickets-section': 'support'` in place of `tickets-section`.
-  - Expect a conflict in `public/business.html`.
+  - `public/team.js` now has `'support-tickets-section': 'support'` in place of `tickets-section`.
 - **Item 7 (`6ac9016`):**
   - The portal loads no web fonts, so only fonts the phone already has count.
   - Condensed is `"Avenir Next Condensed"` (iPhone), then `sans-serif-condensed` (Android), then `sans-serif`, with `font-stretch: condensed`.
   - Mono is `ui-monospace`, then Menlo, then `monospace`.
   - Rounded is dropped, because Android ships no rounded font. A saved "rounded" is served as "modern" (`portalFont()` in `src/lib/tenant-portal-templates.js`).
   - Not yet seen on a real Android phone or iPhone.
+- Seen while checking #21: at 390 px the dashboard's "Design your portal" form has oversized checkboxes, and the gallery labels run into their descriptions. `main` shows the same, so it was not caused by #21, and it is not fixed yet.
 
 ### Portal templates (merged in `7c5befe`)
 
