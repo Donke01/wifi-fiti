@@ -7,7 +7,7 @@ for (const suffix of ['', '-wal', '-shm']) { try { fs.unlinkSync(dbPath + suffix
 process.env.PUBLIC_URL = 'https://fiti.test';
 process.env.MPESA_CONSUMER_KEY = 'k'; process.env.MPESA_CONSUMER_SECRET = 's';
 process.env.MPESA_SHORTCODE = '1'; process.env.MPESA_PASSKEY = 'p'; process.env.DATABASE_PATH = dbPath;
-process.env.ADMIN_CONFIRMATION_PHRASE = 'CONFIRM-TEST';
+process.env.ADMIN_PASSWORD = 'CONFIRM-TEST';
 const store = require('../src/lib/db');
 require('../src/lib/tenant');
 const { attachFitiSignalAdminControls } = require('../src/lib/fiti-signal-admin-controls');

@@ -1,10 +1,11 @@
 'use strict';
 
+const { requireAdminPassword } = require('./admin/confirm');
+
 /* Single-administrator platform controls. Kept separate from portal/router
  * handlers; each mutation is explicit, audited, and confirmation-protected. */
-function attachAdminControlPlane(app, { db: suppliedDb, adminOk, tenant, confirmationPhrase } = {}) {
+function attachAdminControlPlane(app, { db: suppliedDb, adminOk, tenant } = {}) {
   const db = suppliedDb.db || suppliedDb;
-  const phrase = String(confirmationPhrase || process.env.ADMIN_CONFIRMATION_PHRASE || 'CONFIRM');
   db.exec(`CREATE TABLE IF NOT EXISTS platform_admin_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, business_id TEXT,
     reference TEXT, actor TEXT NOT NULL, details_json TEXT,
@@ -15,15 +16,8 @@ function attachAdminControlPlane(app, { db: suppliedDb, adminOk, tenant, confirm
     try { res.set('Cache-Control', 'no-store'); return handler(req, res); }
     catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
   };
-  const confirm = req => {
-    const password = String(req.body?.adminPassword || req.headers['x-admin-password'] || '');
-    const configuredPassword = String(process.env.ADMIN_PASSWORD || '');
-    if (configuredPassword && password === configuredPassword) return;
-    const supplied = String(req.body?.confirmation || req.headers['x-confirmation-phrase'] || '');
-    if (!configuredPassword && supplied === phrase) return;
-    const e = new Error(configuredPassword ? 'Administrator password is required.' : 'Confirmation phrase is required.'); e.status = 400; throw e;
-  };
-  // A platform-admin phrase proves the caller is allowed into this control
+  const confirm = requireAdminPassword;
+  // The admin password proves the caller is allowed into this control
   // plane.  A second, action-specific phrase prevents a pasted/admin-console
   // request from turning a routine review into an irreversible router action.
   const confirmIntent = (req, expected) => {

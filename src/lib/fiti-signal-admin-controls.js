@@ -1,12 +1,13 @@
 'use strict';
 
+const { requireAdminPassword } = require('./admin/confirm');
+
 /**
  * FitiSignal's single-administrator control plane.  This is intentionally a
  * separate attachment from router and captive-portal administration.
  */
-function attachFitiSignalAdminControls(app, { db: suppliedDb, adminOk, confirmationPhrase } = {}) {
+function attachFitiSignalAdminControls(app, { db: suppliedDb, adminOk } = {}) {
   const db = suppliedDb.db || suppliedDb;
-  const phrase = String(confirmationPhrase || process.env.ADMIN_CONFIRMATION_PHRASE || 'CONFIRM');
   db.exec(`
     CREATE TABLE IF NOT EXISTS fiti_signal_tenant_controls (
       business_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'active',
@@ -28,10 +29,7 @@ function attachFitiSignalAdminControls(app, { db: suppliedDb, adminOk, confirmat
     try { res.set('Cache-Control', 'no-store'); return handler(req, res); }
     catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
   };
-  const requireConfirmation = req => {
-    const supplied = String(req.body?.confirmation || req.body?.confirmationPhrase || req.headers['x-confirmation-phrase'] || '');
-    if (supplied !== phrase) { const e = new Error('Confirmation phrase is required.'); e.status = 400; throw e; }
-  };
+  const requireConfirmation = requireAdminPassword;
   const audit = (req, action, businessId, reference, details = {}) => db.prepare(
     `INSERT INTO fiti_signal_admin_audit(action,business_id,reference,actor,details_json) VALUES(?,?,?,?,?)`
   ).run(action, businessId || null, reference || null, String(req.ip || 'platform-admin'), JSON.stringify(details));

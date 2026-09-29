@@ -3,7 +3,7 @@ const express = require('express');
 const http = require('node:http');
 const fs = require('node:fs');
 const p = '/tmp/admin-control-plane.sqlite'; for (const s of ['', '-wal', '-shm']) try { fs.unlinkSync(p + s); } catch (_) {}
-process.env.PUBLIC_URL='https://fiti.test'; process.env.MPESA_CONSUMER_KEY='k'; process.env.MPESA_CONSUMER_SECRET='s'; process.env.MPESA_SHORTCODE='1'; process.env.MPESA_PASSKEY='p'; process.env.DATABASE_PATH=p; process.env.ADMIN_CONFIRMATION_PHRASE='CONFIRM-ADMIN';
+process.env.PUBLIC_URL='https://fiti.test'; process.env.MPESA_CONSUMER_KEY='k'; process.env.MPESA_CONSUMER_SECRET='s'; process.env.MPESA_SHORTCODE='1'; process.env.MPESA_PASSKEY='p'; process.env.DATABASE_PATH=p; process.env.ADMIN_PASSWORD='CONFIRM-ADMIN';
 process.env.PORTAL_ROOT_DOMAIN='portals.fiti.test'; process.env.EDGE_GATEWAY_SECRET='01234567890123456789012345678901'; process.env.PORTAL_GATEWAY_ENABLED='true';
 const store = require('../src/lib/db'); const tenant = require('../src/lib/tenant');
 store.db.prepare(`INSERT INTO businesses(id,name,owner_name,owner_phone,email,password_hash) VALUES(?,?,?,?,?,?)`).run('b1','Tenant','Owner','+254700000000','a@example.com','hash');

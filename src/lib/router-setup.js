@@ -152,7 +152,10 @@ function staticWan(value, gateway, dnsServers, customerNetwork) {
 }
 
 function ros(value) {
-  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  // Inputs are already allow-listed; escaping `$` and line breaks as well
+  // means a value can never expand a variable or start a new command.
+  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$')
+    .replace(/\r/g, '\\r').replace(/\n/g, '\\n')}"`;
 }
 
 // RouterOS validates every command in an imported .rsc file, including a
@@ -998,4 +1001,5 @@ module.exports = {
   buildExistingRouterKit,
   buildNewRouterKit,
   buildRouterSetup,
+  ros,
 };
