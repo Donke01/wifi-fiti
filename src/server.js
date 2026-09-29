@@ -1438,7 +1438,10 @@ app.get('/api/edge/portal/resolve', (req, res) => {
   const domain = hostname && tenant.portalDomainByHostname.get(hostname);
   const location = domain && tenant.locationById.get(domain.location_id);
   if (!domain || !location) return res.status(404).type('text/plain').send('Not found.');
-  res.json({ hostname: domain.hostname, locationId: location.id, businessId: location.business_id });
+  // The business's PPPoE pay code, so the same address can serve its pay page.
+  let pppoePayCode = null;
+  try { pppoePayCode = (db.db.prepare('SELECT pay_code FROM pppoe_billing_settings WHERE business_id=?').get(location.business_id) || {}).pay_code || null; } catch (_) { /* PPPoE billing not set up */ }
+  res.json({ hostname: domain.hostname, locationId: location.id, businessId: location.business_id, pppoePayCode });
 });
 
 /** Customer-facing portal identity. Branding remains in the cloud rather

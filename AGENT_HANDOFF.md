@@ -226,6 +226,24 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
   selected.
 - **Server load:** three light requests every 2 s per open dashboard.
 
+### PPPoE on the tenant's portal address (branch `pppoe-portal-address`)
+
+- **What it does:** a tenant's portal address (e.g. `kitale.wififiti.co.ke`)
+  also serves its business's PPPoE pay page: `/pay` → `/pay/<code>`,
+  `/pay/<code>/<account>`, and `/api/pppoe-pay/<code>/…`. Only that
+  business's own code is served (`edge/portal-gateway`).
+- **Resolver:** `/api/edge/portal/resolve` also returns `pppoePayCode`.
+- **Links:** `src/lib/pppoe-address.js` decides the link address. Links move
+  to the tenant address only with the portal gateway on and
+  `PPPOE_TENANT_ADDRESS=true`. That covers SMS, receipts, Copy pay link,
+  Text link and the router's expired page.
+- **Existing routers:** a router set up earlier updates its `fiti-pay-host`
+  entry and its proxy redirect in place, at the next expiry.
+- **Rollout:** deploy the Worker, check `/pay` on one tenant address, then
+  set the variable.
+- **Not tested on hardware:** the expired-page update on a real router
+  (RouterOS 7 `action-data`, 6 `redirect-to`).
+
 ### Portal templates (merged in `7c5befe`)
 
 - **One gallery:** `PORTAL_TEMPLATE_CATALOG` in `public/business.html` holds all 15 designs. **Never add a second gallery script.**
