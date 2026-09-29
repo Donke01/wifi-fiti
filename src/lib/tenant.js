@@ -774,15 +774,17 @@ const activatePortalDomain = db.prepare(`
   UPDATE tenant_portal_domains SET status='active', is_primary=1
    WHERE hostname=? AND location_id=?
 `);
+// A renamed address stops working. The row stays (disabled) so the old
+// hostname remains this location's and cannot be claimed by another tenant
+// to catch customers who still have the old link.
+const retireOtherPortalDomains = db.prepare(`
+  UPDATE tenant_portal_domains SET status='disabled', is_primary=0
+   WHERE location_id=? AND hostname<>? AND status='active'
+`);
 const portalDomainsForLocation = db.prepare(`
   SELECT hostname, kind, status, is_primary, created_at
     FROM tenant_portal_domains WHERE location_id=? ORDER BY is_primary DESC, created_at DESC
 `);
-const activePortalDomainCountForLocation = db.prepare(`
-  SELECT COUNT(*) AS count FROM tenant_portal_domains
-   WHERE location_id=? AND status='active'
-`);
-const MAX_ACTIVE_PORTAL_DOMAINS_PER_LOCATION = 3;
 
 // Customer hostnames are never generated as a side effect of starting the
 // server. They are created only after the router has completed the
@@ -3762,17 +3764,11 @@ function setManagedPortalHostname({ locationId, businessId, slug }) {
     error.status = 409;
     throw error;
   }
-  const wouldAddActiveAddress = !existing || existing.status !== 'active';
-  if (wouldAddActiveAddress && activePortalDomainCountForLocation.get(locationId).count >= MAX_ACTIVE_PORTAL_DOMAINS_PER_LOCATION) {
-    const error = new Error('This location already has three active portal addresses. Contact Wi-Fi Fiti support to retire an older address.');
-    error.status = 409;
-    throw error;
-  }
 
   db.exec('BEGIN IMMEDIATE');
   try {
     if (!existing) addPortalDomain.run({ hostname, locationId, kind: 'managed', status: 'active', isPrimary: 0 });
-    deactivatePrimaryPortalDomains.run(locationId);
+    retireOtherPortalDomains.run(locationId, hostname);
     activatePortalDomain.run(hostname, locationId);
     db.exec('COMMIT');
   } catch (error) {

@@ -31,6 +31,8 @@ Everything below is on `main` and live on cloud.wififiti.co.ke; a push to
 | 10:01 | #29 | Dashboard refreshes itself every 2 seconds |
 | 10:41 | #31 | PPPoE pay page on the tenant's own portal address (`kitale.wififiti.co.ke/pay`), behind `PPPOE_TENANT_ADDRESS` |
 | 12:42 | #32 | PPPoE **Home internet** page (`/home`): packages, "Get connected" form, requests on the PPPoE page; Wi-Fi Fiti colours |
+| 13:44 | — | `edge/portal-gateway` Worker deployed (`wrangler deploy`); route `*.wififiti.co.ke/*` and `EDGE_GATEWAY_SECRET` unchanged |
+| 13:50 | — | `PPPOE_TENANT_ADDRESS=true` set on Railway after `achieng.wififiti.co.ke/pay` and `/home` checked |
 
 **Check first on real hardware (nothing below has run on a router yet):**
 1. On CLOUDNET (RB951, 7.24.2), open Routers → Active users. It fills within
@@ -43,10 +45,10 @@ Everything below is on `main` and live on cloud.wififiti.co.ke; a push to
    again.
 
 **Still open:**
-- Deploy: the `edge/portal-gateway` Worker is not redeployed yet, so
-  `/pay` and `/home` on tenant addresses don't work until `wrangler deploy`.
-  Then check `https://<tenant>.wififiti.co.ke/pay`, and only then set
-  `PPPOE_TENANT_ADDRESS=true` on Railway. Until then links stay on cloud.
+- Tenant-address rollout is done (Worker deployed, `PPPOE_TENANT_ADDRESS=true`).
+  Checked on `achieng.wififiti.co.ke`: `/pay` → `/pay/hfq9bgf` and `/home` →
+  `/home/hfq9bgf` load in Chromium with no errors. `wifi.wififiti.co.ke/pay`
+  and `/home` return "not found" (probably no PPPoE pay code; not checked).
 - Home internet page: owners get no SMS or alert for a new request, and the
   dashboard's PPPoE card doesn't show a count.
 - Payment recovery: a payment confirmed by an M-Pesa status query has no
@@ -335,8 +337,8 @@ Merged to `main` at Don's request, in this order: #19 → #21 → #22 → #23 �
   Text link and the router's expired page.
 - **Existing routers:** a router set up earlier updates its `fiti-pay-host`
   entry and its proxy redirect in place, at the next expiry.
-- **Rollout:** deploy the Worker, check `/pay` on one tenant address, then
-  set the variable.
+- **Rollout:** done 29 Sep — Worker deployed, `/pay` checked on
+  `achieng.wififiti.co.ke`, variable set.
 - **Not tested on hardware:** the expired-page update on a real router
   (RouterOS 7 `action-data`, 6 `redirect-to`).
 

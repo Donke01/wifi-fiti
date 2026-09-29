@@ -410,6 +410,8 @@ async function main() {
     } });
     assert.equal(customerPage.status, 200, JSON.stringify(customerPage.body));
     assert.equal(customerPage.body.portalUrl, 'https://alpha-guests.wififiti.co.ke');
+    assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(automaticallyCompleted.portal_hostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' })).status, 404,
+      'the address it replaced stops working');
     assert.equal(customerPage.body.location.portal_hostname, 'alpha-guests.wififiti.co.ke');
     assert.ok(customerPage.body.location.portal_setup_completed_at,
       'the selected router records completion of its own customer-page step');
