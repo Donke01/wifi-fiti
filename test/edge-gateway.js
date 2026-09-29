@@ -37,6 +37,7 @@ function upstream(calls, options = {}) {
       return Response.json({ accepted: true });
     }
     if (url.pathname === `/media/logo/${mapping.businessId}`) return new Response('logo', { headers: { 'content-type': 'image/png' } });
+    if (url.pathname === '/home/abcd1234') return new Response('<!doctype html><title>Home internet</title>', { headers: { 'content-type': 'text/html' } });
     if (/^\/pay\/abcd1234(?:\/|$)/.test(url.pathname)) return new Response('<!doctype html><title>Pay</title>', { headers: { 'content-type': 'text/html' } });
     if (url.pathname.startsWith('/api/pppoe-pay/abcd1234')) {
       call.body = request.method === 'POST' ? await request.text() : null;
@@ -163,9 +164,24 @@ function upstream(calls, options = {}) {
     assert.equal(result.status, 404, 'only /pay/<code>/<account>');
     ({ result } = await call(`https://${host}/api/pppoe-pay/abcd1234/account/jane.w`, { method: 'DELETE' }));
     assert.equal(result.status, 405);
+    // The "Home internet" page: /home, its own code only, GET/HEAD only.
+    ({ result, calls } = await call(`https://${host}/home`));
+    assert.equal(result.status, 302); assert.equal(result.headers.get('location'), '/home/abcd1234');
+    ({ result, calls } = await call(`https://${host}/home/abcd1234`));
+    assert.equal(result.status, 200); assert.equal(calls[1].url.pathname, '/home/abcd1234');
+    assert.match(await result.text(), /Home internet/);
+    ({ result, calls } = await call(`https://${host}/home/zzzz9999`));
+    assert.equal(result.status, 404); assert.equal(calls.length, 1);
+    ({ result } = await call(`https://${host}/home/abcd1234`, { method: 'POST', body: '{}' }));
+    assert.equal(result.status, 405);
+    const request = JSON.stringify({ fullName: 'Amina', phone: '0712000002', area: 'Milimani' });
+    ({ result, calls } = await call(`https://${host}/api/pppoe-pay/abcd1234/connect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: request }));
+    assert.equal(result.status, 200); assert.equal(calls[1].body, request, 'a connection request reaches the core intact');
     worker.clearPortalMappingCacheForTests();
     const plain = await worker.handleRequest(new Request(`https://${host}/pay`), env, { fetch: upstream([]) });
     assert.equal(plain.status, 404, 'a business without PPPoE billing has no pay page here');
+    worker.clearPortalMappingCacheForTests();
+    assert.equal((await worker.handleRequest(new Request(`https://${host}/home`), env, { fetch: upstream([]) })).status, 404);
   }
 
   {

@@ -181,10 +181,12 @@ async function resolvePortal(origin, env, host, runtime) {
   }
 }
 
-// The business's PPPoE pay page on the same address:
+// The business's PPPoE pages on the same address:
 //   /pay                     → 302 to /pay/<its code>
 //   /pay/<code>[/<account>]  → the pay page
-//   /api/pppoe-pay/<code>/…  → its API
+//   /home                    → 302 to /home/<its code>
+//   /home/<code>             → its "Home internet" page (packages, get connected)
+//   /api/pppoe-pay/<code>/…  → their API
 // Only that business's own code; any other code is not found.
 function pppoePayCode(portal) {
   const code = String(portal && portal.pppoePayCode || '');
@@ -192,7 +194,8 @@ function pppoePayCode(portal) {
 }
 function pppoePagePath(pathname, code) {
   const page = `/pay/${code}`;
-  return pathname === page || /^\/pay\/[a-z0-9]{4,16}\/[^/]{1,96}$/.test(pathname) && pathname.startsWith(`${page}/`);
+  return pathname === `/home/${code}` || pathname === page
+    || /^\/pay\/[a-z0-9]{4,16}\/[^/]{1,96}$/.test(pathname) && pathname.startsWith(`${page}/`);
 }
 function pppoeApiPath(pathname, code) {
   const prefix = `/api/pppoe-pay/${code}`;
@@ -251,9 +254,10 @@ export async function handleRequest(request, env, runtime = globalThis) {
   }
 
   const payCode = pppoePayCode(portal);
-  if (payCode && (pathname === '/pay' || pathname === '/pay/')) {
+  const shortPage = /^\/(pay|home)\/?$/.exec(pathname);
+  if (payCode && shortPage) {
     if (request.method !== 'GET' && request.method !== 'HEAD') return response(405, 'Method not allowed.');
-    return new Response(null, { status: 302, headers: { location: `/pay/${payCode}`, 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow' } });
+    return new Response(null, { status: 302, headers: { location: `/${shortPage[1]}/${payCode}`, 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow' } });
   }
   if (payCode && (pppoePagePath(pathname, payCode) || pppoeApiPath(pathname, payCode))) {
     const api = pathname.startsWith('/api/');

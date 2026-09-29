@@ -25,6 +25,7 @@ const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const pppoeBilling = require('./lib/pppoe-billing');
+const pppoeConnect = require('./lib/pppoe-connect');
 const whatsapp = require('./lib/whatsapp');
 const whatsappNotifications = require('./lib/whatsapp-notifications');
 const paymentIntegrations = require('./lib/payment-integrations');
@@ -631,6 +632,9 @@ app.use((req, res, next) => {
       verify ? tenantAccess.allowed('pppoe-pay:verify:' + req.ip, 10, 15 * 60_000) : { allowed: true },
       verify ? tenantAccess.allowed('pppoe-pay:verify-account:' + path, 8, 15 * 60_000) : { allowed: true },
       path.endsWith('/pay') ? tenantAccess.allowed('pppoe-pay:prompt:' + req.ip, 12, 5 * 60_000) : { allowed: true },
+      // The "Get connected" form: a few tries per address (the page checks
+      // the fields first, so a person rarely needs more than one or two).
+      path.endsWith('/connect') ? tenantAccess.allowed('pppoe-pay:connect:' + req.ip, 10, 15 * 60_000) : { allowed: true },
     ];
     const blocked = limits.find((limit) => !limit.allowed);
     if (blocked) return res.status(429).set('Retry-After', String(blocked.retryAfter))
@@ -5845,6 +5849,33 @@ app.get(['/pay/:code', '/pay/:code/:username'], (req, res) => {
   res.sendFile(path.join(publicDirectory, 'pppoe-pay.html'));
 });
 
+// The business's public "Home internet" page: packages, coverage and a
+// "Get connected" form (src/lib/pppoe-connect.js). Off until the owner turns it on.
+app.get('/home/:code', (req, res) => {
+  const business = pppoeBilling.businessForPayCode(req.params.code);
+  if (!business || !pppoeBilling.settingsFor(business.id).homePage) return res.status(404).type('text/plain').send('This page was not found.');
+  res.set('Cache-Control', 'no-cache');
+  res.sendFile(path.join(publicDirectory, 'pppoe-home.html'));
+});
+app.get('/api/pppoe-pay/:code/home', (req, res) => {
+  const ctx = pppoePayContext(req, res); if (!ctx) return;
+  const view = pppoeConnect.homeView(ctx.business, { payBill: pppoePayBill(ctx.business.id), logoUrl: brandingPayload(ctx.business).logoUrl || null });
+  if (!view) return res.status(404).json({ error: 'This page was not found.' });
+  res.set('Cache-Control', 'no-store');
+  res.json(view);
+});
+app.post('/api/pppoe-pay/:code/connect', (req, res) => {
+  const ctx = pppoePayContext(req, res); if (!ctx) return;
+  // A filled hidden field is a bot: answer as if it worked, save nothing.
+  if (req.body && String(req.body.website || '').trim()) return res.status(201).json({ ok: true, request: { phone: null, area: null } });
+  try {
+    const { request, updated } = pppoeConnect.createRequest(ctx.business, req.body || {});
+    res.status(updated ? 200 : 201).json({ ok: true, updated, request: pppoeConnect.receiptView(request) });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
+  }
+});
+
 function pppoePayContext(req, res) {
   const business = pppoeBilling.businessForPayCode(req.params.code);
   if (!business) { res.status(404).json({ error: 'This pay page was not found.' }); return null; }
@@ -6022,7 +6053,7 @@ app.get('/api/business/pppoe/billing', pppoeOwnerRoute((req, res, business) => {
   const settings = pppoeBilling.settingsFor(business.id);
   const users = db.db.prepare('SELECT * FROM pppoe_users WHERE business_id=? ORDER BY username').all(business.id);
   res.json({
-    settings, payPage: pppoeBilling.payPageUrl(business.id), payBill: pppoePayBill(business.id),
+    settings, payPage: pppoeBilling.payPageUrl(business.id), homePage: pppoeConnect.homePageUrl(business.id), payBill: pppoePayBill(business.id),
     serving: pppoeBilling.ownerCanServe(db.businessById.get(business.id)),
     subscribers: Object.fromEntries(users.map((u) => [u.id, pppoeBilling.ownerView(u, { settings })])),
     // The payment list is for roles that see sales over time (not an
@@ -6032,6 +6063,13 @@ app.get('/api/business/pppoe/billing', pppoeOwnerRoute((req, res, business) => {
 }));
 app.put('/api/business/pppoe/billing/settings', pppoeOwnerRoute((req, res, business) => {
   res.json({ settings: pppoeBilling.saveSettings(business.id, req.body || {}) });
+}));
+// Requests from the "Get connected" form.
+app.get('/api/business/pppoe/requests', pppoeOwnerRoute((req, res, business) => {
+  res.json(pppoeConnect.listRequests(business.id));
+}));
+app.patch('/api/business/pppoe/requests/:requestId', pppoeOwnerRoute((req, res, business) => {
+  res.json({ request: pppoeConnect.updateRequest(business.id, req.params.requestId, req.body || {}) });
 }));
 app.patch('/api/business/pppoe/profiles/:profileId', pppoeOwnerRoute((req, res, business) => {
   res.json({ profile: pppoeBilling.updatePlan(business.id, req.params.profileId, req.body || {}) });

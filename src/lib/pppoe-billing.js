@@ -104,6 +104,15 @@ db.exec(`
     PRIMARY KEY (user_id, reminder_key)
   );
 `);
+// The public "Home internet" page (pppoe-connect.js): off until the owner
+// turns it on, with an optional headline, the areas they cover and an
+// installation fee to show.
+for (const statement of [
+  `ALTER TABLE pppoe_billing_settings ADD COLUMN home_page INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE pppoe_billing_settings ADD COLUMN home_headline TEXT`,
+  `ALTER TABLE pppoe_billing_settings ADD COLUMN home_areas TEXT`,
+  `ALTER TABLE pppoe_billing_settings ADD COLUMN home_install_fee INTEGER`,
+]) { try { db.exec(statement); } catch (_) {} }
 
 /* ------------------------------------------------------------------ */
 /* Small helpers                                                       */
@@ -168,7 +177,23 @@ function settingsFor(businessId) {
     payForOthers: Boolean(row.pay_for_others),
     boosts: Boolean(row.boosts),
     expiredPage: Boolean(row.expired_page),
+    homePage: Boolean(row.home_page),
+    homeHeadline: row.home_headline || '',
+    homeAreas: homeAreasOf(row.home_areas),
+    homeInstallFee: row.home_install_fee == null ? null : Number(row.home_install_fee),
   };
+}
+const MAX_AREAS = 60;
+function homeAreasOf(value) {
+  const list = Array.isArray(value) ? value : String(value || '').split(/[\n,]/);
+  const seen = new Set(); const areas = [];
+  for (const item of list) {
+    const area = String(item || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!area || seen.has(area.toLowerCase())) continue;
+    seen.add(area.toLowerCase()); areas.push(area);
+    if (areas.length >= MAX_AREAS) break;
+  }
+  return areas;
 }
 function saveSettings(businessId, patch = {}) {
   const current = settingsFor(businessId);
@@ -178,13 +203,22 @@ function saveSettings(businessId, patch = {}) {
     if (!Number.isInteger(g) || g < 0 || g > 7) throw fail('Grace days must be a whole number from 0 to 7.');
     next.graceDays = g;
   }
-  for (const key of ['remindBefore', 'remindDay', 'remindAfter', 'selfChangePlan', 'payForOthers', 'boosts', 'expiredPage']) {
+  for (const key of ['remindBefore', 'remindDay', 'remindAfter', 'selfChangePlan', 'payForOthers', 'boosts', 'expiredPage', 'homePage']) {
     if (patch[key] !== undefined) next[key] = Boolean(patch[key]);
   }
+  if (patch.homeHeadline !== undefined) {
+    const headline = String(patch.homeHeadline || '').replace(/\s+/g, ' ').trim();
+    if (headline.length > 90) throw fail('Keep the headline to 90 characters or fewer.');
+    next.homeHeadline = headline;
+  }
+  if (patch.homeAreas !== undefined) next.homeAreas = homeAreasOf(patch.homeAreas);
+  if (patch.homeInstallFee !== undefined) next.homeInstallFee = patch.homeInstallFee === null || patch.homeInstallFee === '' ? null : money(patch.homeInstallFee, 'Installation fee');
   db.prepare(`UPDATE pppoe_billing_settings SET grace_days=?, remind_before=?, remind_day=?, remind_after=?, self_change_plan=?,
-      pay_for_others=?, boosts=?, expired_page=?, updated_at=datetime('now') WHERE business_id=?`)
+      pay_for_others=?, boosts=?, expired_page=?, home_page=?, home_headline=?, home_areas=?, home_install_fee=?,
+      updated_at=datetime('now') WHERE business_id=?`)
     .run(next.graceDays, bool(next.remindBefore), bool(next.remindDay), bool(next.remindAfter), bool(next.selfChangePlan),
-      bool(next.payForOthers), bool(next.boosts), bool(next.expiredPage), businessId);
+      bool(next.payForOthers), bool(next.boosts), bool(next.expiredPage), bool(next.homePage), next.homeHeadline || null,
+      next.homeAreas.length ? next.homeAreas.join('\n') : null, next.homeInstallFee, businessId);
   if (next.graceDays !== current.graceDays) regraceBusiness(businessId, next.graceDays);
   return settingsFor(businessId);
 }
