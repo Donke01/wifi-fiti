@@ -99,13 +99,13 @@ async function api(endpoint, { method = 'GET', body, token, routerToken, text } 
     assert.equal((script.match(/\{/g) || []).length, (script.match(/\}/g) || []).length, 'braces balance');
     assert.match(script, /\n\} on-error=\{\}$/, 'a failed report is silent: no log line every minute');
   });
-  await test('a quiet check-in reply carries it about once a minute; a busy one never does', async () => {
+  await test('a quiet check-in reply carries it every 30 seconds; a login job never does', async () => {
     const poll = () => api('/api/router/jobs?site=loc-alpha', { routerToken: 'router-a' });
     const first = await poll();
     assert.equal(first.status, 200);
     assert.match(first.text, /fiti-telemetry-v1/, 'the first quiet reply asks for a report');
-    assert.doesNotMatch((await poll()).text, /fiti-telemetry-v1/, 'not again within the minute');
-    later(61);
+    assert.doesNotMatch((await poll()).text, /fiti-telemetry-v1/, 'not again within 30 seconds');
+    later(31);
     // A login job waiting for the router: that reply stays about the job.
     db.prepare(`INSERT INTO tenant_jobs (location_id, username, password, total_seconds, mac) VALUES ('loc-alpha', '254711000003', 'pw', 3600, 'AA:BB:CC:00:00:03')`).run();
     const busy = await poll();
@@ -117,6 +117,19 @@ async function api(endpoint, { method = 'GET', body, token, routerToken, text } 
     process.env.ROUTER_TELEMETRY = 'off';
     assert.doesNotMatch((await poll()).text, /fiti-telemetry-v1/, 'ROUTER_TELEMETRY=off stops it on every router');
     delete process.env.ROUTER_TELEMETRY;
+    assert.match((await poll()).text, /fiti-telemetry-v1/);
+  });
+  await test('while a payment is waiting it rides only once the last report is over a minute old', async () => {
+    const poll = () => api('/api/router/jobs?site=loc-alpha', { routerToken: 'router-a' });
+    db.prepare(`INSERT INTO tenant_transactions (checkout_request_id, business_id, location_id, phone, package_id, package_name, amount, seconds, mac, status)
+      VALUES ('ws-waiting', 'biz-a', 'loc-alpha', '254711000004', 1, '1 hour', 10, 3600, 'AA:BB:CC:00:00:04', 'pending')`).run();
+    later(31);
+    const waiting = await poll();
+    assert.match(waiting.text, /interval=1s/, 'a payment in progress: the router checks in every second');
+    assert.doesNotMatch(waiting.text, /fiti-telemetry-v1/, 'not due yet while a payment waits');
+    later(31);
+    assert.match((await poll()).text, /fiti-telemetry-v1/, 'over a minute: a busy hotspot still reports');
+    db.prepare(`DELETE FROM tenant_transactions WHERE checkout_request_id='ws-waiting'`).run();
   });
 
   console.log('\nThe report endpoint');
@@ -164,6 +177,16 @@ async function api(endpoint, { method = 'GET', body, token, routerToken, text } 
       'customer 2 is not in a truncated list but stays online');
     later(60);
     await post(report([sess(1, 125), sess(2, 480)]));
+  });
+
+  await test('a long chart period keeps its newest point and at most 240 points', async () => {
+    const insert = db.prepare(`INSERT INTO tenant_router_telemetry (location_id, cpu_percent, active_users, recorded_at) VALUES ('loc-alpha', ?, 1, datetime('now', ?))`);
+    for (let minute = 1440; minute >= 2; minute -= 1) insert.run(minute % 100, `-${minute} minutes`);
+    const chart = (await api('/api/business/router-telemetry?locationId=loc-alpha&period=24h', { token: 'owner-a' })).body;
+    assert.ok(chart.samples.length <= 240 && chart.samples.length >= 200, String(chart.samples.length));
+    assert.equal(chart.samples[chart.samples.length - 1].recorded_at, chart.latest.recorded_at, 'the newest point is always drawn');
+    assert.ok(chart.samples[0].recorded_at < chart.samples[1].recorded_at, 'oldest first');
+    db.prepare(`DELETE FROM tenant_router_telemetry WHERE location_id='loc-alpha' AND active_users=1 AND free_memory IS NULL`).run();
   });
 
   console.log('\nActive users');

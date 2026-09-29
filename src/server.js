@@ -2367,16 +2367,17 @@ app.get('/api/business/router-telemetry', (req, res) => {
   if (!location) return res.status(404).json({ error: 'Location not found.' });
   const period = String(req.query.period || '24h');
   const hours = period === '1h' ? 1 : period === '6h' ? 6 : period === '7d' ? 168 : 24;
+  // Chart points arrive about every minute; the charts get up to 240 of them.
   const since = new Date(Date.now() - hours * 3600_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
   // The last Router health check (Router tools) fills in for routers whose
   // kit sends no telemetry; before one exists, the card shows what the
   // router's normal check-ins already told the server.
-  res.json({ locationId, period, ...tenant.routerTelemetryForLocationId(location.id, { since, limit: 1000 }), health: routerTools.latestHealth(location.id), checkIn: tenant.routerCheckIn(location) });
+  res.json({ locationId, period, ...tenant.routerTelemetryForLocationId(location.id, { since, limit: 240 }), health: routerTools.latestHealth(location.id), checkIn: tenant.routerCheckIn(location) });
 });
 
 // Active users: who is online on one router right now (session, data, time
 // left), and who has time left but is not connected. Opening it makes that
-// router report every 20 seconds for the next two minutes.
+// router report every 10 seconds for the next two minutes.
 app.get('/api/business/locations/:locationId/online-users', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const location = tenant.locationForBusiness.get(req.params.locationId, business.id);
@@ -5152,20 +5153,24 @@ function tenantOpenWifiScript(location) {
 // one in place on their next poll (at most every 10 minutes), so a fix does
 // not need a re-pairing. Support-control replies stay narrow and never carry it.
 const inventoryUpdateSentAt = new Map();
-// About once a minute a quiet reply also asks the router for its load and
-// who is online (hotspot-sessions.js). Every 20 seconds while the owner has
-// the Active users view open. It never rides with a login job, a payment in
-// progress, a tool, a map change or support work, so it cannot slow them.
+// Every 30 seconds a quiet reply also asks the router for its load and who
+// is online (hotspot-sessions.js); every 10 seconds while the owner has the
+// Active users view open. It never rides with a login job, a tool, a map
+// change or support work. While a payment is waiting it rides only when the
+// last report is over a minute old, so a busy hotspot still reports.
 const telemetryAskedAt = new Map();
 const onlineViewedAt = new Map();
-const TELEMETRY_EVERY_MS = 60_000;
-const TELEMETRY_VIEWING_EVERY_MS = 20_000;
+const TELEMETRY_EVERY_MS = 30_000;
+const TELEMETRY_VIEWING_EVERY_MS = 10_000;
+const TELEMETRY_OVERDUE_MS = 60_000;
 function tenantRouterScript(location, options = {}) {
   const result = tenantRouterScriptWithExtras(location, options);
   // ROUTER_TELEMETRY=off stops the report on every router at once.
-  if (!result.quiet || String(process.env.ROUTER_TELEMETRY || '').toLowerCase() === 'off') return result;
+  if (String(process.env.ROUTER_TELEMETRY || '').toLowerCase() === 'off') return result;
+  const since = Date.now() - (telemetryAskedAt.get(location.id) || 0);
+  if (!result.quiet && !(result.light && since >= TELEMETRY_OVERDUE_MS)) return result;
   const viewing = Date.now() - (onlineViewedAt.get(location.id) || 0) < 2 * 60_000;
-  if (Date.now() - (telemetryAskedAt.get(location.id) || 0) < (viewing ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS)) return result;
+  if (since < (viewing ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS)) return result;
   telemetryAskedAt.set(location.id, Date.now());
   return { ...result, script: [result.script, hotspotSessions.telemetryReplyScript()].filter(Boolean).join('\n') };
 }
@@ -5192,7 +5197,7 @@ function tenantRouterScriptWithExtras(location, options = {}) {
   } catch (error) { console.error('[router changes] could not build a change:', error.message); }
   // A change is the heaviest thing a small router runs, and it sends its own
   // layout report when it finishes, so nothing else rides along with it.
-  if (extra.length) return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n'), quiet: false };
+  if (extra.length) return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n'), quiet: false, light: false };
   if (layout && (Number(layout.agent) || 1) < INVENTORY_AGENT) {
     const last = inventoryUpdateSentAt.get(location.id) || 0;
     if (Date.now() - last >= 10 * 60_000) { inventoryUpdateSentAt.set(location.id, Date.now()); extra.push(inventoryScriptUpdate()); }
@@ -5205,7 +5210,7 @@ function tenantRouterScriptWithExtras(location, options = {}) {
     if (Date.now() - lastAsk >= Math.min(25_000, layoutReportEvery(location.id))) { inventoryRefreshAskedAt.set(location.id, Date.now()); extra.push(INVENTORY_REFRESH_LINE, INVENTORY_TIMER_REMOVE_LINE); }
   }
   if (!extra.length) return result;
-  return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n'), quiet: false };
+  return { ...result, script: [result.script, ...extra].filter(Boolean).join('\n'), quiet: false, light: false };
 }
 // The layout report is heavy for a small board (a hAP lite at 100% CPU spent
 // much of it listing interfaces and pools). It runs every 25 s only while the
@@ -5225,7 +5230,7 @@ function withRouterTool(location, result) {
   if (location.router_kit === 'universal' && routerChanges.hasActiveChange(location.id)) return result;
   let script = '';
   try { script = routerTools.nextToolScript(location); } catch (error) { console.error('[router tools] could not build a tool:', error.message); }
-  return script ? { ...result, script: [result.script, script].filter(Boolean).join('\n'), quiet: false } : result;
+  return script ? { ...result, script: [result.script, script].filter(Boolean).join('\n'), quiet: false, light: false } : result;
 }
 const inventoryRefreshAskedAt = new Map();
 const INVENTORY_REFRESH_LINE = ':do { /system script run fiti-inventory } on-error={ :log warning "fiti: layout report failed; it will retry" }';
@@ -5288,7 +5293,10 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
   if (!jobs.length && !controls.length && !deployment) {
     // Quiet: nothing for a customer or the owner is waiting on this reply.
     return { script: [pollTuning, openWifi, portal, pppoeScript].filter(Boolean).join('\n'), emitted: [], rejected: [], supportEmitted: [], supportRejected: [],
-      quiet: !fastPoll && !portal && !pppoeScript };
+      quiet: !fastPoll && !portal && !pppoeScript,
+      // Light: nothing is delivered and nothing runs on the router; only
+      // waiting (e.g. for a payment). A map change or tool never shares.
+      light: !portal && !pppoeScript && !changeInFlight && !toolWaiting };
   }
 
   // Support controls always use their own queue and ACK global. They are
@@ -5451,7 +5459,7 @@ function ingestTenantDevices(location, query) {
  * The once-a-minute router report asked for by the check-in reply: load,
  * memory, uptime, customer-bridge traffic and who is online. Header auth
  * only; a malformed report is refused and changes nothing. A chart sample
- * is kept at most every 4 minutes; sessions are updated on every report.
+ * is kept about every minute; sessions are updated on every report.
  */
 const telemetrySampleAt = new Map();
 const telemetryReportAt = new Map();
@@ -5460,14 +5468,14 @@ app.post('/api/router/telemetry', (req, res) => {
   const header = req.get('X-WiFi-Fiti-Router');
   const location = site.startsWith('loc-') && header ? tenant.authenticateRouter(site, header, 'header') : null;
   if (!location || location.router_pairing_auth === 'pending') return res.status(403).type('text/plain').send('# forbidden\n');
-  // One report per 10 seconds per router is plenty; extras are dropped.
-  if (Date.now() - (telemetryReportAt.get(location.id) || 0) < 10_000) return res.type('text/plain').send('# later\n');
+  // One report per 5 seconds per router is plenty; extras are dropped.
+  if (Date.now() - (telemetryReportAt.get(location.id) || 0) < 5_000) return res.type('text/plain').send('# later\n');
   const report = hotspotSessions.parseReport(req.body);
   if (!report) return res.status(400).type('text/plain').send('# not a telemetry report\n');
   telemetryReportAt.set(location.id, Date.now());
   try {
     hotspotSessions.recordReport(location, report);
-    if (report.resources && Date.now() - (telemetrySampleAt.get(location.id) || 0) >= 4 * 60_000) {
+    if (report.resources && Date.now() - (telemetrySampleAt.get(location.id) || 0) >= 50_000) {
       const sample = tenant.recordRouterTelemetry({ locationId: location.id, ...report.resources,
         activeUsers: report.customersOnline });
       if (sample) telemetrySampleAt.set(location.id, Date.now());

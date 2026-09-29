@@ -438,7 +438,8 @@ polling or M-Pesa callbacks: they must keep reaching the same backend directly.
 
 ### Router telemetry and Active users
 
-About once a minute, a quiet check-in reply also carries a short read-only
+Every 30 seconds (every 10 while the owner has Active users open), a quiet
+check-in reply also carries a short read-only
 RouterOS block (`src/lib/hotspot-sessions.js`, `telemetryReplyScript`). The
 router runs it inside the same check-in job, so it is still one check-in at a
 time. The block reads:
@@ -450,17 +451,19 @@ It posts these to `POST /api/router/telemetry` with the `X-WiFi-Fiti-Router`
 header, using the same `check-certificate` setting as the router's own
 `fiti-poll`. The block is built fresh for every reply, so every paired router
 runs the current version; nothing is stored on the router and no kit needs
-pasting again. It never rides with a login job, a payment in progress, a
-router tool, a map change or support work. `ROUTER_TELEMETRY=off` stops it
-on every router.
+pasting again. It never rides with a login job, a router tool, a map change
+or support work. While a payment is waiting, it rides only if the last report
+is more than a minute old, so a busy hotspot still reports.
+`ROUTER_TELEMETRY=off` stops it on every router.
 
-- **Charts:** one sample is kept at most every 4 minutes, for 30 days.
+- **Charts:** a point about every minute, kept for 30 days. A chart shows up
+  to 240 points spread over the chosen period.
 - **Active users** (the router card's number): who is online now, with
   session time, idle time, data, device, IP, package and time left; who has
   time left but is offline; and each customer's sessions, payments and
   vouchers. Sessions are kept for 90 days. Owner, Manager and Attendant can
   open a customer's history. The Technician sees the list only.
-- **Concurrent-user limit:** a router that reported within the last 3 minutes
+- **Concurrent-user limit:** a router that reported within the last 90 seconds
   counts the Wi-Fi Fiti customers it listed as online. A router that is not
   reporting counts every package with time left, as before, so a sale is never
   allowed on a guess. When the plan is full, new purchases wait; customers

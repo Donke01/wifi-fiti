@@ -986,11 +986,13 @@ const insertRouterTelemetry = db.prepare(`
     (location_id, cpu_percent, free_memory, total_memory, uptime_seconds, uptime_text, rx_bytes, tx_bytes, active_users)
   VALUES (@locationId, @cpuPercent, @freeMemory, @totalMemory, @uptimeSeconds, @uptimeText, @rxBytes, @txBytes, @activeUsers)
 `);
+// Newest first, so a long period never loses its latest points; the caller
+// puts them back in time order.
 const routerTelemetryForLocation = db.prepare(`
   SELECT cpu_percent, free_memory, total_memory, uptime_seconds, uptime_text, rx_bytes, tx_bytes, active_users, recorded_at
     FROM tenant_router_telemetry
    WHERE location_id=? AND recorded_at >= ?
-   ORDER BY recorded_at ASC
+   ORDER BY recorded_at DESC
    LIMIT ?
 `);
 const latestRouterTelemetry = db.prepare(`
@@ -2858,12 +2860,25 @@ function routerDevicesForLocation(locationId) {
   return recentRouterDevices.all(locationId);
 }
 
+// Routers report a chart point about every minute: a week is ~10,000 rows.
+// The chart needs a few hundred, spread evenly over the period, with the
+// newest always kept. Traffic counters are running totals, so the change
+// between two kept points is still the traffic in between.
+const TELEMETRY_READ_MAX = 12000;
+function thinSamples(rows, max) {
+  if (rows.length <= max) return rows;
+  const step = (rows.length - 1) / (max - 1);
+  const kept = [];
+  for (let i = 0; i < max; i += 1) kept.push(rows[Math.round(i * step)]);
+  return kept;
+}
 function routerTelemetryForLocationId(locationId, { since, limit = 500 } = {}) {
   const from = since || nowSql(Date.now() - 24 * 60 * 60 * 1000);
   const safeLimit = Math.min(Math.max(Number(limit) || 500, 1), 2000);
+  const rows = routerTelemetryForLocation.all(locationId, from, TELEMETRY_READ_MAX).reverse();
   return {
     latest: latestRouterTelemetry.get(locationId) || null,
-    samples: routerTelemetryForLocation.all(locationId, from, safeLimit),
+    samples: thinSamples(rows, safeLimit),
   };
 }
 
