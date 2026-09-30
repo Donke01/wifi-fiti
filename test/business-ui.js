@@ -1023,3 +1023,59 @@ assert.match(html, /Terminal history/, 'the history section is labeled');
 assert.match(html, /\/api\/business\/terminal\/audit/, 'history comes from the business audit endpoint');
 assert.match(html, /if \(!can\('team'\)\) return;/, 'terminal history is owner-only');
 assert.match(fs.readFileSync(path.join(__dirname, '../public/terminal.js'), 'utf8'), /onClose: function/, 'the terminal modal exposes an onClose hook for refresh');
+
+// Overview honesty: the chart plots the period's paid transactions per
+// day (per hour for today, per week for 90 days); the KPIs use the
+// server's real gross, fee and net. Nothing is fabricated when idle.
+assert.match(html, /function overviewPaidTransactions\(\)/, 'the overview chart reads paid transactions only');
+assert.match(html, /function overviewRevenueBuckets\(rows\)/, 'revenue is bucketed per day, hour or week');
+assert.match(html, /dashboard\.netToBusiness/, 'the net KPI uses the server net, not a guess');
+assert.match(html, /overview-kpi-label">Platform fee/, 'the fee KPI names the real platform fee');
+assert.match(html, /No paid sales in this view/, 'an empty chart says so instead of drawing fake bars');
+assert.doesNotMatch(html, /index % 4 === 0 \? \.08/, 'no fabricated fallback wave when there are no sales');
+assert.doesNotMatch(html, /<span>Proceeds<\/span><span>Commission<\/span>/, 'no proceeds/commission split the data cannot support');
+// The source filter names real collection rails and redraws the chart.
+assert.match(html, /option value="own">Own Till \/ PayBill/, 'the filter offers the real own-collection rail');
+assert.match(html, /option value="tuma">Tuma/, 'the filter offers the real Tuma rail');
+assert.match(html, /Source filter: ' \+ this\.options\[this\.selectedIndex\]\.text; renderOverviewInsights/, 'changing the source redraws the overview');
+{
+  const block = html.match(/var OVERVIEW_SOURCE_LABELS = [\s\S]*?\n      function renderOverviewInsights/)[0]
+    .replace(/\n      function renderOverviewInsights$/, '');
+  const source = { value: 'all' };
+  const pad = (n) => String(n).padStart(2, '0');
+  const at = (daysAgo, hour) => { const d = new Date(); d.setDate(d.getDate() - daysAgo); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(hour)}:00:00`; };
+  const transactions = [
+    { status: 'paid', amount: 20, payment_source: 'fiti', created_at: at(0, 12) },
+    { status: 'paid', amount: 50, payment_source: 'own', created_at: at(1, 12) },
+    { status: 'paid', amount: 30, payment_source: 'c2b', created_at: at(1, 13) },
+    { status: 'pending', amount: 999, payment_source: 'fiti', created_at: at(0, 12) },
+  ];
+  const context = vm.createContext({ state: { dashboard: { period: '90d', transactions } }, salesPeriod: '30d', $: (id) => (id === 'overview-source' ? source : null) });
+  vm.runInContext(block + '\nthis.__test = { paid: overviewPaidTransactions, buckets: overviewRevenueBuckets };', context);
+  const total = (rows) => rows.reduce((sum, row) => sum + row.revenueKes, 0);
+  assert.equal(total(context.__test.buckets(context.__test.paid()).buckets), 100, 'paid revenue is plotted exactly; pending is excluded');
+  source.value = 'own';
+  assert.equal(total(context.__test.buckets(context.__test.paid()).buckets), 80, 'the own-collection filter keeps own and C2B rails only');
+  source.value = 'tuma';
+  assert.equal(total(context.__test.buckets(context.__test.paid()).buckets), 0, 'an unused rail charts nothing, not a guess');
+  source.value = 'all';
+  assert.equal(context.__test.buckets(context.__test.paid()).buckets.length, 13, 'a 90-day view has 13 weekly bars');
+  context.state.dashboard.period = '7d';
+  assert.equal(context.__test.buckets(context.__test.paid()).buckets.length, 7, 'a 7-day view has 7 daily bars');
+  context.state.dashboard.period = 'today';
+  assert.equal(context.__test.buckets(context.__test.paid()).buckets.length, 24, "today's view has 24 hourly bars");
+}
+
+// Customer history opens in a dialog, never a blocking browser alert.
+assert.match(html, /id="customer-modal" role="dialog" aria-modal="true"/, 'customers open in a labelled dialog');
+assert.match(html, /function openCustomerModal\(customer\)/, 'the dialog renders identity plus package history');
+assert.doesNotMatch(html, /window\.alert\('Customer '/, 'no native alert for customer details');
+assert.match(html, /customer-modal-close'\)\.addEventListener\('click'/, 'the dialog closes from its button');
+assert.match(html, /event\.key === 'Escape' && !\$\('customer-modal'\)/, 'Escape closes the dialog');
+
+// Failed loads read as failures, not as quiet zeros.
+assert.match(html, /id="sales-error"/, 'the sales panel has its own error slot');
+assert.match(html, /id="analytics-error" role="alert"/, 'analytics failures surface next to the metrics');
+assert.doesNotMatch(html, /analytics-load-note/, 'the analytics error path writes to a real element');
+assert.match(html, /state\.dashboardError = results\[1\]\.status === 'fulfilled' \? null/, 'a failed sales fetch is remembered, not replaced by zeros');
+assert.match(html, /\$\('sales-gross'\)\.textContent = failed \? '—'/, 'failed sales metrics show a dash, not KES 0');
