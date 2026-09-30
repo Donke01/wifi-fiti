@@ -1501,7 +1501,7 @@
           actions.appendChild(terminalButton);
         }
         if (remoteAccess && remoteAccess.canRequest) {
-          var request = el('button', '', 'Request remote setup'); request.type = 'button';
+          var request = el('button', '', remoteAccess && remoteAccess.status === 'revoked' ? 'Turn remote access on' : 'Request remote setup'); request.type = 'button';
           request.addEventListener('click', function () {
             if (!window.confirm('Allow Wi-Fi Fiti to prepare secure remote setup for this router? Customer traffic and payments will not pass through this support connection. You can revoke access later.')) return;
             setBusy(request, true, 'Requesting…');
@@ -3155,7 +3155,7 @@
         locations.forEach(function (location) {
           var card = el('article', 'location-card'); var top = el('div', 'location-top'); var info = el('div'); add(info, 'h3', '', location.router_name || location.name || 'Router'); if (location.router_name && location.name) add(info, 'div', 'location-meta', location.name); top.appendChild(info);
           var remote = remoteAccessStatus(location.remoteAccess || { status: location.remote_access_status }); add(top, 'span', 'remote-state ' + remote.style, remote.label); card.appendChild(top);
-          var actions = el('div', 'location-actions'); var open = el('button', 'secondary', 'Remote setup'); open.type = 'button'; open.addEventListener('click', function () { openRemoteAccess(location, card, open); }); actions.appendChild(open); card.appendChild(actions); root.appendChild(card);
+          var actions = el('div', 'location-actions'); var remoteState = String((location.remoteAccess && location.remoteAccess.status) || location.remote_access_status || '').toLowerCase(); var open = el('button', 'secondary', remoteState === 'revoked' ? 'Turn remote access on' : 'Remote setup'); open.type = 'button'; open.addEventListener('click', function () { openRemoteAccess(location, card, open); }); actions.appendChild(open); card.appendChild(actions); root.appendChild(card);
         });
         renderTerminalHistory(root);
       }
@@ -3209,7 +3209,7 @@
           if (location.router_kit === 'universal' && routerSuccessfullyPaired(location)) { var mapOpen = el('button', '', 'Router map'); mapOpen.type = 'button'; mapOpen.title = 'Hotspot, PPPoE, Wi-Fi, VLANs and the owner’s own hotspot'; mapOpen.addEventListener('click', function () { openRouterMap(location); }); actions.insertBefore(mapOpen, actions.firstChild); }
           if (!routerMappingConfirmed(location) && !(location.router_kit === 'universal' && routerSuccessfullyPaired(location))) { var setup = el('button', 'quiet', 'Continue setup'); setup.type = 'button'; setup.addEventListener('click', function () { continueRouterSetup(location); }); actions.appendChild(setup); }
           var restart = el('button', 'quiet', 'Start router setup again'); restart.type = 'button'; restart.addEventListener('click', function () { startRouterSetupAgain(location); }); actions.appendChild(restart);
-          var remoteSetup = el('button', 'quiet', 'Remote setup'); remoteSetup.type = 'button'; remoteSetup.addEventListener('click', function () { openRemoteAccess(location, card, remoteSetup); }); actions.appendChild(remoteSetup);
+          var remoteState = String((location.remoteAccess && location.remoteAccess.status) || location.remote_access_status || '').toLowerCase(); var remoteSetup = el('button', 'quiet', remoteState === 'revoked' ? 'Turn remote access on' : 'Remote setup'); remoteSetup.type = 'button'; remoteSetup.addEventListener('click', function () { openRemoteAccess(location, card, remoteSetup); }); actions.appendChild(remoteSetup);
           var edit = el('button', 'quiet', 'Portal & router settings'); edit.type = 'button'; edit.addEventListener('click', function () { renderLocationEditor(location, card); }); actions.appendChild(edit);
           var remove = el('button', 'danger quiet', 'Delete router'); remove.type = 'button'; remove.setAttribute('data-permission', 'routers.delete'); remove.addEventListener('click', function () { removeTenantRouter(location, remove); }); actions.appendChild(remove);
           card.appendChild(actions); root.appendChild(card);
