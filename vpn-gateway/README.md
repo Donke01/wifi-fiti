@@ -138,3 +138,21 @@ the gateway transport and the platform admin has approved it.
 
 After changing the environment file, `npm install --omit=dev` in
 `/opt/wifi-fiti-vpn-agent` (for `ws`/`ssh2`) and restart the service.
+
+### Reachability probe
+
+Before opening the first terminal session against real hardware, verify the
+whole path from the gateway with:
+
+```sh
+node probe-terminal.js 10.254.0.7
+```
+
+It walks three layers and reports exactly which one fails: (1) the
+WireGuard tunnel — a peer must route the address with a recent handshake;
+(2) TCP to port 22 on the tunnel address; (3) the SSH handshake — banner
+plus key exchange, proven by reaching the authentication step with
+deliberately invalid credentials (no real password is ever sent). Exit code
+is 0 when all layers pass, 10/20/30 for the failing layer, 64 for usage or
+policy errors. The probe only covers the terminal relay policy
+(`10.254.0.0/16`, port 22).
