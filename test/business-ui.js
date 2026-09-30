@@ -1079,3 +1079,46 @@ assert.match(html, /id="analytics-error" role="alert"/, 'analytics failures surf
 assert.doesNotMatch(html, /analytics-load-note/, 'the analytics error path writes to a real element');
 assert.match(html, /state\.dashboardError = results\[1\]\.status === 'fulfilled' \? null/, 'a failed sales fetch is remembered, not replaced by zeros');
 assert.match(html, /\$\('sales-gross'\)\.textContent = failed \? '—'/, 'failed sales metrics show a dash, not KES 0');
+
+// Live freshness: the pill names the update age, pauses honestly while
+// editing, and a live redraw never moves the reader's scroll position.
+assert.match(html, /id="live-pill"/, 'the topline carries a live-update pill');
+assert.match(html, /function renderLivePill\(\)/, 'the pill renders from the last successful poll');
+assert.match(html, /Live · just now/, 'a current page says it is live');
+assert.match(html, /Paused while editing/, 'typing pauses updates openly instead of going silently stale');
+assert.match(html, /Reconnecting…/, 'repeated failures read as reconnecting, not live');
+assert.match(html, /liveLastOk = Date\.now\(\); liveFailures = 0;/, 'every successful poll refreshes the age, not only redraws');
+assert.match(html, /window\.scrollTo\(\{ top: y, left: 0, behavior: 'instant' \}\)/, 'a live redraw restores scroll instantly, ignoring smooth scrolling');
+
+// Analytics report: truncation is labelled, paged, and exportable whole.
+assert.match(html, /function analyticsReportRow\(row\)/, 'report rows render through one helper');
+assert.match(html, /'Showing ' \+ visible\.length \+ ' of ' \+ rows\.length/, 'a truncated report says how much is shown');
+assert.match(html, /data-report-more.*Show more/, 'a truncated report pages forward');
+assert.match(html, /Export report downloads every record/, 'the full report stays one export away');
+assert.doesNotMatch(html, /rows\.slice\(0, 200\)\.map/, 'no silent 200-row cut with a total count beside it');
+
+// Customer dialog: the full number is one copy tap away; lists stay masked.
+assert.match(html, /id="customer-modal-contact"/, 'the dialog has a contact row');
+assert.match(html, /Call or M-Pesa ' \+ contactPhone/, 'the dialog shows the full callable number');
+assert.match(html, /customer-modal-copy'\)\.addEventListener\('click'/, 'the number copies from the dialog');
+assert.match(html, /copyText\(number, event\.currentTarget\)/, 'copying reuses the clipboard helper with its Copied feedback');
+
+// Sales cards arrive at Transactions with their context, not a blank list.
+assert.match(html, /card\.dataset\.txQuery = payment\.mpesa_receipt \|\| payment\.phone/, 'a payment card carries its receipt or phone');
+assert.match(html, /card\.dataset\.txQuery = entry\.name/, 'a router breakdown card carries its router');
+assert.match(html, /card\.dataset\.txQuery && module === 'transactions'/, 'navigation applies the carried query to Transactions');
+assert.match(html, /search\.value = card\.dataset\.txQuery/, 'the Transactions search is filled before the jump');
+
+// Destructive voucher and template actions arm on first tap; router
+// mutations keep their explicit blocking confirmations.
+assert.match(html, /function tapArmed\(button, armedLabel\)/, 'one arming helper backs the two-tap actions');
+assert.match(html, /Tap again to delete ' \+ plural\(codes\.length, 'voucher'\)/, 'voucher deletion arms with its count');
+assert.match(html, /Tap again to pause/, 'voucher pausing arms instead of blocking');
+assert.match(html, /tapArmed\(button, 'Tap again to delete'\)/, 'template deletion arms instead of blocking');
+assert.doesNotMatch(html, /window\.confirm\('Delete ' \+ plural\(codes\.length/, 'no blocking dialog for voucher deletion');
+assert.doesNotMatch(html, /window\.confirm\('Delete this inactive portal template\?'\)/, 'no blocking dialog for template deletion');
+assert.match(html, /window\.confirm\('Apply Wi-Fi Fiti service/, 'router-mutating actions keep their explicit confirmation');
+
+// The mobile sign-out icon reads as power/exit, not share/external.
+assert.match(html, /\.sidebar \.signout:before\{content:"⏻"/, 'the collapsed sign-out uses an exit glyph');
+assert.doesNotMatch(html, /signout:before\{content:"↗"/, 'the share-looking arrow is gone');
