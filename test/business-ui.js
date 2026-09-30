@@ -1016,8 +1016,12 @@ for (const value of ['payment', 'connection', 'router', 'billing', 'other']) ass
   assert.match(fs.readFileSync(path.join(__dirname, '../public/online-users.js'), 'utf8'), /var REFRESH_MS = 2000;/, 'Active users refreshes every 2 seconds');
 }
 
-// Router terminal history: owners see past sessions in the Remote access
-// module; the list refreshes whenever a terminal modal closes.
+// Router terminal lives in Router tools (under Routers), not in Remote
+// access: a tool card for the selected router plus an owner-only history.
+assert.match(html, /function drawTools\(\) \{[\s\S]*?Router terminal[\s\S]*?Open terminal/, 'Router tools has a terminal card for the picked router');
+assert.match(html, /\/terminal\/status/, 'the terminal card checks tunnel eligibility per router');
+assert.match(html, /renderTerminalHistory\(\$\('tools-section'\)\)/, 'terminal history renders inside the Router tools section');
+assert.doesNotMatch(html, /function renderRemoteAccessPanel[\s\S]*?Open router terminal[\s\S]*?function refreshRemoteAccessPanel/, 'the Remote access panel no longer opens a terminal');
 assert.match(html, /function renderTerminalHistory\(root\)/, 'the dashboard renders a terminal history section');
 assert.match(html, /Terminal history/, 'the history section is labeled');
 assert.match(html, /\/api\/business\/terminal\/audit/, 'history comes from the business audit endpoint');
