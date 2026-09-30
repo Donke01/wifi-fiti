@@ -1952,8 +1952,9 @@ function remoteAccessPayload(location, record) {
   // shared by several safe router endpoints; only a completed sync proves
   // that the paired control-plane poll is working.
   const hasSuccessfulRouterSync = Boolean(location && location.last_successful_sync_at);
-  // A database-only revoke cannot remove a persisted RouterOS interface. Do
-  // not allow a fresh consent request to supersede the queued cleanup.
+  // A revoke is normally allowed to complete first. An explicit new consent
+  // request may, however, replace that pending control with a fresh prepare
+  // command; the router's poller executes only the newest command.
   const revokePending = status === 'revoked' && remoteSupportRevokeIsPending(location.id);
   // The owner needs a truthful connection state, but never a peer key,
   // endpoint credential, or a router-management secret. A configured record
@@ -1977,7 +1978,7 @@ function remoteAccessPayload(location, record) {
     gatewaySyncedAt: peer?.gateway_synced_at || null,
     gatewayError: peer?.gateway_error || null,
     cleanupPending: revokePending,
-    canRequest: hasSuccessfulRouterSync && !revokePending && (status === 'not_requested' || status === 'revoked'),
+    canRequest: hasSuccessfulRouterSync && (status === 'not_requested' || status === 'revoked'),
     canRevoke: REMOTE_ACCESS_ACTIVE_STATES.has(status),
   };
 }
@@ -2028,12 +2029,9 @@ function requestRemoteAccess({ locationId, businessId, actorType = 'business', a
   return withRemoteAccessTransaction(() => {
     const existing = remoteAccessByLocation.get(location.id);
     if (existing && existing.status !== 'revoked') return remoteAccessPayload(location, existing);
-    if (existing && remoteSupportRevokeIsPending(location.id)) {
-      throw remoteAccessError(
-        'Remote-support cleanup is still waiting for this router to acknowledge the revoke command. Keep it paired and online, then try again.',
-        409
-      );
-    }
+    // Re-enabling is an explicit owner action. Replacing the pending revoke
+    // with a fresh prepare command is safe because the router accepts only
+    // the newest unacknowledged support control during its next poll.
     if (existing) reRequestRemoteAccess.run(location.id);
     else insertRemoteAccess.run(location.id);
     insertRemoteAccessEvent.run({ locationId: location.id, actorType, actorId, action: 'requested' });
