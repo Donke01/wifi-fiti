@@ -166,6 +166,7 @@
       try { if (state.ws) state.ws.close(); } catch (_) {}
       try { if (state.term) state.term.dispose(); } catch (_) {}
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      for (var i = 0; i < closeListeners.length; i++) { try { closeListeners[i](); } catch (_) {} }
     }
     closeBtn.addEventListener('click', destroy);
     overlay.addEventListener('mousedown', function (event) { if (event.target === overlay) destroy(); });
@@ -350,5 +351,6 @@
     }
   }
 
-  window.RouterTerminal = { open: openTerminal, blockedLabel: blockedLabel };
+  var closeListeners = [];
+  window.RouterTerminal = { open: openTerminal, blockedLabel: blockedLabel, onClose: function (fn) { if (typeof fn === 'function') closeListeners.push(fn); } };
 })();

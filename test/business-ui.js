@@ -1015,3 +1015,11 @@ for (const value of ['payment', 'connection', 'router', 'billing', 'other']) ass
   assert.match(html, /if \(moduleView === 'routers' && can\('routers\.view'\)\) \{ var section = \$\('router-observability-section'\);/);
   assert.match(fs.readFileSync(path.join(__dirname, '../public/online-users.js'), 'utf8'), /var REFRESH_MS = 2000;/, 'Active users refreshes every 2 seconds');
 }
+
+// Router terminal history: owners see past sessions in the Remote access
+// module; the list refreshes whenever a terminal modal closes.
+assert.match(html, /function renderTerminalHistory\(root\)/, 'the dashboard renders a terminal history section');
+assert.match(html, /Terminal history/, 'the history section is labeled');
+assert.match(html, /\/api\/business\/terminal\/audit/, 'history comes from the business audit endpoint');
+assert.match(html, /if \(!can\('team'\)\) return;/, 'terminal history is owner-only');
+assert.match(fs.readFileSync(path.join(__dirname, '../public/terminal.js'), 'utf8'), /onClose: function/, 'the terminal modal exposes an onClose hook for refresh');
