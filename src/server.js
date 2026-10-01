@@ -44,9 +44,11 @@ const trialGuard = require('./lib/trial-guard').createTrialGuard({ db: db.db, no
 trialGuard.backfillPhones();
 // Owner phones are verified by SMS before they count for the one-trial rule
 // and before a trial workspace can sell. Without an SMS provider the phone
-// is recorded at sign-up as before.
+// is recorded at sign-up as before. OWNER_PHONE_VERIFICATION_DISABLED is a
+// temporary kill switch for pausing this (e.g. while a Sender ID is still
+// being approved) without touching AFRICASTALKING_API_KEY itself.
 const { createPhoneVerification } = require('./lib/phone-verify');
-const ownerSms = require('./lib/fiti-signal').createAfricaTalkingProviderFromEnv();
+const ownerSms = process.env.OWNER_PHONE_VERIFICATION_DISABLED === 'true' ? null : require('./lib/fiti-signal').createAfricaTalkingProviderFromEnv();
 const phoneVerification = createPhoneVerification({ db: db.db, normalizePhone: mpesa.normalizePhone, displayPhone: mpesa.displayPhone,
   send: ownerSms ? (message) => ownerSms.send(message) : null,
   onVerified: (businessId, phone) => trialGuard.check(businessId, { phone }) });
