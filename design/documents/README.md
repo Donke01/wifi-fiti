@@ -1,46 +1,59 @@
 # Document designs (for Figma)
 
-Editable designs of every receipt and report Wi-Fi Fiti produces, drawn to the
-same sizes, colors and type as `src/lib/documents/` so design and code match.
+The look for every receipt and report Wi-Fi Fiti produces. These replace the
+first set: one typeface with character, a Wi-Fi signal motif, and no boxed
+headers or all-caps labels.
 
 | File | What it is | Size |
 |---|---|---|
-| 01-customer-receipt.svg | Customer receipt, default (teal) brand | 320 × 560 pt slip |
-| 02-customer-receipt-tenant-color.svg | Customer receipt in a tenant's own brand color | 320 × 560 pt slip |
-| 03-plan-receipt.svg | Wi-Fi Fiti plan receipt | 320 × 560 pt slip |
-| 04-transactions-pdf.svg | Table exports as PDF (transactions shown) | A4 landscape, 842 × 595 pt |
-| 05-revenue-report-pdf.svg | Revenue report PDF | A4 portrait, 595 × 842 pt |
-| 06-payout-statement-pdf.svg | Payout statement PDF | A4 landscape |
+| 01-customer-receipt.svg | Customer receipt, default teal | 320 pt wide ticket |
+| 02-customer-receipt-tenant-color.svg | The same receipt in a tenant's own color, waiting for M-Pesa | 320 pt wide ticket |
+| 03-plan-receipt.svg | Wi-Fi Fiti plan receipt | 320 pt wide ticket |
+| 04-transactions-pdf.svg | Every table export as PDF (transactions shown) | A4 landscape, 842 × 595 pt |
+| 05-revenue-report-pdf.svg | Revenue report with share bars | A4 portrait, 595 × 842 pt |
+| 06-payout-statement-pdf.svg | Payout statement | A4 landscape |
 | 07-transactions-excel.svg | How every Excel export is laid out | Spreadsheet view |
 
-## Into Figma
+## The idea
 
-Open the file *Wi-Fi Fiti — Receipts & Reports* and drag the SVGs onto the
-canvas (or File → Place image). Text stays editable, shapes and colors stay
-editable, and each part is a named layer (Header band, Status pill, Fields,
-KPI tiles, Table header, Table rows). The file already has the colors as
-variables (Document colors) and the reusable pieces (Wi-Fi mark, Status pill,
-Receipt field, KPI tile).
+- **Signal arcs.** Wi-Fi rings radiate from a corner of each document in the
+  tenant's color: bold on receipts, faint on reports.
+- **Receipts are tickets.** The amount sits large on the brand color, with a
+  status chip, then a tear-off perforation and the details below.
+- **Reports lead with a figures strip.** One headline figure in the brand
+  color, the rest beside it, split by hairlines instead of identical boxes.
+- **Quiet tables.** Hairline rows, one ink rule under the header, colored
+  status dots, share bars where a row is part of a total.
 
-Type is **Arimo**, which has the same letter widths as Helvetica, the font the
-PDFs use.
+## Type
 
-## Colors (src/lib/documents/brand.js)
+**Bricolage Grotesque** (SIL Open Font License, free on Google Fonts and in
+Figma). ExtraBold for amounts and titles, SemiBold for values, Regular for
+body text. Being OFL, it can be embedded in the generated PDFs.
+
+## Colors
 
 | Token | Hex | Used for |
 |---|---|---|
-| brand/teal | #007D90 | Header band and headline numbers (a tenant's own color replaces it) |
-| brand/navy | #06111F | Amount on receipts, table header row |
-| text/primary | #101820 | Body text |
-| text/muted | #6B7A87 | Labels, subtitles, footers |
-| surface/stripe | #F4F7F8 | Alternate table rows, KPI tiles |
-| line/faint | #D9E2E7 | Hairlines |
-| line/dashed | #B8C4CC | Receipt tear line |
-| status/paid | #1E8E5A | PAID pill |
-| status/pending | #B8860B | PENDING pill |
-| status/failed | #C0392B | NOT COMPLETED pill |
+| ink | #0E2A33 | Titles, values, header rule |
+| muted | #5E7480 | Labels, footers |
+| line | #DCE7E5 | Hairlines, perforation |
+| paper | #F2F7F6 | Code panel, background |
+| brand | #007D90 | Brand block, lead figure, arcs, bars (a tenant's color replaces it) |
+| brand tint | #E3F2F3 | Bar track, Excel header row |
+| mint | #8EE7D1 | Paid chip on the brand block |
+| paid | #1E8E5A | Paid dot |
+| pending | #C98A00 | Pending dot and chip |
+| failed | #C0392B | Failed dot |
+
+## Into Figma
+
+Open *Wi-Fi Fiti — Receipts & Reports* and drag the SVGs onto the canvas.
+Text, shapes and colors stay editable, and each part is a named layer
+(Brand block, Status chip, Perforation, Figures, Table header, Table rows).
 
 ## Regenerating
 
-`python3 design/documents/make_designs.py` redraws all seven files (needs
-Pillow and the Liberation Sans font, which has Arimo's metrics).
+`python3 design/documents/make_designs.py` redraws all seven files. It needs
+Pillow and the Bricolage Grotesque TTFs, in `~/.fonts` or the folder named by
+`BRICOLAGE_TTF_DIR`.
