@@ -24,7 +24,8 @@ t('off when no domain, and nothing unsafe becomes router code', () => {
 
 t('the router block adds local DNS and a status redirect, and leaves dns-name alone', () => {
   const script = captiveDomainScript('wififiti.net');
-  assert.match(script, /:local fitiCdName "wififiti\.net"/);
+  assert.match(script, /:local fitiCdName "wififiti\.net\|v\d+"/);
+  assert.match(script, /:if \(\$fitiCdAddr = "0\.0\.0\.0"\) do=\{ :set fitiCdAddr "" \}/);
   assert.match(script, /in=\{"wififiti\.net";"www\.wififiti\.net"\}/);
   assert.match(script, /\/ip dns static add name=\$fitiCdN address=\$fitiCdAddr/);
   assert.match(script, /router-login\?page=status/);

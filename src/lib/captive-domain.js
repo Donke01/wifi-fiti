@@ -20,6 +20,7 @@
  * domain changes.
  */
 
+const CAPTIVE_BLOCK_VERSION = 2;
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
 function captiveHostnames(domain) {
@@ -45,13 +46,16 @@ function captiveDomainScript(domain) {
     '  :global fitiHotspotServer',
     '  :global fitiPortalAppliedHost',
     '  :global fitiCaptiveApplied',
-    `  :local fitiCdName "${bare}"`,
+    // Bump CAPTIVE_BLOCK_VERSION when this block changes: routers re-apply.
+    `  :local fitiCdName "${bare}|v${CAPTIVE_BLOCK_VERSION}"`,
     '  :if ($fitiCaptiveApplied != $fitiCdName) do={',
     '    :local fitiCdHs [/ip hotspot find where name=$fitiHotspotServer]',
     '    :if ([:len $fitiCdHs] = 1) do={',
     '      :local fitiCdProf [/ip hotspot get $fitiCdHs profile]',
     '      :local fitiCdAddr ""',
     '      :do { :set fitiCdAddr [:tostr [/ip hotspot profile get [find where name=$fitiCdProf] hotspot-address]] } on-error={}',
+    // An unset hotspot-address reads back as 0.0.0.0 on some RouterOS builds.
+    '      :if ($fitiCdAddr = "0.0.0.0") do={ :set fitiCdAddr "" }',
     // A profile without a hotspot-address uses the HotSpot interface's own.
     '      :if ([:len $fitiCdAddr] = 0) do={',
     '        :local fitiCdIf [/ip hotspot get $fitiCdHs interface]',
