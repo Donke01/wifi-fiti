@@ -25,6 +25,25 @@ headers or all-caps labels.
 - **Quiet tables.** Hairline rows, one ink rule under the header, colored
   status dots, share bars where a row is part of a total.
 
+## What each one carries
+
+- **Customer receipt:** business and place, receipt number, amount with any
+  discount, package, speed, start and end, time left, device name, MAC and IP,
+  hotspot and router, M-Pesa prompt, till or PayBill, code and confirmation
+  time, price breakdown, recovery code, reconnect steps, a QR code to the
+  online copy, and contacts.
+- **Plan receipt:** plan, validity and renewal, use against plan limits,
+  charges with credits, payment details and a QR code to billing history.
+- **Transactions:** filters used, headline figures with changes from the
+  period before, a daily sparkline, 11 columns, totals, and breakdowns by
+  hotspot, payment destination and device.
+- **Revenue:** daily chart with the best day and average, packages, hotspots,
+  payment destinations, a busiest-hours heatmap and customer figures.
+- **Payout statement:** the balance worked out from opening to available,
+  every movement with a running balance, totals, payout accounts and notes.
+- **Excel:** filters on each column, frozen header, data bars on amounts, a
+  totals row with its formula, and tabs for each breakdown.
+
 ## Type
 
 **Bricolage Grotesque** (SIL Open Font License, free on Google Fonts and in
@@ -55,5 +74,5 @@ Text, shapes and colors stay editable, and each part is a named layer
 ## Regenerating
 
 `python3 design/documents/make_designs.py` redraws all seven files. It needs
-Pillow and the Bricolage Grotesque TTFs, in `~/.fonts` or the folder named by
-`BRICOLAGE_TTF_DIR`.
+Pillow, the Bricolage Grotesque TTFs (in `~/.fonts` or `BRICOLAGE_TTF_DIR`)
+and the segno QR library (in `~/segno` or `SEGNO_DIR`).

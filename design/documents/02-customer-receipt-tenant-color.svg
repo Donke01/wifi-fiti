@@ -1,46 +1,91 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="320" height="452" viewBox="0 0 320 452">
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="830" viewBox="0 0 360 830">
 <title>Customer receipt in a tenant color</title>
-<defs><clipPath id="clip0"><rect x="0" y="0" width="320" height="176" rx="0"/></clipPath></defs>
+<defs><clipPath id="clip0"><rect x="0" y="0" width="360" height="214" rx="0"/></clipPath></defs>
 <g id="Ticket">
-<rect id="Paper" x="0" y="0" width="320" height="452" rx="18" fill="#FFFFFF"/>
+<rect id="Paper" x="0" y="0" width="360" height="830" rx="18" fill="#FFFFFF"/>
 <g id="Brand block">
-<path id="Block" d="M0 18A18 18 0 0 1 18 0H302A18 18 0 0 1 320 18V176H0Z" fill="#5B3FC4"/>
-<g id="Signal arcs" clip-path="url(#clip0)"><circle cx="302.0" cy="186.0" r="34.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="9"/><circle cx="302.0" cy="186.0" r="62.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="9"/><circle cx="302.0" cy="186.0" r="90.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="9"/><circle cx="302.0" cy="186.0" r="118.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="9"/><circle cx="302.0" cy="186.0" r="146.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.13" stroke-width="9"/></g>
-<g id="Wi-Fi mark" transform="translate(22.00 22.00) scale(0.7500)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#FFFFFF"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#FFFFFF" stroke-width="2.16" stroke-linecap="round"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#FFFFFF" stroke-width="1.92" stroke-linecap="round"/></g>
-<text id="Business name" x="48.00" y="36.00" font-family="'Bricolage Grotesque', sans-serif" font-size="13" font-weight="600" fill="#FFFFFF">Eldoret Net</text>
-<text id="Amount" x="22.00" y="108.00" font-family="'Bricolage Grotesque', sans-serif" font-size="46" font-weight="800" fill="#FFFFFF">KES 20</text>
-<g id="Status chip">
-<rect x="22.00" y="126.00" width="121.59" height="24.00" rx="12" fill="#FFE7A8"/>
-<circle cx="35" cy="138" r="3.5" fill="#C98A00"/>
-<text x="44.00" y="141.60" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="600" fill="#0E2A33">Waiting for M-Pesa</text>
-</g>
-<text id="What was bought" x="153.59" y="141.60" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="500" fill="#FFFFFF">1 hour of Wi-Fi</text>
+<path id="Block" d="M0 18A18 18 0 0 1 18 0H342A18 18 0 0 1 360 18V214H0Z" fill="#5B3FC4"/>
+<g id="Signal arcs" clip-path="url(#clip0)"><circle cx="346.0" cy="228.0" r="36.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="10"/><circle cx="346.0" cy="228.0" r="66.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="10"/><circle cx="346.0" cy="228.0" r="96.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="10"/><circle cx="346.0" cy="228.0" r="126.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="10"/><circle cx="346.0" cy="228.0" r="156.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="10"/><circle cx="346.0" cy="228.0" r="186.0" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="10"/></g>
+<g id="Wi-Fi mark" transform="translate(24.00 22.00) scale(0.8333)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#FFFFFF"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#FFFFFF" stroke-width="2.16" stroke-linecap="round"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#FFFFFF" stroke-width="1.92" stroke-linecap="round"/></g>
+<text id="Business name" x="52.00" y="34.00" font-family="'Bricolage Grotesque', sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">Eldoret Net</text>
+<text id="Place" x="52.00" y="49.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#D1C9EE">Eldoret Market, Oloo Street, Eldoret</text>
+<text id="Receipt number" x="284.15" y="34.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="600" fill="#FFFFFF">RCT-0Z81QX</text>
+<text x="253.70" y="49.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#D1C9EE">1 Oct 2026, 11:40 am</text>
+<text x="24.00" y="86.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="500" fill="#D1C9EE">Waiting for you to approve</text>
+<text id="Amount" x="24.00" y="134.00" font-family="'Bricolage Grotesque', sans-serif" font-size="50" font-weight="800" fill="#FFFFFF">KES 20</text>
+<rect x="24.00" y="150.00" width="115.59" height="19.00" rx="9.5" fill="#FFE7A8"/>
+<circle cx="34.0" cy="159.5" r="2.8" fill="#C98A00"/>
+<text x="41.00" y="163.40" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="600" fill="#0E2A33">Waiting for M-Pesa</text>
+<text x="149.59" y="163.50" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="600" fill="#FFFFFF">1 hour of Wi-Fi</text>
 </g>
 <g id="Perforation">
-<circle cx="0" cy="194" r="9" fill="#F2F7F6"/>
-<circle cx="320" cy="194" r="9" fill="#F2F7F6"/>
-<line x1="16" y1="194" x2="304" y2="194" stroke="#DCE7E5" stroke-width="1.4" stroke-dasharray="4 4" stroke-linecap="round"/>
+<circle cx="0" cy="230" r="9" fill="#F2F7F6"/><circle cx="360" cy="230" r="9" fill="#F2F7F6"/>
+<line x1="16.0" y1="230.0" x2="344.0" y2="230.0" stroke="#DCE7E5" stroke-width="1.4" stroke-dasharray="4 4"/>
 </g>
-<g id="Details">
-<text x="22.00" y="222.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="400" fill="#5E7480">Started</text>
-<text x="205.16" y="222.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="600" fill="#0E2A33">1 Oct 2026, 11:40 am</text>
-<text x="22.00" y="246.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="400" fill="#5E7480">Phone</text>
-<text x="233.19" y="246.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="600" fill="#0E2A33">0798 765 432</text>
-<text x="22.00" y="270.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="400" fill="#5E7480">Hotspot</text>
-<text x="226.20" y="270.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="600" fill="#0E2A33">Eldoret Market</text>
-<text x="22.00" y="294.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="400" fill="#5E7480">Receipt</text>
-<text x="240.39" y="294.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="600" fill="#0E2A33">RCT-0Z81QX</text>
+<g id="Your Wi-Fi">
+<text x="24.00" y="264.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">Your Wi-Fi</text>
+<line x1="88.5" y1="260.5" x2="336.0" y2="260.5" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="24.00" y="285.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Package</text>
+<text x="239.66" y="285.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">1 hour, unlimited data</text>
+<text x="24.00" y="304.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Speed</text>
+<text x="223.87" y="304.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">Up to 5 Mbps down, 2 up</text>
+<text x="24.00" y="323.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Devices</text>
+<text x="300.56" y="323.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">1 device</text>
+<text x="24.00" y="342.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Starts</text>
+<text x="206.76" y="342.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">As soon as M-Pesa confirms</text>
+<text x="24.00" y="361.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Prompt expires in</text>
+<text x="288.50" y="361.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">0 min 48 s</text>
+<rect x="24.00" y="368.00" width="312.00" height="6.00" rx="3" fill="#E3F2F3"/>
+<rect x="24.00" y="368.00" width="249.60" height="6.00" rx="3" fill="#5B3FC4"/>
 </g>
-<g id="Code panel">
-<rect x="22.00" y="320.00" width="276.00" height="58.00" rx="12" fill="#F2F7F6"/>
-<text x="36.00" y="342.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#5E7480">M-Pesa code</text>
-<text x="36.00" y="363.00" font-family="'Bricolage Grotesque', sans-serif" font-size="13" font-weight="600" fill="#5E7480">Not received yet</text>
+<g id="This device">
+<text x="24.00" y="403.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">This device</text>
+<line x1="94.1" y1="399.5" x2="336.0" y2="399.5" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="24.00" y="424.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Device</text>
+<text x="306.95" y="424.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">Phone</text>
+<text x="24.00" y="443.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">MAC address</text>
+<text letter-spacing="0.6" x="247.44" y="443.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">3C:28:6D:90:11:AF</text>
+<text x="24.00" y="462.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Hotspot</text>
+<text x="267.79" y="462.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">Eldoret Market</text>
+</g>
+<g id="Payment">
+<text x="24.00" y="493.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">Payment</text>
+<line x1="82.1" y1="489.5" x2="336.0" y2="489.5" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="24.00" y="514.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Prompt sent to</text>
+<text x="274.43" y="514.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">0798 765 432</text>
+<text x="24.00" y="533.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Paid to</text>
+<text x="194.72" y="533.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">PayBill 4098721, account EMKT</text>
+<text x="24.00" y="552.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">M-Pesa code</text>
+<text x="260.43" y="552.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">Not received yet</text>
+<text x="24.00" y="571.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">Attempt</text>
+<text x="313.16" y="571.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">1 of 3</text>
+<line x1="24.0" y1="579.0" x2="336.0" y2="579.0" stroke="#0E2A33" stroke-width="1.2"/>
+<text x="24.00" y="596.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">To pay</text>
+<text x="259.91" y="597.00" font-family="'Bricolage Grotesque', sans-serif" font-size="15" font-weight="800" fill="#5B3FC4">KES 20.00</text>
+<text x="24.00" y="618.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">Enter your M-Pesa PIN on your phone. No prompt? Tap Resend on the Wi-Fi</text>
+<text x="24.00" y="630.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">page. You are not charged until you approve.</text>
+</g>
+<g id="Recovery code">
+<rect x="24.00" y="658.00" width="312.00" height="78.00" rx="12" fill="#F2F7F6"/>
+<rect x="24.00" y="658.00" width="5.00" height="78.00" rx="2.5" fill="#5B3FC4"/>
+<text x="42.00" y="680.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="600" fill="#5E7480">Recovery code</text>
+<text letter-spacing="3" x="42.00" y="712.00" font-family="'Bricolage Grotesque', sans-serif" font-size="26" font-weight="800" fill="#0E2A33">P3QR7T</text>
+<text x="192.00" y="680.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">Save this now. It starts working</text>
+<text x="192.00" y="692.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">once M-Pesa confirms, and</text>
+<text x="192.00" y="704.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">gets you back online on any</text>
+<text x="192.00" y="716.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">device.</text>
 </g>
 <g id="Footer">
-<text id="Note" x="22.00" y="402.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="400" fill="#5E7480">This updates when M-Pesa confirms</text>
-<line x1="22" y1="416" x2="298" y2="416" stroke="#DCE7E5" stroke-width="1"/>
-<g id="Footer mark" transform="translate(22.00 424.00) scale(0.5000)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#5B3FC4"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#5B3FC4" stroke-width="2.4" stroke-linecap="round"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#5B3FC4" stroke-width="2.16" stroke-linecap="round"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#5B3FC4" stroke-width="1.92" stroke-linecap="round"/></g>
-<text x="39.00" y="433.50" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Billed on Wi-Fi Fiti</text>
+<line x1="24.0" y1="758.0" x2="336.0" y2="758.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="24.00" y="776.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="500" fill="#5E7480">Call</text>
+<text x="24.00" y="789.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="600" fill="#0E2A33">0798 765 432</text>
+<text x="128.00" y="776.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="500" fill="#5E7480">Email</text>
+<text x="128.00" y="789.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="600" fill="#0E2A33">help@eldoretnet.co.ke</text>
+<text x="232.00" y="776.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="500" fill="#5E7480">Open</text>
+<text x="232.00" y="789.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="600" fill="#0E2A33">24 hours</text>
+<g id="Footer mark" transform="translate(24.00 799.00) scale(0.5000)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#5B3FC4"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#5B3FC4" stroke-width="2.4" stroke-linecap="round"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#5B3FC4" stroke-width="2.16" stroke-linecap="round"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#5B3FC4" stroke-width="1.92" stroke-linecap="round"/></g>
+<text x="41.00" y="808.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="500" fill="#5E7480">Billed on Wi-Fi Fiti</text>
+<text x="234.77" y="808.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="400" fill="#5E7480">Printed 1 Oct 2026, 11:40 am</text>
 </g>
 </g>
 </svg>
