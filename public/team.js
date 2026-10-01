@@ -31,6 +31,8 @@
     'pppoe-section': 'customers.edit', 'support-tickets-section': 'support', 'receipts-section': 'owner-only',
     // Everyone has their own profile.
     'profile-section': 'any',
+    // Where each router's payments go: owner only, like payment settings.
+    'payment-methods-section': 'payments.settings',
   };
   var PARTS = {
     '.overview-controls': 'sales.view', '#sales-period': 'sales.view', '#analytics-period': 'sales.view',

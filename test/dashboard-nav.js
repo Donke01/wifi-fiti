@@ -52,7 +52,7 @@ const expected = {
   // New names and the pages themselves.
   overview: 'overview', home: 'overview', routers: 'routers', packages: 'packages', customers: 'customers', pppoe: 'pppoe', money: 'money',
   portal: 'portal', sms: 'sms', settings: 'settings',
-  profile: 'profile',
+  profile: 'profile', 'payment-methods': 'settings',
   // Every older page name and hash.
   onboarding: 'overview', setup: 'overview', locations: 'routers', 'router-map': 'routers', 'router-setup': 'routers',
   tools: 'routers', 'router-tools': 'routers', remote: 'routers', 'remote-access': 'routers',
@@ -82,9 +82,10 @@ assert.deepEqual(dashboardPages.find((page) => page.id === 'customers').parts.ma
 assert.deepEqual(dashboardPages.find((page) => page.id === 'settings').parts.map((part) => [part.id, part.label, part.sections]), [
   ['account', 'Account & limits', ['account-section']],
   ['payments', 'Billing & payments', ['billing-section', 'network-services-section', 'integrations-section']],
+  ['payment-methods', 'Payment methods', ['payment-methods-section']],
   ['receipts', 'Receipts', ['receipts-section']],
   ['team', 'Team', ['team-section']],
-], 'Settings has four tabs; plan receipts have their own');
+], 'Settings has five tabs; plan receipts have their own');
 for (const [hash, part] of [['#vouchers', 'vouchers'], ['#module=tools', 'tools'], ['#payments', 'payments'], ['#disbursements', 'sales'], ['#nope', 'overview'], ['', 'overview']]) {
   context.window.location.hash = hash; assert.equal(context.moduleFromHash(), part, hash + ' → ' + part);
 }

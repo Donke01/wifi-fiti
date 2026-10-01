@@ -63,6 +63,7 @@ function ownerPhoneBlock(business) {
 const tumaFee = createTumaFee({ db: db.db });
 const { createDemo } = require('./lib/demo');
 const { createProfile } = require('./lib/profile');
+const { createPaymentMethods } = require('./lib/payment-methods');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1334,6 +1335,10 @@ app.get('/api/business/me', (req, res) => {
 
 /* ---- My profile (anyone signed in, about themselves only) ---------- */
 const profile = createProfile({ db: db.db, hashPassword, passwordMatches, roles: team.ROLES });
+// Where each router's customer payments land (Settings → Payment methods).
+const paymentMethods = createPaymentMethods({ db: db.db, tenant, paymentIntegrations,
+  // tumaTenants is set up further down; this is only called per request.
+  tumaConnected: (businessId) => { try { return Boolean(tumaTenants.connected(businessId)); } catch (_) { return false; } } });
 const sessionTokenHash = (req) => crypto.createHash('sha256')
   .update(String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')).digest('hex');
 function profileError(res, error, fallback) {
@@ -1366,6 +1371,70 @@ app.post('/api/business/profile/sessions/end-others', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   try { res.json({ ok: true, ended: profile.endOthers(req.teamSession, business.id, sessionTokenHash(req)) }); }
   catch (error) { profileError(res, error, 'Could not sign out your other devices.'); }
+});
+
+/* ---- Payment methods (Settings → Payment methods) ------------------ */
+function paymentMethodsError(res, error, fallback) {
+  res.status(error.status || 500).json({ error: error.status ? error.message : fallback });
+}
+function paymentMethodsOverview(business) {
+  return { ...paymentMethods.overview(business.id, tenant.locationsForBusiness.all(business.id)),
+    secureStorageReady: Boolean(process.env.TENANT_SECRETS_KEY) };
+}
+app.get('/api/business/payment-methods', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { res.set('Cache-Control', 'no-store').json(paymentMethodsOverview(business)); }
+  catch (error) { paymentMethodsError(res, error, 'Could not load your payment methods.'); }
+});
+/** Add one more own Till / PayBill. Verified with M-Pesa before saving. */
+app.post('/api/business/payment-methods/daraja', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const body = req.body || {};
+  const credentials = {
+    shortcode: String(body.shortcode || '').trim(),
+    transactionType: String(body.transactionType || 'CustomerPayBillOnline'),
+    consumerKey: String(body.consumerKey || '').trim(),
+    consumerSecret: String(body.consumerSecret || '').trim(),
+    passkey: String(body.passkey || '').trim(),
+  };
+  if (!/^\d{5,12}$/.test(credentials.shortcode) || !['CustomerPayBillOnline', 'CustomerBuyGoodsOnline'].includes(credentials.transactionType) ||
+      credentials.consumerKey.length < 4 || credentials.consumerSecret.length < 4 || credentials.passkey.length < 4) {
+    return res.status(400).json({ error: 'Enter valid Daraja credentials, a shortcode, and choose PayBill or Till.' });
+  }
+  if (!process.env.TENANT_SECRETS_KEY) return res.status(503).json({ error: 'Secure payment storage has not been configured by Wi-Fi Fiti yet.' });
+  try { await tenantMpesa.verify(credentials); }
+  catch (err) {
+    console.warn(`[payment methods] verification failed for ${business.id}: ${err.message}`);
+    return res.status(400).json({ error: 'M-Pesa could not verify those credentials. Check the Daraja app and try again.' });
+  }
+  try {
+    const method = paymentMethods.addAccount(business.id, { ...credentials, label: body.label });
+    // An M-Pesa shortcode is a payout account for the one-trial rule too.
+    const trialEnded = trialGuard.check(business.id, { payout: `mpesa:${credentials.shortcode}` });
+    res.status(201).json({ method, trialEnded, ...paymentMethodsOverview(business) });
+  } catch (error) { paymentMethodsError(res, error, 'Could not save that account.'); }
+});
+app.patch('/api/business/payment-methods/:method', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { paymentMethods.renameMethod(business.id, req.params.method, req.body && req.body.label); res.json(paymentMethodsOverview(business)); }
+  catch (error) { paymentMethodsError(res, error, 'Could not rename that account.'); }
+});
+app.delete('/api/business/payment-methods/:method', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { const result = paymentMethods.removeMethod(business.id, req.params.method); res.json({ ...result, ...paymentMethodsOverview(business) }); }
+  catch (error) { paymentMethodsError(res, error, 'Could not remove that account.'); }
+});
+app.put('/api/business/payment-methods/default', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { paymentMethods.setDefault(business.id, req.body && req.body.method); res.json(paymentMethodsOverview(business)); }
+  catch (error) { paymentMethodsError(res, error, 'Could not save the default.'); }
+});
+app.put('/api/business/locations/:locationId/payment-method', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const location = tenant.locationForBusiness.get(req.params.locationId, business.id);
+  if (!location) return res.status(404).json({ error: 'Router not found.' });
+  try { paymentMethods.setRouterMethod(location, req.body && req.body.method); res.json(paymentMethodsOverview(business)); }
+  catch (error) { paymentMethodsError(res, error, 'Could not save this router’s payment method.'); }
 });
 
 /* ---- Team accounts (owner only, see src/lib/team.js) ---------------- */
@@ -1913,6 +1982,7 @@ app.post('/api/business/payment-collection', async (req, res) => {
   try {
     await tenantMpesa.verify(credentials);
     const connection = tenant.savePaymentConnection({ businessId: business.id, collectionName, ...credentials, verified: true });
+    paymentMethods.syncLegacyAccount(business.id);
     // An M-Pesa shortcode is a payout account for the one-trial rule too.
     const trialEnded = trialGuard.check(business.id, { payout: `mpesa:${shortcode}` });
     res.status(201).json({ configured: true, trialEnded, connection: {
@@ -2874,7 +2944,7 @@ async function queryTenantMpesa(transaction) {
   // Tuma delivers its callback.
   if (transaction.payment_source === 'tuma' || transaction.payment_source === 'tuma_direct') return { settled: false, resultCode: null, resultDesc: 'Waiting for Tuma callback.' };
   if (transaction.payment_source === 'own') {
-    const credentials = tenant.paymentCredentials(transaction.business_id);
+    const credentials = paymentMethods.credentialsForTransaction(transaction);
     if (!credentials) throw new Error('Business M-Pesa credentials are unavailable.');
     return tenantMpesa.stkQuery({ credentials, checkoutRequestId: transaction.checkout_request_id });
   }
@@ -3185,16 +3255,16 @@ function goLiveStatus(location) {
   const sellable = packages.filter((p) => !trial || (p.price <= TRIAL_LIMITS.maxPackagePriceKes && p.seconds <= TRIAL_LIMITS.maxPackageHours * 3600));
   // How money reaches the owner, as /pay decides it.
   let collection = { ready: true, provider: 'fiti', note: 'Wi-Fi Fiti collects the payments for you.' };
-  const selected = paymentIntegrations.summary(location.business_id).selected;
-  if (selected === 'tuma') {
+  const routedMethod = paymentMethods.resolve(location);
+  if (routedMethod.kind === 'tuma') {
     let own = null; let broken = false;
     try { own = tumaTenants.credentialsFor(location.business_id); } catch (_) { broken = true; }
     if (broken) collection = { ready: false, provider: 'tuma', note: 'Reconnect your Tuma payout account.' };
     else if (!tuma.callbackConfigured() || (!own && !tuma.configured())) collection = { ready: false, provider: 'tuma', note: 'Tuma is selected but not set up yet.' };
     else collection = { ready: true, provider: 'tuma', note: own ? 'Payments go straight to your Tuma payout account.' : 'Payments are collected through Wi-Fi Fiti’s Tuma account and paid out to you.' };
-  } else if (location.collection_mode === 'own') {
-    let creds = null; try { creds = tenant.paymentCredentials(location.business_id); } catch (_) { creds = null; }
-    collection = creds ? { ready: true, provider: 'own', note: 'Payments go to your own M-Pesa PayBill or Till.' }
+  } else if (routedMethod.kind === 'daraja') {
+    let creds = null; try { creds = routedMethod.accountId ? paymentMethods.credentialsFor(location.business_id, routedMethod.accountId) : null; } catch (_) { creds = null; }
+    collection = creds ? { ready: true, provider: 'own', note: `Payments go to your own ${routedMethod.label}.` }
       : { ready: false, provider: 'own', note: 'Finish connecting your own M-Pesa PayBill or Till.' };
   }
   // Why a purchase would be refused, told to the owner (the customer-facing
@@ -3361,7 +3431,7 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   const recoveryCode = keepsRecoveryCode ? null : tenant.generatePassword();
   try {
     lastPush.set(throttleKey, Date.now());
-    const { pushed, paymentSource, platformFee } = await pushTenantPrompt(location, {
+    const { pushed, paymentSource, platformFee, paymentMethod } = await pushTenantPrompt(location, {
       phone, amount: pkg.price, description: pkg.name, accountReference: `WF-${location.id.slice(-6)}` });
     const portalToken = tenantPortalCapability();
     tenant.insertTransaction.run({ checkoutRequestId: pushed.checkoutRequestId,
@@ -3371,6 +3441,7 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
     tenant.setTransactionDevice.run({ checkoutRequestId: pushed.checkoutRequestId, deviceType, deviceLabel });
     if (recoveryCode) tenant.setTransactionRecoveryCode.run({ checkoutRequestId: pushed.checkoutRequestId, recoveryCode });
     tenant.setTransactionTerms.run({ checkoutRequestId: pushed.checkoutRequestId, paymentSource, platformFee });
+    paymentMethods.recordTransactionMethod(pushed.checkoutRequestId, paymentMethod);
     tenant.setTransactionPortalCapability.run({
       checkoutRequestId: pushed.checkoutRequestId,
       portalTokenHash: tenant.tokenHash(portalToken),
@@ -3407,8 +3478,10 @@ async function pushTenantPrompt(location, { phone, amount, description, accountR
   let pushed;
   let paymentSource = 'fiti';
   let platformFee = amount * 5 / 100;
-  const selectedProvider = paymentIntegrations.summary(location.business_id).selected;
-  if (selectedProvider === 'tuma') {
+  // The router's own payment method, else the business default, else the
+  // business-wide behaviour from before payment methods (payment-methods.js).
+  const method = paymentMethods.resolve(location);
+  if (method.kind === 'tuma') {
     // Prefer the tenant's own Tuma business: the money settles directly to
     // the Till / PayBill / bank they chose. Without one, the platform Tuma
     // account collects and the sale is owed to the tenant ('tuma').
@@ -3426,9 +3499,10 @@ async function pushTenantPrompt(location, { phone, amount, description, accountR
       publicUrl: config.publicUrl, description });
     paymentSource = tenantTuma ? 'tuma_direct' : 'tuma';
     platformFee = 0;
-  } else if (location.collection_mode === 'own') {
+  } else if (method.kind === 'daraja') {
+    // One of the business's own Till / PayBill accounts.
     let credentials;
-    try { credentials = tenant.paymentCredentials(location.business_id); }
+    try { credentials = method.accountId ? paymentMethods.credentialsFor(location.business_id, method.accountId) : null; }
     catch (err) { throw setupError('This operator needs to reconnect their own M-Pesa collection account.'); }
     if (!credentials) throw setupError('This operator must finish connecting their own M-Pesa collection account before taking payments.');
     pushed = await tenantMpesa.stkPush({ credentials, phone, amount, accountReference, description });
@@ -3453,7 +3527,7 @@ async function pushTenantPrompt(location, { phone, amount, description, accountR
       paymentSource = 'fiti';
     }
   }
-  return { pushed, paymentSource, platformFee };
+  return { pushed, paymentSource, platformFee, paymentMethod: method.id && method.id !== 'daraja:' ? method.id : null };
 }
 
 app.get('/api/tenant/:locationId/status/:checkoutRequestId', async (req, res) => {
@@ -6393,13 +6467,14 @@ app.post('/api/pppoe-pay/:code/account/:username/pay', async (req, res) => {
   try {
     lastPush.set(throttleKey, Date.now());
     const label = purpose === 'boost' ? 'Speed boost' : purpose === 'upgrade' ? 'Plan upgrade' : 'Internet';
-    const { pushed, paymentSource, platformFee } = await pushTenantPrompt(location, {
+    const { pushed, paymentSource, platformFee, paymentMethod } = await pushTenantPrompt(location, {
       phone, amount, description: `${label} ${user.username}`.slice(0, 40), accountReference: user.username.slice(0, 12) });
     tenant.insertTransaction.run({ checkoutRequestId: pushed.checkoutRequestId, merchantRequestId: pushed.merchantRequestId,
       businessId: business.id, locationId: location.id, phone, packageId: 0,
       packageName: `PPPoE ${label.toLowerCase()} · ${user.username}`.slice(0, 80), amount, seconds: 0, rateLimit: null,
       mac: pppoeBilling.transactionMac(user), ip: null });
     tenant.setTransactionTerms.run({ checkoutRequestId: pushed.checkoutRequestId, paymentSource, platformFee });
+    paymentMethods.recordTransactionMethod(pushed.checkoutRequestId, paymentMethod);
     const statusToken = pppoeBilling.recordIntent({ checkoutRequestId: pushed.checkoutRequestId, user, purpose, targetProfileId, amount,
       fromCredit, payerPhone: phone, notifyHolder: body.notify !== false });
     res.json({ checkoutRequestId: pushed.checkoutRequestId, statusToken, amount, phoneDisplay: mpesa.displayPhone(phone) });
