@@ -73,7 +73,8 @@ t('payout statement: Wi-Fi Fiti-collected sales per day, after fee, and every pa
   assert.deepStrictEqual(payouts.map((line) => [line.status, line.moneyOut, line.reference]),
     [['Paid', 50, 'QWE123'], ['Waiting for review', 20, ''], ['Rejected', null, '']]);
   assert.match(payouts[0].description, /M-Pesa ••5678/);
-  assert.deepStrictEqual(data.period, { collectedNet: 95, fee: 5, paidOut: 50 });
+  assert.deepStrictEqual(data.period, { collectedNet: 95, fee: 5, paidOut: 50, gross: 100, held: 20, opening: 66.5, closing: 91.5 },
+    'opening is the old sale after fee; closing = opening + sales - fees - paid - in review');
   // All time includes the old sale: 66.5 + 28.5 + 66.5 = 161.5 earned.
   assert.deepStrictEqual(data.allTime, { earned: 161.5, paidOut: 50, waiting: 20, available: 91.5 });
 });
@@ -81,9 +82,15 @@ t('payout statement: Wi-Fi Fiti-collected sales per day, after fee, and every pa
 t('payout statement: report has the period and the Money page balance', () => {
   const spec = statements.reportSpec({ business: legacy.businessById.get('biz-x'), since: '1970-01-01 00:00:00', rangeLabel: 'All time', format: 'pdf' });
   assert.strictEqual(spec.title, 'Payout statement');
-  assert.deepStrictEqual(spec.summary.map((item) => item.value), ['KES 161.5', 'KES 50', 'KES 20', 'KES 91.5']);
-  assert.strictEqual(spec.rows.length, 6);
-  assert.strictEqual(spec.rows.find((row) => row.status === 'Paid').moneyIn, '', 'a payout has no money in');
+  assert.deepStrictEqual(spec.balance.map((item) => [item.op || '', item.value]), [['', 'KES 0.00'], ['+', 'KES 170.00'], ['−', 'KES 8.50'],
+    ['−', 'KES 50.00'], ['−', 'KES 20.00'], ['=', 'KES 91.50']], 'opening + sales - fees - paid - in review = the Money page balance');
+  assert.strictEqual(spec.rows.length, 7, 'opening line, three sales days, three payouts');
+  assert.strictEqual(spec.rows[0].description, 'Opening balance');
+  const paid = spec.rows.find((row) => row.status === 'Paid');
+  assert.strictEqual(paid.gross, '', 'a payout has no money in');
+  assert.strictEqual(spec.rows[spec.rows.length - 1].balance, 91.5, 'the running balance ends on Available');
+  assert.strictEqual(spec.rows.find((row) => row.status === 'Rejected').moneyOut, '', 'a rejected payout takes nothing');
+  assert.strictEqual(spec.totals.balance, 91.5);
 });
 
 t('only the right roles can download each file', () => {
@@ -102,17 +109,18 @@ t('only the right roles can download each file', () => {
   assert.ok(order.indexOf('/api/business/operations/payouts/statement') < order.indexOf('/api/business/operations/payouts/:payoutId'), 'the statement route answers before the payout-id route');
 });
 
-t('receipt slip: hotspot fields by default, custom title and fields for a plan receipt', () => {
+t('receipt slip: hotspot details by default, custom fields for a plan receipt', () => {
   const { receiptData } = require('../src/lib/documents/receipt');
   const hotspot = receiptData({ business: { name: 'Kitale Cafe' }, transaction: { checkout_request_id: 'ws_1', amount: 20, status: 'paid',
     phone: '254712345678', package_name: '1 hour', mpesa_receipt: 'QAB12', location_name: 'Kitale', created_at: '2026-10-01 09:00:00' } });
-  assert.strictEqual(hotspot.title, 'HOTSPOT PAYMENT RECEIPT');
-  assert.deepStrictEqual(hotspot.fields.map((field) => field[0]), ['Receipt no.', 'Date', 'Phone', 'Package', 'M-Pesa code', 'Hotspot']);
-  const plan = receiptData({ business: null, numberPrefix: 'WFP', title: 'WI-FI FITI PLAN RECEIPT', footnote: 'Not a statutory tax invoice.',
+  assert.strictEqual(hotspot.title, 'Payment receipt');
+  assert.deepStrictEqual(hotspot.fields.map((field) => field[0]), ['Receipt number', 'Package', 'Started', 'Hotspot', 'Phone', 'M-Pesa code', 'Confirmed', 'Total paid']);
+  assert.deepStrictEqual(hotspot.fields.find((field) => field[0] === 'Phone'), ['Phone', '0712 345 678']);
+  const plan = receiptData({ business: null, numberPrefix: 'WFP', title: 'Wi-Fi Fiti plan receipt', footnote: 'Not a statutory tax invoice.',
     transaction: { checkout_request_id: 'ws_2', amount: 1500, status: 'paid' }, fields: [['Plan', 'growth'], ['M-Pesa code', '']] });
   assert.strictEqual(plan.brand.name, 'Wi-Fi Fiti');
   assert.match(plan.number, /^WFP-/);
-  assert.deepStrictEqual(plan.fields, [['Plan', 'growth'], ['M-Pesa code', '—']]);
+  assert.deepStrictEqual(plan.fields.slice(1), [['Plan', 'growth'], ['M-Pesa code', '—'], ['Note', 'Not a statutory tax invoice.']]);
   assert.strictEqual(plan.amount, 'KES 1,500');
 });
 
@@ -125,6 +133,8 @@ t('table export: a dashboard table becomes an Excel/PDF report with totals', () 
   assert.deepStrictEqual(spec.columns.map((c) => [c.label, c.money]), [['Date (UTC)', false], ['Phone', false], ['Amount', true], ['Status', false]]);
   assert.deepStrictEqual(spec.rows.map((r) => r.c2), [20, 50.5, ''], 'money cells are numbers; a blank stays blank');
   assert.deepStrictEqual(spec.summary, [{ label: 'Rows', value: '3' }, { label: 'Total amount', value: 'KES 70.5' }]);
+  assert.deepStrictEqual(spec.totals, { c0: 'Total', c2: 70.5 }, 'a totals line under the money column');
+  assert.ok(spec.columns[3].status, 'the Status column gets coloured dots');
   assert.strictEqual(spec.rows[2].c1, '', 'a missing value is blank');
   assert.throws(() => tableReportSpec({ kind: 'secrets', rows: [['A']] }), /Choose a table/);
   assert.throws(() => tableReportSpec({ kind: 'sales', rows: [] }), /nothing to export/);

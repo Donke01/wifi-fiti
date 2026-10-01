@@ -20,6 +20,7 @@ const { buildReceiptDocx, buildReceiptPdf, receiptData } = require('./lib/docume
 const { sendCsv } = require('./lib/documents/csv');
 const { tableReportSpec, receiptReportSpec } = require('./lib/documents/table-export');
 const { buildReportXlsx, buildReportPdf } = require('./lib/documents/report');
+const { createReportData } = require('./lib/report-data');
 const { formatDate, formatDateTime, formatKes } = require('./lib/documents/brand');
 const routerTools = require('./lib/router-tools');
 const hotspotSessions = require('./lib/hotspot-sessions');
@@ -2618,8 +2619,11 @@ function sendReportDocument(res, format, filenameBase, spec) {
 // Paid payments of this business only; an Attendant only today's.
 app.get('/api/business/transactions/:checkoutRequestId/receipt', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  const transaction = db.db.prepare(`SELECT t.*, l.name AS location_name FROM tenant_transactions t
-      LEFT JOIN locations l ON l.id=t.location_id WHERE t.checkout_request_id=? AND t.business_id=?`).get(String(req.params.checkoutRequestId || ''), business.id);
+  const transaction = db.db.prepare(`SELECT t.*, l.name AS location_name, l.router_name, l.wifi_ssid, s.expires_at
+      FROM tenant_transactions t LEFT JOIN locations l ON l.id=t.location_id LEFT JOIN tenant_subscriptions s ON s.id=t.subscription_id
+      WHERE t.checkout_request_id=? AND t.business_id=?`).get(String(req.params.checkoutRequestId || ''), business.id);
+  const receiptLocation = transaction && tenant.locationForBusiness.get(transaction.location_id, business.id);
+  if (transaction && receiptLocation) transaction.portal_url = portalUrlForLocation(receiptLocation);
   if (!transaction || transaction.status !== 'paid' || (req.salesFrom && String(transaction.created_at) < req.salesFrom)) {
     return res.status(404).json({ error: 'Receipts are available for completed payments only.' });
   }
@@ -2629,8 +2633,8 @@ app.get('/api/business/transactions/:checkoutRequestId/receipt', (req, res) => {
   if (format === 'xlsx') {
     // Excel: the same fields as the slip, as a two-column sheet.
     const slip = receiptData({ business, transaction });
-    built = buildReportXlsx(receiptReportSpec({ business, title: 'Payment receipt', amount: slip.amount, status: slip.status.text, fields: slip.fields }));
-  } else built = (format === 'docx' ? buildReceiptDocx : buildReceiptPdf)({ business, transaction });
+    built = buildReportXlsx(receiptReportSpec({ business, title: 'Payment receipt', amount: slip.amount, status: slip.stateLabel, fields: slip.fields }));
+  } else built = (format === 'docx' ? buildReceiptDocx : buildReceiptPdf)({ business, transaction, audience: 'business' });
   built.then((buffer) => {
     res.set('Content-Disposition', `attachment; filename="${name}"`).set('Cache-Control', 'no-store');
     res.type(format).send(buffer);
@@ -2649,56 +2653,29 @@ app.post('/api/business/reports/table', (req, res) => {
   sendReportDocument(res, format, `wifi-fiti-${body.kind}`, spec);
 });
 
+// Who made a report: the signed-in team member, or the owner.
+function reportMadeBy(req, business) {
+  return (req.teamSession && req.teamSession.member && req.teamSession.member.name) || business.owner_name || '';
+}
+let reportData = null;
+const reportDays = (period) => ({ '7d': 7, '30d': 30, '90d': 90 }[String(period || '30d')] || 30);
 app.get('/api/business/reports/revenue', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  const period = String(req.query.period || '30d');
-  const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
-  const since = new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
-  const totals = tenant.salesSummary.get(business.id, since);
-  const gross = Number(totals.gross || 0);
-  const payments = Number(totals.payments || 0);
+  reportData = reportData || createReportData(db.db);
   const format = String(req.query.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
-  sendReportDocument(res, format, 'revenue-report', {
-    business, title: 'Revenue report', rangeLabel: reportRangeLabel(since), generatedAt: new Date().toISOString(),
-    summary: [
-      { label: 'Total collected', value: formatKes(gross) },
-      { label: 'Transactions', value: String(payments) },
-      { label: 'Customers', value: String(Number(totals.customers || 0)) },
-      { label: 'Avg. ticket', value: formatKes(payments ? gross / payments : 0) },
-    ],
-    columns: [
-      { key: 'package', label: 'Package', width: format === 'pdf' ? 30 : 26 },
-      { key: 'count', label: 'Purchases', width: format === 'pdf' ? 18 : 14, align: 'right' },
-      { key: 'amount', label: 'Revenue', width: format === 'pdf' ? 20 : 18, align: 'right', money: true },
-    ],
-    rows: tenant.salesByPackage.all(business.id, since).map((row) => ({ package: row.package || 'Package', count: Number(row.count || 0), amount: Number(row.amount || 0) })),
-  });
+  let spec;
+  try { spec = reportData.revenueSpec({ business, days: reportDays(req.query.period), generatedBy: reportMadeBy(req, business) }); }
+  catch (error) { console.error('[revenue report]', error.message); return res.status(500).json({ error: 'Could not build this report right now.' }); }
+  sendReportDocument(res, format, 'revenue-report', spec);
 });
 app.get('/api/business/reports/ledger', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  const period = String(req.query.period || '30d');
-  const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
-  const since = new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
-  const rows = tenant.salesTransactions.all(business.id, since, 2000);
-  const paidTotal = rows.reduce((sum, row) => sum + (row.status === 'paid' ? Number(row.amount || 0) : 0), 0);
+  reportData = reportData || createReportData(db.db);
   const format = String(req.query.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
-  sendReportDocument(res, format, 'transaction-ledger', {
-    business, title: 'Transaction ledger', rangeLabel: reportRangeLabel(since), generatedAt: new Date().toISOString(),
-    summary: [{ label: 'Rows', value: String(rows.length) }, { label: 'Total paid', value: formatKes(paidTotal) }],
-    columns: [
-      { key: 'date', label: 'Date', width: 22 },
-      { key: 'phone', label: 'Phone', width: 16 },
-      { key: 'package', label: 'Package', width: 16 },
-      { key: 'amount', label: 'Amount', width: 12, align: 'right', money: true },
-      { key: 'status', label: 'Status', width: 10 },
-      { key: 'receipt', label: 'M-Pesa code', width: 16 },
-    ],
-    rows: rows.map((row) => ({
-      date: formatDateTime(row.created_at), phone: row.phone || '', package: row.package_name || '',
-      amount: Number(row.amount || 0), status: String(row.status || '').replace(/^\w/, (c) => c.toUpperCase()),
-      receipt: row.mpesa_receipt || '—',
-    })),
-  });
+  let spec;
+  try { spec = reportData.ledgerSpec({ business, days: reportDays(req.query.period), generatedBy: reportMadeBy(req, business), limit: format === 'pdf' ? 2000 : 20000 }); }
+  catch (error) { console.error('[transactions report]', error.message); return res.status(500).json({ error: 'Could not build this report right now.' }); }
+  sendReportDocument(res, format, 'transactions', spec);
 });
 
 app.get('/api/business/router-telemetry', (req, res) => {
@@ -3089,7 +3066,11 @@ function receiptDocumentContext(req, res) {
     business: { business_name: location.business_name, portal_name: location.portal_name, support_phone: location.support_phone, brand_primary_color: location.brand_primary_color },
     transaction: { checkout_request_id: payment.checkout_request_id, phone: subscription.payer_phone, package_name: payment.package_name,
       amount: payment.amount, mpesa_receipt: payment.mpesa_receipt, status: 'paid', created_at: payment.created_at, updated_at: payment.updated_at,
-      location_name: location.name },
+      location_name: location.name, router_name: location.router_name, wifi_ssid: location.wifi_ssid, expires_at: subscription.expires_at,
+      seconds: payment.seconds || subscription.total_seconds, rate_limit: payment.rate_limit || subscription.rate_limit,
+      mac: subscription.mac, ip: payment.ip, device_type: subscription.device_type, device_label: subscription.device_label,
+      payment_source: payment.payment_source, recovery_code: subscription.password, portal_url: portalUrlForLocation(location) },
+    audience: 'customer',
     subscriptionId: subscription.id,
   };
 }
@@ -6188,7 +6169,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk, provisionTenantPayment,
-  documents: { buildReceiptPdf, buildReportPdf, buildReportXlsx, receiptReportSpec, rangeLabel: reportRangeLabel,
+  documents: { buildReceiptPdf, buildReportPdf, buildReportXlsx, receiptReportSpec, rangeLabel: reportRangeLabel, formatDateTime,
     payoutStatement: require('./lib/payout-statement').createPayoutStatement(db.db) } });
 const fitiSignal = require('./lib/fiti-signal');
 fitiSignal.attachFitiSignalRoutes(app, { businessAuth, startPayment: async ({ business, purchase, phone: supplied }) => {

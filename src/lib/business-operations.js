@@ -344,18 +344,35 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
     const format = String(req.query.format || 'pdf');
     if (documents && format !== 'txt') {
       const day = (value) => String(value || '').slice(0, 16).replace('T', ' ');
-      const fields = [['Business', business.name || business.email || business.id], ['Plan', receipt.plan],
-        ['Paid on', day(receipt.paid_at) + ' UTC'], ['M-Pesa code', receipt.mpesa_receipt || 'Confirmed by status check'],
-        ['Valid until', day(receipt.expires_at) + ' UTC'], ['Reference', receipt.checkout_request_id]];
+      const when = (value) => (documents.formatDateTime ? documents.formatDateTime(value) : day(value) + ' UTC');
+      const fields = [['Business', business.name || business.email || business.id], ['Business ID', business.id], ['Plan', receipt.plan],
+        ['Paid on', when(receipt.paid_at)], ['M-Pesa code', receipt.mpesa_receipt || 'Confirmed by status check'],
+        ['Valid until', when(receipt.expires_at)], ['Reference', receipt.checkout_request_id]];
       const amount = 'KES ' + Number(receipt.amount || 0).toLocaleString('en-KE', { maximumFractionDigits: 2 });
+      const amountCents = 'KES ' + Number(receipt.amount || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const excel = format === 'xlsx';
       const built = excel
         ? documents.buildReportXlsx(documents.receiptReportSpec({ business: null, title: 'Wi-Fi Fiti plan receipt', amount, status: 'PAID',
           fields: [...fields, ['Note', 'Not a statutory tax invoice.']] }))
-        : documents.buildReceiptPdf({ business: null, numberPrefix: 'WFP', title: 'WI-FI FITI PLAN RECEIPT',
+        : documents.buildReceiptPdf({ business: null, numberPrefix: 'WFP', title: 'Wi-Fi Fiti plan receipt',
           transaction: { checkout_request_id: receipt.checkout_request_id, amount: receipt.amount, status: 'paid',
             mpesa_receipt: receipt.mpesa_receipt, created_at: receipt.paid_at, updated_at: receipt.paid_at },
-          fields, footnote: 'Not a statutory tax invoice.' });
+          place: `Plan receipt for ${business.name || 'your business'}`, amountLabel: `${business.name || 'You'} paid`,
+          subtitle: `${receipt.plan} plan`,
+          sections: [
+            { title: 'Plan', items: [
+              { kind: 'row', label: 'Plan', value: receipt.plan },
+              { kind: 'row', label: 'Business', value: business.name || business.email || business.id },
+              { kind: 'row', label: 'Business ID', value: business.id },
+              { kind: 'row', label: 'Paid on', value: when(receipt.paid_at) },
+              { kind: 'row', label: 'Valid until', value: when(receipt.expires_at) }] },
+            { title: 'Payment', items: [
+              { kind: 'code', label: 'M-Pesa code', value: receipt.mpesa_receipt || 'Confirmed by status check' },
+              { kind: 'row', label: 'Reference', value: receipt.checkout_request_id },
+              { kind: 'total', label: 'Total paid', value: amountCents },
+              { kind: 'note', value: 'Not a statutory tax invoice. Wi-Fi Fiti plan payments are listed under Billing in your dashboard.' }] },
+          ],
+          contacts: [['Business', business.name || ''], ['Plan', receipt.plan], ['Billing', 'wififiti.co.ke']], footer: 'wififiti.co.ke' });
       built.then((buffer) => {
         const name = `wifi-fiti-plan-receipt-${String(receipt.mpesa_receipt || receipt.checkout_request_id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}.${excel ? 'xlsx' : 'pdf'}`;
         res.set('Content-Disposition', `attachment; filename="${name}"`);
@@ -388,7 +405,7 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
     const since = days ? new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : '1970-01-01 00:00:00';
     const format = String(req.query.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
     const rangeLabel = days ? documents.rangeLabel(since) : 'All time';
-    const spec = documents.payoutStatement.reportSpec({ business, since, rangeLabel, format });
+    const spec = documents.payoutStatement.reportSpec({ business, since, rangeLabel, format, generatedBy: (req.teamSession && req.teamSession.member && req.teamSession.member.name) || business.owner_name || '' });
     (format === 'pdf' ? documents.buildReportPdf : documents.buildReportXlsx)(spec).then((buffer) => {
       res.set('Content-Disposition', `attachment; filename="wifi-fiti-payout-statement.${format}"`);
       res.type(format).send(buffer);

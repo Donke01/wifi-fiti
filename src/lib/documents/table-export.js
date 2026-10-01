@@ -39,6 +39,7 @@ function tableReportSpec({ business, kind, rows, rangeLabel, format }) {
     const money = /\(KES\)/i.test(label);
     const long = /name|package|location|router|description|note|result|batch/i.test(label);
     return { key: `c${i}`, label: money ? label.replace(/\s*\(KES\)/i, '') : label, money, align: money ? 'right' : 'left',
+      status: /^status$|^state$/i.test(label.trim()),
       width: format === 'pdf' ? (long ? 22 : money ? 14 : 16) : (long ? 28 : 18) };
   });
   const body = rows.slice(1).filter(Array.isArray).map((row) => {
@@ -54,7 +55,18 @@ function tableReportSpec({ business, kind, rows, rangeLabel, format }) {
     const total = body.reduce((sum, row) => sum + (typeof row[column.key] === 'number' ? row[column.key] : 0), 0);
     summary.push({ label: `Total ${column.label.toLowerCase()}`, value: 'KES ' + total.toLocaleString('en-KE', { maximumFractionDigits: 2 }) });
   });
-  return { business, title, rangeLabel: rangeLabel || 'As shown in your dashboard', generatedAt: new Date().toISOString(), summary, columns, rows: body };
+  // Totals under every money column, and the count under the first column.
+  const totals = {};
+  if (body.length && columns.some((column) => column.money)) {
+    totals[columns[0].key] = columns[0].money ? undefined : 'Total';
+    columns.filter((column) => column.money).forEach((column) => {
+      totals[column.key] = body.reduce((sum, row) => sum + (typeof row[column.key] === 'number' ? row[column.key] : 0), 0);
+    });
+  }
+  return { business, title, rangeLabel: rangeLabel || 'As shown in your dashboard', generatedAt: new Date().toISOString(), summary, columns, rows: body,
+    totals: Object.keys(totals).length ? totals : null,
+    filters: ['As shown in your dashboard', `${body.length.toLocaleString('en-KE')} row${body.length === 1 ? '' : 's'}`],
+    notes: ['The rows, search and filters match the dashboard table when it was downloaded.'] };
 }
 
 /**

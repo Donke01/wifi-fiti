@@ -1570,7 +1570,7 @@ const subscriptionForPayer = db.prepare(`
   SELECT * FROM tenant_subscriptions WHERE id=? AND location_id=? AND payer_phone=?
 `);
 const latestPaidTransactionForSubscription = db.prepare(`
-  SELECT checkout_request_id, package_name, amount, mpesa_receipt, payment_source, updated_at, created_at
+  SELECT checkout_request_id, package_name, amount, mpesa_receipt, payment_source, updated_at, created_at, seconds, rate_limit, ip
     FROM tenant_transactions
    WHERE subscription_id=? AND location_id=? AND status='paid'
    ORDER BY updated_at DESC, created_at DESC
