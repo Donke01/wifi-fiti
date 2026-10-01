@@ -3,8 +3,8 @@
  *
  * 1. Every router's telemetry report lists devices waiting on the customer
  *    network, and those reach the portal's nearby-device list.
- * 2. A paid TV receives a MAC authenticated HotSpot account with its own
- *    time and speed limits; existing subscriptions get a repair job.
+ * 2. A paid TV is logged in by its HotSpot host address, both when its job
+ *    runs and later, once the router reports the TV waiting.
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -25,7 +25,7 @@ for (const suffix of ['', '-wal', '-shm']) {
 const legacy = require('../src/lib/db');
 const tenant = require('../src/lib/tenant');
 const hotspotSessions = require('../src/lib/hotspot-sessions');
-const { jobToScript } = require('../src/lib/rsc');
+const { jobToScript, tvLoginScript } = require('../src/lib/rsc');
 
 let pass = 0;
 function t(name, fn) { fn(); pass += 1; console.log(`  ok   ${name}`); }
@@ -65,12 +65,12 @@ t('reported devices reach the nearby-device list', () => {
   assert.strictEqual(devices[0].mac, TV_MAC);
 });
 
-t('a TV job creates a MAC authenticated account instead of using the read-only active menu', () => {
+t('a TV job logs in by the host address when the TV is on the network', () => {
   const script = jobToScript({ action: 'tv-upsert', username: TV_USER, password: 'ABCD2345', profile: 'standard',
     total_seconds: 3600, mac: TV_MAC, ip: null }, 'hotspot1');
-  assert.match(script, /\/ip hotspot user add name=\$fitiTvMac password=""/);
-  assert.match(script, /login-by=\[:toarray/);
-  assert.doesNotMatch(script, /\/ip hotspot active login/);
+  assert.match(script, new RegExp(`/ip hotspot host find where mac-address=${TV_MAC}`));
+  assert.match(script, /ip=\[\/ip hotspot host get \[:pick \$fitiTvHost 0\] address\]/);
+  assert.match(script, /\(\[:len \[\/ip hotspot active find where user=\$u\]\] = 0\)/);
 });
 
 t('a phone job with an IP keeps its direct login only', () => {
@@ -80,7 +80,7 @@ t('a phone job with an IP keeps its direct login only', () => {
   assert.match(script, /ip=10\.5\.50\.9/);
 });
 
-t('existing paid TVs get one repair job without another purchase', () => {
+t('only paid, unexpired TVs reported waiting are logged in later', () => {
   const insert = legacy.db.prepare(`INSERT INTO tenant_subscriptions
     (id, business_id, location_id, router_username, payer_phone, mac, password, total_seconds, expires_at, device_type)
     VALUES (?, 'biz-tv', ?, ?, '254712345678', ?, 'ABCD2345', 3600, datetime('now', ?), ?)`);
@@ -91,14 +91,30 @@ t('existing paid TVs get one repair job without another purchase', () => {
     { mac: 'A4:30:7A:11:22:44', ip: '10.5.50.24' },
     { mac: 'A4:30:7A:11:22:55', ip: '10.5.50.25' },
   ]);
-  assert.strictEqual(tenant.queueTvAccessRepair(locationId), 1);
-  assert.strictEqual(tenant.queueTvAccessRepair(locationId), 0, 'an unacknowledged repair is not duplicated');
-  const jobs = tenant.pendingJobs.all(locationId).filter((job) => job.action === 'tv-upsert');
-  assert.deepStrictEqual(jobs.map((job) => job.username), [TV_USER]);
+  const waiting = tenant.paidTvsWaitingForLogin(locationId);
+  assert.deepStrictEqual(waiting.map((row) => row.username), [TV_USER]);
+  const script = tvLoginScript(waiting);
+  assert.match(script, new RegExp(`:local u "${TV_USER}"`));
+  assert.match(script, /\/ip hotspot user find where name=\$u/);
+  assert.match(script, /ip hotspot active login user=\$u password=\$p/);
 });
 
-t('the MAC account refuses anything that could become router code', () => {
-  assert.strictEqual(jobToScript({ action: 'tv-upsert', username: TV_USER, password: 'ABCD2345', profile: 'standard', total_seconds: 3600, mac: 'aa:bb' }, 'hotspot1'), null);
+t('the later login refuses anything that could become router code', () => {
+  assert.strictEqual(tvLoginScript([{ username: TV_USER, password: 'x"; /system reset', mac: TV_MAC }]), '');
+  assert.strictEqual(tvLoginScript([{ username: 'admin', password: 'ABCD2345', mac: TV_MAC }]), '');
+  assert.strictEqual(tvLoginScript([{ username: TV_USER, password: 'ABCD2345', mac: 'aa:bb' }]), '');
+});
+
+t('ending a TV package also removes an old MAC-named TV account', () => {
+  const script = jobToScript({ action: 'revoke', username: TV_USER, mac: TV_MAC }, 'hotspot1');
+  assert.match(script, new RegExp(`:local fitiTvMac "${TV_MAC}"`));
+  assert.match(script, /comment\] = \("Wi-Fi Fiti TV " \. \$u\)/);
+  assert.ok(!jobToScript({ action: 'revoke', username: '254712345679', mac: null }, 'hotspot1').includes('fitiTvMac'));
+  const queued = tenant.queueExpiredSubscriptions(locationId);
+  assert.ok(queued >= 1);
+  const job = legacy.db.prepare(`SELECT mac FROM tenant_jobs WHERE location_id=? AND username=? AND action='revoke'`)
+    .get(locationId, '254712345678-0A1B2C3E-tv');
+  assert.strictEqual(job && job.mac, 'A4:30:7A:11:22:44');
 });
 
 console.log(`\n${pass} passed`);
