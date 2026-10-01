@@ -15,6 +15,7 @@
  *   fiti-telemetry-v1
  *   res|<cpu%>|<free mem>|<total mem>|<uptime s>|<bridge rx>|<bridge tx>|<active count>
  *   sess|<router user>|<mac>|<ip>|<session uptime s>|<bytes in>|<bytes out>|<idle s>
+ *   dev|<mac>|<ip>|<dhcp host name>   (connected, not logged in yet)
  * "bytes in" is what the customer sent (upload), "bytes out" what they
  * received (download), as RouterOS counts them on the hotspot.
  */
@@ -29,6 +30,8 @@ const FRESH_SECONDS = 90;
 // their last report after this long.
 const STALE_SESSION_MINUTES = 10;
 const MAX_SESSIONS = 150;
+// Devices waiting on the customer network (not logged in) per report.
+const MAX_DEVICES = 60;
 const SESSION_HISTORY_DAYS = 90;
 const TELEMETRY_HISTORY_DAYS = 30;
 
@@ -84,7 +87,7 @@ function ipv4(value) {
 function parseReport(raw) {
   const lines = String(typeof raw === 'string' ? raw : '').split('\n').map((line) => line.trim()).filter(Boolean);
   if (lines[0] !== 'fiti-telemetry-v1') return null;
-  const report = { resources: null, sessions: [], activeCount: null, listed: 0 };
+  const report = { resources: null, sessions: [], devices: [], activeCount: null, listed: 0 };
   for (const line of lines.slice(1)) {
     const parts = line.split('|');
     if (parts[0] === 'res' && !report.resources) {
@@ -108,6 +111,12 @@ function parseReport(raw) {
         bytesOut: count(parts[6]) || 0,
         idle: count(parts[7], 1e9),
       });
+    } else if (parts[0] === 'dev' && report.devices.length < MAX_DEVICES) {
+      const mac = String(parts[1] || '').trim().toUpperCase();
+      const ip = ipv4(parts[2]);
+      if (!MAC.test(mac) || !ip) continue;
+      const hostname = String(parts[3] || '').trim().replace(/[^\w .-]/g, '').slice(0, 64) || null;
+      report.devices.push({ mac, ip, hostname });
     }
   }
   // A report whose list was cut short (more logins than MAX_SESSIONS)
@@ -331,6 +340,30 @@ function telemetryReplyScript() {
     '      } on-error={}',
     '    }',
     '  }',
+    // Devices on the customer network that are not logged in yet (a TV
+    // waiting for "Buy for TV"). This feeds the portal's nearby-device list
+    // and tells the server a paid TV is present so it can be logged in.
+    '  :local fitiTmD 0',
+    '  :do {',
+    '    :foreach fitiTmH in=[/ip hotspot host find] do={',
+    `      :if ($fitiTmD < ${MAX_DEVICES}) do={`,
+    '        :do {',
+    '          :local fitiTmHa false',
+    '          :local fitiTmHb false',
+    '          :do { :set fitiTmHa [/ip hotspot host get $fitiTmH authorized] } on-error={}',
+    '          :do { :set fitiTmHb [/ip hotspot host get $fitiTmH bypassed] } on-error={}',
+    '          :if (($fitiTmHa != true) && ($fitiTmHb != true)) do={',
+    '            :local fitiTmHm [/ip hotspot host get $fitiTmH mac-address]',
+    '            :local fitiTmHi [/ip hotspot host get $fitiTmH address]',
+    '            :local fitiTmHn ""',
+    '            :do { :set fitiTmHn [/ip dhcp-server lease get [:pick [/ip dhcp-server lease find where mac-address=$fitiTmHm] 0] host-name] } on-error={}',
+    '            :set fitiTmOut ($fitiTmOut . "dev|" . $fitiTmHm . "|" . $fitiTmHi . "|" . $fitiTmHn . "\\n")',
+    '            :set fitiTmD ($fitiTmD + 1)',
+    '          }',
+    '        } on-error={}',
+    '      }',
+    '    }',
+    '  } on-error={}',
     '  :local fitiTmTls "yes"',
     '  :do { :if ([:typeof [:find [/system script get [find where name="fiti-poll"] source] "check-certificate=no"]] != "nil") do={ :set fitiTmTls "no" } } on-error={}',
     '  /tool fetch url=($fitiUrl . "/api/router/telemetry?site=" . $fitiSite) check-certificate=$fitiTmTls http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) http-method=post http-data=$fitiTmOut output=none',
@@ -342,5 +375,5 @@ function telemetryReplyScript() {
 
 module.exports = {
   parseReport, recordReport, sweep, onlineForLocation, historyForSubscription, onlineCountForBusiness, telemetryReplyScript,
-  FRESH_SECONDS, MAX_SESSIONS,
+  FRESH_SECONDS, MAX_SESSIONS, MAX_DEVICES,
 };

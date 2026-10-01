@@ -51,6 +51,45 @@ function rateProfileName(rateLimit) {
 }
 
 /**
+ * Log a TV in by its MAC, using the address the router holds for it in the
+ * HotSpot host list. Uses the job's $u/$p locals; mac is pre-validated.
+ * Skipped when the user is already logged in, and best effort throughout.
+ */
+function tvHostLoginLine(mac) {
+  return `:do { :local fitiTvHost [/ip hotspot host find where mac-address=${mac}]; ` +
+    `:if (([:len $fitiTvHost] > 0) && ([:len [/ip hotspot active find where user=$u]] = 0)) do={ ` +
+    `/ip hotspot active login user=$u password=$p mac-address=${mac} ip=[/ip hotspot host get [:pick $fitiTvHost 0] address] } } on-error={}`;
+}
+
+/**
+ * A paid TV that was switched off, or not yet on the Wi-Fi, when its
+ * package was provisioned has no way to log itself in: a TV has no useful
+ * captive-portal browser. When the router reports the TV's MAC waiting on
+ * the network, the next check-in carries this block to log it in. Each
+ * entry is { username, password, mac }; invalid entries are skipped.
+ */
+function tvLoginScript(entries) {
+  const blocks = [];
+  for (const entry of (entries || []).slice(0, 20)) {
+    const username = safe('username', entry && entry.username);
+    const password = safe('password', entry && entry.password);
+    const mac = safe('mac', entry && entry.mac);
+    if (!username || !password || !mac) continue;
+    // Only users the server provisioned (present on the router) are tried.
+    blocks.push([
+      ':do {',
+      `  :local u "${username}"`,
+      `  :local p "${password}"`,
+      '  :if ([:len [/ip hotspot user find where name=$u]] > 0) do={',
+      `    ${tvHostLoginLine(mac)}`,
+      '  }',
+      '} on-error={}',
+    ].join('\n'));
+  }
+  return blocks.join('\n');
+}
+
+/**
  * One job -> a RouterOS block that is safe to run repeatedly.
  *
  * `limit-uptime` is set to an absolute total rather than incremented, so
@@ -149,6 +188,11 @@ function jobToScript(job, hotspotServer) {
     // alone. Every attempt is best-effort and the provisioning above remains
     // authoritative.
     if (mac) lines.push(`:do { /ip hotspot active login user=$u password=$p mac-address=${mac} } on-error={}`);
+    // A TV's job carries no IP, and RouterOS can only log in a device it
+    // has in its HotSpot host list, by that host's address. Look the TV up
+    // by MAC and log it in with its current address if the MAC-only login
+    // above did not take.
+    if (mac && !ip) lines.push(tvHostLoginLine(mac));
     if (ip) lines.push(`:do { /ip hotspot active login user=$u password=$p ip=${ip} } on-error={}`);
     if (!mac && !ip) lines.push(':do { /ip hotspot active login user=$u password=$p } on-error={}');
   }
@@ -950,7 +994,7 @@ function buildExpiryScript(accounts) {
 }
 
 module.exports = {
-  buildScript, buildExpiryScript, jobToScript, rateProfileName, safe, safeSeconds,
+  buildScript, buildExpiryScript, jobToScript, tvLoginScript, rateProfileName, safe, safeSeconds,
   remoteSupportControlToScript, buildRemoteSupportScript,
   MAPPED_DEPLOYMENT_ACTION, mappedDeploymentControl, buildMappedDeploymentScript,
 };

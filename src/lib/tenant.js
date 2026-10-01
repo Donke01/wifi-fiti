@@ -2890,6 +2890,37 @@ function recordRouterDevices({ locationId, encoded }) {
   return count;
 }
 
+// The same discovery rows from the every-30-seconds telemetry report
+// (hotspot-sessions.parseReport has already validated each entry). That
+// report runs on every paired router, so "Buy for TV" lists nearby devices
+// without a special kit.
+function recordRouterDeviceEntries(locationId, entries) {
+  if (!locationById.get(locationId) || !Array.isArray(entries)) return 0;
+  let count = 0;
+  for (const entry of entries.slice(0, 100)) {
+    if (!entry || !entry.mac || !entry.ip) continue;
+    upsertRouterDevice.run({ locationId, mac: entry.mac, ip: entry.ip, hostname: entry.hostname || null });
+    count += 1;
+  }
+  pruneRouterDevices.run(locationId);
+  return count;
+}
+
+// Paid TVs the router reported as connected but not logged in within the
+// last two minutes. The next check-in logs them in (rsc.tvLoginScript).
+const waitingPaidTvs = db.prepare(`
+  SELECT s.router_username AS username, s.password, s.mac
+    FROM tenant_subscriptions s
+    JOIN tenant_router_devices d ON d.location_id=s.location_id AND d.mac=s.mac
+   WHERE s.location_id=? AND s.device_type='tv' AND s.expires_at > datetime('now')
+     AND d.last_seen_at >= datetime('now','-2 minutes')
+   ORDER BY d.last_seen_at DESC
+   LIMIT 20
+`);
+function paidTvsWaitingForLogin(locationId) {
+  return waitingPaidTvs.all(locationId);
+}
+
 function routerDevicesForLocation(locationId) {
   pruneRouterDevices.run(locationId);
   return recentRouterDevices.all(locationId);
@@ -4622,7 +4653,7 @@ module.exports = {
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, renameRouterBridge, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, autoRequestRemoteAccess, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
-  recordRouterTelemetry, recordRouterDevices, routerDevicesForLocation, routerTelemetryForLocationId, routerCheckIn,
+  recordRouterTelemetry, recordRouterDevices, recordRouterDeviceEntries, paidTvsWaitingForLogin, routerDevicesForLocation, routerTelemetryForLocationId, routerCheckIn,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
