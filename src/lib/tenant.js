@@ -623,6 +623,9 @@ for (const statement of [
   `ALTER TABLE tenant_transactions ADD COLUMN rate_limit TEXT`,
   `ALTER TABLE tenant_transactions ADD COLUMN device_type TEXT NOT NULL DEFAULT 'phone'`,
   `ALTER TABLE tenant_transactions ADD COLUMN device_label TEXT NOT NULL DEFAULT ''`,
+  // The recovery code shown while the customer enters their M-Pesa PIN; the
+  // package it buys uses this code (see grantSubscription).
+  `ALTER TABLE tenant_transactions ADD COLUMN recovery_code TEXT`,
   `ALTER TABLE tenant_subscriptions ADD COLUMN device_type TEXT NOT NULL DEFAULT 'phone'`,
   `ALTER TABLE tenant_subscriptions ADD COLUMN device_label TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE tenant_subscriptions ADD COLUMN expiry_job_id INTEGER`,
@@ -1447,6 +1450,7 @@ function paymentRecoveryMiss(location, phone, receipt) {
   if (recent.some((row) => row.status === 'failed' && /No confirmation was received/i.test(String(row.result_desc || '')))) return { reason: 'not_confirmed' };
   return { reason: 'not_found' };
 }
+const setTransactionRecoveryCode = db.prepare(`UPDATE tenant_transactions SET recovery_code=@recoveryCode WHERE checkout_request_id=@checkoutRequestId`);
 const setTransactionDevice = db.prepare(`UPDATE tenant_transactions SET device_type=@deviceType, device_label=@deviceLabel WHERE checkout_request_id=@checkoutRequestId`);
 const setSubscriptionDevice = db.prepare(`UPDATE tenant_subscriptions SET device_type=@deviceType, device_label=@deviceLabel WHERE id=@id AND location_id=@locationId`);
 const setTransactionResult = db.prepare(`
@@ -4150,6 +4154,10 @@ function generatePassword() {
   return [...bytes].map((byte) => alphabet[byte % alphabet.length]).join('');
 }
 
+function validRecoveryCode(value) {
+  return typeof value === 'string' && /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/.test(value) ? value : null;
+}
+
 function usernameFor({ locationId, payerPhone, mac }) {
   const existing = subscriptionByMac.get(locationId, mac);
   if (existing) return existing.router_username;
@@ -4199,7 +4207,13 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   const existing = subscriptionByMac.get(transaction.location_id, transaction.mac);
   const id = existing?.id || `sub-${crypto.randomBytes(10).toString('hex')}`;
   const routerUsername = usernameFor({ locationId: transaction.location_id, payerPhone: transaction.phone, mac: transaction.mac });
-  const password = existing?.password || generatePassword();
+  // A running package keeps its code: a top-up must not change the code the
+  // customer already saved. A new (or ended) package uses the code the
+  // portal showed while the customer entered their PIN, because the captive
+  // window usually closes the moment the phone goes online.
+  const password = existing && subscriptionLive(existing)
+    ? existing.password
+    : (validRecoveryCode(transaction.recovery_code) || existing?.password || generatePassword());
   const totalSeconds = (existing?.total_seconds || 0) + transaction.seconds;
   // A top-up follows the package the customer selected. A blank speed means
   // return to the normal RouterOS profile rather than retain an old per-user
@@ -4675,5 +4689,5 @@ module.exports = {
   paymentConnectionSummary, savePaymentConnection, paymentCredentials,
   insertBusinessBilling, businessBillingTransaction, setBusinessBillingResult, staleBusinessBilling,
   paidBusinessBilling, duplicateBusinessBillingReceipt, activateBusinessBilling,
-  queueExpiredSubscriptions,
+  queueExpiredSubscriptions, generatePassword, setTransactionRecoveryCode,
 };
