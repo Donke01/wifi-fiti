@@ -3309,6 +3309,13 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
   if (trialLimited(location) && !tenantAccess.allowed(`trial-prompts:${location.business_id}`, TRIAL_PROMPTS_PER_DAY, 86400_000).allowed) {
     return res.status(429).json({ error: 'This WiFi has reached its payment limit for today. Please try again tomorrow.' });
   }
+  // The recovery code is shown now, while the customer enters their PIN:
+  // the captive window usually closes as soon as the phone goes online. A
+  // running package keeps its code (never revealed here, since this route
+  // takes a device and number from the browser); everything else gets a
+  // fresh code that only works once this payment completes.
+  const keepsRecoveryCode = Boolean(existingSubscription && tenant.subscriptionLive(existingSubscription));
+  const recoveryCode = keepsRecoveryCode ? null : tenant.generatePassword();
   try {
     lastPush.set(throttleKey, Date.now());
     const { pushed, paymentSource, platformFee } = await pushTenantPrompt(location, {
@@ -3319,6 +3326,7 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
       phone, packageId: pkg.id, packageName: pkg.name, amount: pkg.price, seconds: pkg.seconds,
       rateLimit: pkg.rate_limit, mac, ip: deviceType === 'tv' ? null : ip });
     tenant.setTransactionDevice.run({ checkoutRequestId: pushed.checkoutRequestId, deviceType, deviceLabel });
+    if (recoveryCode) tenant.setTransactionRecoveryCode.run({ checkoutRequestId: pushed.checkoutRequestId, recoveryCode });
     tenant.setTransactionTerms.run({ checkoutRequestId: pushed.checkoutRequestId, paymentSource, platformFee });
     tenant.setTransactionPortalCapability.run({
       checkoutRequestId: pushed.checkoutRequestId,
@@ -3330,10 +3338,12 @@ app.post('/api/tenant/:locationId/pay', async (req, res) => {
       tenant.createPaymentClaim({ checkoutRequestId: pushed.checkoutRequestId, locationId: location.id,
         code: claimCode, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') });
       res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price,
-        phoneDisplay: mpesa.displayPhone(phone), deviceType, deviceLabel, claimCode, claimExpiresInSeconds: 600 });
+        phoneDisplay: mpesa.displayPhone(phone), deviceType, deviceLabel, claimCode, claimExpiresInSeconds: 600,
+        recoveryCode, keepsRecoveryCode });
       return;
     }
-    res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price, phoneDisplay: mpesa.displayPhone(phone), deviceType, deviceLabel, mac });
+    res.json({ checkoutRequestId: pushed.checkoutRequestId, portalToken, amount: pkg.price, phoneDisplay: mpesa.displayPhone(phone), deviceType, deviceLabel, mac,
+      recoveryCode, keepsRecoveryCode });
   } catch (err) {
     lastPush.delete(throttleKey);
     if (err.promptStatus) return res.status(err.promptStatus).json({ error: err.message });
