@@ -1,0 +1,353 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="862" height="602" viewBox="0 0 862 602">
+<title>Kitale Cafe Transactions (Excel)</title>
+<rect x="0.00" y="0.00" width="862.00" height="602.00" rx="0" fill="#FFFFFF"/>
+<g id="Spreadsheet chrome">
+<rect x="0.00" y="0.00" width="862.00" height="30.00" rx="0" fill="#F3F4F6"/>
+<rect stroke="#D1D5DB" stroke-width="0.6" x="6.00" y="6.00" width="46.00" height="18.00" rx="3" fill="#FFFFFF"/>
+<text x="21.73" y="19.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#374151">J23</text>
+<text x="62.00" y="19.50" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="500" fill="#6B7280">fx</text>
+<text x="84.00" y="19.50" font-family="'Bricolage Grotesque', sans-serif" font-size="10" font-weight="400" fill="#374151">=SUBTOTAL(9,J9:J21)</text>
+<rect x="0.00" y="30.00" width="862.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="70.81" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">A</text>
+<text x="138.84" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">B</text>
+<text x="222.82" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">C</text>
+<text x="322.72" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">D</text>
+<text x="402.15" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">E</text>
+<text x="468.25" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">F</text>
+<text x="534.65" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">G</text>
+<text x="608.64" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">H</text>
+<text x="700.70" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">I</text>
+<text x="804.30" y="45.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#6B7280">J</text>
+<rect x="0.00" y="52.00" width="38.00" height="8.00" rx="0" fill="#F3F4F6"/>
+<text x="17.56" y="59.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">1</text>
+<rect x="0.00" y="60.00" width="38.00" height="44.00" rx="0" fill="#F3F4F6"/>
+<text x="16.38" y="85.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">2</text>
+<rect x="0.00" y="104.00" width="38.00" height="20.00" rx="0" fill="#F3F4F6"/>
+<text x="16.32" y="117.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">3</text>
+<rect x="0.00" y="124.00" width="38.00" height="10.00" rx="0" fill="#F3F4F6"/>
+<text x="16.32" y="132.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">4</text>
+<rect x="0.00" y="134.00" width="38.00" height="18.00" rx="0" fill="#F3F4F6"/>
+<text x="16.30" y="146.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">5</text>
+<rect x="0.00" y="152.00" width="38.00" height="30.00" rx="0" fill="#F3F4F6"/>
+<text x="16.09" y="170.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">6</text>
+<rect x="0.00" y="182.00" width="38.00" height="12.00" rx="0" fill="#F3F4F6"/>
+<text x="16.78" y="191.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">7</text>
+<rect x="0.00" y="194.00" width="38.00" height="26.00" rx="0" fill="#F3F4F6"/>
+<text x="16.10" y="210.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">8</text>
+<rect x="0.00" y="220.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="16.12" y="234.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">9</text>
+<rect x="0.00" y="242.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.61" y="256.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">10</text>
+<rect x="0.00" y="264.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="16.12" y="278.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">11</text>
+<rect x="0.00" y="286.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.94" y="300.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">12</text>
+<rect x="0.00" y="308.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.88" y="322.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">13</text>
+<rect x="0.00" y="330.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.88" y="344.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">14</text>
+<rect x="0.00" y="352.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.86" y="366.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">15</text>
+<rect x="0.00" y="374.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.65" y="388.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">16</text>
+<rect x="0.00" y="396.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="15.34" y="410.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">17</text>
+<rect x="0.00" y="418.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.66" y="432.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">18</text>
+<rect x="0.00" y="440.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.68" y="454.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">19</text>
+<rect x="0.00" y="462.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="13.46" y="476.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">20</text>
+<rect x="0.00" y="484.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="14.92" y="498.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">21</text>
+<rect x="0.00" y="506.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="13.71" y="520.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">22</text>
+<rect x="0.00" y="528.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="13.71" y="542.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">23</text>
+<rect x="0.00" y="550.00" width="38.00" height="22.00" rx="0" fill="#F3F4F6"/>
+<text x="13.74" y="564.30" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#6B7280">24</text>
+<line x1="38.0" y1="30.0" x2="38.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="110.0" y1="30.0" x2="110.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="174.0" y1="30.0" x2="174.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="278.0" y1="30.0" x2="278.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="374.0" y1="30.0" x2="374.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="436.0" y1="30.0" x2="436.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="506.0" y1="30.0" x2="506.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="570.0" y1="30.0" x2="570.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="654.0" y1="30.0" x2="654.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="750.0" y1="30.0" x2="750.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="862.0" y1="30.0" x2="862.0" y2="572.0" stroke="#E5E7EB" stroke-width="0.6"/>
+<line x1="0.0" y1="52.0" x2="862.0" y2="52.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="60.0" x2="862.0" y2="60.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="104.0" x2="862.0" y2="104.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="124.0" x2="862.0" y2="124.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="134.0" x2="862.0" y2="134.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="152.0" x2="862.0" y2="152.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="182.0" x2="862.0" y2="182.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="194.0" x2="862.0" y2="194.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="220.0" x2="862.0" y2="220.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="242.0" x2="862.0" y2="242.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="264.0" x2="862.0" y2="264.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="286.0" x2="862.0" y2="286.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="308.0" x2="862.0" y2="308.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="330.0" x2="862.0" y2="330.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="352.0" x2="862.0" y2="352.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="374.0" x2="862.0" y2="374.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="396.0" x2="862.0" y2="396.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="418.0" x2="862.0" y2="418.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="440.0" x2="862.0" y2="440.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="462.0" x2="862.0" y2="462.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="484.0" x2="862.0" y2="484.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="506.0" x2="862.0" y2="506.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="528.0" x2="862.0" y2="528.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="550.0" x2="862.0" y2="550.0" stroke="#EEF0F2" stroke-width="0.6"/>
+<line x1="0.0" y1="572.0" x2="862.0" y2="572.0" stroke="#EEF0F2" stroke-width="0.6"/>
+</g>
+<rect id="Brand edge (row 1)" x="38.00" y="52.00" width="824.00" height="8.00" rx="0" fill="#007D90"/>
+<g id="Title (rows 2-3)">
+<rect x="38.00" y="60.00" width="824.00" height="64.00" rx="0" fill="#FFFFFF"/>
+<g id="Logo image" transform="translate(48.00 72.00) scale(0.8333)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#007D90"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#007D90" stroke-width="2.4" stroke-linecap="round"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#007D90" stroke-width="2.16" stroke-linecap="round"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#007D90" stroke-width="1.92" stroke-linecap="round"/></g>
+<text x="78.00" y="91.00" font-family="'Bricolage Grotesque', sans-serif" font-size="22" font-weight="800" fill="#0E2A33">Transactions</text>
+<text x="231.90" y="91.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="500" fill="#5E7480">Kitale Cafe, business ID WF-20417</text>
+<text x="78.00" y="118.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">2 Sep to 1 Oct 2026, made 1 Oct 2026, 9:40 am by Morgan Mfo. Filters: all hotspots, all packages.</text>
+</g>
+<g id="Figures (rows 5-6)">
+<text x="48.00" y="147.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#5E7480">Collected</text>
+<text x="48.00" y="174.00" font-family="'Bricolage Grotesque', sans-serif" font-size="17" font-weight="800" fill="#007D90">KES 48,240</text>
+<text x="150.59" y="173.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="600" fill="#1E8E5A">+12%</text>
+<text x="184.00" y="147.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#5E7480">Payments</text>
+<text x="184.00" y="174.00" font-family="'Bricolage Grotesque', sans-serif" font-size="14" font-weight="700" fill="#0E2A33">752</text>
+<text x="214.09" y="173.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="600" fill="#1E8E5A">+9%</text>
+<text x="384.00" y="147.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#5E7480">Customers</text>
+<text x="384.00" y="174.00" font-family="'Bricolage Grotesque', sans-serif" font-size="14" font-weight="700" fill="#0E2A33">388</text>
+<text x="416.96" y="173.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="600" fill="#1E8E5A">+21 new</text>
+<text x="516.00" y="147.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#5E7480">Failed</text>
+<text x="516.00" y="174.00" font-family="'Bricolage Grotesque', sans-serif" font-size="14" font-weight="700" fill="#0E2A33">18</text>
+<text x="536.03" y="173.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="600" fill="#C0392B">+4</text>
+<text x="664.00" y="147.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#5E7480">Average sale</text>
+<text x="664.00" y="174.00" font-family="'Bricolage Grotesque', sans-serif" font-size="14" font-weight="700" fill="#0E2A33">KES 64</text>
+<text x="718.73" y="173.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="600" fill="#1E8E5A">+KES 3</text>
+</g>
+<g id="Header (row 8) with filters">
+<rect x="38.00" y="194.00" width="824.00" height="26.00" rx="0" fill="#E3F2F3"/>
+<line x1="38.0" y1="220.0" x2="862.0" y2="220.0" stroke="#007D90" stroke-width="1.5"/>
+<text x="46.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Date</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="90.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M94.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="118.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Time</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="154.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M158.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="182.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Hotspot</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="258.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M262.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="286.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Phone</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="354.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M358.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="382.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Device</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="416.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M420.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="444.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Package</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="486.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M490.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="514.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Paid to</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="550.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M554.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="578.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Status</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="634.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M638.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="662.00" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">M-Pesa code</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="730.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M734.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+<text x="798.96" y="211.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Amount</text>
+<rect stroke="#C9D6D4" stroke-width="0.6" x="842.00" y="199.00" width="15.00" height="15.00" rx="2" fill="#FFFFFF"/>
+<path d="M846.5 204.5h6l-3 3.5z" fill="#5E7480"/>
+</g>
+<g id="Rows (row 9 on)">
+<text x="46.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">1 Oct</text>
+<text x="118.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">9:12 am</text>
+<text x="182.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Kitale Stage</text>
+<text x="286.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0712 345 678</text>
+<text x="382.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Phone</text>
+<text x="444.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">24 hours</text>
+<text x="514.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Till</text>
+<circle cx="582.0" cy="231.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJK3XYZ123</text>
+<rect x="754.00" y="224.00" width="6.50" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.39" y="234.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 50</text>
+<rect x="38.00" y="242.00" width="824.00" height="22.00" rx="0" fill="#F8FBFA"/>
+<text x="46.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">1 Oct</text>
+<text x="118.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">8:47 am</text>
+<text x="182.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Kitale Stage</text>
+<text x="286.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0798 765 432</text>
+<text x="382.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Phone</text>
+<text x="444.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">1 hour</text>
+<text x="514.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Till</text>
+<circle cx="582.0" cy="253.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJK2LMN456</text>
+<rect x="754.00" y="246.00" width="2.60" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.53" y="256.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 20</text>
+<text x="46.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">1 Oct</text>
+<text x="118.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">7:58 am</text>
+<text x="182.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Eldoret Market</text>
+<text x="286.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0711 223 344</text>
+<text x="382.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">TV</text>
+<text x="444.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Weekly</text>
+<text x="514.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">PayBill</text>
+<circle cx="582.0" cy="275.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJK1ABC902</text>
+<rect x="754.00" y="268.00" width="32.50" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="815.75" y="278.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 250</text>
+<rect x="38.00" y="286.00" width="824.00" height="22.00" rx="0" fill="#F8FBFA"/>
+<text x="46.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">30 Sep</text>
+<text x="118.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">9:05 pm</text>
+<text x="182.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Eldoret Market</text>
+<text x="286.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0701 112 233</text>
+<text x="382.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Laptop</text>
+<text x="444.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Weekly</text>
+<text x="514.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">PayBill</text>
+<circle cx="582.0" cy="297.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJI9PQR789</text>
+<rect x="754.00" y="290.00" width="32.50" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="815.75" y="300.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 250</text>
+<text x="46.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">30 Sep</text>
+<text x="118.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">7:31 pm</text>
+<text x="182.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Kitale Stage</text>
+<text x="286.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0722 334 455</text>
+<text x="382.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Phone</text>
+<text x="444.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">3 hours</text>
+<text x="514.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Till</text>
+<circle cx="582.0" cy="319.0" r="3" fill="#C0392B"/>
+<text x="590.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Failed</text>
+<text x="662.00" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">—</text>
+<rect x="754.00" y="312.00" width="3.90" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.41" y="322.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 30</text>
+<rect x="38.00" y="330.00" width="824.00" height="22.00" rx="0" fill="#F8FBFA"/>
+<text x="46.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">30 Sep</text>
+<text x="118.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">6:02 pm</text>
+<text x="182.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Eldoret Market</text>
+<text x="286.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0733 445 566</text>
+<text x="382.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Phone</text>
+<text x="444.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">24 hours</text>
+<text x="514.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Tuma</text>
+<circle cx="582.0" cy="341.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJI7STU012</text>
+<rect x="754.00" y="334.00" width="6.50" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.39" y="344.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 50</text>
+<text x="46.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">30 Sep</text>
+<text x="118.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">4:44 pm</text>
+<text x="182.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Kitale Stage</text>
+<text x="286.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0744 556 677</text>
+<text x="382.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Phone</text>
+<text x="444.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">1 hour</text>
+<text x="514.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Till</text>
+<circle cx="582.0" cy="363.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJI6VWX345</text>
+<rect x="754.00" y="356.00" width="2.60" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.53" y="366.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 20</text>
+<rect x="38.00" y="374.00" width="824.00" height="22.00" rx="0" fill="#F8FBFA"/>
+<text x="46.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">30 Sep</text>
+<text x="118.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">2:20 pm</text>
+<text x="182.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Kitale Stage</text>
+<text x="286.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0790 887 766</text>
+<text x="382.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Tablet</text>
+<text x="444.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">3 hours</text>
+<text x="514.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Till</text>
+<circle cx="582.0" cy="385.0" r="3" fill="#6B5BD2"/>
+<text x="590.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Refunded</text>
+<text x="662.00" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJI5KLM221</text>
+<rect x="754.00" y="378.00" width="3.90" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.41" y="388.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 30</text>
+<text x="46.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">30 Sep</text>
+<text x="118.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">12:15 pm</text>
+<text x="182.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Kitale Stage</text>
+<text x="286.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0755 667 788</text>
+<text x="382.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Laptop</text>
+<text x="444.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Monthly</text>
+<text x="514.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Till</text>
+<circle cx="582.0" cy="407.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJI3YZA678</text>
+<rect x="754.00" y="400.00" width="104.00" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="814.64" y="410.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 800</text>
+<rect x="38.00" y="418.00" width="824.00" height="22.00" rx="0" fill="#F8FBFA"/>
+<text x="46.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">30 Sep</text>
+<text x="118.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">10:03 am</text>
+<text x="182.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Eldoret Market</text>
+<text x="286.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0725 109 283</text>
+<text x="382.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Phone</text>
+<text x="444.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">24 hours</text>
+<text x="514.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Tuma</text>
+<circle cx="582.0" cy="429.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJI2QWE118</text>
+<rect x="754.00" y="422.00" width="6.50" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.39" y="432.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 50</text>
+<text x="46.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">29 Sep</text>
+<text x="118.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">8:58 pm</text>
+<text x="182.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Eldoret Market</text>
+<text x="286.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0766 778 899</text>
+<text x="382.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Phone</text>
+<text x="444.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">3 hours</text>
+<text x="514.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">PayBill</text>
+<circle cx="582.0" cy="451.0" r="3" fill="#C98A00"/>
+<text x="590.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Pending</text>
+<text x="662.00" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">—</text>
+<rect x="754.00" y="444.00" width="3.90" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.41" y="454.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 30</text>
+<rect x="38.00" y="462.00" width="824.00" height="22.00" rx="0" fill="#F8FBFA"/>
+<text x="46.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">29 Sep</text>
+<text x="118.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">6:40 pm</text>
+<text x="182.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Kitale Stage</text>
+<text x="286.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0708 554 120</text>
+<text x="382.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Phone</text>
+<text x="444.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">1 hour</text>
+<text x="514.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Voucher</text>
+<circle cx="582.0" cy="473.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">VCH-81QZ</text>
+<rect x="754.00" y="466.00" width="2.60" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.53" y="476.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 20</text>
+<text x="46.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">29 Sep</text>
+<text x="118.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#5E7480">5:12 pm</text>
+<text x="182.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Kitale Stage</text>
+<text x="286.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">0746 330 918</text>
+<text x="382.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">TV</text>
+<text x="444.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">24 hours</text>
+<text x="514.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">Till</text>
+<circle cx="582.0" cy="495.0" r="3" fill="#1E8E5A"/>
+<text x="590.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="500" fill="#0E2A33">Paid</text>
+<text x="662.00" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#0E2A33">SJH8RTY660</text>
+<rect x="754.00" y="488.00" width="6.50" height="14.00" rx="2" fill="#CCE5E9"/>
+<text x="821.39" y="498.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">KES 50</text>
+</g>
+<g id="Freeze line">
+<line x1="0.0" y1="220.0" x2="862.0" y2="220.0" stroke="#9CA3AF" stroke-width="1.2"/>
+</g>
+<g id="Totals">
+<rect x="38.00" y="528.00" width="824.00" height="22.00" rx="0" fill="#F2F7F6"/>
+<line x1="38.0" y1="528.0" x2="862.0" y2="528.0" stroke="#0E2A33" stroke-width="1.2"/>
+<text x="46.00" y="542.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="700" fill="#0E2A33">Total, rows shown</text>
+<text x="578.00" y="542.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#0E2A33">10 paid</text>
+<text x="809.09" y="542.50" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="800" fill="#007D90">KES 1,560</text>
+<rect stroke="#007D90" stroke-width="2" x="750.00" y="528.00" width="112.00" height="22.00" rx="0" fill="none"/>
+<rect x="859.00" y="547.00" width="6.00" height="6.00" rx="0" fill="#007D90"/>
+</g>
+<g id="Sheet tabs">
+<rect x="0.00" y="572.00" width="862.00" height="30.00" rx="0" fill="#F3F4F6"/>
+<rect x="12.00" y="572.00" width="83.34" height="24.00" rx="0" fill="#FFFFFF"/>
+<line x1="12.0" y1="596.0" x2="95.3" y2="596.0" stroke="#007D90" stroke-width="2"/>
+<text x="24.00" y="588.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="600" fill="#007D90">Transactions</text>
+<text x="111.34" y="588.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#4B5563">By hotspot</text>
+<text x="188.44" y="588.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#4B5563">By package</text>
+<text x="268.17" y="588.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#4B5563">By day</text>
+<text x="326.85" y="588.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#4B5563">Busiest hours</text>
+<text x="416.25" y="588.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9.5" font-weight="400" fill="#4B5563">Summary</text>
+<text x="745.90" y="588.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="400" fill="#4B5563">Sum KES 1,560   Count 13</text>
+</g>
+</svg>

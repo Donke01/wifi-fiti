@@ -1,0 +1,375 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="595" height="842" viewBox="0 0 595 842">
+<title>Kitale Cafe Revenue</title>
+<defs><clipPath id="clip0"><rect x="0" y="6" width="595" height="96" rx="0"/></clipPath></defs>
+<rect id="Page" x="0.00" y="0.00" width="595.00" height="842.00" rx="0" fill="#FFFFFF"/>
+<rect id="Brand edge" x="0.00" y="0.00" width="595.00" height="6.00" rx="0" fill="#007D90"/>
+<g id="Signal arcs" clip-path="url(#clip0)"><circle cx="605.0" cy="-40.0" r="70.0" fill="none" stroke="#007D90" stroke-opacity="0.1" stroke-width="14"/><circle cx="605.0" cy="-40.0" r="110.0" fill="none" stroke="#007D90" stroke-opacity="0.1" stroke-width="14"/><circle cx="605.0" cy="-40.0" r="150.0" fill="none" stroke="#007D90" stroke-opacity="0.1" stroke-width="14"/><circle cx="605.0" cy="-40.0" r="190.0" fill="none" stroke="#007D90" stroke-opacity="0.1" stroke-width="14"/></g>
+<g id="Heading">
+<g id="Wi-Fi mark" transform="translate(32.00 26.00) scale(0.6250)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#007D90"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#007D90" stroke-width="2.4" stroke-linecap="round"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#007D90" stroke-width="2.16" stroke-linecap="round"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#007D90" stroke-width="1.92" stroke-linecap="round"/></g>
+<text id="Business" x="53.00" y="37.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10.5" font-weight="700" fill="#0E2A33">Kitale Cafe</text>
+<text x="116.42" y="37.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="400" fill="#5E7480">Business ID WF-20417</text>
+<text id="Title" x="32.00" y="74.00" font-family="'Bricolage Grotesque', sans-serif" font-size="28" font-weight="800" fill="#0E2A33">Revenue</text>
+<text id="Period" x="466.63" y="37.00" font-family="'Bricolage Grotesque', sans-serif" font-size="10.5" font-weight="700" fill="#0E2A33">2 Sep to 1 Oct 2026</text>
+<text x="461.78" y="51.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">Made 1 Oct 2026, 9:40 am</text>
+<text x="424.23" y="63.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">Compared with the 30 days before</text>
+<rect x="32.00" y="86.00" width="69.98" height="17.00" rx="8.5" fill="#F2F7F6"/>
+<text x="40.00" y="97.40" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="500" fill="#0E2A33">Hotspots: all 2</text>
+<rect x="107.98" y="86.00" width="72.06" height="17.00" rx="8.5" fill="#F2F7F6"/>
+<text x="115.98" y="97.40" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="500" fill="#0E2A33">Packages: all 6</text>
+<rect x="186.03" y="86.00" width="50.93" height="17.00" rx="8.5" fill="#F2F7F6"/>
+<text x="194.03" y="97.40" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="500" fill="#0E2A33">Paid only</text>
+</g>
+<g id="Figures">
+<text x="32.00" y="124.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Collected</text>
+<text x="32.00" y="148.00" font-family="'Bricolage Grotesque', sans-serif" font-size="20" font-weight="800" fill="#007D90">KES 48,240</text>
+<rect x="32.00" y="155.00" width="33.83" height="16.50" rx="8.25" fill="#E2F4EA"/>
+<text x="40.00" y="165.90" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="600" fill="#1E8E5A">+12%</text>
+<text x="176.75" y="124.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Payments</text>
+<text x="176.75" y="148.00" font-family="'Bricolage Grotesque', sans-serif" font-size="15" font-weight="700" fill="#0E2A33">752</text>
+<rect x="176.75" y="155.00" width="31.78" height="16.50" rx="8.25" fill="#E2F4EA"/>
+<text x="184.75" y="165.90" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="600" fill="#1E8E5A">+9%</text>
+<line x1="164.8" y1="114.0" x2="164.8" y2="170.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="309.50" y="124.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Customers</text>
+<text x="309.50" y="148.00" font-family="'Bricolage Grotesque', sans-serif" font-size="15" font-weight="700" fill="#0E2A33">388</text>
+<rect x="309.50" y="155.00" width="43.61" height="16.50" rx="8.25" fill="#E2F4EA"/>
+<text x="317.50" y="165.90" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="600" fill="#1E8E5A">+21 new</text>
+<line x1="297.5" y1="114.0" x2="297.5" y2="170.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="442.25" y="124.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Average sale</text>
+<text x="442.25" y="148.00" font-family="'Bricolage Grotesque', sans-serif" font-size="15" font-weight="700" fill="#0E2A33">KES 64</text>
+<rect x="442.25" y="155.00" width="40.49" height="16.50" rx="8.25" fill="#E2F4EA"/>
+<text x="450.25" y="165.90" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="600" fill="#1E8E5A">+KES 3</text>
+<line x1="430.2" y1="114.0" x2="430.2" y2="170.0" stroke="#DCE7E5" stroke-width="0.8"/>
+</g>
+<text x="32.00" y="200.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11.5" font-weight="700" fill="#0E2A33">Collected each day</text>
+<text x="456.48" y="200.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">Best day 18 Sep, KES 2,560</text>
+<line x1="148.5" y1="196.0" x2="446.5" y2="196.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<g id="Daily chart">
+<line x1="66.0" y1="312.0" x2="563.0" y2="312.0" stroke="#EAF1F0" stroke-width="0.7"/>
+<text x="55.12" y="315.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">0</text>
+<line x1="66.0" y1="280.0" x2="563.0" y2="280.0" stroke="#EAF1F0" stroke-width="0.7"/>
+<text x="53.61" y="283.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">1k</text>
+<line x1="66.0" y1="248.0" x2="563.0" y2="248.0" stroke="#EAF1F0" stroke-width="0.7"/>
+<text x="51.61" y="251.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">2k</text>
+<line x1="66.0" y1="216.0" x2="563.0" y2="216.0" stroke="#EAF1F0" stroke-width="0.7"/>
+<text x="51.48" y="219.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">3k</text>
+<rect x="68.98" y="268.48" width="10.60" height="43.52" rx="2.5" fill="#73B8C2"/>
+<text x="72.13" y="324.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">2</text>
+<rect x="85.55" y="266.24" width="10.60" height="45.76" rx="2.5" fill="#73B8C2"/>
+<rect x="102.12" y="231.68" width="10.60" height="80.32" rx="2.5" fill="#73B8C2"/>
+<rect x="118.68" y="245.44" width="10.60" height="66.56" rx="2.5" fill="#73B8C2"/>
+<rect x="135.25" y="256.64" width="10.60" height="55.36" rx="2.5" fill="#73B8C2"/>
+<rect x="151.82" y="265.92" width="10.60" height="46.08" rx="2.5" fill="#73B8C2"/>
+<text x="155.30" y="324.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">7</text>
+<rect x="168.38" y="273.60" width="10.60" height="38.40" rx="2.5" fill="#73B8C2"/>
+<rect x="184.95" y="267.20" width="10.60" height="44.80" rx="2.5" fill="#73B8C2"/>
+<rect x="201.52" y="264.96" width="10.60" height="47.04" rx="2.5" fill="#73B8C2"/>
+<rect x="218.08" y="235.52" width="10.60" height="76.48" rx="2.5" fill="#73B8C2"/>
+<rect x="234.65" y="256.32" width="10.60" height="55.68" rx="2.5" fill="#73B8C2"/>
+<text x="236.65" y="324.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">12</text>
+<rect x="251.22" y="261.44" width="10.60" height="50.56" rx="2.5" fill="#73B8C2"/>
+<rect x="267.78" y="275.52" width="10.60" height="36.48" rx="2.5" fill="#73B8C2"/>
+<rect x="284.35" y="261.44" width="10.60" height="50.56" rx="2.5" fill="#73B8C2"/>
+<rect x="300.92" y="263.68" width="10.60" height="48.32" rx="2.5" fill="#73B8C2"/>
+<rect x="317.48" y="276.48" width="10.60" height="35.52" rx="2.5" fill="#73B8C2"/>
+<text x="319.82" y="324.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">17</text>
+<rect x="334.05" y="230.08" width="10.60" height="81.92" rx="2.5" fill="#007D90"/>
+<rect x="350.62" y="230.40" width="10.60" height="81.60" rx="2.5" fill="#73B8C2"/>
+<rect x="367.18" y="253.12" width="10.60" height="58.88" rx="2.5" fill="#73B8C2"/>
+<rect x="383.75" y="265.28" width="10.60" height="46.72" rx="2.5" fill="#73B8C2"/>
+<rect x="400.32" y="274.24" width="10.60" height="37.76" rx="2.5" fill="#73B8C2"/>
+<text x="401.27" y="324.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">22</text>
+<rect x="416.88" y="277.12" width="10.60" height="34.88" rx="2.5" fill="#73B8C2"/>
+<rect x="433.45" y="266.88" width="10.60" height="45.12" rx="2.5" fill="#73B8C2"/>
+<rect x="450.02" y="257.60" width="10.60" height="54.40" rx="2.5" fill="#73B8C2"/>
+<rect x="466.58" y="253.44" width="10.60" height="58.56" rx="2.5" fill="#73B8C2"/>
+<rect x="483.15" y="263.04" width="10.60" height="48.96" rx="2.5" fill="#73B8C2"/>
+<text x="484.49" y="324.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">27</text>
+<rect x="499.72" y="276.80" width="10.60" height="35.20" rx="2.5" fill="#73B8C2"/>
+<rect x="516.28" y="268.16" width="10.60" height="43.84" rx="2.5" fill="#73B8C2"/>
+<rect x="532.85" y="268.80" width="10.60" height="43.20" rx="2.5" fill="#73B8C2"/>
+<rect x="549.42" y="260.80" width="10.60" height="51.20" rx="2.5" fill="#73B8C2"/>
+<text x="546.49" y="324.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">1 Oct</text>
+<line x1="66.0" y1="260.5" x2="563.0" y2="260.5" stroke="#0E2A33" stroke-width="0.9" stroke-dasharray="3 3"/>
+<rect x="465.80" y="245.54" width="97.20" height="12.00" rx="6" fill="#0E2A33"/>
+<text x="470.80" y="254.24" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="600" fill="#FFFFFF">Average KES 1,608 a day</text>
+<text x="320.88" y="224.08" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="700" fill="#007D90">KES 2,560</text>
+</g>
+<text x="32.00" y="356.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11.5" font-weight="700" fill="#0E2A33">By package</text>
+<line x1="106.9" y1="352.0" x2="285.5" y2="352.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="32.00" y="378.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">24 hours</text>
+<text x="235.02" y="378.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 20,600</text>
+<rect x="94.00" y="371.00" width="121.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="94.00" y="371.00" width="121.50" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="94.00" y="389.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">412 sold, 43%</text>
+<text x="32.00" y="404.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">Monthly</text>
+<text x="240.18" y="404.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 11,200</text>
+<rect x="94.00" y="397.00" width="121.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="94.00" y="397.00" width="66.06" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="94.00" y="415.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">14 sold, 23%</text>
+<text x="32.00" y="430.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">Weekly</text>
+<text x="240.87" y="430.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 9,500</text>
+<rect x="94.00" y="423.00" width="121.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="94.00" y="423.00" width="56.03" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="94.00" y="441.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">38 sold, 20%</text>
+<text x="32.00" y="456.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">3 hours</text>
+<text x="241.34" y="456.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 3,540</text>
+<rect x="94.00" y="449.00" width="121.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="94.00" y="449.00" width="20.88" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="94.00" y="467.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">118 sold, 7%</text>
+<text x="32.00" y="482.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">1 hour</text>
+<text x="240.97" y="482.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 3,400</text>
+<rect x="94.00" y="475.00" width="121.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="94.00" y="475.00" width="20.05" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="94.00" y="493.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">170 sold, 7%</text>
+<text x="309.50" y="356.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11.5" font-weight="700" fill="#0E2A33">By hotspot</text>
+<line x1="380.9" y1="352.0" x2="563.0" y2="352.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="309.50" y="378.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">Kitale Stage</text>
+<text x="515.80" y="378.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 31,020</text>
+<rect x="391.50" y="371.00" width="101.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="391.50" y="371.00" width="101.50" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="391.50" y="389.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">468 payments, 3 routers</text>
+<text x="309.50" y="404.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">Eldoret Market</text>
+<text x="517.35" y="404.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 17,220</text>
+<rect x="391.50" y="397.00" width="101.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="391.50" y="397.00" width="56.35" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="391.50" y="415.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">284 payments, 1 router</text>
+<text x="309.50" y="438.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11.5" font-weight="700" fill="#0E2A33">Paid to</text>
+<line x1="358.3" y1="434.0" x2="563.0" y2="434.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="309.50" y="458.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">Till</text>
+<text x="518.22" y="458.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 30,110</text>
+<rect x="391.50" y="451.00" width="101.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="391.50" y="451.00" width="101.50" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="309.50" y="478.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">PayBill</text>
+<text x="517.77" y="478.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 11,940</text>
+<rect x="391.50" y="471.00" width="101.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="391.50" y="471.00" width="40.25" height="7.00" rx="3.5" fill="#007D90"/>
+<text x="309.50" y="498.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="500" fill="#0E2A33">Tuma</text>
+<text x="520.89" y="498.00" font-family="'Bricolage Grotesque', sans-serif" font-size="9" font-weight="700" fill="#0E2A33">KES 6,190</text>
+<rect x="391.50" y="491.00" width="101.50" height="7.00" rx="3.5" fill="#E3F2F3"/>
+<rect x="391.50" y="491.00" width="20.87" height="7.00" rx="3.5" fill="#007D90"/>
+<g id="Busiest hours">
+<text x="32.00" y="534.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11.5" font-weight="700" fill="#0E2A33">Busiest hours</text>
+<line x1="119.3" y1="530.0" x2="413.0" y2="530.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="32.00" y="557.50" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Mon</text>
+<rect x="63.00" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#E7F1F1"/>
+<rect x="83.88" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F1"/>
+<rect x="104.75" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#E7F1F1"/>
+<rect x="125.62" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F1"/>
+<rect x="146.50" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#E7F1F1"/>
+<rect x="167.38" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#E4F0F0"/>
+<rect x="188.25" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#DAEBEB"/>
+<rect x="209.12" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#B7D9DD"/>
+<rect x="230.00" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#A3CFD5"/>
+<rect x="250.88" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#B5D8DC"/>
+<rect x="271.75" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#CCE4E6"/>
+<rect x="292.62" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#C3DFE2"/>
+<rect x="313.50" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#AAD3D7"/>
+<rect x="334.38" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#A4D0D5"/>
+<rect x="355.25" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#9CCBD1"/>
+<rect x="376.12" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#BDDCDF"/>
+<rect x="397.00" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#C2DFE2"/>
+<rect x="417.88" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#BBDBDF"/>
+<rect x="438.75" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#86C1C8"/>
+<rect x="459.62" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#5EACB7"/>
+<rect x="480.50" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#77B9C2"/>
+<rect x="501.38" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#7BBBC4"/>
+<rect x="522.25" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#89C2CA"/>
+<rect x="543.12" y="548.00" width="18.88" height="13.00" rx="2.5" fill="#BFDEE0"/>
+<text x="32.00" y="572.50" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Tue</text>
+<rect x="63.00" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#E5F1F0"/>
+<rect x="83.88" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#E7F1F1"/>
+<rect x="104.75" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#E8F2F1"/>
+<rect x="125.62" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F1"/>
+<rect x="146.50" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F1"/>
+<rect x="167.38" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#E4F0F0"/>
+<rect x="188.25" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#DFEEEE"/>
+<rect x="209.12" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#C2DFE1"/>
+<rect x="230.00" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#A0CED3"/>
+<rect x="250.88" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#B4D8DC"/>
+<rect x="271.75" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#CEE5E7"/>
+<rect x="292.62" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#C2DFE2"/>
+<rect x="313.50" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#AFD5D9"/>
+<rect x="334.38" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#A4D0D5"/>
+<rect x="355.25" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#9BCBD1"/>
+<rect x="376.12" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#C1DEE1"/>
+<rect x="397.00" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#C6E1E3"/>
+<rect x="417.88" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#BADBDE"/>
+<rect x="438.75" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#9FCDD3"/>
+<rect x="459.62" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#63AFBA"/>
+<rect x="480.50" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#70B6BF"/>
+<rect x="501.38" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#67B1BB"/>
+<rect x="522.25" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#A2CFD4"/>
+<rect x="543.12" y="563.00" width="18.88" height="13.00" rx="2.5" fill="#C0DEE1"/>
+<text x="32.00" y="587.50" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Wed</text>
+<rect x="63.00" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#E7F2F1"/>
+<rect x="83.88" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#E7F2F1"/>
+<rect x="104.75" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F0"/>
+<rect x="125.62" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F1"/>
+<rect x="146.50" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#E7F1F1"/>
+<rect x="167.38" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#E2EFEF"/>
+<rect x="188.25" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#DFEDEE"/>
+<rect x="209.12" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#C1DEE1"/>
+<rect x="230.00" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#A3CFD4"/>
+<rect x="250.88" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#B7D9DD"/>
+<rect x="271.75" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#CFE5E7"/>
+<rect x="292.62" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#B6D9DC"/>
+<rect x="313.50" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#ACD4D8"/>
+<rect x="334.38" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#9ECDD2"/>
+<rect x="355.25" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#9BCBD1"/>
+<rect x="376.12" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#BEDDE0"/>
+<rect x="397.00" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#CAE3E5"/>
+<rect x="417.88" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#C1DEE1"/>
+<rect x="438.75" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#A2CFD4"/>
+<rect x="459.62" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#6AB2BD"/>
+<rect x="480.50" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#6AB3BD"/>
+<rect x="501.38" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#69B2BC"/>
+<rect x="522.25" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#9ACBD1"/>
+<rect x="543.12" y="578.00" width="18.88" height="13.00" rx="2.5" fill="#C0DEE1"/>
+<text x="32.00" y="602.50" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Thu</text>
+<rect x="63.00" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F0"/>
+<rect x="83.88" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#E7F1F1"/>
+<rect x="104.75" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#E7F1F1"/>
+<rect x="125.62" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F1"/>
+<rect x="146.50" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#E7F2F1"/>
+<rect x="167.38" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#E5F0F0"/>
+<rect x="188.25" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#DAEBEC"/>
+<rect x="209.12" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#BADBDE"/>
+<rect x="230.00" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#B1D6DB"/>
+<rect x="250.88" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#BFDDE0"/>
+<rect x="271.75" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#C6E1E3"/>
+<rect x="292.62" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#B6D9DD"/>
+<rect x="313.50" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#ACD4D8"/>
+<rect x="334.38" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#89C2C9"/>
+<rect x="355.25" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#98CAD0"/>
+<rect x="376.12" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#B9DADE"/>
+<rect x="397.00" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#C8E2E4"/>
+<rect x="417.88" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#C0DEE1"/>
+<rect x="438.75" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#A3CFD5"/>
+<rect x="459.62" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#59AAB5"/>
+<rect x="480.50" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#6BB3BD"/>
+<rect x="501.38" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#65B0BA"/>
+<rect x="522.25" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#9ECDD2"/>
+<rect x="543.12" y="593.00" width="18.88" height="13.00" rx="2.5" fill="#B9DBDE"/>
+<text x="32.00" y="617.50" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Fri</text>
+<rect x="63.00" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#E4F0F0"/>
+<rect x="83.88" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#E5F0F0"/>
+<rect x="104.75" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#E5F1F0"/>
+<rect x="125.62" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#E3F0F0"/>
+<rect x="146.50" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#E5F1F0"/>
+<rect x="167.38" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#E1EFEF"/>
+<rect x="188.25" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#D6E9EA"/>
+<rect x="209.12" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#A7D1D6"/>
+<rect x="230.00" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#90C6CD"/>
+<rect x="250.88" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#ACD4D8"/>
+<rect x="271.75" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#B5D8DC"/>
+<rect x="292.62" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#B4D8DC"/>
+<rect x="313.50" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#9BCBD1"/>
+<rect x="334.38" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#82BEC7"/>
+<rect x="355.25" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#8AC3CA"/>
+<rect x="376.12" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#B4D8DC"/>
+<rect x="397.00" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#BFDEE0"/>
+<rect x="417.88" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#AAD3D7"/>
+<rect x="438.75" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#72B7C0"/>
+<rect x="459.62" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#58A9B5"/>
+<rect x="480.50" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#3497A6"/>
+<rect x="501.38" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#2992A1"/>
+<rect x="522.25" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#63AFB9"/>
+<rect x="543.12" y="608.00" width="18.88" height="13.00" rx="2.5" fill="#ABD3D8"/>
+<text x="32.00" y="632.50" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Sat</text>
+<rect x="63.00" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#E4F0F0"/>
+<rect x="83.88" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#E4F0F0"/>
+<rect x="104.75" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#E5F1F0"/>
+<rect x="125.62" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F1"/>
+<rect x="146.50" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F0"/>
+<rect x="167.38" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#DEEDED"/>
+<rect x="188.25" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#D5E8EA"/>
+<rect x="209.12" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#A4D0D5"/>
+<rect x="230.00" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#A4CFD5"/>
+<rect x="250.88" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#A3CFD5"/>
+<rect x="271.75" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#BDDCDF"/>
+<rect x="292.62" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#A8D2D7"/>
+<rect x="313.50" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#91C6CD"/>
+<rect x="334.38" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#63AFBA"/>
+<rect x="355.25" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#98CAD0"/>
+<rect x="376.12" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#A8D2D7"/>
+<rect x="397.00" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#B5D8DC"/>
+<rect x="417.88" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#9CCCD2"/>
+<rect x="438.75" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#6BB3BD"/>
+<rect x="459.62" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#3497A6"/>
+<rect x="480.50" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#168899"/>
+<rect x="501.38" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#2791A1"/>
+<rect x="522.25" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#7EBCC5"/>
+<rect x="543.12" y="623.00" width="18.88" height="13.00" rx="2.5" fill="#AAD3D8"/>
+<text x="32.00" y="647.50" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Sun</text>
+<rect x="63.00" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#E5F0F0"/>
+<rect x="83.88" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#E5F0F0"/>
+<rect x="104.75" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#E6F1F1"/>
+<rect x="125.62" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#E5F1F0"/>
+<rect x="146.50" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#E5F0F0"/>
+<rect x="167.38" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#E2EFEF"/>
+<rect x="188.25" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#DAEBEC"/>
+<rect x="209.12" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#BDDCDF"/>
+<rect x="230.00" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#A3CFD4"/>
+<rect x="250.88" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#B2D7DB"/>
+<rect x="271.75" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#CCE4E6"/>
+<rect x="292.62" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#B7D9DD"/>
+<rect x="313.50" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#8EC5CC"/>
+<rect x="334.38" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#81BEC6"/>
+<rect x="355.25" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#94C8CE"/>
+<rect x="376.12" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#B8DADD"/>
+<rect x="397.00" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#BFDEE0"/>
+<rect x="417.88" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#B2D7DB"/>
+<rect x="438.75" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#8EC5CC"/>
+<rect x="459.62" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#50A5B2"/>
+<rect x="480.50" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#66B1BB"/>
+<rect x="501.38" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#55A8B4"/>
+<rect x="522.25" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#9ECCD2"/>
+<rect x="543.12" y="638.00" width="18.88" height="13.00" rx="2.5" fill="#B8DADD"/>
+<text x="62.00" y="662.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7" font-weight="400" fill="#5E7480">12 am</text>
+<text x="187.25" y="662.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7" font-weight="400" fill="#5E7480">6 am</text>
+<text x="312.50" y="662.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7" font-weight="400" fill="#5E7480">12 pm</text>
+<text x="437.75" y="662.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7" font-weight="400" fill="#5E7480">6 pm</text>
+<text x="542.12" y="662.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7" font-weight="400" fill="#5E7480">11 pm</text>
+<text x="423.00" y="534.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">Fewer</text>
+<rect x="453.00" y="526.50" width="14.00" height="8.00" rx="2" fill="#EEF5F4"/>
+<rect x="469.00" y="526.50" width="14.00" height="8.00" rx="2" fill="#B2D7DB"/>
+<rect x="485.00" y="526.50" width="14.00" height="8.00" rx="2" fill="#77B9C2"/>
+<rect x="501.00" y="526.50" width="14.00" height="8.00" rx="2" fill="#3C9BA9"/>
+<rect x="517.00" y="526.50" width="14.00" height="8.00" rx="2" fill="#007D90"/>
+<text x="544.64" y="534.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">More</text>
+</g>
+<g id="Customers">
+<text x="32.00" y="694.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11.5" font-weight="700" fill="#0E2A33">Customers</text>
+<text x="408.99" y="694.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">Repeat customers paid 71% of revenue</text>
+<line x1="103.5" y1="690.0" x2="399.0" y2="690.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<circle cx="66" cy="744" r="26" fill="none" stroke="#E3F2F3" stroke-width="10"/>
+<circle cx="66" cy="744" r="26" fill="none" stroke="#007D90" stroke-width="10" stroke-dasharray="103.6 163.4" transform="rotate(-90 66 744)"/>
+<text x="53.51" y="748.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="800" fill="#0E2A33">63%</text>
+<text x="104.00" y="728.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Came back</text>
+<text x="104.00" y="744.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">246 customers</text>
+<text x="104.00" y="760.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="400" fill="#5E7480">142 new this month</text>
+<line x1="212.0" y1="718.0" x2="212.0" y2="766.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="222.00" y="728.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Time online</text>
+<text x="222.00" y="744.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">3 h 12 min</text>
+<text x="222.00" y="760.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="400" fill="#5E7480">average a visit</text>
+<line x1="297.2" y1="718.0" x2="297.2" y2="766.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="307.25" y="728.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Top customer</text>
+<text x="307.25" y="744.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">31 payments</text>
+<text x="307.25" y="760.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="400" fill="#5E7480">0712 *** 678</text>
+<line x1="382.5" y1="718.0" x2="382.5" y2="766.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="392.50" y="728.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Not collected</text>
+<text x="392.50" y="744.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">KES 840</text>
+<text x="392.50" y="760.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="400" fill="#5E7480">18 failed payments</text>
+<line x1="467.8" y1="718.0" x2="467.8" y2="766.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<text x="477.75" y="728.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8.5" font-weight="500" fill="#5E7480">Data used</text>
+<text x="477.75" y="744.00" font-family="'Bricolage Grotesque', sans-serif" font-size="11" font-weight="700" fill="#0E2A33">1.9 TB</text>
+<text x="477.75" y="760.00" font-family="'Bricolage Grotesque', sans-serif" font-size="8" font-weight="400" fill="#5E7480">5.0 GB a customer</text>
+</g>
+<g id="Footer">
+<text x="32.00" y="790.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="400" fill="#5E7480">Revenue is paid payments, before Wi-Fi Fiti fees. Compared with 3 Aug to 1 Sep 2026.</text>
+<line x1="32.0" y1="800.0" x2="563.0" y2="800.0" stroke="#DCE7E5" stroke-width="0.8"/>
+<g id="Footer mark" transform="translate(32.00 806.00) scale(0.4167)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#5E7480"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#5E7480" stroke-width="2.4" stroke-linecap="round"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#5E7480" stroke-width="2.16" stroke-linecap="round"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#5E7480" stroke-width="1.92" stroke-linecap="round"/></g>
+<text x="46.00" y="814.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Billed on Wi-Fi Fiti, M-Pesa hotspot billing. wififiti.co.ke</text>
+<text x="527.74" y="814.00" font-family="'Bricolage Grotesque', sans-serif" font-size="7.5" font-weight="500" fill="#5E7480">Page 1 of 1</text>
+</g>
+</svg>
