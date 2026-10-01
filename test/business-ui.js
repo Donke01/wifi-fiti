@@ -1126,3 +1126,21 @@ assert.match(html, /window\.confirm\('Apply Wi-Fi Fiti service/, 'router-mutatin
 // The mobile sign-out icon reads as power/exit, not share/external.
 assert.match(html, /\.sidebar \.signout:before\{content:"⏻"/, 'the collapsed sign-out uses an exit glyph');
 assert.doesNotMatch(html, /signout:before\{content:"↗"/, 'the share-looking arrow is gone');
+
+// Packages are normal packages: the Packages page creates them, and the
+// Voucher page offers voucher-package creation where vouchers are issued.
+// Nothing in the dashboard may imply packages are voucher-only.
+assert.match(html, /<h2>Packages<\/h2>/, 'the Packages page is titled Packages, not Voucher packages');
+assert.doesNotMatch(html, /<h2>Voucher packages<\/h2>/, 'the voucher-only Packages heading is gone');
+assert.match(html, /<button type="submit">Create package<\/button>/, 'the Packages page has a Create package action');
+assert.doesNotMatch(html, /Add voucher package/, 'the voucher-only package creation label is gone');
+assert.doesNotMatch(html, /Voucher package ·/, 'package cards no longer carry a voucher-only prefix');
+assert.match(html, /data-jump="package-form">Create package<\/button>/, 'the Packages toolbar Create package button jumps to the creation form');
+assert.match(html, /<button type="button" class="secondary" id="voucher-new-package">Create voucher package<\/button>/,
+  'the Voucher page has its own Create voucher package button');
+assert.match(html, /voucherNewPackage\.addEventListener\('click', function \(\) \{\s*if \(!window\.FitiActions\) return;/,
+  'the Voucher page button opens the shared package creation flow');
+assert.match(html, /This package will be available when issuing voucher batches\./,
+  'the voucher-context package creation explains where the package lands');
+assert.match(html, /updatePackages\(result\.packages\);\s*var created = result\.packages\.filter/,
+  'a package created from the Voucher page refreshes the dashboard package lists');
