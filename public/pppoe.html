@@ -66,6 +66,7 @@ textarea{width:100%;padding:8px 11px;border:1.5px solid #c8d5e6;border-radius:10
 .request .actions{align-items:center}.request select.small-select{width:auto;min-height:34px;font-size:12px;padding:4px 8px}
 a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.button.small{min-height:34px;font-size:12px;padding:0 10px}
 @media(max-width:900px){.two{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.export-wrap{position:relative;float:right;margin-left:8px}.export-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:50;display:grid;min-width:160px;padding:6px;border:1px solid #c8d5e6;border-radius:12px;background:#fff;box-shadow:0 14px 34px rgba(19,39,66,.18)}.export-menu[hidden]{display:none}.export-menu button{min-height:36px;padding:7px 12px;border:0;border-radius:8px;background:transparent;color:#132742;text-align:left;font-weight:700;cursor:pointer}.export-menu button:hover{background:#eef5ff;color:#175aa7}
 </style>
 </head>
 <body>
@@ -152,6 +153,28 @@ a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.bu
   }
   function reload(message) {
     return load().then(function () { flash = message || null; draw(); });
+  }
+  // Spreadsheet download (CSV) with the signed-in session.
+  function download(path, filename, button) {
+    var label = button.textContent; button.disabled = true; button.textContent = 'Preparing…';
+    fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {}, cache: 'no-store' }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) { throw new Error(b.error || 'Could not download this file.'); });
+      return r.blob().then(function (blob) { var a = document.createElement('a'); var url = URL.createObjectURL(blob); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000); });
+    }).catch(function (e) { window.alert(e.message); }).then(function () { button.disabled = false; button.textContent = label; });
+  }
+  // Excel, PDF or CSV: a small menu under the button.
+  function exportButton(path, filename, text) {
+    var wrap = h('span', { class: 'export-wrap' });
+    var menu = h('span', { class: 'export-menu', hidden: true, role: 'menu' }, [['xlsx', 'Excel (.xlsx)'], ['pdf', 'PDF'], ['csv', 'CSV']].map(function (choice) {
+      return h('button', { type: 'button', role: 'menuitem', text: choice[1], onclick: function (event) {
+        event.stopPropagation(); menu.hidden = true;
+        download(path + '?format=' + choice[0], filename.replace(/\.csv$/, '') + '.' + choice[0], button);
+      } });
+    }));
+    var button = h('button', { type: 'button', class: 'secondary small', text: (text || 'Export') + ' ▾', 'aria-haspopup': 'menu', onclick: function (event) { event.stopPropagation(); menu.hidden = !menu.hidden; } });
+    document.addEventListener('click', function () { menu.hidden = true; });
+    wrap.appendChild(button); wrap.appendChild(menu);
+    return wrap;
   }
   function msg(box, text, ok) { box.textContent = ''; if (text) box.appendChild(h('div', { class: 'msg ' + (ok ? 'ok' : 'err'), role: ok ? 'status' : 'alert', text: text })); }
 
@@ -248,6 +271,7 @@ a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.bu
     var box = h('div');
     var rows = users.length ? users.map(function (u) { return subscriberRow(u, box); }) : [h('tr', {}, [h('td', { colspan: '7', class: 'muted', text: (state.users || []).length ? 'No subscribers match this filter.' : 'No PPPoE subscribers yet. Add one below.' })])];
     return h('section', { class: 'card' }, [
+      exportButton('/api/business/pppoe/export/customers', 'wifi-fiti-pppoe-customers.csv', 'Export subscribers'),
       h('h2', { text: 'Subscribers' }),
       h('p', { class: 'lead', text: 'Customers pay by M-Pesa with their username as the account number. Paid days go on the router by themselves.' + (can('customers.edit') ? '' : ' Your role can look up subscribers and copy their pay link; the owner or a Manager makes changes.') }),
       h('div', { class: 'filters', role: 'group', 'aria-label': 'Filter' }, [['all', 'All'], ['due', 'Due soon'], ['ended', 'Ended'], ['awaiting', 'Awaiting first payment'], ['credit', 'With credit']].map(function (f) {
@@ -584,6 +608,7 @@ a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.bu
     var list = billing.payments || [];
     var method = { mpesa: 'M-Pesa prompt', paybill: 'PayBill', cash: 'Cash', mpesa_owner: 'M-Pesa to you', bank: 'Bank', credit: 'From credit', owner: 'You' };
     return h('section', { class: 'card' }, [
+      exportButton('/api/business/pppoe/export/payments', 'wifi-fiti-pppoe-payments.csv', 'Export all payments'),
       h('h2', { text: 'Recent payments' }),
       h('div', { class: 'payments' }, list.length ? list.map(function (p) {
         return h('div', {}, [

@@ -39,6 +39,9 @@ const PLATFORM = Object.freeze({
   tint: 'E6F4F6',        // 8-10% teal wash, for panels/bands
 });
 
+// Fixed short month names (some locales now write "Sept").
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 function formatKes(amount) {
   const n = Number(amount) || 0;
   return 'KES ' + n.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -49,10 +52,12 @@ function formatDateTime(value) {
   if (text && !/(?:Z|[+-]\d\d:\d\d)$/i.test(text)) text += 'Z';
   const at = new Date(text);
   if (Number.isNaN(at.getTime())) return String(value || '');
-  return at.toLocaleString('en-KE', {
-    timeZone: 'Africa/Nairobi', day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: true,
-  }).replace(',', ' ·');
+  // "1 Oct 2026, 9:12 am", Kenya time.
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Nairobi', day: 'numeric', month: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).formatToParts(at).map((part) => [part.type, part.value]));
+  return `${Number(parts.day)} ${MONTHS[Number(parts.month) - 1]} ${parts.year}, ${parts.hour}:${parts.minute} ${String(parts.dayPeriod || '').toLowerCase()}`;
 }
 
 function formatDate(value) {
@@ -60,7 +65,8 @@ function formatDate(value) {
   if (text && !/(?:Z|[+-]\d\d:\d\d)$/i.test(text)) text += 'Z';
   const at = new Date(text);
   if (Number.isNaN(at.getTime())) return String(value || '');
-  return at.toLocaleDateString('en-KE', { timeZone: 'Africa/Nairobi', day: '2-digit', month: 'short', year: 'numeric' });
+  const k = new Date(at.getTime() + 3 * 3600_000); // Kenya time, no daylight saving
+  return `${k.getUTCDate()} ${MONTHS[k.getUTCMonth()]} ${k.getUTCFullYear()}`;
 }
 
 /** Deterministic, short, human-readable id for a document that has none yet. */
@@ -82,7 +88,7 @@ function tenantBrand(business) {
     colorHex: color,
     colorCss: `#${color}`,
     supportPhone: (business && business.support_phone) || '',
-    poweredBy: `Billed on ${PLATFORM.name} — ${PLATFORM.tagline}`,
+    poweredBy: `Billed on ${PLATFORM.name}, ${PLATFORM.tagline}`,
   };
 }
 
