@@ -3580,7 +3580,6 @@ function macFromDeviceToken(locationId, token) {
 }
 app.get('/api/tenant/:locationId/device-discovery', (req, res) => {
   const location = publicLocation(req.params.locationId, res); if (!location) return;
-  deviceDiscoveryViewedAt.set(location.id, Date.now());
   const excluded = deviceMac(req.query.excludeMac);
   const devices = tenant.routerDevicesForLocation(location.id)
     .filter((device) => !excluded || device.mac !== excluded)
@@ -3588,7 +3587,6 @@ app.get('/api/tenant/:locationId/device-discovery', (req, res) => {
       id: deviceTokenFor(location.id, device.mac),
       label: device.hostname || 'Wi‑Fi device',
       maskedMac: device.mac.split(':').slice(0, 3).join(':') + ':••:••:••',
-      localIp: device.ip,
       lastSeenAt: device.last_seen_at,
     }));
   res.set('Cache-Control', 'no-store').json({ devices, refreshedAt: new Date().toISOString(), maxAgeSeconds: 300 });
@@ -5161,7 +5159,7 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* Router polling API                                                  */
 /* ------------------------------------------------------------------ */
 
-const { buildScript, buildExpiryScript, buildRemoteSupportScript, buildMappedDeploymentScript } = require('./lib/rsc');
+const { buildScript, buildExpiryScript, buildRemoteSupportScript, buildMappedDeploymentScript, tvLoginScript } = require('./lib/rsc');
 
 /** Constant-time compare so the token cannot be guessed by timing. */
 function tokenOk(supplied) {
@@ -5492,10 +5490,22 @@ const inventoryUpdateSentAt = new Map();
 // last report is over a minute old, so a busy hotspot still reports.
 const telemetryAskedAt = new Map();
 const onlineViewedAt = new Map();
-const deviceDiscoveryViewedAt = new Map();
 const TELEMETRY_EVERY_MS = 30_000;
 const TELEMETRY_VIEWING_EVERY_MS = 10_000;
 const TELEMETRY_OVERDUE_MS = 60_000;
+// A paid TV the router reports as waiting on the network (switched on after
+// its package was provisioned, or its first login did not take) is logged in
+// on the next quiet reply, at most every 10 seconds per router.
+const tvLoginSentAt = new Map();
+const TV_LOGIN_EVERY_MS = 10_000;
+function withWaitingTvLogins(location, result) {
+  if (!(result.quiet || result.light) || Date.now() - (tvLoginSentAt.get(location.id) || 0) < TV_LOGIN_EVERY_MS) return result;
+  let block = '';
+  try { block = tvLoginScript(tenant.paidTvsWaitingForLogin(location.id)); } catch (_) { block = ''; }
+  if (!block) return result;
+  tvLoginSentAt.set(location.id, Date.now());
+  return { ...result, script: [result.script, block].filter(Boolean).join('\n') };
+}
 // The easy hotspot address rides on a quiet reply at most every 10 minutes
 // per router; the router itself skips it once applied (until a reboot or a
 // new domain). Universal-kit routers may have no HotSpot, so never get it.
@@ -5511,13 +5521,12 @@ function withCaptiveDomain(location, result) {
   return { ...result, script: [result.script, block].filter(Boolean).join('\n') };
 }
 function tenantRouterScript(location, options = {}) {
-  const result = withCaptiveDomain(location, tenantRouterScriptWithExtras(location, options));
+  const result = withCaptiveDomain(location, withWaitingTvLogins(location, tenantRouterScriptWithExtras(location, options)));
   // ROUTER_TELEMETRY=off stops the report on every router at once.
   if (String(process.env.ROUTER_TELEMETRY || '').toLowerCase() === 'off') return result;
   const since = Date.now() - (telemetryAskedAt.get(location.id) || 0);
   if (!result.quiet && !(result.light && since >= TELEMETRY_OVERDUE_MS)) return result;
-  const viewing = Date.now() - (onlineViewedAt.get(location.id) || 0) < 2 * 60_000
-    || Date.now() - (deviceDiscoveryViewedAt.get(location.id) || 0) < 2 * 60_000;
+  const viewing = Date.now() - (onlineViewedAt.get(location.id) || 0) < 2 * 60_000;
   if (since < (viewing ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS)) return result;
   telemetryAskedAt.set(location.id, Date.now());
   return { ...result, script: [result.script, hotspotSessions.telemetryReplyScript()].filter(Boolean).join('\n') };
@@ -5571,7 +5580,6 @@ function layoutReportEvery(locationId) {
 }
 const portalPendingSince = new Map();
 const PORTAL_FAST_MS = 2 * 60_000;
-const tvRepairQueuedForRouter = new Set();
 // A tool the owner started rides along with the next ordinary reply.
 function withRouterTool(location, result) {
   if (!location.router_setup_verified_at || location.router_pairing_auth === 'pending' || (result.supportEmitted && result.supportEmitted.length)) return result;
@@ -5601,10 +5609,6 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
     return { script: '', emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
   tenant.queueExpiredSubscriptions(location.id);
-  if (!tvRepairQueuedForRouter.has(location.id)) {
-    tenant.queueTvAccessRepair(location.id);
-    tvRepairQueuedForRouter.add(location.id);
-  }
   // A universal-kit router paired before it had a Hotspot is "awaiting map":
   // Hotspot users, the portal page, mapped deployments and PPPoE all wait
   // until the owner maps where customers connect. Nothing is sent that
