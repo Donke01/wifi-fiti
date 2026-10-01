@@ -128,8 +128,9 @@
       '.ou-empty{padding:26px 14px;border:1px dashed #cfdeec;border-radius:14px;color:#5f7892;text-align:center;font-size:14px}',
       '.ou-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}.ou-stat{padding:12px;border:1px solid #e1ebf5;border-radius:14px;background:#fbfdff}.ou-stat span{display:block;color:#62809b;font-size:12px;font-weight:700}.ou-stat b{display:block;margin-top:4px;font-size:18px}',
       '.ou-h3{margin:18px 0 8px;font-size:15px}.ou-table{width:100%;border-collapse:collapse;font-size:13px}.ou-table th{padding:8px;color:#62809b;font-size:11px;text-align:left;text-transform:uppercase;letter-spacing:.04em}.ou-table td{padding:9px 8px;border-top:1px solid #edf2f7;vertical-align:top}',
+      '.ou-codes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}.ou-code{min-width:0;padding:12px;border:1px solid #d8e7f4;border-radius:14px;background:#f3f8ff}.ou-code span{display:block;color:#62809b;font-size:12px;font-weight:700}.ou-code b{display:block;margin-top:5px;overflow-wrap:anywhere;font:800 16px ui-monospace,monospace}',
       '.ou-scroll{overflow-x:auto}.ou-back{min-height:40px;padding:8px 14px;border:1px solid #d4e2ef;border-radius:12px;color:#13294a;background:#fff;box-shadow:none;font-weight:800}',
-      '@media(max-width:760px){.ou-backdrop{padding:10px 8px}.ou-card{padding:14px}.ou-row{grid-template-columns:1fr 1fr}.ou-cards{grid-template-columns:1fr 1fr}.ou-search{flex-basis:100%}}',
+      '@media(max-width:760px){.ou-backdrop{padding:10px 8px}.ou-card{padding:14px}.ou-row{grid-template-columns:1fr 1fr}.ou-cards{grid-template-columns:1fr 1fr}.ou-codes{grid-template-columns:1fr}.ou-search{flex-basis:100%}}',
     ].join('\n');
     document.head.appendChild(style);
   }
@@ -278,6 +279,7 @@
       sessions: sessions, payments: payments, money: money,
       vouchers: (body.vouchers || []).map(function (v) { return [clock(v.redeemed_at), v.package_name || 'Voucher', span(v.seconds)]; }),
       device: shortMac(sub.mac) + (sub.location_name ? ' · ' + sub.location_name : ''),
+      accessCodes: body.accessCodes && can('customers.edit') ? body.accessCodes : null,
     };
   }
   function drawDetail(card) {
@@ -292,6 +294,15 @@
     heading(card, view.title, view.device);
     var status = el('span', 'ou-pill' + (view.online ? '' : ' off'), view.status); card.appendChild(status);
     var cards = el('div', 'ou-cards'); view.stats.forEach(function (item) { stat(cards, item[0], item[1]); }); card.appendChild(cards);
+    if (view.accessCodes) {
+      card.appendChild(el('h3', 'ou-h3', 'Customer access codes'));
+      var codes = el('div', 'ou-codes');
+      [['Connection code · router username', view.accessCodes.connectionCode], ['Recovery code', view.accessCodes.recoveryCode]].forEach(function (item) {
+        if (!item[1]) return;
+        var box = el('div', 'ou-code'); box.appendChild(el('span', '', item[0])); box.appendChild(el('b', '', item[1])); codes.appendChild(box);
+      });
+      card.appendChild(codes);
+    }
     card.appendChild(el('h3', 'ou-h3', 'Sessions'));
     if (view.sessions.length) table(card, ['Started', 'Ended', 'Online for', 'Data', 'Device'], view.sessions);
     else card.appendChild(el('div', 'ou-empty', 'No sessions reported yet. They appear once the router reports this customer online.'));

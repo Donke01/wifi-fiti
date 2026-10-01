@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const team = require('./team');
 
 /** Business records and manually processed settlements. This module never transfers money. */
 function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provisionTenantPayment }) {
@@ -177,7 +178,12 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
     // Sessions the router reported: when they were online, for how long,
     // how much data, and whether they are online now.
     const activity = require('./hotspot-sessions').historyForSubscription(subscription.id, business.id, 50);
-    res.json({ subscription, history, devices, vouchers, activity });
+    const accessCodes = team.can(req, 'customers.edit') ? {
+      connectionCode: subscription.router_username,
+      recoveryCode: db.prepare('SELECT password FROM tenant_subscriptions WHERE id=? AND business_id=?')
+        .get(subscription.id, business.id)?.password || null,
+    } : null;
+    res.json({ subscription, history, devices, vouchers, activity, accessCodes });
   }));
 
   // Support hub: one box finds a customer by phone, voucher code or M-Pesa

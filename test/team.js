@@ -200,6 +200,23 @@ async function test(name, fn) {
   await join('technician', { email: 'tech@test.ke' });
   await join('viewer', { email: 'viewer@test.ke', phone: '0711000004' });
 
+  await test('customer access codes are shown to owner and manager only', async () => {
+    database.prepare(`INSERT INTO tenant_subscriptions
+      (id,business_id,location_id,router_username,payer_phone,mac,password,total_seconds,expires_at)
+      VALUES ('sub-codes','biz','loc','254711000001-ABCDEF12','254711000001','AA:BB:CC:00:00:01','ABCD23',3600,datetime('now','+1 hour'))`).run();
+    const endpoint = '/api/business/operations/customers/sub-codes';
+    for (const token of [ownerToken, members.manager.token]) {
+      const response = await call('GET', endpoint, null, token);
+      assert.equal(response.status, 200);
+      assert.deepEqual(response.body.accessCodes, { connectionCode: '254711000001-ABCDEF12', recoveryCode: 'ABCD23' });
+    }
+    const attendant = await call('GET', endpoint, null, members.attendant.token);
+    assert.equal(attendant.status, 200);
+    assert.equal(attendant.body.accessCodes, null);
+    assert.doesNotMatch(JSON.stringify(attendant.body), /ABCD23/);
+    assert.equal((await call('GET', endpoint, null, members.technician.token)).status, 403);
+  });
+
   console.log('\nSigning in as a team member');
   await test('a member signs in with email or phone', async () => {
     const byPhone = await call('POST', '/api/business/login', { email: '0711000002', password: 'attendant-password' });
