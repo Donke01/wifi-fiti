@@ -1429,6 +1429,28 @@ app.put('/api/business/payment-methods/default', (req, res) => {
   try { paymentMethods.setDefault(business.id, req.body && req.body.method); res.json(paymentMethodsOverview(business)); }
   catch (error) { paymentMethodsError(res, error, 'Could not save the default.'); }
 });
+/* Saved payout accounts (where Wi-Fi Fiti pays out collected sales). */
+app.get('/api/business/payment-methods/payout', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  // Full numbers, so the payout form can fill them in.
+  try { res.set('Cache-Control', 'no-store').json({ payoutAccounts: paymentMethods.payoutAccounts(business.id, { full: true }) }); }
+  catch (error) { paymentMethodsError(res, error, 'Could not load your payout accounts.'); }
+});
+app.post('/api/business/payment-methods/payout', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { const account = paymentMethods.addPayoutAccount(business.id, req.body || {}); res.status(201).json({ account, ...paymentMethodsOverview(business) }); }
+  catch (error) { paymentMethodsError(res, error, 'Could not save that payout account.'); }
+});
+app.delete('/api/business/payment-methods/payout/:accountId', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { paymentMethods.removePayoutAccount(business.id, req.params.accountId); res.json(paymentMethodsOverview(business)); }
+  catch (error) { paymentMethodsError(res, error, 'Could not remove that payout account.'); }
+});
+app.put('/api/business/payment-methods/payout/:accountId/default', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { paymentMethods.setDefaultPayout(business.id, req.params.accountId); res.json(paymentMethodsOverview(business)); }
+  catch (error) { paymentMethodsError(res, error, 'Could not save the default payout account.'); }
+});
 app.put('/api/business/locations/:locationId/payment-method', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const location = tenant.locationForBusiness.get(req.params.locationId, business.id);
@@ -3054,8 +3076,8 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
   // an active C2B PayBill registered for this location (the phone number, after
   // any account prefix, is the account). A Daraja STK shortcode alone is not
   // reconciled, and a Till has no account number.
-  const c2b = db.db.prepare('SELECT shortcode, account_prefix, location_id FROM business_c2b_settings WHERE business_id=? AND active=1').get(location.business_id);
-  const paybill = c2b && c2b.location_id === location.id ? { shortcode: c2b.shortcode, accountPrefix: c2b.account_prefix || '' } : null;
+  const c2b = paymentIntegrations.c2bSettingForLocation(location.business_id, location.id);
+  const paybill = c2b ? { shortcode: c2b.shortcode, accountPrefix: c2b.account_prefix || '' } : null;
   const portalTemplate = db.db.prepare(`SELECT id,name,layout,accent_color,welcome_message,show_packages,show_utilities,font_family,text_align,package_style,background_style
     FROM tenant_portal_templates WHERE business_id=? AND active=1 ORDER BY updated_at DESC LIMIT 1`).get(location.business_id) || null;
   res.json({ location: { id: location.id, name: location.name, businessName: branding.name },
@@ -5142,8 +5164,9 @@ app.post('/api/mpesa/c2b/tenant/reversal', (req, res) => {
   // A reversal names the original receipt, not always the shortcode; scope it
   // to the receipt's own tenant.
   const receipt = String(req.body?.OriginalTransactionID || req.body?.OriginalReceipt || req.body?.TransID || '').trim().toUpperCase();
-  const row = receipt && db.db.prepare("SELECT business_id FROM tenant_transactions WHERE mpesa_receipt=? AND payment_source='c2b' LIMIT 1").get(receipt);
-  const setting = row && db.db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=? AND active=1').get(row.business_id);
+  const row = receipt && db.db.prepare("SELECT business_id, location_id FROM tenant_transactions WHERE mpesa_receipt=? AND payment_source='c2b' LIMIT 1").get(receipt);
+  // The PayBill of the router the payment was matched at, else the business's first.
+  const setting = row && (paymentIntegrations.c2bSettingForLocation(row.business_id, row.location_id) || paymentIntegrations.c2bSettingForBusiness(row.business_id));
   handleTenantC2bReversal(req, setting);
 });
 
@@ -6347,7 +6370,7 @@ function pppoePayContext(req, res) {
   return { business, settings };
 }
 function pppoePayBill(businessId) {
-  const row = db.db.prepare('SELECT shortcode, account_prefix FROM business_c2b_settings WHERE business_id=? AND active=1').get(businessId);
+  const row = paymentIntegrations.c2bSettingForBusiness(businessId);
   return row ? { shortcode: row.shortcode, accountPrefix: row.account_prefix || '' } : null;
 }
 /** Why customers of this business cannot pay online right now, or null. */

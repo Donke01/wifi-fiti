@@ -10,7 +10,7 @@
 (function () {
   'use strict';
   var TOKEN_KEY = 'fiti_business_token';
-  var data = null; var loading = false; var adding = false;
+  var data = null; var loading = false; var adding = false; var c2b = null; var addingC2b = false; var addingPayout = false;
 
   function $(id) { return document.getElementById(id); }
   function token() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { return ''; } }
@@ -142,6 +142,113 @@
     }));
   }
 
+  /* ---- C2B PayBills (customers pay a PayBill themselves) ---------- */
+  function routerName(locationId) { var router = data.routers.find(function (item) { return item.locationId === locationId; }); return router ? router.name : 'A removed router'; }
+  function copyButton(text) {
+    return h('button', { type: 'button', class: 'quiet', text: 'Copy', onclick: function (event) { var button = event.currentTarget; if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { button.textContent = 'Copied'; }); } });
+  }
+  function c2bCard() {
+    var accounts = (c2b && c2b.accounts) || [];
+    var form = null;
+    if (addingC2b) {
+      var routerSelect = h('select', { name: 'locationId' }, data.routers.map(function (router) { return h('option', { value: router.locationId, text: router.name }); }));
+      form = h('form', { class: 'pm-add', novalidate: true, onsubmit: function (event) {
+        event.preventDefault(); var button = form.querySelector('button[type="submit"]'); say('pm-c2b-msg', '');
+        var shortcode = form.elements.shortcode.value.trim();
+        if (!/^\d{5,12}$/.test(shortcode)) { say('pm-c2b-msg', 'Enter the PayBill number (digits only).'); return; }
+        busy(button, true);
+        api('/api/business/integrations/c2b', { method: 'POST', body: JSON.stringify({ shortcode: shortcode, locationId: form.elements.locationId.value, accountPrefix: form.elements.accountPrefix.value.trim() }) })
+          .then(function (result) { c2b = result; addingC2b = false; render(); say('pm-c2b-msg', 'PayBill ' + shortcode + ' saved. Register its links with Safaricom below.', true); })
+          .catch(function (error) { busy(button, false); say('pm-c2b-msg', error.message); });
+      } }, [
+        h('h4', { text: 'Add a C2B PayBill' }),
+        h('p', { class: 'pm-note', text: 'Customers pay this PayBill from the M-Pesa menu, using their phone number as the account. The payment is matched to the router you pick. One PayBill per router; adding another for the same router replaces it.' }),
+        h('div', { class: 'pm-fields' }, [
+          field('Router', routerSelect),
+          field('PayBill number', h('input', { name: 'shortcode', inputmode: 'numeric', maxlength: '12', placeholder: '600555' })),
+          field('Account prefix (optional)', h('input', { name: 'accountPrefix', maxlength: '20', placeholder: 'e.g. KIT' })),
+        ]),
+        h('div', { class: 'buttons' }, [h('button', { type: 'submit', text: 'Save PayBill' }), h('button', { type: 'button', class: 'secondary', text: 'Cancel', onclick: function () { addingC2b = false; render(); } })]),
+      ]);
+    }
+    return h('div', { class: 'panel glass pm-card' }, [
+      h('div', { class: 'pm-head' }, [h('h3', { text: 'C2B PayBills' }),
+        addingC2b || !data.routers.length ? null : h('button', { type: 'button', class: 'secondary', text: '+ Add PayBill', onclick: function () { addingC2b = true; render(); } })]),
+      h('p', { class: 'pm-note', text: 'For customers who pay with “Lipa na PayBill” instead of the M-Pesa prompt. Each router can have its own.' }),
+      form,
+      accounts.length ? h('ul', { class: 'pm-list' }, accounts.map(function (account) {
+        return h('li', { class: 'pm-method pm-c2b-row' }, [
+          h('span', { class: 'pm-icon pm-daraja', 'aria-hidden': 'true', text: 'PB' }),
+          h('div', { class: 'pm-body' }, [
+            h('b', { text: 'PayBill ' + account.shortcode }),
+            h('small', { text: routerName(account.locationId) + (account.accountPrefix ? ' · account starts with ' + account.accountPrefix : ' · account is the phone number') }),
+            h('small', { class: 'pm-users', text: 'Confirmation URL: ' + account.callbackUrl }),
+          ]),
+          h('div', { class: 'pm-actions' }, [copyButton(account.callbackUrl), h('button', { type: 'button', class: 'quiet pm-danger', text: 'Remove', onclick: function (event) {
+            if (!window.confirm('Stop matching payments to PayBill ' + account.shortcode + '? Past payments are kept.')) return;
+            var button = event.currentTarget; busy(button, true, 'Removing…');
+            api('/api/business/integrations/c2b/' + encodeURIComponent(account.shortcode), { method: 'DELETE' })
+              .then(function (result) { c2b = Object.assign({}, c2b, { accounts: result.accounts }); render(); say('pm-c2b-msg', 'PayBill ' + account.shortcode + ' removed.', true); })
+              .catch(function (error) { busy(button, false); say('pm-c2b-msg', error.message); });
+          } })]),
+        ]);
+      })) : (addingC2b ? null : h('p', { class: 'pm-note', text: data.routers.length ? 'No C2B PayBills yet.' : 'Add a router first.' })),
+      h('div', { class: 'pm-msg', id: 'pm-c2b-msg', 'aria-live': 'polite' }),
+    ]);
+  }
+
+  /* ---- Payout accounts (where Wi-Fi Fiti pays you) ----------------- */
+  function payoutCard() {
+    var accounts = data.payoutAccounts || [];
+    var form = null;
+    if (addingPayout) {
+      form = h('form', { class: 'pm-add', novalidate: true, onsubmit: function (event) {
+        event.preventDefault(); var button = form.querySelector('button[type="submit"]'); say('pm-payout-msg', '');
+        var body = {}; ['label', 'destinationType', 'destinationName', 'destinationAccount'].forEach(function (name) { body[name] = form.elements[name].value.trim(); });
+        busy(button, true);
+        api('/api/business/payment-methods/payout', { method: 'POST', body: JSON.stringify(body) })
+          .then(function (result) { data = result; addingPayout = false; render(); say('pm-payout-msg', 'Payout account saved.', true); })
+          .catch(function (error) { busy(button, false); say('pm-payout-msg', error.message); });
+      } }, [
+        h('h4', { text: 'Add a payout account' }),
+        h('div', { class: 'pm-fields' }, [
+          field('Pay out to', h('select', { name: 'destinationType' }, [h('option', { value: 'mpesa', text: 'M-Pesa' }), h('option', { value: 'bank', text: 'Bank account' })])),
+          field('Name on the account', h('input', { name: 'destinationName', maxlength: '60', autocomplete: 'name' })),
+          field('M-Pesa number or bank account number', h('input', { name: 'destinationAccount', maxlength: '40', autocomplete: 'off', placeholder: '0712 345 678' })),
+          field('Name (optional)', h('input', { name: 'label', maxlength: '60', placeholder: 'e.g. Equity savings' })),
+        ]),
+        h('div', { class: 'buttons' }, [h('button', { type: 'submit', text: 'Save account' }), h('button', { type: 'button', class: 'secondary', text: 'Cancel', onclick: function () { addingPayout = false; render(); } })]),
+      ]);
+    }
+    return h('div', { class: 'panel glass pm-card' }, [
+      h('div', { class: 'pm-head' }, [h('h3', { text: 'Payout accounts' }),
+        addingPayout ? null : h('button', { type: 'button', class: 'secondary', text: '+ Add payout account', onclick: function () { addingPayout = true; render(); } })]),
+      h('p', { class: 'pm-note', text: 'Where Wi-Fi Fiti sends sales it collected for you. Pick one when you request a payout; the default is filled in for you.' }),
+      form,
+      accounts.length ? h('ul', { class: 'pm-list' }, accounts.map(function (account) {
+        var actions = [];
+        if (!account.isDefault) actions.push(h('button', { type: 'button', class: 'quiet', text: 'Make default', onclick: function (event) {
+          var button = event.currentTarget; busy(button, true);
+          save('/api/business/payment-methods/payout/' + encodeURIComponent(account.id) + '/default', 'PUT', {}, 'pm-payout-msg', 'Default payout account saved.').catch(function () { busy(button, false); });
+        } }));
+        actions.push(h('button', { type: 'button', class: 'quiet pm-danger', text: 'Remove', onclick: function (event) {
+          if (!window.confirm('Remove ' + account.label + '? Payouts already requested are not affected.')) return;
+          var button = event.currentTarget; busy(button, true, 'Removing…');
+          save('/api/business/payment-methods/payout/' + encodeURIComponent(account.id), 'DELETE', {}, 'pm-payout-msg', 'Payout account removed.').catch(function () { busy(button, false); });
+        } }));
+        return h('li', { class: 'pm-method' + (account.isDefault ? ' is-default' : '') }, [
+          h('span', { class: 'pm-icon pm-payout', 'aria-hidden': 'true', text: account.destinationType === 'mpesa' ? 'M' : 'B' }),
+          h('div', { class: 'pm-body' }, [
+            h('b', {}, [account.label, account.isDefault ? h('span', { class: 'pm-tag', text: 'Default' }) : null]),
+            h('small', { text: (account.destinationType === 'mpesa' ? 'M-Pesa' : 'Bank') + ' ••' + account.accountLast4 + ' · ' + account.destinationName }),
+          ]),
+          h('div', { class: 'pm-actions' }, actions),
+        ]);
+      })) : (addingPayout ? null : h('p', { class: 'pm-note', text: 'No payout accounts saved yet.' })),
+      h('div', { class: 'pm-msg', id: 'pm-payout-msg', 'aria-live': 'polite' }),
+    ]);
+  }
+
   function render() {
     var section = $('payment-methods-section'); if (!section || !data) return;
     var defaultSelect = h('select', { 'aria-label': 'Business default payment method', onchange: function (event) {
@@ -149,7 +256,7 @@
       save('/api/business/payment-methods/default', 'PUT', { method: target.value || null }, 'pm-methods-msg', 'Default saved.').catch(function () { target.disabled = false; });
     } }, (data.defaultMethod ? [] : [h('option', { value: '', text: 'Keep the current setting' })]).concat(methodOptions(data.defaultMethod, false)));
     section.replaceChildren(
-      h('div', { class: 'module-heading' }, [h('div', {}, [h('h2', { text: 'Payment methods' }), h('p', { text: 'Add every Till, PayBill and payout route you use, then choose where each router’s customer payments go.' })])]),
+      h('div', { class: 'module-heading' }, [h('div', {}, [h('h2', { text: 'Payment methods' }), h('p', { text: 'Add every Till, PayBill and payout account you use, then choose where each router’s customer payments go.' })])]),
       h('div', { class: 'panel glass pm-card' }, [
         h('div', { class: 'pm-head' }, [h('h3', { text: 'Your payment methods' }),
           adding ? null : h('button', { type: 'button', text: '+ Add Till or PayBill', onclick: function () {
@@ -167,7 +274,9 @@
         h('p', { class: 'pm-note', text: 'Each router can send its customer payments to a different method. Changes apply to the next payment.' }),
         routersTable(),
         h('div', { class: 'pm-msg', id: 'pm-routers-msg', 'aria-live': 'polite' }),
-      ])
+      ]),
+      c2bCard(),
+      payoutCard()
     );
   }
 
@@ -175,10 +284,11 @@
     var section = $('payment-methods-section'); if (!section || !token() || loading) return Promise.resolve();
     if (!data) section.replaceChildren(h('div', { class: 'module-heading' }, [h('div', {}, [h('h2', { text: 'Payment methods' })])]), h('div', { class: 'panel glass' }, [h('p', { class: 'pm-note', text: 'Loading your payment methods…' })]));
     loading = true;
-    return api('/api/business/payment-methods').then(function (result) { data = result; if (!adding) render(); })
+    return Promise.all([api('/api/business/payment-methods'), api('/api/business/integrations/c2b').catch(function () { return { accounts: [] }; })])
+      .then(function (results) { data = results[0]; c2b = results[1]; if (!adding && !addingC2b && !addingPayout) render(); })
       .catch(function (error) { if (!data) section.replaceChildren(h('div', { class: 'panel glass' }, [h('p', { class: 'pm-msg', text: error.message })])); })
       .then(function () { loading = false; });
   }
 
-  window.FitiPaymentMethods = { load: load, forget: function () { data = null; adding = false; } };
+  window.FitiPaymentMethods = { load: load, forget: function () { data = null; c2b = null; adding = false; addingC2b = false; addingPayout = false; } };
 })();

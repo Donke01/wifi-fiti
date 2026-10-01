@@ -56,6 +56,24 @@ function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected =
       updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  // Saved accounts that Wi-Fi Fiti pays a business's collected balance out
+  // to (Money → payouts). Account numbers are encrypted at rest.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS business_payout_accounts (
+      id               TEXT PRIMARY KEY,
+      business_id      TEXT NOT NULL,
+      label            TEXT,
+      destination_type TEXT NOT NULL CHECK(destination_type IN ('mpesa','bank')),
+      destination_name TEXT NOT NULL,
+      account_cipher   TEXT NOT NULL,
+      account_last4    TEXT NOT NULL,
+      is_default       INTEGER NOT NULL DEFAULT 0,
+      active           INTEGER NOT NULL DEFAULT 1,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_business_payout_accounts ON business_payout_accounts(business_id, active);
+  `);
   // The method a payment was taken with, so its status check and history
   // use that account even if the router is later moved to another one.
   try { db.exec('ALTER TABLE tenant_transactions ADD COLUMN payment_method TEXT'); } catch (_) { /* present */ }
@@ -87,6 +105,12 @@ function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected =
   const collectionMode = db.prepare('SELECT collection_mode FROM businesses WHERE id=?');
 
   const secretsOf = (v) => ({ id: v.id, businessId: v.businessId, label: v.label, key: v.key, secret: v.secret, passkey: v.passkey, verifiedAt: v.verifiedAt });
+  const payoutRows = db.prepare(`SELECT * FROM business_payout_accounts WHERE business_id=? AND active=1 ORDER BY is_default DESC, created_at, rowid`);
+  const insertPayout = db.prepare(`INSERT INTO business_payout_accounts (id, business_id, label, destination_type, destination_name, account_cipher, account_last4, is_default)
+      VALUES (@id, @businessId, @label, @destinationType, @destinationName, @cipher, @last4, @isDefault)`);
+  const retirePayout = db.prepare(`UPDATE business_payout_accounts SET active=0, is_default=0, updated_at=datetime('now') WHERE id=? AND business_id=? AND active=1`);
+  const clearPayoutDefault = db.prepare(`UPDATE business_payout_accounts SET is_default=0 WHERE business_id=?`);
+  const markPayoutDefault = db.prepare(`UPDATE business_payout_accounts SET is_default=1, updated_at=datetime('now') WHERE id=? AND business_id=? AND active=1`);
   // The Till / PayBill connected before payment methods existed becomes the
   // first account. Its id is fixed so this is safe to run on every start.
   const legacyId = (businessId) => 'mpa-' + crypto.createHash('sha256').update('legacy:' + businessId).digest('hex').slice(0, 16);
@@ -232,10 +256,54 @@ function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected =
     return resolve(location);
   }
 
+  /* ---- Payout accounts ------------------------------------------------ */
+  function payoutView(row, full) {
+    const view = { id: row.id, label: row.label || (row.destination_type === 'mpesa' ? 'M-Pesa' : 'Bank') + ' ••' + row.account_last4,
+      destinationType: row.destination_type, destinationName: row.destination_name, accountLast4: row.account_last4, isDefault: Boolean(row.is_default) };
+    if (full) view.destinationAccount = tenant.decryptSecret(row.account_cipher);
+    return view;
+  }
+  /** Saved payout accounts; `full` adds the account number (for the payout form). */
+  function payoutAccounts(businessId, { full = false } = {}) { return payoutRows.all(businessId).map((row) => payoutView(row, full)); }
+  function addPayoutAccount(businessId, body) {
+    const destinationType = String(body && body.destinationType || '').trim();
+    const destinationName = cleanLabel(body && body.destinationName);
+    let account = String(body && body.destinationAccount || '').replace(/\s+/g, '').trim();
+    if (!['mpesa', 'bank'].includes(destinationType)) throw fail('Choose M-Pesa or bank.');
+    if (destinationName.length < 2) throw fail('Enter the name on the account.');
+    if (destinationType === 'mpesa') {
+      const digits = account.replace(/\D/g, '');
+      const phone = /^0[17]\d{8}$/.test(digits) ? '254' + digits.slice(1) : /^254[17]\d{8}$/.test(digits) ? digits : null;
+      if (!phone) throw fail('Enter a valid Safaricom M-Pesa number, e.g. 0712 345 678.');
+      account = phone;
+    } else if (!/^[A-Za-z0-9-]{5,40}$/.test(account)) throw fail('Enter the bank account number (5 to 40 letters or digits).');
+    if (payoutRows.all(businessId).some((row) => row.destination_type === destinationType && tenant.decryptSecret(row.account_cipher) === account)) {
+      throw fail('That account is already saved.', 409);
+    }
+    const first = payoutRows.all(businessId).length === 0;
+    const id = 'pya-' + crypto.randomBytes(8).toString('hex');
+    insertPayout.run({ id, businessId, label: cleanLabel(body && body.label) || null, destinationType, destinationName,
+      cipher: tenant.encryptSecret(account), last4: account.slice(-4), isDefault: first ? 1 : 0 });
+    return payoutAccounts(businessId).find((item) => item.id === id);
+  }
+  function removePayoutAccount(businessId, id) {
+    const wasDefault = payoutRows.all(businessId).some((row) => row.id === id && row.is_default);
+    if (!retirePayout.run(String(id || ''), businessId).changes) throw fail('That payout account was not found.', 404);
+    // The next saved account becomes the default.
+    if (wasDefault) { const next = payoutRows.all(businessId)[0]; if (next) markPayoutDefault.run(next.id, businessId); }
+    return payoutAccounts(businessId);
+  }
+  function setDefaultPayout(businessId, id) {
+    if (!payoutRows.all(businessId).some((row) => row.id === id)) throw fail('That payout account was not found.', 404);
+    clearPayoutDefault.run(businessId); markPayoutDefault.run(id, businessId);
+    return payoutAccounts(businessId);
+  }
+
   /** Everything the Payment methods page shows. */
   function overview(businessId, locations) {
     const defaultMethod = defaultFor(businessId);
     return {
+      payoutAccounts: payoutAccounts(businessId),
       methods: methodsFor(businessId).map((method) => ({ ...method, isDefault: method.id === defaultMethod })),
       defaultMethod: defaultMethod && usable(businessId, defaultMethod) ? defaultMethod : null,
       routers: locations.map((location) => {
@@ -248,7 +316,8 @@ function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected =
   }
 
   return { KINDS, methodsFor, resolve, credentialsFor, credentialsForTransaction, recordTransactionMethod,
-    addAccount, renameMethod, removeMethod, setDefault, setRouterMethod, overview, syncLegacyAccount, parse, usable };
+    addAccount, renameMethod, removeMethod, setDefault, setRouterMethod, overview, syncLegacyAccount, parse, usable,
+    payoutAccounts, addPayoutAccount, removePayoutAccount, setDefaultPayout };
 }
 
 module.exports = { createPaymentMethods, TRANSACTION_TYPES };

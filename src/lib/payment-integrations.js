@@ -36,7 +36,32 @@ db.exec(`
 if (!db.prepare('PRAGMA table_info(business_c2b_settings)').all().some(c => c.name === 'callback_token')) {
   db.exec('ALTER TABLE business_c2b_settings ADD COLUMN callback_token TEXT');
 }
+// A business can have many C2B PayBills, one per router at most. The first
+// version allowed one per business (business_id was the key): rebuild that
+// table once, keeping every row, its shortcode and its callback token.
+if (db.prepare('PRAGMA table_info(business_c2b_settings)').all().some(c => c.name === 'business_id' && c.pk)) {
+  db.exec(`
+    BEGIN;
+    CREATE TABLE business_c2b_settings_multi (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_id TEXT NOT NULL,
+      location_id TEXT NOT NULL,
+      shortcode TEXT NOT NULL UNIQUE,
+      account_prefix TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      callback_token TEXT
+    );
+    INSERT INTO business_c2b_settings_multi (business_id, location_id, shortcode, account_prefix, active, created_at, updated_at, callback_token)
+      SELECT business_id, location_id, shortcode, account_prefix, active, created_at, updated_at, callback_token FROM business_c2b_settings;
+    DROP TABLE business_c2b_settings;
+    ALTER TABLE business_c2b_settings_multi RENAME TO business_c2b_settings;
+    COMMIT;
+  `);
+}
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_c2b_callback_token ON business_c2b_settings(callback_token)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_c2b_business_location ON business_c2b_settings(business_id, location_id, active)');
 function newCallbackToken() { return crypto.randomBytes(24).toString('hex'); }
 for (const row of db.prepare('SELECT business_id FROM business_c2b_settings WHERE callback_token IS NULL').all()) {
   db.prepare('UPDATE business_c2b_settings SET callback_token=? WHERE business_id=?').run(newCallbackToken(), row.business_id);
@@ -76,15 +101,42 @@ const c2bReport = db.prepare(`
    ORDER BY created_at DESC LIMIT 500
 `);
 const c2bByShortcode = db.prepare('SELECT * FROM business_c2b_settings WHERE shortcode=? AND active=1');
-const c2bByBusiness = db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=?');
+// The first active one (older single-PayBill screens and the PPPoE pay page).
+const c2bByBusiness = db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=? ORDER BY active DESC, id LIMIT 1');
+const c2bListForBusiness = db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=? AND active=1 ORDER BY id');
+const c2bByBusinessShortcode = db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=? AND shortcode=?');
+const c2bAnyByShortcode = db.prepare('SELECT business_id FROM business_c2b_settings WHERE shortcode=?');
+const c2bForLocation = db.prepare('SELECT * FROM business_c2b_settings WHERE business_id=? AND location_id=? AND active=1 ORDER BY id DESC LIMIT 1');
+// One PayBill shows on a router's portal: a new one for that router replaces it.
+const retireOthersAtLocation = db.prepare(`UPDATE business_c2b_settings SET active=0, updated_at=datetime('now')
+  WHERE business_id=? AND location_id=? AND shortcode<>? AND active=1`);
+const retireC2b = db.prepare(`UPDATE business_c2b_settings SET active=0, updated_at=datetime('now') WHERE business_id=? AND shortcode=? AND active=1`);
 const c2bByToken = db.prepare('SELECT * FROM business_c2b_settings WHERE callback_token=? AND active=1');
-const saveC2b = db.prepare(`
+const insertC2b = db.prepare(`
   INSERT INTO business_c2b_settings (business_id, location_id, shortcode, account_prefix, callback_token, updated_at)
   VALUES (@businessId, @locationId, @shortcode, @accountPrefix, @callbackToken, datetime('now'))
-  ON CONFLICT(business_id) DO UPDATE SET location_id=excluded.location_id,
-    shortcode=excluded.shortcode, account_prefix=excluded.account_prefix,
-    active=1, updated_at=datetime('now')
 `);
+const updateC2b = db.prepare(`UPDATE business_c2b_settings SET location_id=@locationId, account_prefix=@accountPrefix,
+  active=1, updated_at=datetime('now') WHERE business_id=@businessId AND shortcode=@shortcode`);
+/** Add a C2B PayBill for a router, or move an existing one to it. Throws a
+ * 409 when another business already uses that shortcode. */
+function saveC2bFor({ businessId, locationId, shortcode, accountPrefix }) {
+  const other = c2bAnyByShortcode.get(shortcode);
+  if (other && other.business_id !== businessId) throw Object.assign(new Error('That shortcode is already linked to another workspace.'), { status: 409 });
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (c2bByBusinessShortcode.get(businessId, shortcode)) updateC2b.run({ businessId, locationId, shortcode, accountPrefix });
+    else insertC2b.run({ businessId, locationId, shortcode, accountPrefix, callbackToken: newCallbackToken() });
+    retireOthersAtLocation.run(businessId, locationId, shortcode);
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+  return c2bByBusinessShortcode.get(businessId, shortcode);
+}
+function c2bView(setting) {
+  const urls = c2bCallbackUrls(setting);
+  return { shortcode: setting.shortcode, locationId: setting.location_id, accountPrefix: setting.account_prefix || '',
+    active: Boolean(setting.active), callbackUrl: urls.confirmation, validationUrl: urls.validation };
+}
 
 function summary(businessId) {
   const row = selected.get(businessId);
@@ -168,7 +220,9 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants
     res.json({ configured: Boolean(setting), setting: setting ? {
       locationId: setting.location_id, shortcode: setting.shortcode,
       accountPrefix: setting.account_prefix, active: Boolean(setting.active),
-    } : null, callbackUrl: urls ? urls.confirmation : null, validationUrl: urls ? urls.validation : null });
+    } : null, callbackUrl: urls ? urls.confirmation : null, validationUrl: urls ? urls.validation : null,
+    // Every active C2B PayBill, one per router at most.
+    accounts: c2bListForBusiness.all(business.id).map(c2bView) });
   });
 
   app.post('/api/business/integrations/c2b', (req, res) => {
@@ -180,18 +234,26 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants
     const location = tenant.locationById.get(locationId);
     if (!location || location.business_id !== business.id) return res.status(404).json({ error: 'Location not found.' });
     try {
-      const existing = c2bByBusiness.get(business.id);
-      saveC2b.run({ businessId: business.id, locationId, shortcode, accountPrefix,
-        callbackToken: (existing && existing.callback_token) || newCallbackToken() });
-      save.run(business.id, 'c2b');
+      const saved = saveC2bFor({ businessId: business.id, locationId, shortcode, accountPrefix });
+      // Only the first PayBill switches the business to C2B reconciliation;
+      // adding more never changes how its other routers are paid.
+      if (c2bListForBusiness.all(business.id).length === 1) save.run(business.id, 'c2b');
       if (onPayoutSaved) { try { onPayoutSaved(business.id, shortcode); } catch (error) { console.error('[c2b] trial check failed:', error.message); } }
-      const urls = c2bCallbackUrls(c2bByBusiness.get(business.id));
+      const view = c2bView(saved);
       res.status(201).json({ configured: true, setting: { locationId, shortcode, accountPrefix, active: true },
-        callbackUrl: urls.confirmation, validationUrl: urls.validation });
+        callbackUrl: view.callbackUrl, validationUrl: view.validationUrl, accounts: c2bListForBusiness.all(business.id).map(c2bView) });
     } catch (error) {
-      if (String(error.message).includes('UNIQUE')) return res.status(409).json({ error: 'That shortcode is already linked to another workspace.' });
+      if (error.status === 409 || String(error.message).includes('UNIQUE')) return res.status(409).json({ error: 'That shortcode is already linked to another workspace.' });
       return res.status(400).json({ error: 'C2B settings could not be saved.' });
     }
+  });
+
+  app.delete('/api/business/integrations/c2b/:shortcode', (req, res) => {
+    const business = businessAuth(req, res); if (!business) return;
+    const shortcode = String(req.params.shortcode || '').trim();
+    if (!/^\d{5,12}$/.test(shortcode) || !retireC2b.run(business.id, shortcode).changes) return res.status(404).json({ error: 'That PayBill was not found.' });
+    // Past payments keep their records; the shortcode just stops matching.
+    res.json({ ok: true, accounts: c2bListForBusiness.all(business.id).map(c2bView) });
   });
   app.get('/api/business/integrations/c2b/reconciliation', (req, res) => {
     const business = businessAuth(req, res); if (!business) return;
@@ -202,9 +264,13 @@ function attachPaymentIntegrationRoutes(app, { businessAuth, tenant, tumaTenants
 }
 
 function c2bSettingForShortcode(shortcode) { return c2bByShortcode.get(String(shortcode || '').trim()); }
+/** The active C2B PayBill shown on this router's portal, if any. */
+function c2bSettingForLocation(businessId, locationId) { return c2bForLocation.get(businessId, locationId); }
+/** The business's first active C2B PayBill (PPPoE pay page, reversals). */
+function c2bSettingForBusiness(businessId) { const row = c2bByBusiness.get(businessId); return row && row.active ? row : undefined; }
 function c2bSettingForToken(token) {
   const value = String(token || '');
   return /^[a-f0-9]{48}$/.test(value) ? c2bByToken.get(value) : undefined;
 }
 
-module.exports = { providers, summary, attachPaymentIntegrationRoutes, c2bSettingForShortcode, c2bSettingForToken, c2bCallbackUrls };
+module.exports = { providers, summary, attachPaymentIntegrationRoutes, c2bSettingForShortcode, c2bSettingForToken, c2bSettingForLocation, c2bSettingForBusiness, c2bCallbackUrls, saveC2bFor };

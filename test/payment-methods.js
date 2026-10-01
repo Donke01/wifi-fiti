@@ -141,4 +141,25 @@ t('the overview lists every router with what it uses', () => {
   assert.strictEqual(view.methods.find((item) => item.id === 'fiti').isDefault, true);
 });
 
+t('payout accounts: saved encrypted, first is the default, default moves on removal', () => {
+  const first = methods.addPayoutAccount('biz-own', { destinationType: 'mpesa', destinationName: 'Morgan Mfo', destinationAccount: '0712 345 678' });
+  assert.strictEqual(first.isDefault, true); assert.strictEqual(first.accountLast4, '5678');
+  const bank = methods.addPayoutAccount('biz-own', { destinationType: 'bank', destinationName: 'Kitale Cafe Ltd', destinationAccount: '0123456789', label: 'Equity' });
+  assert.strictEqual(bank.isDefault, false);
+  const stored = legacy.db.prepare('SELECT account_cipher FROM business_payout_accounts WHERE id=?').get(first.id).account_cipher;
+  assert.ok(!stored.includes('254712345678'), 'the number is encrypted at rest');
+  assert.strictEqual(methods.payoutAccounts('biz-own', { full: true })[0].destinationAccount, '254712345678');
+  assert.ok(!('destinationAccount' in methods.payoutAccounts('biz-own')[0]), 'lists hide the full number');
+  throwsWith(() => methods.addPayoutAccount('biz-own', { destinationType: 'mpesa', destinationName: 'X Y', destinationAccount: '254712345678' }), 409, /already saved/);
+  throwsWith(() => methods.addPayoutAccount('biz-own', { destinationType: 'mpesa', destinationName: 'X Y', destinationAccount: '12345' }), 400, /valid Safaricom/);
+  throwsWith(() => methods.addPayoutAccount('biz-own', { destinationType: 'paypal', destinationName: 'X Y', destinationAccount: '12345' }), 400, /M-Pesa or bank/);
+  methods.setDefaultPayout('biz-own', bank.id);
+  assert.strictEqual(methods.payoutAccounts('biz-own')[0].id, bank.id);
+  methods.removePayoutAccount('biz-own', bank.id);
+  assert.strictEqual(methods.payoutAccounts('biz-own')[0].id, first.id);
+  assert.strictEqual(methods.payoutAccounts('biz-own')[0].isDefault, true);
+  throwsWith(() => methods.removePayoutAccount('biz-other', first.id), 404, /not found/);
+  assert.strictEqual(methods.payoutAccounts('biz-other').length, 0);
+});
+
 console.log(`\n${pass} passed`);
