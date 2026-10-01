@@ -1000,7 +1000,7 @@ for (const value of ['payment', 'connection', 'router', 'billing', 'other']) ass
   assert.equal(technician.detailView(body).accessCodes, null, 'roles without customer editing cannot see access codes');
   // The router card's Active users number opens it, for roles that may.
   assert.match(html, /<article class="metric router-active-users" data-online-users>/);
-  assert.match(html, /<script src="\/online-users\.js" defer><\/script>/);
+  assert.match(html, /<script src="\/online-users\.js\?v=customer-details-2" defer><\/script>/);
   assert.match(html, /window\.FitiOnlineUsers && \(can\('customers\.view'\) \|\| can\('routers\.view'\)\)/);
   assert.match(html, /'No update since ' \+ when\(latest\.recorded_at\)/, 'an old chart says how old it is');
   assert.match(html, /card\.dataset\.cardModule \|\| card\.hasAttribute\('data-online-users'\)\) return;/, 'the card opens who is online, not the Customers page');

@@ -568,6 +568,12 @@ app.get('/tenant-router-install-universal-compat.rsc', (req, res) => {
 // and for older integrations that still use the filename.
 app.get('/business', (req, res) => res.sendFile(path.join(publicDirectory, 'business.html')));
 for (const [route, file] of Object.entries(DEMO_PAGES)) app.get(route, (req, res) => res.sendFile(path.join(publicDirectory, file)));
+// Customer details change with the dashboard deployment. A long-lived copy of
+// this script kept signed-in owners on an older Active users view for hours.
+app.get('/online-users.js', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.type('application/javascript').sendFile(path.join(publicDirectory, 'online-users.js'));
+});
 app.use(express.static(publicDirectory));
 
 // This repository is intentionally private, so a new VPS cannot rely on a

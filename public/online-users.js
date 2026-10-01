@@ -238,7 +238,7 @@
         var on = el('div'); on.appendChild(el('b', '', view.onlineFor)); on.appendChild(el('small', '', 'online this session')); item.appendChild(on);
         var use = el('div'); use.appendChild(el('b', '', view.data)); use.appendChild(el('small', '', view.device)); item.appendChild(use);
       }
-      var plan = el('div'); plan.appendChild(el('b', '', view.plan)); if (view.clickable) plan.appendChild(el('small', '', 'Tap for history')); item.appendChild(plan);
+      var plan = el('div'); plan.appendChild(el('b', '', view.plan)); if (view.clickable) plan.appendChild(el('small', '', can('customers.edit') ? 'Tap for codes, device & purchase details' : 'Tap for device & purchase details')); item.appendChild(plan);
       list.appendChild(item);
     });
   }
