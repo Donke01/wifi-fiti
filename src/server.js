@@ -62,6 +62,7 @@ function ownerPhoneBlock(business) {
 // Created early: sales checks and the reminder worker both read it.
 const tumaFee = createTumaFee({ db: db.db });
 const { createDemo } = require('./lib/demo');
+const { createProfile } = require('./lib/profile');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -609,7 +610,7 @@ app.use((req, res, next) => {
     windowMs = 15 * 60_000;
   } else if (req.method === 'POST' && ['/api/business/forgot-password', '/api/business/reset-password', '/api/business/verify-login',
     '/api/business/verify-registration', '/api/business/resend-code', '/api/business/phone/verify/confirm',
-    '/api/business/invite/check', '/api/business/invite/accept'].includes(path)) {
+    '/api/business/invite/check', '/api/business/invite/accept', '/api/business/profile/password'].includes(path)) {
     // Code-checking and code-sending routes, per address.
     key = path + ':' + req.ip;
     maximum = 20;
@@ -1329,6 +1330,42 @@ app.get('/api/business/me', (req, res) => {
       kind: 'managed-subdomain',
     },
     note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
+});
+
+/* ---- My profile (anyone signed in, about themselves only) ---------- */
+const profile = createProfile({ db: db.db, hashPassword, passwordMatches, roles: team.ROLES });
+const sessionTokenHash = (req) => crypto.createHash('sha256')
+  .update(String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')).digest('hex');
+function profileError(res, error, fallback) {
+  res.status(error.status || 500).json({ error: error.status ? error.message : fallback });
+}
+app.get('/api/business/profile', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const view = profile.view(req.teamSession, business.id, sessionTokenHash(req));
+    if (view.person.isOwner) view.person.phoneVerified = phoneVerification.verified(business);
+    res.set('Cache-Control', 'no-store').json(view);
+  } catch (error) { profileError(res, error, 'Could not load your profile.'); }
+});
+app.patch('/api/business/profile', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { res.json({ name: profile.rename(req.teamSession, business.id, req.body && req.body.name) }); }
+  catch (error) { profileError(res, error, 'Could not save your name.'); }
+});
+app.post('/api/business/profile/password', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const body = req.body || {};
+    const result = profile.changePassword(req.teamSession, business.id, body.currentPassword, body.newPassword, sessionTokenHash(req));
+    res.json({ ok: true, ...result, message: result.signedOutOthers
+      ? `Password changed. ${result.signedOutOthers} other sign-in${result.signedOutOthers === 1 ? ' was' : 's were'} signed out.`
+      : 'Password changed.' });
+  } catch (error) { profileError(res, error, 'Could not change your password.'); }
+});
+app.post('/api/business/profile/sessions/end-others', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try { res.json({ ok: true, ended: profile.endOthers(req.teamSession, business.id, sessionTokenHash(req)) }); }
+  catch (error) { profileError(res, error, 'Could not sign out your other devices.'); }
 });
 
 /* ---- Team accounts (owner only, see src/lib/team.js) ---------------- */

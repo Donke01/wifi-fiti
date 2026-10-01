@@ -52,6 +52,10 @@ const ROUTES = [
   ['POST', `${B}/resend-code`, 'public'], ['POST', `${B}/forgot-password`, 'public'], ['POST', `${B}/reset-password`, 'public'],
   ['POST', `${B}/invite/check`, 'public'], ['POST', `${B}/invite/accept`, 'public'],
   ['POST', `${B}/logout`, 'any'], ['GET', `${B}/me`, 'any'],
+  // My profile: every signed-in person, about themselves only.
+  ['GET', `${B}/profile`, 'any'], ['PATCH', `${B}/profile`, 'any', 'Changed their name'],
+  ['POST', `${B}/profile/password`, 'any', 'Changed their password'],
+  ['POST', `${B}/profile/sessions/end-others`, 'any', 'Signed out their other devices'],
 
   // Owner only: business details, Wi-Fi Fiti billing, payment settings, payouts, team
   ['POST', `${B}/phone/verify/start`, 'owner'], ['POST', `${B}/phone/verify/confirm`, 'owner'],
