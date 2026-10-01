@@ -29,6 +29,8 @@
     'disbursements-section': 'payouts', 'settings-section': 'settings', 'team-section': 'team',
     // Pages added with the 8-page dashboard. Plan receipts are the owner's own billing.
     'pppoe-section': 'customers.edit', 'support-tickets-section': 'support', 'receipts-section': 'owner-only',
+    // Everyone has their own profile.
+    'profile-section': 'any',
   };
   var PARTS = {
     '.overview-controls': 'sales.view', '#sales-period': 'sales.view', '#analytics-period': 'sales.view',

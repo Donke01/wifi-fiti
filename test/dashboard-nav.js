@@ -38,14 +38,21 @@ vm.runInContext(block[0].replace(/\n {6}function moduleFromHash\(\)$/, ''), cont
 vm.runInContext(html.match(/ {6}function moduleFromHash\(\) \{[^\n]*\}/)[0], context);
 // Plain copies: arrays made inside the vm fail deepEqual's prototype check.
 const dashboardPages = JSON.parse(JSON.stringify(context.dashboardPages)); const moduleSections = JSON.parse(JSON.stringify(context.moduleSections)); const { resolveModule } = context;
-assert.deepEqual(dashboardPages.map((page) => page.id), items.map((item) => item[0]), 'each sidebar button opens one page');
-assert.deepEqual(dashboardPages.map((page) => page.label), items.map((item) => item[1]), 'each page is named as in the sidebar');
+// "My profile" is the one page outside the menu: the profile icon below it
+// (and the name pill at the top) opens it, for every signed-in person.
+const menuPages = dashboardPages.filter((page) => page.id !== 'profile');
+assert.deepEqual(menuPages.map((page) => page.id), items.map((item) => item[0]), 'each sidebar button opens one page');
+assert.deepEqual(menuPages.map((page) => page.label), items.map((item) => item[1]), 'each page is named as in the sidebar');
+assert.deepEqual(dashboardPages.find((page) => page.id === 'profile').parts, [{ id: 'profile', sections: ['profile-section'] }], 'My profile is one page');
+assert.match(aside[0], /<button class="profile-button" id="open-profile" type="button"[^>]*>/, 'the profile icon sits in the sidebar, outside the menu');
+assert.match(html, /\['open-profile', 'business-email'\]\.forEach\(function \(id\) \{[^\n]*activateDashboardModule\('profile'\)/, 'the icon and the name pill open My profile');
 const pageOf = (name) => dashboardPages.find((page) => page.parts.some((part) => part.id === resolveModule(name))).id;
 
 const expected = {
   // New names and the pages themselves.
   overview: 'overview', home: 'overview', routers: 'routers', packages: 'packages', customers: 'customers', pppoe: 'pppoe', money: 'money',
   portal: 'portal', sms: 'sms', settings: 'settings',
+  profile: 'profile',
   // Every older page name and hash.
   onboarding: 'overview', setup: 'overview', locations: 'routers', 'router-map': 'routers', 'router-setup': 'routers',
   tools: 'routers', 'router-tools': 'routers', remote: 'routers', 'remote-access': 'routers',
