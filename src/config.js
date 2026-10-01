@@ -130,6 +130,11 @@ const legacyHost = String(process.env.LEGACY_HOST || 'wififiti.co.ke').trim().to
 // mistake from changing live customer links merely because the credentials
 // were saved in Railway early.
 const portalRootDomain = bareHostname(process.env.PORTAL_ROOT_DOMAIN || '', 'PORTAL_ROOT_DOMAIN');
+// A short, memorable name customers type on any Wi-Fi Fiti hotspot (e.g.
+// wififiti.net). Each router answers it locally and sends the customer to
+// that location's portal; off the hotspot the public site says to connect
+// first. Empty turns the feature off.
+const captiveDomain = bareHostname(process.env.CAPTIVE_DOMAIN || '', 'CAPTIVE_DOMAIN');
 const edgeGatewaySecret = String(process.env.EDGE_GATEWAY_SECRET || '');
 const portalGatewayRequested = String(process.env.PORTAL_GATEWAY_ENABLED || '').trim().toLowerCase() === 'true';
 if (Boolean(portalRootDomain) !== Boolean(edgeGatewaySecret)) {
@@ -201,6 +206,7 @@ module.exports = {
     legacyHost,
     portalRootDomain,
     portalGatewayEnabled,
+    captiveDomain,
   },
 
   edgeGatewaySecret,
