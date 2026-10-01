@@ -66,4 +66,10 @@ t('the portal shows the code on the PIN screen', () => {
   assert.match(html, /showEarlyRecovery\(\);\s*async function check\(\)/);
 });
 
+t('payment connects straight away, with no receipt step', () => {
+  const html = fs.readFileSync(require.resolve('../public/tenant-portal.html'), 'utf8');
+  assert.ok(!html.includes('id="receipt-prompt"') && !html.includes('id="download-receipt"'));
+  assert.match(html, /active\(result\);\s*if \(wasOfflinePurchase\)[^\n]*\n\s*else connectAfterAck\(result\);/);
+});
+
 console.log(`\n${pass} passed`);
