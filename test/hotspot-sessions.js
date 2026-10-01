@@ -86,6 +86,7 @@ async function api(endpoint, { method = 'GET', body, token, routerToken, text } 
   await test('it only reads, posts with the router header, and reuses the poll\'s TLS setting', () => {
     const script = sessions.telemetryReplyScript();
     assert.match(script, /\/ip hotspot active find/);
+    assert.match(script, /\/ip hotspot host find where server=\$fitiHotspotServer/, 'nearby TVs come from the connected HotSpot hosts');
     assert.match(script, /\/system resource get cpu-load/);
     assert.match(script, /http-header-field=\("X-WiFi-Fiti-Router: " \. \$fitiToken\)/);
     assert.match(script, /\/api\/router\/telemetry\?site=" \. \$fitiSite\)/);
@@ -150,6 +151,17 @@ async function api(endpoint, { method = 'GET', body, token, routerToken, text } 
     assert.deepEqual(sample.map((row) => [row.cpu_percent, row.active_users]), [[14, 2]], 'one chart sample; the owner\'s login is not a customer');
     later(3);
     assert.equal((await post(report([sess(1, 603)]))).text.trim(), '# later', 'a second report within 10 s is dropped');
+  });
+  await test('a connected unpaid TV appears in nearby devices without a test kit', async () => {
+    later(11);
+    const response = await post(report([sess(1, 614), sess(2, 134), 'dev|AA:BB:CC:44:55:66|10.5.50.66|Living-room TV'], 2));
+    assert.equal(response.status, 200, response.text);
+    const found = await api('/api/tenant/loc-alpha/device-discovery');
+    assert.equal(found.status, 200);
+    const tv = found.body.devices.find((device) => device.label === 'Living-room TV');
+    assert.ok(tv, JSON.stringify(found.body));
+    assert.match(tv.id, /^dev:/);
+    assert.doesNotMatch(JSON.stringify(tv), /44:55:66/, 'the full MAC stays hidden');
   });
   await test('the same session counts up; leaving closes it; coming back is a new session', async () => {
     later(60);

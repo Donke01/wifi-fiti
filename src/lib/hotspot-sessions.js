@@ -100,7 +100,7 @@ function parseReport(raw) {
       report.listed += 1;
       // Only Wi-Fi Fiti customers; the owner's own hotspot logins are skipped.
       const username = String(parts[1] || '').trim();
-      if (!USERNAME.test(username)) continue;
+      if (!USERNAME.test(username) && !MAC.test(username)) continue;
       const mac = String(parts[2] || '').trim().toUpperCase();
       report.sessions.push({
         username,
@@ -114,7 +114,7 @@ function parseReport(raw) {
     } else if (parts[0] === 'dev' && report.devices.length < MAX_DEVICES) {
       const mac = String(parts[1] || '').trim().toUpperCase();
       const ip = ipv4(parts[2]);
-      if (!MAC.test(mac) || !ip) continue;
+      if (!MAC.test(mac) || !ip || report.devices.some((device) => device.mac === mac)) continue;
       const hostname = String(parts[3] || '').trim().replace(/[^\w .-]/g, '').slice(0, 64) || null;
       report.devices.push({ mac, ip, hostname });
     }
@@ -131,6 +131,7 @@ function parseReport(raw) {
 /* ---- Storage ---------------------------------------------------------- */
 
 const subscriptionForUser = db.prepare(`SELECT id, business_id FROM tenant_subscriptions WHERE location_id=? AND router_username=?`);
+const tvSubscriptionForMac = db.prepare(`SELECT id, business_id FROM tenant_subscriptions WHERE location_id=? AND mac=? AND device_type='tv' AND expires_at>datetime('now')`);
 const openSession = db.prepare(`SELECT * FROM tenant_hotspot_sessions
   WHERE location_id=? AND router_username=? AND COALESCE(mac,'')=COALESCE(?,'') AND ended_at IS NULL
   ORDER BY id DESC LIMIT 1`);
@@ -153,6 +154,7 @@ const pruneSessions = db.prepare(`DELETE FROM tenant_hotspot_sessions WHERE ende
 function subscriptionFor(locationId, username) {
   return subscriptionForUser.get(locationId, username)
     || (username.endsWith('-tv') ? subscriptionForUser.get(locationId, username.slice(0, -3)) : null)
+    || (MAC.test(username) ? tvSubscriptionForMac.get(locationId, username) : null)
     || null;
 }
 
@@ -165,6 +167,7 @@ function recordReport(location, report) {
     const seen = new Set();
     for (const session of report.sessions) {
       const subscription = subscriptionFor(location.id, session.username);
+      if (MAC.test(session.username) && !subscription) continue;
       const values = { uptime: session.uptime, idle: session.idle, bytesIn: session.bytesIn, bytesOut: session.bytesOut,
         ip: session.ip, subscriptionId: subscription ? subscription.id : null };
       const open = openSession.get(location.id, session.username, session.mac);
@@ -302,6 +305,7 @@ function telemetryReplyScript() {
     '  :global fitiSite',
     '  :global fitiToken',
     '  :global fitiBridge',
+    '  :global fitiHotspotServer',
     '  :local fitiTmOut "fiti-telemetry-v1\\n"',
     '  :local fitiTmCpu ""',
     '  :local fitiTmFree ""',
@@ -342,10 +346,10 @@ function telemetryReplyScript() {
     '  }',
     // Devices on the customer network that are not logged in yet (a TV
     // waiting for "Buy for TV"). This feeds the portal's nearby-device list
-    // and tells the server a paid TV is present so it can be logged in.
+    // without requiring a different connection kit.
     '  :local fitiTmD 0',
     '  :do {',
-    '    :foreach fitiTmH in=[/ip hotspot host find] do={',
+    '    :foreach fitiTmH in=[/ip hotspot host find where server=$fitiHotspotServer] do={',
     `      :if ($fitiTmD < ${MAX_DEVICES}) do={`,
     '        :do {',
     '          :local fitiTmHa false',

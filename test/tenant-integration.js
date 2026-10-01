@@ -818,6 +818,12 @@ async function main() {
     const tvPackage = tenant.subscriptionByMac.get(alpha.location.id, tvMac);
     assert.equal(tvPackage.device_type, 'tv');
     assert.notEqual(tvPackage.id, granted.subscriptionId, 'the TV has its own package');
+    const tvJob = database.prepare("SELECT * FROM tenant_jobs WHERE location_id=? AND username=? AND action='tv-upsert' ORDER BY id DESC LIMIT 1")
+      .get(alpha.location.id, tvPackage.router_username);
+    assert.ok(tvJob, 'a paid TV gets its own router job');
+    const tvScript = require('../src/lib/rsc').jobToScript(tvJob, alpha.location.hotspot_server || 'hotspot1');
+    assert.match(tvScript, /\/ip hotspot user add name=\$fitiTvMac password=""/, 'the TV can authenticate by its MAC without a browser');
+    assert.doesNotMatch(tvScript, /\/ip hotspot active login/, 'the read-only HotSpot active menu cannot log a TV in');
   });
 
   await test('removing a linked TV is rate-limited like the other customer lookups', async () => {

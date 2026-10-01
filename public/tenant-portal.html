@@ -686,7 +686,7 @@
       devices.forEach(function (device) {
         var button = document.createElement('button'); button.type = 'button'; button.className = 'tv-device';
         button.innerHTML = '<span class="tv-device-icon" aria-hidden="true">▣</span><span><b></b><small></small></span>';
-        button.querySelector('b').textContent = device.label || 'Wi‑Fi device'; button.querySelector('small').textContent = device.maskedMac;
+        button.querySelector('b').textContent = device.label || 'Wi‑Fi device'; button.querySelector('small').textContent = device.maskedMac + (device.localIp ? ' · ' + device.localIp : '');
         button.onclick = function () { Array.prototype.forEach.call(list.children, function (child) { child.classList.remove('selected'); }); button.classList.add('selected'); selectedTvDevice = device; $('tv-confirm').value = ''; $('tv-continue').disabled = false; };
         list.appendChild(button);
       });

@@ -2906,21 +2906,6 @@ function recordRouterDeviceEntries(locationId, entries) {
   return count;
 }
 
-// Paid TVs the router reported as connected but not logged in within the
-// last two minutes. The next check-in logs them in (rsc.tvLoginScript).
-const waitingPaidTvs = db.prepare(`
-  SELECT s.router_username AS username, s.password, s.mac
-    FROM tenant_subscriptions s
-    JOIN tenant_router_devices d ON d.location_id=s.location_id AND d.mac=s.mac
-   WHERE s.location_id=? AND s.device_type='tv' AND s.expires_at > datetime('now')
-     AND d.last_seen_at >= datetime('now','-2 minutes')
-   ORDER BY d.last_seen_at DESC
-   LIMIT 20
-`);
-function paidTvsWaitingForLogin(locationId) {
-  return waitingPaidTvs.all(locationId);
-}
-
 function routerDevicesForLocation(locationId) {
   pruneRouterDevices.run(locationId);
   return recentRouterDevices.all(locationId);
@@ -4346,7 +4331,7 @@ function manageVouchers({ businessId, codes, action, seconds = 0, maxSeconds = n
   };
   const disconnect = (sub) => {
     const job = insertJob.run({ locationId: sub.location_id, username: sub.router_username, password: '2222', profile: 'standard',
-      totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
+      totalSeconds: 1, rateLimit: null, mac: sub.device_type === 'tv' ? sub.mac : null, ip: null, action: 'revoke' });
     for (const device of devicesForSubscription.all(sub.location_id, sub.id)) {
       insertJob.run({ locationId: sub.location_id, username: `${sub.router_username}-tv`, password: '2222', profile: 'standard',
         totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
@@ -4420,7 +4405,8 @@ function queueExpiredSubscriptions(locationId) {
   const expired = expiredSubscriptionsNeedingJob.all(locationId);
   for (const subscription of expired) {
     const job = insertJob.run({ locationId, username: subscription.router_username, password: '2222',
-      profile: 'standard', totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
+      profile: 'standard', totalSeconds: 1, rateLimit: null,
+      mac: subscription.device_type === 'tv' ? subscription.mac : null, ip: null, action: 'revoke' });
     // A TV has its own RouterOS identity and therefore its own local uptime
     // counter. Revoke it alongside the phone so a TV cannot outlive the
     // server's wall-clock expiry.
@@ -4431,6 +4417,26 @@ function queueExpiredSubscriptions(locationId) {
     setExpiryJob.run(Number(job.lastInsertRowid), subscription.id, locationId);
   }
   return expired.length;
+}
+
+// Existing paid TVs were provisioned before RouterOS MAC authentication was
+// enabled for them. One idempotent job per live TV repairs those accounts on
+// the next router poll after deployment, without charging the customer again.
+function queueTvAccessRepair(locationId) {
+  const active = db.prepare(`SELECT router_username, password, total_seconds, rate_limit, mac
+    FROM tenant_subscriptions WHERE location_id=? AND device_type='tv'
+      AND expires_at>datetime('now') AND mac NOT LIKE 'RELEASED:%'`).all(locationId);
+  const pending = db.prepare(`SELECT 1 FROM tenant_jobs WHERE location_id=? AND username=?
+    AND action='tv-upsert' AND acked_at IS NULL LIMIT 1`);
+  let queued = 0;
+  for (const sub of active) {
+    if (pending.get(locationId, sub.router_username)) continue;
+    insertJob.run({ locationId, username: sub.router_username, password: sub.password,
+      profile: 'standard', totalSeconds: sub.total_seconds, rateLimit: sub.rate_limit,
+      mac: sub.mac, ip: null, action: 'tv-upsert' });
+    queued += 1;
+  }
+  return queued;
 }
 
 function savePaymentConnection({ businessId, collectionName, shortcode, transactionType, consumerKey, consumerSecret, passkey, verified = false }) {
@@ -4653,7 +4659,7 @@ module.exports = {
   setBusinessBillingSource,
   tokenHash, encryptSecret, decryptSecret, createLocation, rotateLocationToken, updateLocationSettings, stageLocationReplacement, discardUnusedLocation, deleteLocationForOwner, offboardLocation, queueOffboardReset, finalizeOffboardLocation, purgeExpiredOffboardedLocations, setManagedPortalHostname, storeRouterSetupScript, routerSetupScriptFor, authenticateRouter, processRouterSetupReceipt, setRouterKit, recordRouterInventory, routerInventoryForLocation, saveRouterPlan, routerPlanForLocation, deleteRouterPlan, reviewRouterPlan, applyRouterPlan, undoRouterChange, renameRouterBridge, routerChangesForLocation, recordRouterChangeAnswer, autoCompleteCustomerPortal, autoRequestRemoteAccess, recordSuccessfulRouterSync, recordRouterPortalUpdateSent, recordRouterPortalApplied,
   recordRouterTopology, routerTopologyForLocation, routerTopologyForBusiness, routerMappingForLocation, confirmRouterMapping,
-  recordRouterTelemetry, recordRouterDevices, recordRouterDeviceEntries, paidTvsWaitingForLogin, routerDevicesForLocation, routerTelemetryForLocationId, routerCheckIn,
+  recordRouterTelemetry, recordRouterDevices, recordRouterDeviceEntries, routerDevicesForLocation, routerTelemetryForLocationId, routerCheckIn,
   mappedDeploymentForBusiness, requestMappedDeployment, pendingMappedDeploymentForRouter,
   markMappedDeploymentDeliveredForRouter, acknowledgeMappedDeploymentForRouter,
   locationById, locationForBusiness, locationsForBusiness, primaryPortalDomain, portalDomainByHostname, portalDomainForLocationHostname, portalDomainsForLocation, managedPortalSlugReserved,
@@ -4673,5 +4679,5 @@ module.exports = {
   paymentConnectionSummary, savePaymentConnection, paymentCredentials,
   insertBusinessBilling, businessBillingTransaction, setBusinessBillingResult, staleBusinessBilling,
   paidBusinessBilling, duplicateBusinessBillingReceipt, activateBusinessBilling,
-  queueExpiredSubscriptions,
+  queueExpiredSubscriptions, queueTvAccessRepair,
 };
