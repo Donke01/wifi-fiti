@@ -830,7 +830,9 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   const calls = [];
   const help = vm.createContext({
     document: { createElement: tag => new TestElement(tag) },
-    downloadPlanReceipt: (record) => calls.push(['download', record.checkout_request_id]),
+    downloadPlanReceipt: (record, button, format) => calls.push(['download', record.checkout_request_id, format]),
+    // The Excel/PDF menu: record its choices, then pick Excel.
+    chooseFormat: (button, choices, onPick) => { calls.push(['menu', choices.map((choice) => choice[0])]); onPick('xlsx'); },
     openSupportTicket: (id) => calls.push(['open', id]),
   });
   for (const name of ['el', 'add', 'clear', 'kes', 'when', 'planReceiptLabel', 'supportTicketStatus', 'helpEmpty', 'drawPlanReceipts', 'drawSupportTickets', 'drawSupportThread']) {
@@ -847,7 +849,9 @@ console.log('Business UI: step 2 offline card, leaving setup without a router, a
   assert.ok(texts(receipts).some(text => /^Paid .* · Valid until .* · M-Pesa TST123$/.test(text)), 'a receipt shows when it was paid, how long it lasts and the M-Pesa code');
   const download = descendants(receipts).find(node => node.tagName === 'button');
   assert.equal(download.textContent, 'Download receipt');
-  download.listeners.click(); assert.deepEqual(calls.pop(), ['download', 'ws_CO_1'], 'Download receipt downloads that receipt');
+  download.listeners.click();
+  assert.deepEqual(calls.pop(), ['download', 'ws_CO_1', 'xlsx'], 'Download receipt downloads that receipt in the format picked');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.pop())), ['menu', ['pdf', 'xlsx']], 'a plan receipt comes as PDF or Excel');
   help.drawPlanReceipts(receipts, [{ checkout_request_id: 'ws_CO_2', plan: 'sms-7', amount: 200 }], true);
   assert.equal(descendants(receipts).filter(node => node.textContent === 'Download receipt').length, 2, 'Show more adds to the list');
   assert.equal(help.planReceiptLabel('services-pppoe'), 'PPPoE + Static IP users');

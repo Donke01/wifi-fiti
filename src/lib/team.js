@@ -52,6 +52,8 @@ const ROUTES = [
   ['POST', `${B}/resend-code`, 'public'], ['POST', `${B}/forgot-password`, 'public'], ['POST', `${B}/reset-password`, 'public'],
   ['POST', `${B}/invite/check`, 'public'], ['POST', `${B}/invite/accept`, 'public'],
   ['POST', `${B}/logout`, 'any'], ['GET', `${B}/me`, 'any'],
+  // Excel/PDF of a table the person already sees in their dashboard.
+  ['POST', `${B}/reports/table`, 'any'],
   // My profile: every signed-in person, about themselves only.
   ['GET', `${B}/profile`, 'any'], ['PATCH', `${B}/profile`, 'any', 'Changed their name'],
   ['POST', `${B}/profile/password`, 'any', 'Changed their password'],

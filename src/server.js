@@ -16,8 +16,9 @@ const { fulfil } = require('./lib/fulfil');
 const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup, buildUniversalRouterKit } = require('./lib/router-setup');
 const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topology');
 const routerChanges = require('./lib/router-changes');
-const { buildReceiptDocx, buildReceiptPdf } = require('./lib/documents/receipt');
+const { buildReceiptDocx, buildReceiptPdf, receiptData } = require('./lib/documents/receipt');
 const { sendCsv } = require('./lib/documents/csv');
+const { tableReportSpec, receiptReportSpec } = require('./lib/documents/table-export');
 const { buildReportXlsx, buildReportPdf } = require('./lib/documents/report');
 const { formatDate, formatDateTime, formatKes } = require('./lib/documents/brand');
 const routerTools = require('./lib/router-tools');
@@ -498,6 +499,8 @@ app.use('/api/internal/vpn-gateways', express.json({ limit: '4mb' }));
 // Brand logos are stored on the persistent volume and are deliberately kept
 // separate from the small JSON bodies used by payment and router endpoints.
 app.use('/api/business/branding/logo', express.json({ limit: '520kb' }));
+// A dashboard table sent back as Excel or PDF can be large (up to 20,000 rows).
+app.use('/api/business/reports/table', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false }));
 // Compatibility installer for older RouterOS CA stores. It contains no
@@ -2620,13 +2623,30 @@ app.get('/api/business/transactions/:checkoutRequestId/receipt', (req, res) => {
   if (!transaction || transaction.status !== 'paid' || (req.salesFrom && String(transaction.created_at) < req.salesFrom)) {
     return res.status(404).json({ error: 'Receipts are available for completed payments only.' });
   }
-  const format = String(req.query.format || 'pdf') === 'docx' ? 'docx' : 'pdf';
-  const build = format === 'docx' ? buildReceiptDocx : buildReceiptPdf;
+  const format = ['docx', 'xlsx'].includes(String(req.query.format)) ? String(req.query.format) : 'pdf';
   const name = `receipt-${String(transaction.mpesa_receipt || transaction.checkout_request_id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}.${format}`;
-  build({ business, transaction }).then((buffer) => {
+  let built;
+  if (format === 'xlsx') {
+    // Excel: the same fields as the slip, as a two-column sheet.
+    const slip = receiptData({ business, transaction });
+    built = buildReportXlsx(receiptReportSpec({ business, title: 'Payment receipt', amount: slip.amount, status: slip.status.text, fields: slip.fields }));
+  } else built = (format === 'docx' ? buildReceiptDocx : buildReceiptPdf)({ business, transaction });
+  built.then((buffer) => {
     res.set('Content-Disposition', `attachment; filename="${name}"`).set('Cache-Control', 'no-store');
     res.type(format).send(buffer);
   }).catch((error) => { console.error('[business receipt]', error.message); res.status(500).json({ error: 'Could not build this receipt right now.' }); });
+});
+
+// Excel or PDF of a dashboard table (packages, sales, transactions, usage,
+// vouchers, customers): the dashboard sends the rows it shows.
+app.post('/api/business/reports/table', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const body = req.body || {};
+  const format = String(body.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
+  let spec;
+  try { spec = tableReportSpec({ business, kind: String(body.kind || ''), rows: body.rows, rangeLabel: String(body.rangeLabel || '').slice(0, 80), format }); }
+  catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  sendReportDocument(res, format, `wifi-fiti-${body.kind}`, spec);
 });
 
 app.get('/api/business/reports/revenue', (req, res) => {
@@ -6168,7 +6188,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk, provisionTenantPayment,
-  documents: { buildReceiptPdf, buildReportPdf, buildReportXlsx, rangeLabel: reportRangeLabel,
+  documents: { buildReceiptPdf, buildReportPdf, buildReportXlsx, receiptReportSpec, rangeLabel: reportRangeLabel,
     payoutStatement: require('./lib/payout-statement').createPayoutStatement(db.db) } });
 const fitiSignal = require('./lib/fiti-signal');
 fitiSignal.attachFitiSignalRoutes(app, { businessAuth, startPayment: async ({ business, purchase, phone: supplied }) => {
@@ -6522,6 +6542,13 @@ app.post('/api/business/pppoe/users/:userId/send-link', pppoeOwnerRoute((req, re
 }));
 // Spreadsheet downloads of PPPoE customers and their payments.
 const exportDay = () => new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 10);
+/** ?format=xlsx (default) | pdf | csv for a server-built table. */
+function sendTableExport(req, res, business, name, title, header, rows) {
+  const format = ['pdf', 'csv'].includes(String(req.query.format)) ? String(req.query.format) : 'xlsx';
+  if (format === 'csv') return sendCsv(res, `wifi-fiti-${name}-${exportDay()}.csv`, header, rows);
+  const spec = tableReportSpec({ business, kind: 'customers', rows: [header, ...rows], rangeLabel: `As of ${exportDay()}`, format });
+  sendReportDocument(res, format, `wifi-fiti-${name}-${exportDay()}`, { ...spec, title });
+}
 app.get('/api/business/pppoe/export/customers', pppoeOwnerRoute((req, res, business) => {
   const settings = pppoeBilling.settingsFor(business.id);
   const users = db.db.prepare(`SELECT u.*, p.name AS profile_name, l.name AS location_name FROM pppoe_users u
@@ -6535,7 +6562,7 @@ app.get('/api/business/pppoe/export/customers', pppoeOwnerRoute((req, res, busin
       billing.paidUntil ? String(billing.paidUntil).slice(0, 10) : (user.expires_at ? String(user.expires_at).slice(0, 10) : ''),
       billing.price == null ? '' : Number(billing.price), Number(user.credit || 0), Number(user.install_fee_due || 0), String(user.created_at || '').slice(0, 10)];
   });
-  sendCsv(res, `wifi-fiti-pppoe-customers-${exportDay()}.csv`,
+  sendTableExport(req, res, business, 'pppoe-customers', 'PPPoE subscribers',
     ['Username', 'Name', 'Phone', 'Router', 'Plan', 'Status', 'Paid until', 'Plan price (KES)', 'Credit (KES)', 'Installation due (KES)', 'Added on'], rows);
 }));
 app.get('/api/business/pppoe/export/payments', pppoeOwnerRoute((req, res, business) => {
@@ -6543,7 +6570,7 @@ app.get('/api/business/pppoe/export/payments', pppoeOwnerRoute((req, res, busine
   const rows = payments.map((payment) => [String(payment.at || '').replace('T', ' ').slice(0, 19), payment.username, Number(payment.amount || 0),
     payment.method || '', payment.receipt || '', payment.what || '', payment.payerPhone || '', payment.recordedBy || '', payment.note || '',
     payment.reversed ? 'Yes' : 'No']);
-  sendCsv(res, `wifi-fiti-pppoe-payments-${exportDay()}.csv`,
+  sendTableExport(req, res, business, 'pppoe-payments', 'PPPoE payments',
     ['Date (UTC)', 'Username', 'Amount (KES)', 'Method', 'M-Pesa receipt', 'What it paid for', 'Paid by', 'Recorded by', 'Note', 'Reversed'], rows);
 }));
 app.get('/api/business/pppoe/payments', pppoeOwnerRoute((req, res, business) => {

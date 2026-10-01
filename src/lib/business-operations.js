@@ -339,21 +339,27 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
   app.get(`${base}/billing/:checkoutRequestId/receipt`, operator((req, res, business) => {
     const receipt = receiptRow.get(business.id, req.params.checkoutRequestId);
     if (!receipt) throw fail('Confirmed payment receipt not found.', 404);
-    // A branded PDF slip (Wi-Fi Fiti's, since Wi-Fi Fiti was paid); ?format=txt keeps the plain text one.
-    if (documents && String(req.query.format || 'pdf') !== 'txt') {
+    // A branded PDF slip (Wi-Fi Fiti's, since Wi-Fi Fiti was paid), or the
+    // same fields as an Excel sheet (?format=xlsx); ?format=txt keeps the plain text one.
+    const format = String(req.query.format || 'pdf');
+    if (documents && format !== 'txt') {
       const day = (value) => String(value || '').slice(0, 16).replace('T', ' ');
-      documents.buildReceiptPdf({
-        business: null, numberPrefix: 'WFP', title: 'WI-FI FITI PLAN RECEIPT',
-        transaction: { checkout_request_id: receipt.checkout_request_id, amount: receipt.amount, status: 'paid',
-          mpesa_receipt: receipt.mpesa_receipt, created_at: receipt.paid_at, updated_at: receipt.paid_at },
-        fields: [['Business', business.name || business.email || business.id], ['Plan', receipt.plan],
-          ['Paid on', day(receipt.paid_at) + ' UTC'], ['M-Pesa code', receipt.mpesa_receipt || 'Confirmed by status check'],
-          ['Valid until', day(receipt.expires_at) + ' UTC'], ['Reference', receipt.checkout_request_id]],
-        footnote: 'Not a statutory tax invoice.',
-      }).then((buffer) => {
-        const name = `wifi-fiti-plan-receipt-${String(receipt.mpesa_receipt || receipt.checkout_request_id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}.pdf`;
+      const fields = [['Business', business.name || business.email || business.id], ['Plan', receipt.plan],
+        ['Paid on', day(receipt.paid_at) + ' UTC'], ['M-Pesa code', receipt.mpesa_receipt || 'Confirmed by status check'],
+        ['Valid until', day(receipt.expires_at) + ' UTC'], ['Reference', receipt.checkout_request_id]];
+      const amount = 'KES ' + Number(receipt.amount || 0).toLocaleString('en-KE', { maximumFractionDigits: 2 });
+      const excel = format === 'xlsx';
+      const built = excel
+        ? documents.buildReportXlsx(documents.receiptReportSpec({ business: null, title: 'Wi-Fi Fiti plan receipt', amount, status: 'PAID',
+          fields: [...fields, ['Note', 'Not a statutory tax invoice.']] }))
+        : documents.buildReceiptPdf({ business: null, numberPrefix: 'WFP', title: 'WI-FI FITI PLAN RECEIPT',
+          transaction: { checkout_request_id: receipt.checkout_request_id, amount: receipt.amount, status: 'paid',
+            mpesa_receipt: receipt.mpesa_receipt, created_at: receipt.paid_at, updated_at: receipt.paid_at },
+          fields, footnote: 'Not a statutory tax invoice.' });
+      built.then((buffer) => {
+        const name = `wifi-fiti-plan-receipt-${String(receipt.mpesa_receipt || receipt.checkout_request_id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}.${excel ? 'xlsx' : 'pdf'}`;
         res.set('Content-Disposition', `attachment; filename="${name}"`);
-        res.type('pdf').send(buffer);
+        res.type(excel ? 'xlsx' : 'pdf').send(buffer);
       }).catch((error) => { console.error('[plan receipt]', error.message); res.status(500).json({ error: 'Could not build this receipt right now.' }); });
       return;
     }

@@ -116,4 +116,40 @@ t('receipt slip: hotspot fields by default, custom title and fields for a plan r
   assert.strictEqual(plan.amount, 'KES 1,500');
 });
 
+t('table export: a dashboard table becomes an Excel/PDF report with totals', () => {
+  const { tableReportSpec, receiptReportSpec } = require('../src/lib/documents/table-export');
+  const spec = tableReportSpec({ business: { name: 'Kitale Cafe' }, kind: 'transactions', format: 'pdf', rangeLabel: 'Last 30 days',
+    rows: [['Date (UTC)', 'Phone', 'Amount (KES)', 'Status'], ['2026-10-01 09:00', '0712 345 678', 20, 'paid'], ['2026-10-01 10:00', '=CMD()', '50.5', 'paid'], ['2026-10-01 11:00', null, '', 'failed']] });
+  assert.strictEqual(spec.title, 'Transactions');
+  assert.strictEqual(spec.rangeLabel, 'Last 30 days');
+  assert.deepStrictEqual(spec.columns.map((c) => [c.label, c.money]), [['Date (UTC)', false], ['Phone', false], ['Amount', true], ['Status', false]]);
+  assert.deepStrictEqual(spec.rows.map((r) => r.c2), [20, 50.5, ''], 'money cells are numbers; a blank stays blank');
+  assert.deepStrictEqual(spec.summary, [{ label: 'Rows', value: '3' }, { label: 'Total amount', value: 'KES 70.5' }]);
+  assert.strictEqual(spec.rows[2].c1, '', 'a missing value is blank');
+  assert.throws(() => tableReportSpec({ kind: 'secrets', rows: [['A']] }), /Choose a table/);
+  assert.throws(() => tableReportSpec({ kind: 'sales', rows: [] }), /nothing to export/);
+  assert.throws(() => tableReportSpec({ kind: 'sales', rows: [['A'], ...Array.from({ length: 20001 }, () => ['x'])] }), /Too many rows/);
+  const wide = tableReportSpec({ kind: 'customers', rows: [Array.from({ length: 30 }, (_, i) => `Col ${i}`), Array.from({ length: 30 }, () => 'x'.repeat(500))] });
+  assert.strictEqual(wide.columns.length, 20, 'at most 20 columns');
+  assert.strictEqual(wide.rows[0].c0.length, 300, 'long cells are cut');
+  const receipt = receiptReportSpec({ business: null, title: 'Payment receipt', amount: 'KES 20', status: 'PAID', fields: [['Phone', '0712'], ['Note', '']] });
+  assert.deepStrictEqual(receipt.rows, [{ field: 'Phone', value: '0712' }, { field: 'Note', value: '—' }]);
+});
+
+t('every signed-in role may turn the table it sees into Excel/PDF', () => {
+  const route = team.routeFor('POST', '/api/business/reports/table');
+  assert.strictEqual(route.permission, 'any');
+  for (const role of team.STAFF_ROLES) assert.ok(team.roleCan(role, route.permission));
+});
+
+t('the dashboard offers Excel, PDF and CSV for every table export', () => {
+  const html = fs.readFileSync(require.resolve('../public/business.html'), 'utf8');
+  assert.match(html, /var TABLE_FORMATS = \[\['xlsx', 'Excel \(\.xlsx\)'\], \['pdf', 'PDF'\], \['csv', 'CSV'\]\];/);
+  for (const kind of ['packages', 'sales', 'transactions', 'vouchers', 'customers', 'analytics']) assert.match(html, new RegExp(`data-export-table="${kind}">[^<]*▾</button>`), kind);
+  assert.match(html, /\[\['pdf', 'PDF'\], \['xlsx', 'Excel \(\.xlsx\)'\], \['docx', 'Word \(\.docx\)'\]\]/, 'customer receipts');
+  assert.match(html, /\[\['pdf', 'PDF'\], \['xlsx', 'Excel \(\.xlsx\)'\]\], function \(format\) \{ downloadPlanReceipt/, 'plan receipts');
+  const pppoe = fs.readFileSync(require.resolve('../public/pppoe.html'), 'utf8');
+  assert.match(pppoe, /\[\['xlsx', 'Excel \(\.xlsx\)'\], \['pdf', 'PDF'\], \['csv', 'CSV'\]\]/);
+});
+
 console.log(`\n${pass} passed`);

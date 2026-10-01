@@ -222,18 +222,20 @@ function buildReportPdf(spec) {
     };
     drawHeader();
     let stripe = false;
+    const cellText = (col, raw) => (col.money ? (raw === '' || raw == null ? '' : `KES ${Number(raw || 0).toLocaleString('en-KE', { maximumFractionDigits: 2 })}`) : String(raw ?? ''));
     for (const r of spec.rows) {
-      if (doc.y > doc.page.height - 70) { doc.addPage({ size: 'A4', layout: cols.length > 5 ? 'landscape' : 'portrait', margins: { top: 36, bottom: 40, left: 36, right: 36 } }); drawHeader(); }
+      // A row is as tall as its tallest cell, so a long name or note wraps
+      // inside its own row instead of running over the next one.
+      const texts = cols.map((col) => cellText(col, r[col.key]));
+      doc.font('Helvetica').fontSize(8.5);
+      const rowH = Math.max(16, ...texts.map((text, i) => doc.heightOfString(text || ' ', { width: widths[i] - 8 }) + 6));
+      if (doc.y + rowH > doc.page.height - 54) { doc.addPage({ size: 'A4', layout: cols.length > 5 ? 'landscape' : 'portrait', margins: { top: 36, bottom: 40, left: 36, right: 36 } }); drawHeader(); }
       const y = doc.y;
-      const rowH = 16;
       if (stripe) doc.rect(36, y, pageWidth, rowH).fill('#F4F7F8');
       stripe = !stripe;
       let x = 36;
       cols.forEach((col, i) => {
-        const raw = r[col.key];
-        // A blank money cell (e.g. "Money out" on a sales line) stays blank.
-        const text = col.money ? (raw === '' || raw == null ? '' : `KES ${Number(raw || 0).toLocaleString('en-KE', { maximumFractionDigits: 2 })}`) : String(raw ?? '');
-        doc.font('Helvetica').fontSize(8.5).fillColor('#101820').text(text, x + 4, y + 3, { width: widths[i] - 8, align: col.align || 'left' });
+        doc.font('Helvetica').fontSize(8.5).fillColor('#101820').text(texts[i], x + 4, y + 3, { width: widths[i] - 8, align: col.align || 'left' });
         x += widths[i];
       });
       doc.y = y + rowH;
