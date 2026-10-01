@@ -69,7 +69,8 @@ function managedPortalSlugReserved(slug) {
   if (SYSTEM_PORTAL_LABELS.has(label)) return true;
   const root = config.domains.portalRootDomain;
   if (!root) return false;
-  for (const host of [config.domains.appHost, config.domains.marketingHost, config.domains.legacyHost]) {
+  // The easy hotspot address (CAPTIVE_DOMAIN) may sit under the same root.
+  for (const host of [config.domains.appHost, config.domains.marketingHost, config.domains.legacyHost, config.domains.captiveDomain]) {
     const suffix = `.${root}`;
     if (host && host.endsWith(suffix) && host.slice(0, -suffix.length) === label) return true;
   }
