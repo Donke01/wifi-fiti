@@ -977,7 +977,7 @@ for (const value of ['payment', 'connection', 'router', 'billing', 'other']) ass
   assert.match(owner.capacityText({ online: 100, limit: 100, level: 'full' }), /^100 of 100 online on your plan · Full: new customers wait until someone leaves\. Customers with time left can still reconnect\.$/);
   assert.equal(owner.capacityText({ online: 3, limit: 0 }), '');
   assert.match(owner.capacityText({ online: 4, limit: 10, level: 'ok' }, false), /^4 of 10 counted on your plan \(every package with time left, until the router reports\)$/);
-  const body = { subscription: { payer_phone: '254711000001', expires_at: '2999-01-01 00:00:00', used_seconds: 7200, mac: 'AA:BB:CC:00:00:01', location_name: 'Kitale' },
+  const body = { subscription: { payer_phone: '254711000001', device_type: 'phone', expires_at: '2999-01-01 00:00:00', used_seconds: 7200, mac: 'AA:BB:CC:00:00:01', location_name: 'Kitale' },
     accessCodes: { connectionCode: '254711000001-ABCDEF12', recoveryCode: 'ABCD23' },
     history: [{ created_at: '2026-09-29 08:00:00', package_name: '1 day', amount: 50, status: 'paid', mpesa_receipt: 'SGR7ABC' }], vouchers: [],
     activity: { online: true, sessions: [{ started_at: '2026-09-29 08:01:00', ended_at: null, online: 1, uptime_seconds: 600, bytes_in: 1000, bytes_out: 2000000, mac: 'AA:BB:CC:00:00:01', ip: '10.5.50.11' }],
@@ -989,6 +989,11 @@ for (const value of ['payment', 'connection', 'router', 'billing', 'other']) ass
   assert.equal(detail.payments[0][2], 'KES 50');
   assert.equal(detail.accessCodes.recoveryCode, 'ABCD23');
   assert.equal(detail.accessCodes.connectionCode, '254711000001-ABCDEF12');
+  assert.equal(detail.deviceType, 'Phone / computer');
+  assert.equal(detail.purchaseMethod, 'M-Pesa');
+  assert.equal(owner.detailView({ ...body, vouchers: [{ redeemed_at: '2026-09-29 08:30:00', package_name: 'Voucher', seconds: 3600 }] }).purchaseMethod, 'M-Pesa + voucher');
+  assert.equal(owner.detailView({ ...body, history: [], vouchers: [{ redeemed_at: '2026-09-29 08:30:00', package_name: 'Voucher', seconds: 3600 }] }).purchaseMethod, 'Voucher');
+  assert.equal(owner.detailView({ ...body, subscription: { ...body.subscription, device_type: 'tv', device_label: 'Living room TV' } }).deviceType, 'TV · Living room TV');
   const technician = load((permission) => permission === 'routers.view');
   assert.equal(technician.onlineRowView(row).clickable, false, 'a role without customers.view does not open customer history');
   assert.equal(technician.detailView(body).payments[0][2], '—', 'no amount without a sales permission');

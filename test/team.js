@@ -212,6 +212,7 @@ async function test(name, fn) {
     }
     const attendant = await call('GET', endpoint, null, members.attendant.token);
     assert.equal(attendant.status, 200);
+    assert.equal(attendant.body.subscription.device_type, 'phone');
     assert.equal(attendant.body.accessCodes, null);
     assert.doesNotMatch(JSON.stringify(attendant.body), /ABCD23/);
     assert.equal((await call('GET', endpoint, null, members.technician.token)).status, 403);

@@ -262,6 +262,11 @@
   }
   function detailView(body, now) {
     var sub = body.subscription || {}; var activity = body.activity || {}; var totals = activity.totals || {};
+    var deviceType = sub.device_type === 'tv' ? 'TV' : sub.device_type === 'phone' || !sub.device_type ? 'Phone / computer' : 'Device';
+    if (sub.device_type === 'tv' && sub.device_label && sub.device_label.toLowerCase() !== 'tv') deviceType += ' · ' + sub.device_label;
+    var paid = (body.history || []).some(function (item) { return item.status === 'paid'; });
+    var voucher = Boolean((body.vouchers || []).length);
+    var purchaseMethod = paid && voucher ? 'M-Pesa + voucher' : paid ? 'M-Pesa' : voucher ? 'Voucher' : 'No purchase recorded';
     var left = Math.max(0, Math.round((sqlTime(sub.expires_at) - (now || Date.now())) / 1000));
     var sessions = (activity.sessions || []).map(function (s) {
       return [clock(s.started_at), s.online ? 'Online now' : clock(s.ended_at || s.last_seen_at), span(s.uptime_seconds), '↓ ' + bytes(s.bytes_out) + ' · ↑ ' + bytes(s.bytes_in), shortMac(s.mac) + (s.ip ? ' · ' + s.ip : '')];
@@ -279,6 +284,8 @@
       sessions: sessions, payments: payments, money: money,
       vouchers: (body.vouchers || []).map(function (v) { return [clock(v.redeemed_at), v.package_name || 'Voucher', span(v.seconds)]; }),
       device: shortMac(sub.mac) + (sub.location_name ? ' · ' + sub.location_name : ''),
+      deviceType: deviceType,
+      purchaseMethod: purchaseMethod,
       accessCodes: body.accessCodes && can('customers.edit') ? body.accessCodes : null,
     };
   }
@@ -294,6 +301,11 @@
     heading(card, view.title, view.device);
     var status = el('span', 'ou-pill' + (view.online ? '' : ' off'), view.status); card.appendChild(status);
     var cards = el('div', 'ou-cards'); view.stats.forEach(function (item) { stat(cards, item[0], item[1]); }); card.appendChild(cards);
+    var details = el('div', 'ou-codes');
+    [['Device type', view.deviceType], ['Purchase method', view.purchaseMethod]].forEach(function (item) {
+      var box = el('div', 'ou-code'); box.appendChild(el('span', '', item[0])); box.appendChild(el('b', '', item[1])); details.appendChild(box);
+    });
+    card.appendChild(details);
     if (view.accessCodes) {
       card.appendChild(el('h3', 'ou-h3', 'Customer access codes'));
       var codes = el('div', 'ou-codes');

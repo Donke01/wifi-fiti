@@ -161,7 +161,7 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
 
   app.get(`${base}/customers/:subscriptionId`, operator((req, res, business) => {
     const subscription = db.prepare(`SELECT s.id,s.location_id,l.name AS location_name,s.payer_phone,s.mac,
-      s.router_username,s.expires_at,s.total_seconds,s.rate_limit,s.used_seconds,s.is_active,s.created_at,s.updated_at
+      s.router_username,s.device_type,s.device_label,s.expires_at,s.total_seconds,s.rate_limit,s.used_seconds,s.is_active,s.created_at,s.updated_at
       FROM tenant_subscriptions s JOIN locations l ON l.id=s.location_id AND l.business_id=s.business_id
       WHERE s.id=? AND s.business_id=?`).get(req.params.subscriptionId, business.id);
     if (!subscription) throw fail('Customer not found.', 404);
