@@ -33,20 +33,33 @@ function statusWord(status) {
   return { text: 'NOT COMPLETED', color: PLATFORM.colorBad };
 }
 
-/** Normalizes whatever a transaction row looks like into what the two renderers need. */
-function receiptData({ business, transaction, receiptNumber }) {
+/**
+ * Normalizes whatever a transaction row looks like into what the two
+ * renderers need. Optional `title`, `fields` ([[label, value]], replacing
+ * the hotspot fields) and `footnote` let other receipts (a Wi-Fi Fiti plan
+ * payment) reuse the same slip.
+ */
+function receiptData({ business, transaction, receiptNumber, title, fields, footnote, numberPrefix }) {
   const brand = tenantBrand(business);
-  const number = receiptNumber || documentNumber('RCT', transaction.checkout_request_id || transaction.mpesa_receipt || transaction.id);
+  const number = receiptNumber || documentNumber(numberPrefix || 'RCT', transaction.checkout_request_id || transaction.mpesa_receipt || transaction.id);
+  const date = formatDateTime(transaction.updated_at || transaction.created_at);
+  const routerSite = transaction.location_name || '';
+  const defaultFields = [['Receipt no.', number], ['Date', date], ['Phone', transaction.phone || ''],
+    ['Package', transaction.package_name || ''], ['M-Pesa code', transaction.mpesa_receipt || '—'],
+    ...(routerSite ? [['Hotspot', routerSite]] : [])];
   return {
     brand,
     number,
-    date: formatDateTime(transaction.updated_at || transaction.created_at),
+    date,
     phone: transaction.phone || '',
     packageName: transaction.package_name || '',
     amount: formatKes(transaction.amount),
     mpesaReceipt: transaction.mpesa_receipt || '—',
     status: statusWord(transaction.status),
-    routerSite: transaction.location_name || '',
+    routerSite,
+    title: title || 'HOTSPOT PAYMENT RECEIPT',
+    fields: (fields || defaultFields).map(([label, value]) => [String(label), String(value == null || value === '' ? '—' : value)]),
+    footnote: footnote || '',
   };
 }
 
@@ -88,16 +101,12 @@ function buildReceiptDocx(input) {
       properties: { page: { size: { width: 5400, height: 8600 }, margin: { top: 0, bottom: 720, left: 0, right: 0 } } },
       children: [
         band,
-        line('HOTSPOT PAYMENT RECEIPT', { size: 15, color: PLATFORM.grey, after: 180 }),
+        line(d.title, { size: 15, color: PLATFORM.grey, after: 180 }),
         line(d.amount, { bold: true, size: 46, color: PLATFORM.colorDark, after: 60 }),
         statusPill,
-        kv('Receipt no.', d.number),
-        kv('Date', d.date),
-        kv('Phone', d.phone),
-        kv('Package', d.packageName),
-        kv('M-Pesa code', d.mpesaReceipt),
-        ...(d.routerSite ? [kv('Hotspot', d.routerSite)] : []),
+        ...d.fields.map(([label, value]) => kv(label, value)),
         dashedRule(),
+        ...(d.footnote ? [line(d.footnote, { size: 15, color: PLATFORM.grey })] : []),
         line(d.brand.poweredBy, { size: 15, color: PLATFORM.grey, italics: true }),
         ...(d.brand.supportPhone ? [line(`Support: ${d.brand.supportPhone}`, { size: 15, color: PLATFORM.grey })] : []),
       ],
@@ -144,7 +153,7 @@ function buildReceiptPdf(input) {
     doc.font('Helvetica-Bold').fontSize(16).fillColor('#FFFFFF').text(d.brand.name, 14, 54, { width: width - 28, align: 'center' });
     doc.y = bandH + 14;
 
-    centerText('HOTSPOT PAYMENT RECEIPT', { size: 8, color: '#6B7A87', gap: 0.5 });
+    centerText(d.title, { size: 8, color: '#6B7A87', gap: 0.5 });
     centerText(d.amount, { bold: true, size: 27, color: '#06111F', gap: 0.15 });
 
     // Status pill: a small rounded, filled badge rather than plain text.
@@ -158,14 +167,10 @@ function buildReceiptPdf(input) {
     doc.y = pillY + 18;
     doc.moveDown(1);
 
-    kv('Receipt no.', d.number);
-    kv('Date', d.date);
-    kv('Phone', d.phone);
-    kv('Package', d.packageName);
-    kv('M-Pesa code', d.mpesaReceipt);
-    if (d.routerSite) kv('Hotspot', d.routerSite);
+    d.fields.forEach(([label, value]) => kv(label, value));
     doc.moveDown(0.5);
     dashedRule();
+    if (d.footnote) centerText(d.footnote, { size: 7.5, color: '#6B7A87' });
     centerText(d.brand.poweredBy, { size: 7.5, color: '#6B7A87' });
     if (d.brand.supportPhone) centerText(`Support: ${d.brand.supportPhone}`, { size: 7.5, color: '#6B7A87' });
     doc.end();

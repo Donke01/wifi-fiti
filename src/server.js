@@ -17,6 +17,7 @@ const { validateRouterSetup, buildExistingRouterBootstrap, buildRouterSetup, bui
 const { parseRouterTopology, parseRouterInventory } = require('./lib/router-topology');
 const routerChanges = require('./lib/router-changes');
 const { buildReceiptDocx, buildReceiptPdf } = require('./lib/documents/receipt');
+const { sendCsv } = require('./lib/documents/csv');
 const { buildReportXlsx, buildReportPdf } = require('./lib/documents/report');
 const { formatDate, formatDateTime, formatKes } = require('./lib/documents/brand');
 const routerTools = require('./lib/router-tools');
@@ -2609,6 +2610,25 @@ function sendReportDocument(res, format, filenameBase, spec) {
     res.type(extension).send(buffer);
   }).catch((error) => { console.error(`[${filenameBase} report]`, error.message); res.status(500).json({ error: 'Could not build this report right now.' }); });
 }
+// A customer's payment receipt, downloaded by the business from its
+// dashboard (Money → Transactions): the same branded slip the customer gets.
+// Paid payments of this business only; an Attendant only today's.
+app.get('/api/business/transactions/:checkoutRequestId/receipt', (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  const transaction = db.db.prepare(`SELECT t.*, l.name AS location_name FROM tenant_transactions t
+      LEFT JOIN locations l ON l.id=t.location_id WHERE t.checkout_request_id=? AND t.business_id=?`).get(String(req.params.checkoutRequestId || ''), business.id);
+  if (!transaction || transaction.status !== 'paid' || (req.salesFrom && String(transaction.created_at) < req.salesFrom)) {
+    return res.status(404).json({ error: 'Receipts are available for completed payments only.' });
+  }
+  const format = String(req.query.format || 'pdf') === 'docx' ? 'docx' : 'pdf';
+  const build = format === 'docx' ? buildReceiptDocx : buildReceiptPdf;
+  const name = `receipt-${String(transaction.mpesa_receipt || transaction.checkout_request_id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}.${format}`;
+  build({ business, transaction }).then((buffer) => {
+    res.set('Content-Disposition', `attachment; filename="${name}"`).set('Cache-Control', 'no-store');
+    res.type(format).send(buffer);
+  }).catch((error) => { console.error('[business receipt]', error.message); res.status(500).json({ error: 'Could not build this receipt right now.' }); });
+});
+
 app.get('/api/business/reports/revenue', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
   const period = String(req.query.period || '30d');
@@ -6147,7 +6167,9 @@ app.get('/api/health', async (req, res) => {
   res.status(out.ok ? 200 : 503).json(out);
 });
 
-require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk, provisionTenantPayment });
+require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk, provisionTenantPayment,
+  documents: { buildReceiptPdf, buildReportPdf, buildReportXlsx, rangeLabel: reportRangeLabel,
+    payoutStatement: require('./lib/payout-statement').createPayoutStatement(db.db) } });
 const fitiSignal = require('./lib/fiti-signal');
 fitiSignal.attachFitiSignalRoutes(app, { businessAuth, startPayment: async ({ business, purchase, phone: supplied }) => {
   const phone = mpesa.normalizePhone(supplied || business.owner_phone);
@@ -6497,6 +6519,32 @@ app.post('/api/business/pppoe/users/:userId/send-link', pppoeOwnerRoute((req, re
   const queued = fitiSignal.enqueue({ businessId: business.id, eventId: `pppoe-link:${user.id}:${Date.now()}`, serviceKey: 'receipt_link', to: `+${user.phone}`, message: text });
   if (queued && queued.skipped) return res.status(402).json({ error: queued.reason === 'insufficient-credits' ? 'Buy SMS credits to send the link, or copy it instead.' : 'The SMS was not sent (your SMS limits). Copy the link instead.' });
   res.json({ sent: true });
+}));
+// Spreadsheet downloads of PPPoE customers and their payments.
+const exportDay = () => new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 10);
+app.get('/api/business/pppoe/export/customers', pppoeOwnerRoute((req, res, business) => {
+  const settings = pppoeBilling.settingsFor(business.id);
+  const users = db.db.prepare(`SELECT u.*, p.name AS profile_name, l.name AS location_name FROM pppoe_users u
+      LEFT JOIN pppoe_profiles p ON p.id=u.profile_id LEFT JOIN locations l ON l.id=u.location_id
+      WHERE u.business_id=? ORDER BY u.username`).all(business.id);
+  const rows = users.map((user) => {
+    const view = pppoeBilling.ownerView(user, { settings });
+    const billing = view.billing || {};
+    return [user.username, user.full_name || '', view.phone || '', user.location_name || '', user.profile_name || '',
+      user.status === 'disabled' ? 'Switched off' : (billing.status || user.status || ''),
+      billing.paidUntil ? String(billing.paidUntil).slice(0, 10) : (user.expires_at ? String(user.expires_at).slice(0, 10) : ''),
+      billing.price == null ? '' : Number(billing.price), Number(user.credit || 0), Number(user.install_fee_due || 0), String(user.created_at || '').slice(0, 10)];
+  });
+  sendCsv(res, `wifi-fiti-pppoe-customers-${exportDay()}.csv`,
+    ['Username', 'Name', 'Phone', 'Router', 'Plan', 'Status', 'Paid until', 'Plan price (KES)', 'Credit (KES)', 'Installation due (KES)', 'Added on'], rows);
+}));
+app.get('/api/business/pppoe/export/payments', pppoeOwnerRoute((req, res, business) => {
+  const payments = pppoeBilling.paymentsForOwner(business.id, { limit: 20000 });
+  const rows = payments.map((payment) => [String(payment.at || '').replace('T', ' ').slice(0, 19), payment.username, Number(payment.amount || 0),
+    payment.method || '', payment.receipt || '', payment.what || '', payment.payerPhone || '', payment.recordedBy || '', payment.note || '',
+    payment.reversed ? 'Yes' : 'No']);
+  sendCsv(res, `wifi-fiti-pppoe-payments-${exportDay()}.csv`,
+    ['Date (UTC)', 'Username', 'Amount (KES)', 'Method', 'M-Pesa receipt', 'What it paid for', 'Paid by', 'Recorded by', 'Note', 'Reversed'], rows);
 }));
 app.get('/api/business/pppoe/payments', pppoeOwnerRoute((req, res, business) => {
   res.json({ payments: pppoeBilling.paymentsForOwner(business.id, { userId: req.query.userId ? String(req.query.userId) : null, limit: 200 }) });

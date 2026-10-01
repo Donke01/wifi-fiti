@@ -126,7 +126,8 @@ async function buildReportXlsx(spec) {
     excelRow.eachCell((cell, i) => {
       const col = spec.columns[i - 1];
       cell.alignment = { horizontal: col.align || 'left' };
-      if (col.money) cell.numFmt = '"KES" #,##0';
+      // Two decimal places, so a fee share's cents are kept; a blank cell stays blank.
+      if (col.money) cell.numFmt = '"KES" #,##0.00;-"KES" #,##0.00;"KES" 0.00;@';
       if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7FAFB' } };
     });
   });
@@ -230,7 +231,8 @@ function buildReportPdf(spec) {
       let x = 36;
       cols.forEach((col, i) => {
         const raw = r[col.key];
-        const text = col.money ? `KES ${Number(raw || 0).toLocaleString('en-KE')}` : String(raw ?? '');
+        // A blank money cell (e.g. "Money out" on a sales line) stays blank.
+        const text = col.money ? (raw === '' || raw == null ? '' : `KES ${Number(raw || 0).toLocaleString('en-KE', { maximumFractionDigits: 2 })}`) : String(raw ?? '');
         doc.font('Helvetica').fontSize(8.5).fillColor('#101820').text(text, x + 4, y + 3, { width: widths[i] - 8, align: col.align || 'left' });
         x += widths[i];
       });

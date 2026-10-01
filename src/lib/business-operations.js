@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const team = require('./team');
 
 /** Business records and manually processed settlements. This module never transfers money. */
-function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provisionTenantPayment }) {
+function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provisionTenantPayment, documents = null }) {
   const db = store.db;
   db.exec(`
     CREATE TABLE IF NOT EXISTS business_support_tickets (
@@ -339,6 +339,24 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
   app.get(`${base}/billing/:checkoutRequestId/receipt`, operator((req, res, business) => {
     const receipt = receiptRow.get(business.id, req.params.checkoutRequestId);
     if (!receipt) throw fail('Confirmed payment receipt not found.', 404);
+    // A branded PDF slip (Wi-Fi Fiti's, since Wi-Fi Fiti was paid); ?format=txt keeps the plain text one.
+    if (documents && String(req.query.format || 'pdf') !== 'txt') {
+      const day = (value) => String(value || '').slice(0, 16).replace('T', ' ');
+      documents.buildReceiptPdf({
+        business: null, numberPrefix: 'WFP', title: 'WI-FI FITI PLAN RECEIPT',
+        transaction: { checkout_request_id: receipt.checkout_request_id, amount: receipt.amount, status: 'paid',
+          mpesa_receipt: receipt.mpesa_receipt, created_at: receipt.paid_at, updated_at: receipt.paid_at },
+        fields: [['Business', business.name || business.email || business.id], ['Plan', receipt.plan],
+          ['Paid on', day(receipt.paid_at) + ' UTC'], ['M-Pesa code', receipt.mpesa_receipt || 'Confirmed by status check'],
+          ['Valid until', day(receipt.expires_at) + ' UTC'], ['Reference', receipt.checkout_request_id]],
+        footnote: 'Not a statutory tax invoice.',
+      }).then((buffer) => {
+        const name = `wifi-fiti-plan-receipt-${String(receipt.mpesa_receipt || receipt.checkout_request_id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}.pdf`;
+        res.set('Content-Disposition', `attachment; filename="${name}"`);
+        res.type('pdf').send(buffer);
+      }).catch((error) => { console.error('[plan receipt]', error.message); res.status(500).json({ error: 'Could not build this receipt right now.' }); });
+      return;
+    }
     const oneLine = value => String(value || '').replace(/[\r\n\t]/g, ' ');
     const lines = ['Wi-Fi Fiti — subscription payment receipt', '', 'Not a statutory tax invoice.', '',
       `Business: ${oneLine(business.name)}`, `Business ID: ${oneLine(business.id)}`,
@@ -355,6 +373,20 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
     const rows = db.prepare('SELECT * FROM business_payout_requests WHERE business_id=? ORDER BY created_at DESC,id LIMIT ? OFFSET ?')
       .all(business.id, limit + 1, offset);
     res.json({ balance: balance(business.id), payouts: rows.slice(0, limit), nextOffset: rows.length > limit ? offset + limit : null });
+  }));
+  // Payout statement (Excel or PDF): collected sales, fees and payouts over a period.
+  app.get(`${base}/payouts/statement`, operator((req, res, business) => {
+    if (!documents) throw fail('Statements are not available right now.', 503);
+    const period = String(req.query.period || '30d');
+    const days = { '7d': 7, '30d': 30, '90d': 90, '365d': 365 }[period];
+    const since = days ? new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : '1970-01-01 00:00:00';
+    const format = String(req.query.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
+    const rangeLabel = days ? documents.rangeLabel(since) : 'All time';
+    const spec = documents.payoutStatement.reportSpec({ business, since, rangeLabel, format });
+    (format === 'pdf' ? documents.buildReportPdf : documents.buildReportXlsx)(spec).then((buffer) => {
+      res.set('Content-Disposition', `attachment; filename="wifi-fiti-payout-statement.${format}"`);
+      res.type(format).send(buffer);
+    }).catch((error) => { console.error('[payout statement]', error.message); res.status(500).json({ error: 'Could not build this statement right now.' }); });
   }));
   app.post(`${base}/payouts`, operator((req, res, business) => {
     const body = req.body || {};

@@ -74,7 +74,7 @@ const ROUTES = [
   ['POST', `${B}/tuma/settlement`, 'owner', 'Changed Tuma payout'], ['POST', `${B}/tuma/link`, 'owner', 'Linked Tuma'],
   ['DELETE', `${B}/tuma/link`, 'owner', 'Unlinked Tuma'], ['GET', `${B}/tuma/fee`, 'owner'],
   ['POST', `${B}/tuma/fee/checkout`, 'owner', 'Paid the Tuma fee'],
-  ['GET', `${B}/operations/payouts`, 'owner'], ['POST', `${B}/operations/payouts`, 'owner', 'Asked for a payout'],
+  ['GET', `${B}/operations/payouts/statement`, 'owner'], ['GET', `${B}/operations/payouts`, 'owner'], ['POST', `${B}/operations/payouts`, 'owner', 'Asked for a payout'],
   ['POST', `${B}/operations/payouts/:payoutId/cancel`, 'owner', 'Cancelled a payout'], ['GET', `${B}/operations/payouts/:payoutId`, 'owner'],
   ['POST', `${B}/sms/packages`, 'owner', 'Bought SMS credits'],
   ['DELETE', `${B}/locations/:locationId`, 'owner', 'Deleted a router'],
@@ -85,7 +85,9 @@ const ROUTES = [
   ['POST', `${B}/team/members/:memberId/reset`, 'owner', 'Made a password reset link'],
 
   // Sales (an Attendant sees today only, enforced in the routes)
-  ['GET', `${B}/dashboard`, SALES], ['GET', `${B}/tenant-dashboard`, SALES], ['GET', `${B}/pppoe/payments`, 'sales.view'],
+  ['GET', `${B}/dashboard`, SALES], ['GET', `${B}/tenant-dashboard`, SALES], ['GET', `${B}/pppoe/payments`, 'sales.view'], ['GET', `${B}/pppoe/export/payments`, 'sales.view'],
+  // A customer's receipt for a completed payment (an Attendant: today's only).
+  ['GET', `${B}/transactions/:checkoutRequestId/receipt`, [...SALES, 'customers.view']],
 
   // Packages and prices
   ['POST', `${B}/packages`, 'packages.edit', 'Added a package'], ['PATCH', `${B}/packages/:packageId`, 'packages.edit', 'Changed a package'],
@@ -106,6 +108,7 @@ const ROUTES = [
   // Support hub: find a customer by phone, voucher or M-Pesa code, and its numbers.
   ['GET', `${B}/support/search`, 'customers.view'], ['GET', `${B}/support/summary`, 'customers.view'],
   ['POST', `${B}/operations/transactions/:checkoutRequestId/retry`, 'payments.recover', 'Switched on a paid customer'],
+  ['GET', `${B}/pppoe/export/customers`, 'customers.view'],
   ['GET', `${B}/pppoe`, 'customers.view'], ['GET', `${B}/pppoe/billing`, 'customers.view'], ['GET', `${B}/pppoe/jobs/:jobId`, 'customers.view'],
   ['GET', `${B}/pppoe/requests`, 'customers.view'],
   ['PATCH', `${B}/pppoe/requests/:requestId`, 'customers.edit', 'Updated a connection request'],
