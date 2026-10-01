@@ -26,6 +26,7 @@ const { PACKAGES, findPackage } = require('./packages');
 const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./lib/device-purchase');
 const { portalFont } = require('./lib/tenant-portal-templates');
 const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
+const { isCaptiveHost, captiveDomainScript } = require('./lib/captive-domain');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const pppoeBilling = require('./lib/pppoe-billing');
@@ -357,6 +358,19 @@ const DEMO_PAGES = {
   '/demo/try': 'demo-try.html',
   '/demo/dashboard': 'demo-dashboard.html',
 };
+
+// The easy hotspot address (CAPTIVE_DOMAIN). On a hotspot the router answers
+// it locally; a request that reaches the cloud came from off the hotspot, so
+// it only ever gets a "connect to the Wi-Fi first" page. No HSTS here: on the
+// hotspot the same name is served by the router over plain HTTP.
+app.use((req, res, next) => {
+  if (!isCaptiveHost(requestHost(req), config.domains.captiveDomain)) return next();
+  res.vary('Host');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex');
+  if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(405).type('text/plain').send('Not available.');
+  return res.sendFile(path.join(publicDirectory, 'connect-first.html'));
+});
 
 app.use((req, res, next) => {
   const host = requestHost(req);
@@ -3661,7 +3675,11 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
   // `link-login-only-esc` variable. Using the latter leaves the customer
   // portal with a literal, unusable form action, so payment succeeds but the
   // captive browser never authenticates until the page is refreshed.
-  const portal = `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
+  // status.html is what a logged-in customer sees on the router's own
+  // address (the easy hotspot address). It has no login link to carry.
+  const portal = req.query.page === 'status'
+    ? `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)`
+    : `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
 });
@@ -5478,8 +5496,22 @@ const deviceDiscoveryViewedAt = new Map();
 const TELEMETRY_EVERY_MS = 30_000;
 const TELEMETRY_VIEWING_EVERY_MS = 10_000;
 const TELEMETRY_OVERDUE_MS = 60_000;
+// The easy hotspot address rides on a quiet reply at most every 10 minutes
+// per router; the router itself skips it once applied (until a reboot or a
+// new domain). Universal-kit routers may have no HotSpot, so never get it.
+const captiveSentAt = new Map();
+const CAPTIVE_EVERY_MS = 10 * 60_000;
+function withCaptiveDomain(location, result) {
+  const domain = config.domains.captiveDomain;
+  if (!domain || !result.quiet || location.router_kit === 'universal') return result;
+  if (Date.now() - (captiveSentAt.get(location.id) || 0) < CAPTIVE_EVERY_MS) return result;
+  const block = captiveDomainScript(domain);
+  if (!block) return result;
+  captiveSentAt.set(location.id, Date.now());
+  return { ...result, script: [result.script, block].filter(Boolean).join('\n') };
+}
 function tenantRouterScript(location, options = {}) {
-  const result = tenantRouterScriptWithExtras(location, options);
+  const result = withCaptiveDomain(location, tenantRouterScriptWithExtras(location, options));
   // ROUTER_TELEMETRY=off stops the report on every router at once.
   if (String(process.env.ROUTER_TELEMETRY || '').toLowerCase() === 'off') return result;
   const since = Date.now() - (telemetryAskedAt.get(location.id) || 0);
