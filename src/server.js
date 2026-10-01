@@ -5141,7 +5141,7 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* Router polling API                                                  */
 /* ------------------------------------------------------------------ */
 
-const { buildScript, buildExpiryScript, buildRemoteSupportScript, buildMappedDeploymentScript } = require('./lib/rsc');
+const { buildScript, buildExpiryScript, buildRemoteSupportScript, buildMappedDeploymentScript, tvLoginScript } = require('./lib/rsc');
 
 /** Constant-time compare so the token cannot be guessed by timing. */
 function tokenOk(supplied) {
@@ -5475,8 +5475,21 @@ const onlineViewedAt = new Map();
 const TELEMETRY_EVERY_MS = 30_000;
 const TELEMETRY_VIEWING_EVERY_MS = 10_000;
 const TELEMETRY_OVERDUE_MS = 60_000;
+// A paid TV the router reports as waiting on the network (switched on after
+// its package was provisioned, or its first login did not take) is logged in
+// on the next quiet reply, at most every 10 seconds per router.
+const tvLoginSentAt = new Map();
+const TV_LOGIN_EVERY_MS = 10_000;
+function withWaitingTvLogins(location, result) {
+  if (!(result.quiet || result.light) || Date.now() - (tvLoginSentAt.get(location.id) || 0) < TV_LOGIN_EVERY_MS) return result;
+  let block = '';
+  try { block = tvLoginScript(tenant.paidTvsWaitingForLogin(location.id)); } catch (_) { block = ''; }
+  if (!block) return result;
+  tvLoginSentAt.set(location.id, Date.now());
+  return { ...result, script: [result.script, block].filter(Boolean).join('\n') };
+}
 function tenantRouterScript(location, options = {}) {
-  const result = tenantRouterScriptWithExtras(location, options);
+  const result = withWaitingTvLogins(location, tenantRouterScriptWithExtras(location, options));
   // ROUTER_TELEMETRY=off stops the report on every router at once.
   if (String(process.env.ROUTER_TELEMETRY || '').toLowerCase() === 'off') return result;
   const since = Date.now() - (telemetryAskedAt.get(location.id) || 0);
@@ -5787,6 +5800,7 @@ app.post('/api/router/telemetry', (req, res) => {
   telemetryReportAt.set(location.id, Date.now());
   try {
     hotspotSessions.recordReport(location, report);
+    if (report.devices.length) tenant.recordRouterDeviceEntries(location.id, report.devices);
     if (report.resources && Date.now() - (telemetrySampleAt.get(location.id) || 0) >= 50_000) {
       const sample = tenant.recordRouterTelemetry({ locationId: location.id, ...report.resources,
         activeUsers: report.customersOnline });
