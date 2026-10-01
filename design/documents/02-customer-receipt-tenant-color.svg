@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="560" viewBox="0 0 320 560">
+<title>Customer receipt — tenant brand color</title>
+<rect id="Page" x="0.00" y="0.00" width="320.00" height="560.00" rx="0" fill="#FFFFFF"/>
+<g id="Header band">
+<rect id="Band" x="0.00" y="0.00" width="320.00" height="92.00" rx="0" fill="#5B3FC4"/>
+<g id="Wi-Fi mark" transform="translate(145.00 14.00) scale(1.2500)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#FFFFFF"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#FFFFFF" stroke-width="2.4"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#FFFFFF" stroke-width="2.16"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#FFFFFF" stroke-width="1.92"/></g>
+<text id="Brand name" x="117.33" y="67.30" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Eldoret Net</text>
+</g>
+<text id="Title" x="102.51" y="112.60" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8" fill="#6B7A87">HOTSPOT PAYMENT RECEIPT</text>
+<text id="Amount" x="113.47" y="140.40" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="27" font-weight="700" fill="#06111F">KES 20</text>
+<g id="Status pill">
+<rect x="126.50" y="153.32" width="67.01" height="18.00" rx="9" fill="#B8860B"/>
+<text x="139.50" y="165.72" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="9" font-weight="700" fill="#FFFFFF">PENDING</text>
+</g>
+<g id="Fields">
+<text x="110.40" y="191.32" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Receipt no.</text>
+<text x="158.12" y="191.32" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">RCT-0Z81QX</text>
+<text x="103.30" y="203.59" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Date</text>
+<text x="125.97" y="203.59" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">01 Oct 2026 · 11:40 am</text>
+<text x="116.98" y="215.87" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Phone</text>
+<text x="146.29" y="215.87" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">254798765432</text>
+<text x="127.64" y="228.15" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Package</text>
+<text x="165.44" y="228.15" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">1 Hour</text>
+<text x="128.35" y="240.42" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">M-Pesa code</text>
+<text x="183.15" y="240.42" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">—</text>
+<text x="113.47" y="252.70" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Hotspot</text>
+<text x="147.49" y="252.70" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">Eldoret Market</text>
+</g>
+<line id="Dashed rule" x1="20" y1="267.97" x2="300" y2="267.97" stroke="#B8C4CC" stroke-width="1" stroke-dasharray="3 2"/>
+<text x="87.06" y="289.97" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="7.5" fill="#6B7A87">Billed on Wi-Fi Fiti — M-Pesa hotspot billing</text>
+</svg>

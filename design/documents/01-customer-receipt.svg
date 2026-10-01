@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="560" viewBox="0 0 320 560">
+<title>Customer receipt — default brand</title>
+<rect id="Page" x="0.00" y="0.00" width="320.00" height="560.00" rx="0" fill="#FFFFFF"/>
+<g id="Header band">
+<rect id="Band" x="0.00" y="0.00" width="320.00" height="92.00" rx="0" fill="#007D90"/>
+<g id="Wi-Fi mark" transform="translate(145.00 14.00) scale(1.2500)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#FFFFFF"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#FFFFFF" stroke-width="2.4"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#FFFFFF" stroke-width="2.16"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#FFFFFF" stroke-width="1.92"/></g>
+<text id="Brand name" x="96.95" y="67.30" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#FFFFFF">Kitale Cafe Wi-Fi</text>
+</g>
+<text id="Title" x="102.51" y="112.60" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8" fill="#6B7A87">HOTSPOT PAYMENT RECEIPT</text>
+<text id="Amount" x="113.47" y="140.40" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="27" font-weight="700" fill="#06111F">KES 50</text>
+<g id="Status pill">
+<rect x="136.58" y="153.32" width="46.84" height="18.00" rx="9" fill="#1E8E5A"/>
+<text x="149.58" y="165.72" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="9" font-weight="700" fill="#FFFFFF">PAID</text>
+</g>
+<g id="Fields">
+<text x="109.69" y="191.32" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Receipt no.</text>
+<text x="157.41" y="191.32" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">RCT-4K2Q9A</text>
+<text x="103.06" y="203.59" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Date</text>
+<text x="125.74" y="203.59" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">01 Oct 2026 · 09:12 am</text>
+<text x="116.98" y="215.87" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Phone</text>
+<text x="146.29" y="215.87" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">254712345678</text>
+<text x="122.91" y="228.15" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Package</text>
+<text x="160.71" y="228.15" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">24 Hours</text>
+<text x="106.61" y="240.42" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">M-Pesa code</text>
+<text x="161.41" y="240.42" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">SJK3XYZ123</text>
+<text x="118.66" y="252.70" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#6B7A87">Hotspot</text>
+<text x="152.68" y="252.70" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#101820">Kitale Stage</text>
+</g>
+<line id="Dashed rule" x1="20" y1="267.97" x2="300" y2="267.97" stroke="#B8C4CC" stroke-width="1" stroke-dasharray="3 2"/>
+<text x="87.06" y="289.97" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="7.5" fill="#6B7A87">Billed on Wi-Fi Fiti — M-Pesa hotspot billing</text>
+<text x="121.84" y="301.60" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="7.5" fill="#6B7A87">Support: 0712 345 678</text>
+</svg>

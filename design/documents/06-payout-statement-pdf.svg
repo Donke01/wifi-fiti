@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="842" height="595" viewBox="0 0 842 595">
+<title>Payout statement — PDF (A4 landscape)</title>
+<rect id="Page" x="0.00" y="0.00" width="842.00" height="595.00" rx="0" fill="#FFFFFF"/>
+<g id="Header band">
+<rect id="Band" x="0.00" y="0.00" width="842.00" height="64.00" rx="0" fill="#007D90"/>
+<g id="Wi-Fi mark" transform="translate(258.93 18.00) scale(1.1667)" fill="none"><circle cx="12" cy="19.68" r="2.16" fill="#FFFFFF"/><path d="M6.821 14.678A7.2 7.2 0 0 1 17.179 14.678" stroke="#FFFFFF" stroke-width="2.4"/><path d="M3.368 11.344A12 12 0 0 1 20.632 11.344" stroke="#FFFFFF" stroke-width="2.16"/><path d="M-0.084 8.009A16.8 16.8 0 0 1 24.084 8.009" stroke="#FFFFFF" stroke-width="1.92"/></g>
+<text id="Title" x="296.93" y="37.96" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="19" font-weight="700" fill="#FFFFFF">Kitale Cafe — Payout statement</text>
+</g>
+<text id="Subtitle" x="363.75" y="86.40" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="10" fill="#6B7A87">Kitale Cafe · Last 30 days</text>
+<g id="KPI tiles">
+<rect x="36.00" y="101.60" width="185.00" height="52.00" rx="6" fill="#F4F7F8" stroke="#E1E8EC" stroke-width="1"/>
+<text x="46.00" y="117.90" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="7.5" fill="#6B7A87">COLLECTED FOR YOU (AFTER FEE)</text>
+<text x="46.00" y="139.00" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#007D90">KES 9,186.5</text>
+<rect x="231.00" y="101.60" width="185.00" height="52.00" rx="6" fill="#F4F7F8" stroke="#E1E8EC" stroke-width="1"/>
+<text x="241.00" y="117.90" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="7.5" fill="#6B7A87">PAID OUT</text>
+<text x="241.00" y="139.00" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#007D90">KES 5,000</text>
+<rect x="426.00" y="101.60" width="185.00" height="52.00" rx="6" fill="#F4F7F8" stroke="#E1E8EC" stroke-width="1"/>
+<text x="436.00" y="117.90" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="7.5" fill="#6B7A87">WAITING FOR REVIEW</text>
+<text x="436.00" y="139.00" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#007D90">KES 2,000</text>
+<rect x="621.00" y="101.60" width="185.00" height="52.00" rx="6" fill="#F4F7F8" stroke="#E1E8EC" stroke-width="1"/>
+<text x="631.00" y="117.90" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="7.5" fill="#6B7A87">AVAILABLE NOW</text>
+<text x="631.00" y="139.00" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#007D90">KES 2,186.5</text>
+</g>
+<g id="Table header">
+<rect x="36.00" y="169.60" width="770.00" height="20.00" rx="0" fill="#06111F"/>
+<text x="40.00" y="182.80" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#FFFFFF">Date</text>
+<text x="132.93" y="182.80" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#FFFFFF">Description</text>
+<text x="473.10" y="182.80" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#FFFFFF">Money in</text>
+<text x="560.36" y="182.80" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#FFFFFF">Money out</text>
+<text x="610.86" y="182.80" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#FFFFFF">Status</text>
+<text x="717.07" y="182.80" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#FFFFFF">Reference</text>
+</g>
+<g id="Table rows">
+<text x="40.00" y="200.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">2026-09-28</text>
+<text x="132.93" y="200.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Customer sales collected by Wi-Fi Fiti (64 payments, fee KES 160)</text>
+<text x="469.29" y="200.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">KES 3,040</text>
+<text x="602.86" y="200.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+<text x="610.86" y="200.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Collected</text>
+<text x="717.07" y="200.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+<rect x="36.00" y="205.60" width="770.00" height="16.00" rx="0" fill="#F4F7F8"/>
+<text x="40.00" y="216.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">2026-09-29</text>
+<text x="132.93" y="216.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Customer sales collected by Wi-Fi Fiti (71 payments, fee KES 182.5)</text>
+<text x="462.20" y="216.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">KES 3,467.5</text>
+<text x="602.86" y="216.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+<text x="610.86" y="216.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Collected</text>
+<text x="717.07" y="216.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+<text x="40.00" y="232.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">2026-09-29</text>
+<text x="132.93" y="232.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Payout to Morgan Mfo (M-Pesa ••5678)</text>
+<text x="509.93" y="232.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+<text x="562.22" y="232.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">KES 5,000</text>
+<text x="610.86" y="232.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Paid</text>
+<text x="717.07" y="232.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">QWE123RTY</text>
+<rect x="36.00" y="237.60" width="770.00" height="16.00" rx="0" fill="#F4F7F8"/>
+<text x="40.00" y="248.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">2026-09-30</text>
+<text x="132.93" y="248.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Customer sales collected by Wi-Fi Fiti (58 payments, fee KES 141)</text>
+<text x="469.29" y="248.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">KES 2,679</text>
+<text x="602.86" y="248.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+<text x="610.86" y="248.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Collected</text>
+<text x="717.07" y="248.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+<text x="40.00" y="264.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">2026-10-01</text>
+<text x="132.93" y="264.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Payout to Kitale Cafe Ltd (bank ••6789)</text>
+<text x="509.93" y="264.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+<text x="562.22" y="264.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">KES 2,000</text>
+<text x="610.86" y="264.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820">Waiting for review</text>
+<text x="717.07" y="264.20" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8.5" fill="#101820"></text>
+</g>
+<text id="Footer" x="277.64" y="290.30" font-family="Arimo, 'Liberation Sans', Helvetica, Arial, sans-serif" font-size="8" font-style="italic" fill="#6B7A87">Generated 01 Oct 2026 · 09:40 am · Billed on Wi-Fi Fiti — M-Pesa hotspot billing</text>
+</svg>
