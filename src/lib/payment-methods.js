@@ -6,7 +6,8 @@
  * A business can hold many methods and give each router its own:
  *   fiti            Wi-Fi Fiti collects; the sale (less the fee) is paid out
  *   daraja:<id>     one of the business's own Till / PayBill accounts
- *   tuma            the business's Tuma settlement account
+ *   tuma            the business's main Tuma settlement account
+ *   tuma:<id>       one of its extra Tuma settlement accounts
  *
  * Which method a router uses (resolve):
  *   1. the router's own choice, if it is still usable
@@ -27,7 +28,8 @@ const fail = (message, status = 400) => Object.assign(new Error(message), { stat
 const cleanLabel = (value) => String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
 const TRANSACTION_TYPES = { CustomerPayBillOnline: 'PayBill', CustomerBuyGoodsOnline: 'Till (Buy Goods)' };
 
-function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected = () => false }) {
+function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected = () => false, tumaExtras = null }) {
+  const extras = tumaExtras || { extraAccounts: () => [], extraUsable: () => false };
   db.exec(`
     CREATE TABLE IF NOT EXISTS tenant_mpesa_accounts (
       id                     TEXT PRIMARY KEY,
@@ -140,15 +142,22 @@ function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected =
   const fitiMethod = { id: 'fiti', kind: 'fiti', label: 'Wi-Fi Fiti collection', detail: 'Wi-Fi Fiti collects; your sales, less the fee, are paid out to you.' };
   const tumaMethod = { id: 'tuma', kind: 'tuma', label: 'Tuma settlement account', detail: 'Payments settle straight to your Tuma payout account.' };
 
+  const tumaExtraView = (account) => ({ id: 'tuma:' + account.id, kind: 'tuma', accountId: account.id, label: account.label,
+    detail: account.detail + (account.suspendedReason ? ' · switched off until your plan is active' : '') });
   /** Every method this business can give a router. */
   function methodsFor(businessId) {
     const list = [fitiMethod, ...accountsFor.all(businessId).map(accountView)];
-    if (tumaConnected(businessId)) list.push(tumaMethod);
+    if (tumaConnected(businessId)) {
+      list.push({ ...tumaMethod, label: 'Tuma (main account)' });
+      extras.extraAccounts(businessId).forEach((account) => list.push(tumaExtraView(account)));
+    }
     return list;
   }
   function parse(method) {
     const value = String(method || '').trim();
     if (value === 'fiti' || value === 'tuma') return { kind: value };
+    const tumaMatch = /^tuma:(tma-[a-f0-9]{16})$/.exec(value);
+    if (tumaMatch) return { kind: 'tuma', accountId: tumaMatch[1] };
     const match = /^daraja:(mpa-[a-z0-9-]{4,64})$/.exec(value);
     return match ? { kind: 'daraja', accountId: match[1] } : null;
   }
@@ -156,7 +165,12 @@ function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected =
     const parsed = parse(method);
     if (!parsed) return null;
     if (parsed.kind === 'fiti') return fitiMethod;
-    if (parsed.kind === 'tuma') return tumaConnected(businessId) ? tumaMethod : null;
+    if (parsed.kind === 'tuma' && parsed.accountId) {
+      if (!tumaConnected(businessId) || !extras.extraUsable(businessId, parsed.accountId)) return null;
+      const account = extras.extraAccounts(businessId).find((item) => item.id === parsed.accountId);
+      return account ? tumaExtraView(account) : null;
+    }
+    if (parsed.kind === 'tuma') return tumaConnected(businessId) ? { ...tumaMethod, label: 'Tuma (main account)' } : null;
     const row = activeAccount.get(parsed.accountId, businessId);
     return row ? accountView(row) : null;
   }
@@ -230,15 +244,21 @@ function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected =
     if (!renameAccount.run(name, parsed.accountId, businessId).changes) throw fail('That account was not found.', 404);
     return usable(businessId, method);
   }
-  /** Remove an own Till / PayBill. Routers that used it fall back to the
-   * default; a default that pointed at it is cleared. */
+  /** Routers that used a removed method go back to the default; a default
+   * that pointed at it is cleared. */
+  function detach(businessId, method) {
+    const affected = routersUsing.all(businessId, method).map((row) => row.location_id);
+    db.prepare('DELETE FROM location_payment_methods WHERE business_id=? AND method=?').run(businessId, method);
+    if (defaultFor(businessId) === method) saveRouting.run(businessId, null);
+    return affected;
+  }
+  /** Remove an own Till / PayBill (extra Tuma accounts: server.js asks Tuma
+   * first, then calls detach). */
   function removeMethod(businessId, method) {
     const parsed = parse(method);
     if (!parsed || parsed.kind !== 'daraja') throw fail('Only your own Till / PayBill accounts can be removed here.');
     if (!retireAccount.run(parsed.accountId, businessId).changes) throw fail('That account was not found.', 404);
-    const affected = routersUsing.all(businessId, method).map((row) => row.location_id);
-    db.prepare('DELETE FROM location_payment_methods WHERE business_id=? AND method=?').run(businessId, method);
-    if (defaultFor(businessId) === method) saveRouting.run(businessId, null);
+    const affected = detach(businessId, method);
     // The older single-connection screen must not bring it back.
     if (parsed.accountId === legacyId(businessId)) db.prepare('DELETE FROM tenant_mpesa_connections WHERE business_id=?').run(businessId);
     return { routersMoved: affected.length };
@@ -316,7 +336,7 @@ function createPaymentMethods({ db, tenant, paymentIntegrations, tumaConnected =
   }
 
   return { KINDS, methodsFor, resolve, credentialsFor, credentialsForTransaction, recordTransactionMethod,
-    addAccount, renameMethod, removeMethod, setDefault, setRouterMethod, overview, syncLegacyAccount, parse, usable,
+    addAccount, renameMethod, removeMethod, detach, setDefault, setRouterMethod, overview, syncLegacyAccount, parse, usable,
     payoutAccounts, addPayoutAccount, removePayoutAccount, setDefaultPayout };
 }
 

@@ -1338,7 +1338,11 @@ const profile = createProfile({ db: db.db, hashPassword, passwordMatches, roles:
 // Where each router's customer payments land (Settings → Payment methods).
 const paymentMethods = createPaymentMethods({ db: db.db, tenant, paymentIntegrations,
   // tumaTenants is set up further down; this is only called per request.
-  tumaConnected: (businessId) => { try { return Boolean(tumaTenants.connected(businessId)); } catch (_) { return false; } } });
+  tumaConnected: (businessId) => { try { return Boolean(tumaTenants.routable(businessId)); } catch (_) { return false; } },
+  tumaExtras: {
+    extraAccounts: (businessId) => { try { return tumaTenants.extraAccounts(businessId); } catch (_) { return []; } },
+    extraUsable: (businessId, id) => { try { return tumaTenants.extraUsable(businessId, id); } catch (_) { return false; } },
+  } });
 const sessionTokenHash = (req) => crypto.createHash('sha256')
   .update(String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')).digest('hex');
 function profileError(res, error, fallback) {
@@ -1419,10 +1423,27 @@ app.patch('/api/business/payment-methods/:method', (req, res) => {
   try { paymentMethods.renameMethod(business.id, req.params.method, req.body && req.body.label); res.json(paymentMethodsOverview(business)); }
   catch (error) { paymentMethodsError(res, error, 'Could not rename that account.'); }
 });
-app.delete('/api/business/payment-methods/:method', (req, res) => {
+app.delete('/api/business/payment-methods/:method', async (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
-  try { const result = paymentMethods.removeMethod(business.id, req.params.method); res.json({ ...result, ...paymentMethodsOverview(business) }); }
-  catch (error) { paymentMethodsError(res, error, 'Could not remove that account.'); }
+  try {
+    const parsed = paymentMethods.parse(req.params.method);
+    if (parsed && parsed.kind === 'tuma' && parsed.accountId) {
+      // An extra Tuma account: switched off at Tuma, then routers move to the default.
+      await tumaTenants.removeExtra(business.id, parsed.accountId);
+      const moved = paymentMethods.detach(business.id, req.params.method);
+      return res.json({ routersMoved: moved.length, ...paymentMethodsOverview(business) });
+    }
+    const result = paymentMethods.removeMethod(business.id, req.params.method); res.json({ ...result, ...paymentMethodsOverview(business) });
+  } catch (error) { paymentMethodsError(res, error, 'Could not remove that account.'); }
+});
+/** Add one more Tuma settlement account (a new Tuma sub-business that
+ * settles to a Till, PayBill or bank, or a linked Tuma account). */
+app.post('/api/business/payment-methods/tuma', async (req, res) => {
+  const business = businessAuth(req, res); if (!business) return;
+  try {
+    const account = await tumaTenants.addExtra(business, req.body || {});
+    res.status(201).json({ account, ...paymentMethodsOverview(business) });
+  } catch (error) { tumaTenants.send(res, error); }
 });
 app.put('/api/business/payment-methods/default', (req, res) => {
   const business = businessAuth(req, res); if (!business) return;
@@ -3280,7 +3301,7 @@ function goLiveStatus(location) {
   const routedMethod = paymentMethods.resolve(location);
   if (routedMethod.kind === 'tuma') {
     let own = null; let broken = false;
-    try { own = tumaTenants.credentialsFor(location.business_id); } catch (_) { broken = true; }
+    try { own = routedMethod.accountId ? tumaTenants.extraCredentials(location.business_id, routedMethod.accountId) : tumaTenants.credentialsFor(location.business_id); } catch (_) { broken = true; }
     if (broken) collection = { ready: false, provider: 'tuma', note: 'Reconnect your Tuma payout account.' };
     else if (!tuma.callbackConfigured() || (!own && !tuma.configured())) collection = { ready: false, provider: 'tuma', note: 'Tuma is selected but not set up yet.' };
     else collection = { ready: true, provider: 'tuma', note: own ? 'Payments go straight to your Tuma payout account.' : 'Payments are collected through Wi-Fi Fiti’s Tuma account and paid out to you.' };
@@ -3510,9 +3531,18 @@ async function pushTenantPrompt(location, { phone, amount, description, accountR
     let tenantTuma = null;
     // A tenant who subscribed after their Tuma business was switched off
     // gets it back before this payment, so the money still goes to them.
-    await tumaTenants.resumeIfSuspended(location.business_id, tumaAccountEntitled).catch(() => false);
-    try { tenantTuma = tumaTenants.credentialsFor(location.business_id); }
-    catch (err) { throw setupError('This operator needs to reconnect their Tuma payout account.'); }
+    if (method.accountId) {
+      // One of the business's extra Tuma settlement accounts.
+      await tumaTenants.resumeExtraIfSuspended(location.business_id, method.accountId, tumaAccountEntitled).catch(() => false);
+      // Still switched off (plan not active): like the main account, Wi-Fi
+      // Fiti's own Tuma collects and the sale is owed to the tenant.
+      try { tenantTuma = tumaTenants.extraCredentials(location.business_id, method.accountId); }
+      catch (err) { throw setupError('This operator needs to reconnect their Tuma payout account.'); }
+    } else {
+      await tumaTenants.resumeIfSuspended(location.business_id, tumaAccountEntitled).catch(() => false);
+      try { tenantTuma = tumaTenants.credentialsFor(location.business_id); }
+      catch (err) { throw setupError('This operator needs to reconnect their Tuma payout account.'); }
+    }
     // Both paths need the callback secret: it is how Tuma's result reaches us.
     if (!tuma.callbackConfigured() || (!tenantTuma && !tuma.configured())) {
       throw setupError('Tuma is selected but its API credentials are not configured yet.');

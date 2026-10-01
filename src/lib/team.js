@@ -71,6 +71,7 @@ const ROUTES = [
   ['PATCH', `${B}/payment-methods/:method`, 'owner', 'Renamed a payment method'], ['DELETE', `${B}/payment-methods/:method`, 'owner', 'Removed a payment method'],
   ['PUT', `${B}/payment-methods/default`, 'owner', 'Changed the default payment method'],
   ['PUT', `${B}/locations/:locationId/payment-method`, 'owner', "Changed a router's payment method"],
+  ['POST', `${B}/payment-methods/tuma`, 'owner', 'Added a Tuma settlement account'],
   ['GET', `${B}/payment-methods/payout`, 'owner'], ['POST', `${B}/payment-methods/payout`, 'owner', 'Added a payout account'],
   ['DELETE', `${B}/payment-methods/payout/:accountId`, 'owner', 'Removed a payout account'],
   ['PUT', `${B}/payment-methods/payout/:accountId/default`, 'owner', 'Changed the default payout account'],

@@ -10,7 +10,7 @@
 (function () {
   'use strict';
   var TOKEN_KEY = 'fiti_business_token';
-  var data = null; var loading = false; var adding = false; var c2b = null; var addingC2b = false; var addingPayout = false;
+  var data = null; var loading = false; var adding = false; var c2b = null; var addingC2b = false; var addingPayout = false; var addingTuma = false; var tumaBanks = null;
 
   function $(id) { return document.getElementById(id); }
   function token() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (_) { return ''; } }
@@ -70,6 +70,14 @@
       var button = event.currentTarget; busy(button, true);
       save('/api/business/payment-methods/default', 'PUT', { method: method.id }, 'pm-methods-msg', method.label + ' is now the default.').catch(function () { busy(button, false); });
     } }));
+    if (method.kind === 'tuma' && method.accountId) {
+      actions.push(h('button', { type: 'button', class: 'quiet pm-danger', text: 'Remove', onclick: function (event) {
+        var users = data.routers.filter(function (router) { return router.chosen === method.id; }).length;
+        if (!window.confirm('Remove ' + method.label + '? Wi-Fi Fiti will switch this Tuma account off.' + (users ? ' ' + users + ' router' + (users === 1 ? '' : 's') + ' using it will switch to the business default.' : '') + ' Past payments are kept.')) return;
+        var button = event.currentTarget; busy(button, true, 'Removing…');
+        save('/api/business/payment-methods/' + encodeURIComponent(method.id), 'DELETE', {}, 'pm-methods-msg', method.label + ' removed.').catch(function () { busy(button, false); });
+      } }));
+    }
     if (method.kind === 'daraja') {
       actions.push(h('button', { type: 'button', class: 'quiet', text: 'Rename', onclick: function () {
         var label = window.prompt('Name for this account (e.g. Kitale Till):', method.label);
@@ -122,6 +130,49 @@
     ]);
     return form;
   }
+  function tumaForm() {
+    var mode = h('select', { name: 'mode' }, [h('option', { value: 'managed', text: 'Wi-Fi Fiti creates a new Tuma account for me' }), h('option', { value: 'linked', text: 'Link a Tuma account I already have' })]);
+    var type = h('select', { name: 'destinationType' }, [h('option', { value: 'till', text: 'M-Pesa Till' }), h('option', { value: 'paybill', text: 'M-Pesa PayBill' }), h('option', { value: 'bank', text: 'Bank or Sacco account' })]);
+    var bank = h('select', { name: 'bankId' }, [h('option', { value: '', text: 'Loading banks…' })]);
+    var bankField = field('Bank or Sacco', bank); bankField.classList.add('hidden');
+    var managed = h('div', { class: 'pm-fields' }, [
+      field('Tuma settles to', type), bankField,
+      field('Till, PayBill or account number', h('input', { name: 'accountNumber', autocomplete: 'off', maxlength: '34' })),
+      field('Your full name, as on your ID', h('input', { name: 'settlementName', autocomplete: 'name', maxlength: '120' })),
+      field('Your mobile number', h('input', { name: 'mobile', inputmode: 'tel', autocomplete: 'tel', placeholder: '0712 345 678' })),
+    ]);
+    var linked = h('div', { class: 'pm-fields hidden' }, [
+      field('Tuma account email', h('input', { name: 'email', type: 'email', autocomplete: 'off' })),
+      field('Tuma API key', h('input', { name: 'apiKey', type: 'password', autocomplete: 'new-password' })),
+    ]);
+    function loadBanks() {
+      if (tumaBanks) return fillBanks();
+      api('/api/business/tuma/destinations').then(function (result) { tumaBanks = result.banks || []; fillBanks(); })
+        .catch(function (error) { say('pm-tuma-msg', error.message); });
+    }
+    function fillBanks() { bank.replaceChildren.apply(bank, [h('option', { value: '', text: 'Choose your bank or Sacco' })].concat(tumaBanks.map(function (item) { return h('option', { value: item.id, text: item.name }); }))); }
+    type.addEventListener('change', function () { var isBank = type.value === 'bank'; bankField.classList.toggle('hidden', !isBank); if (isBank) loadBanks(); });
+    mode.addEventListener('change', function () { var isLinked = mode.value === 'linked'; managed.classList.toggle('hidden', isLinked); linked.classList.toggle('hidden', !isLinked); });
+    var form = h('form', { class: 'pm-add', novalidate: true, autocomplete: 'off', onsubmit: function (event) {
+      event.preventDefault(); var button = form.querySelector('button[type="submit"]'); say('pm-tuma-msg', '');
+      var body = { mode: mode.value, label: form.elements.label.value.trim() };
+      if (mode.value === 'linked') { body.email = form.elements.email.value.trim(); body.apiKey = form.elements.apiKey.value.trim(); }
+      else ['destinationType', 'bankId', 'accountNumber', 'settlementName', 'mobile'].forEach(function (name) { body[name] = form.elements[name].value.trim(); });
+      busy(button, true, 'Setting up with Tuma…');
+      api('/api/business/payment-methods/tuma', { method: 'POST', body: JSON.stringify(body) })
+        .then(function (result) { data = result; addingTuma = false; render(); say('pm-methods-msg', (result.account ? result.account.label : 'Tuma account') + ' added. Choose which routers use it below.', true); })
+        .catch(function (error) { busy(button, false); say('pm-tuma-msg', error.message); });
+    } }, [
+      h('h4', { text: 'Add a Tuma settlement account' }),
+      h('p', { class: 'pm-note', text: 'Tuma settles each payment straight to the Till, PayBill or bank you choose here. Your main Tuma account is not changed.' }),
+      h('div', { class: 'pm-fields' }, [field('How', mode), field('Name (optional)', h('input', { name: 'label', maxlength: '60', placeholder: 'e.g. Eldoret bank' }))]),
+      managed, linked,
+      h('div', { class: 'pm-msg', id: 'pm-tuma-msg', 'aria-live': 'polite' }),
+      h('div', { class: 'buttons' }, [h('button', { type: 'submit', text: 'Add Tuma account' }), h('button', { type: 'button', class: 'secondary', text: 'Cancel', onclick: function () { addingTuma = false; render(); } })]),
+    ]);
+    return form;
+  }
+
   function field(label, input) { return h('label', { class: 'pm-field' }, [h('span', { text: label }), input]); }
 
   function routersTable() {
@@ -251,6 +302,7 @@
 
   function render() {
     var section = $('payment-methods-section'); if (!section || !data) return;
+    var hasMainTuma = data.methods.some(function (method) { return method.id === 'tuma'; });
     var defaultSelect = h('select', { 'aria-label': 'Business default payment method', onchange: function (event) {
       var target = event.currentTarget; target.disabled = true;
       save('/api/business/payment-methods/default', 'PUT', { method: target.value || null }, 'pm-methods-msg', 'Default saved.').catch(function () { target.disabled = false; });
@@ -259,15 +311,18 @@
       h('div', { class: 'module-heading' }, [h('div', {}, [h('h2', { text: 'Payment methods' }), h('p', { text: 'Add every Till, PayBill and payout account you use, then choose where each router’s customer payments go.' })])]),
       h('div', { class: 'panel glass pm-card' }, [
         h('div', { class: 'pm-head' }, [h('h3', { text: 'Your payment methods' }),
-          adding ? null : h('button', { type: 'button', text: '+ Add Till or PayBill', onclick: function () {
-            if (!data.secureStorageReady) { say('pm-methods-msg', 'Secure payment storage is not set up by Wi-Fi Fiti yet, so accounts cannot be added.'); return; }
-            adding = true; render(); var first = document.querySelector('#payment-methods-section .pm-add input'); if (first) first.focus();
-          } })]),
+          adding || addingTuma ? null : h('div', { class: 'pm-head-actions' }, [
+            hasMainTuma ? h('button', { type: 'button', class: 'secondary', text: '+ Add Tuma account', onclick: function () { addingTuma = true; render(); } }) : null,
+            h('button', { type: 'button', text: '+ Add Till or PayBill', onclick: function () {
+              if (!data.secureStorageReady) { say('pm-methods-msg', 'Secure payment storage is not set up by Wi-Fi Fiti yet, so accounts cannot be added.'); return; }
+              adding = true; render(); var first = document.querySelector('#payment-methods-section .pm-add input'); if (first) first.focus();
+            } })])]),
         adding ? addForm() : null,
+        addingTuma ? tumaForm() : null,
         h('ul', { class: 'pm-list' }, data.methods.map(methodCard)),
         h('div', { class: 'pm-msg', id: 'pm-methods-msg', 'aria-live': 'polite' }),
         h('label', { class: 'pm-field pm-default' }, [h('span', { text: 'Default for routers without their own choice' }), defaultSelect]),
-        h('p', { class: 'pm-note', text: 'Tuma settlement appears here once your Tuma payout account is connected in Settings → Billing & payments.' }),
+        hasMainTuma ? null : h('p', { class: 'pm-note', text: 'Tuma settlement appears here once your Tuma payout account is connected in Settings → Billing & payments. You can then add more Tuma accounts here.' }),
       ]),
       h('div', { class: 'panel glass pm-card' }, [
         h('h3', { text: 'Routers' }),
@@ -285,10 +340,10 @@
     if (!data) section.replaceChildren(h('div', { class: 'module-heading' }, [h('div', {}, [h('h2', { text: 'Payment methods' })])]), h('div', { class: 'panel glass' }, [h('p', { class: 'pm-note', text: 'Loading your payment methods…' })]));
     loading = true;
     return Promise.all([api('/api/business/payment-methods'), api('/api/business/integrations/c2b').catch(function () { return { accounts: [] }; })])
-      .then(function (results) { data = results[0]; c2b = results[1]; if (!adding && !addingC2b && !addingPayout) render(); })
+      .then(function (results) { data = results[0]; c2b = results[1]; if (!adding && !addingC2b && !addingPayout && !addingTuma) render(); })
       .catch(function (error) { if (!data) section.replaceChildren(h('div', { class: 'panel glass' }, [h('p', { class: 'pm-msg', text: error.message })])); })
       .then(function () { loading = false; });
   }
 
-  window.FitiPaymentMethods = { load: load, forget: function () { data = null; c2b = null; adding = false; addingC2b = false; addingPayout = false; } };
+  window.FitiPaymentMethods = { load: load, forget: function () { data = null; c2b = null; adding = false; addingC2b = false; addingPayout = false; addingTuma = false; tumaBanks = null; } };
 })();

@@ -263,9 +263,149 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSav
     return { ...publicView(byBusiness.get(business.id)), trialEnded };
   }
 
+  /* ---- More Tuma settlement accounts ---------------------------------
+   * The main account above stays exactly as it was (Tuma fee, trial
+   * switch-off and the Billing & payments screen use it). A business can add
+   * more, each its own Tuma sub-business or linked Tuma account, and give
+   * routers to them in Settings → Payment methods (payment-methods.js).
+   */
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tenant_tuma_extra_accounts (
+      id                TEXT PRIMARY KEY,
+      business_id       TEXT NOT NULL,
+      label             TEXT,
+      mode              TEXT NOT NULL DEFAULT 'managed',
+      tuma_business_id  TEXT,
+      email             TEXT NOT NULL,
+      api_key_cipher    TEXT NOT NULL,
+      destination_type  TEXT,
+      bank_id           TEXT,
+      bank_name         TEXT,
+      bank_code         TEXT,
+      account_cipher    TEXT,
+      account_last4     TEXT,
+      settlement_name   TEXT,
+      mobile            TEXT,
+      active            INTEGER NOT NULL DEFAULT 1,
+      removed           INTEGER NOT NULL DEFAULT 0,
+      suspended_reason  TEXT,
+      verified_at       TEXT,
+      last_error        TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tenant_tuma_extra_business ON tenant_tuma_extra_accounts(business_id, removed);
+  `);
+  const extrasFor = db.prepare(`SELECT * FROM tenant_tuma_extra_accounts WHERE business_id=? AND removed=0 ORDER BY created_at, rowid`);
+  const extraById = db.prepare(`SELECT * FROM tenant_tuma_extra_accounts WHERE id=? AND business_id=?`);
+  const insertExtra = db.prepare(`
+    INSERT INTO tenant_tuma_extra_accounts (id, business_id, label, mode, tuma_business_id, email, api_key_cipher,
+      destination_type, bank_id, bank_name, bank_code, account_cipher, account_last4, settlement_name, mobile, verified_at, last_error)
+    VALUES (@id, @businessId, @label, @mode, @tumaBusinessId, @email, @apiKeyCipher, @destinationType, @bankId,
+      @bankName, @bankCode, @accountCipher, @accountLast4, @settlementName, @mobile, @verifiedAt, @lastError)
+  `);
+  const removeExtraRow = db.prepare(`UPDATE tenant_tuma_extra_accounts SET removed=1, active=0, updated_at=datetime('now') WHERE id=? AND business_id=? AND removed=0`);
+  const suspendExtra = db.prepare(`UPDATE tenant_tuma_extra_accounts SET active=0, suspended_reason=?, updated_at=datetime('now') WHERE id=? AND active=1 AND removed=0`);
+  const resumeExtra = db.prepare(`UPDATE tenant_tuma_extra_accounts SET active=1, suspended_reason=NULL, updated_at=datetime('now') WHERE id=? AND removed=0`);
+  const newExtraId = () => 'tma-' + require('node:crypto').randomBytes(8).toString('hex');
+
+  function extraView(row) {
+    const where = row.mode === 'linked' ? 'Your own Tuma account'
+      : `${row.destination_type === 'bank' ? (row.bank_name || 'Bank') : row.destination_type === 'paybill' ? 'PayBill' : 'Till'} ••${row.account_last4 || ''}`;
+    return { id: row.id, label: row.label || where, detail: `Tuma settles to ${where}`, mode: row.mode,
+      destinationType: row.destination_type || null, accountLast4: row.account_last4 || null,
+      active: Boolean(row.active), suspendedReason: row.suspended_reason || null, lastError: row.last_error || null };
+  }
+  /** The extra Tuma accounts of a business (not removed). */
+  function extraAccounts(businessId) { return extrasFor.all(businessId).map(extraView); }
+  function extraUsable(businessId, id) { const row = extraById.get(String(id || ''), businessId); return Boolean(row && !row.removed && (row.active || row.suspended_reason === 'trial-ended')); }
+  function extraCredentials(businessId, id) {
+    const row = extraById.get(String(id || ''), businessId);
+    if (!row || row.removed || !row.active) return null;
+    return { email: row.email, apiKey: decrypt(row.api_key_cipher) };
+  }
+  /** Before a payment: an extra account switched off at trial end comes back. */
+  async function resumeExtraIfSuspended(businessId, id, isEntitled) {
+    const row = extraById.get(String(id || ''), businessId);
+    if (!row || row.active || row.removed || row.suspended_reason !== 'trial-ended' || !isEntitled(businessId)) return false;
+    if (row.tuma_business_id) { try { await tuma.updateBusiness(row.tuma_business_id, { active: true }); } catch (error) { log.error(`[tuma tenants] Tuma did not accept switching on ${row.id}:`, error.message); } }
+    return resumeExtra.run(row.id).changes > 0;
+  }
+
+  /** Add one more Tuma settlement account: a new Tuma sub-business that
+   * settles to the Till, PayBill or bank given, or a linked Tuma account. */
+  async function addExtra(business, body = {}) {
+    if (!routable(business.id)) throw httpError(409, 'Connect your main Tuma payout account in Settings → Billing & payments first, then add more here.');
+    const label = cleanText(body.label, 60) || null;
+    const lockKey = business.id + ':extra';
+    if (inFlight.has(lockKey)) throw httpError(409, 'A Tuma account is already being set up. Please wait a moment.');
+    inFlight.add(lockKey);
+    try {
+      if (body.mode === 'linked') {
+        const email = String(body.email || '').trim().toLowerCase();
+        const apiKey = String(body.apiKey || '').trim();
+        if (!EMAIL_RE.test(email)) throw httpError(400, 'Enter the email your Tuma account uses.', 'email');
+        if (apiKey.length < 16) throw httpError(400, 'Paste the API key from your Tuma dashboard.', 'apiKey');
+        try { tuma.forgetToken({ email, apiKey }); await tuma.verify({ email, apiKey }); }
+        catch (error) { throw httpError(400, `Tuma did not accept that email and API key: ${String(error.message || '').slice(0, 160)}`, 'apiKey'); }
+        const id = newExtraId();
+        insertExtra.run({ id, businessId: business.id, label, mode: 'linked', tumaBusinessId: null, email, apiKeyCipher: encrypt(apiKey),
+          destinationType: 'own', bankId: null, bankName: 'Your Tuma account', bankCode: null, accountCipher: null, accountLast4: null,
+          settlementName: cleanText(business.portal_name || business.name, 120), mobile: null,
+          verifiedAt: new Date().toISOString().replace('T', ' ').slice(0, 19), lastError: null });
+        const trialEnded = reportPayout(business.id, { payout: `tuma:${email}` });
+        return { ...extraView(extraById.get(id, business.id)), trialEnded };
+      }
+      if (!tuma.credentialsConfigured()) throw httpError(409, 'Wi‑Fi Fiti has not finished connecting its Tuma platform account yet. Please try again later.');
+      const destination = await validateDestination(body, business);
+      const email = String(body.email || business.email || '').trim().toLowerCase();
+      if (!EMAIL_RE.test(email)) throw httpError(400, 'Enter a valid email for the Tuma account.', 'email');
+      const blocked = beforeCreate ? beforeCreate(business) : null;
+      if (blocked) throw Object.assign(httpError(403, blocked), { needs: { action: 'verify_phone' } });
+      if (creationsToday.get(business.id).n >= MAX_CREATIONS_PER_DAY) throw httpError(429, 'Too many Tuma accounts were set up for this workspace today. Please try again tomorrow or contact support.');
+      recordCreation.run(business.id);
+      const created = await tuma.createBusiness({
+        name: destination.settlementName, mobile: destination.mobile, bankId: destination.bank.id, accountNumber: destination.accountNumber,
+        logo: logoUrlFor(business), email,
+        description: `Wi‑Fi hotspot payments for ${cleanText(business.portal_name || business.name, 200)}${label ? ` (${label})` : ''} (owner: ${destination.settlementName}) via Wi‑Fi Fiti`,
+      });
+      let verifiedAt = null; let lastError = null;
+      try { await tuma.verify({ email: created.email || email, apiKey: created.apiKey }); verifiedAt = new Date().toISOString().replace('T', ' ').slice(0, 19); }
+      catch (error) { lastError = String(error.message || 'Tuma could not verify the new account.').slice(0, 240); }
+      const id = newExtraId();
+      insertExtra.run({ ...destinationColumns(business.id, destination), id, label, mode: 'managed', tumaBusinessId: created.id,
+        email: created.email || email, apiKeyCipher: encrypt(created.apiKey), verifiedAt, lastError });
+      const trialEnded = reportPayout(business.id, { payout: destination.type === 'bank' ? `${destination.bank.id}:${destination.accountNumber}` : `mpesa:${destination.accountNumber}`, name: destination.settlementName });
+      return { ...extraView(extraById.get(id, business.id)), trialEnded };
+    } catch (error) {
+      if (error.expose) throw error;
+      log.error('[tuma tenants] extra account failed:', error.status || '', error.message);
+      throw httpError(502, `Tuma did not accept these details: ${String(error.message || 'unknown error').slice(0, 200)}`);
+    } finally {
+      inFlight.delete(lockKey);
+    }
+  }
+  /** Stop using an extra account. A Wi‑Fi Fiti-created one is switched off at Tuma too. */
+  async function removeExtra(businessId, id) {
+    const row = extraById.get(String(id || ''), businessId);
+    if (!row || row.removed) throw httpError(404, 'That Tuma account was not found.');
+    if (row.mode === 'managed' && row.tuma_business_id) {
+      try { await tuma.updateBusiness(row.tuma_business_id, { active: false }); }
+      catch (error) { log.error(`[tuma tenants] Tuma did not accept switching off ${row.id}:`, error.message); }
+    }
+    removeExtraRow.run(row.id, businessId);
+    return true;
+  }
+
   function connected(businessId) {
     const row = byBusiness.get(businessId);
     return Boolean(row && row.active);
+  }
+  /** Can a router be given Tuma? Yes when connected, and also while switched
+   * off at trial end: the payment switches it back on if the plan is active. */
+  function routable(businessId) {
+    const row = byBusiness.get(businessId);
+    return Boolean(row && (row.active || row.suspended_reason === 'trial-ended'));
   }
 
   async function test(businessId) {
@@ -341,6 +481,16 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSav
         if (await resumeAccount(row)) result.resumed += 1;
       }
     }
+    // Extra accounts follow the same rule.
+    for (const row of db.prepare(`SELECT * FROM tenant_tuma_extra_accounts WHERE mode='managed' AND tuma_business_id IS NOT NULL AND removed=0`).all()) {
+      if (row.active && isDormant(row.business_id)) {
+        try { await tuma.updateBusiness(row.tuma_business_id, { active: false }); }
+        catch (error) { log.error(`[tuma tenants] Tuma did not accept switching off ${row.id}:`, error.message); }
+        if (suspendExtra.run('trial-ended', row.id).changes) result.suspended += 1;
+      } else if (!row.active && row.suspended_reason === 'trial-ended' && isEntitled(row.business_id)) {
+        if (await resumeExtraIfSuspended(row.business_id, row.id, isEntitled)) result.resumed += 1;
+      }
+    }
     return result;
   }
 
@@ -357,7 +507,8 @@ function createTumaTenants({ db, tuma, encrypt, decrypt, logoUrlFor, onPayoutSav
     return resumeAccount(row);
   }
 
-  return { attachRoutes, connected, credentialsFor, sweep, resumeIfSuspended, saveSettlement, linkExisting, destinations, test, view: (id) => publicView(byBusiness.get(id)) };
+  return { attachRoutes, connected, credentialsFor, sweep, resumeIfSuspended, saveSettlement, linkExisting, destinations, test, view: (id) => publicView(byBusiness.get(id)),
+    routable, extraAccounts, extraUsable, extraCredentials, resumeExtraIfSuspended, addExtra, removeExtra, send };
 }
 
 module.exports = { createTumaTenants, normaliseMobile };
