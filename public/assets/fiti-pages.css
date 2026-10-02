@@ -163,3 +163,36 @@
   #dashboard .payment-card .location-meta{font-size:11px}
   .customer-results .payment-card .location-meta:last-child{display:none}
 }
+/* Phone: fit-to-screen helpers */
+.fp-extra{display:none!important}
+@media(max-width:620px){
+  
+  body.fp-fit #dashboard .sidebar .rule,body.fp-fit #dashboard .sidebar .plan-mini{display:none}
+  body.fp-fit #dashboard .customer-results,body.fp-fit #dashboard #transactions-list{max-height:none;overflow:visible}
+  body.fp-fit-tight{padding-bottom:70px}
+  .fp-more{width:100%;margin-top:6px}
+}
+
+/* Fit-to-screen on every size */
+body.fp-fit:not(.fp-fit-tight){overflow:hidden;height:100vh;padding-bottom:0}
+body.fp-fit #dashboard .customer-results,body.fp-fit #dashboard #transactions-list{max-height:none;overflow:visible}
+@media(max-width:620px){
+  /* slim top bar instead of a tall stacked sidebar */
+  #dashboard .sidebar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 10px;border-radius:14px}
+  #dashboard .sidebar .brand{flex:1 1 auto;min-width:0;padding:0;gap:8px;font-size:15px}
+  #dashboard .sidebar .brand .mark{width:28px;height:28px}
+  #dashboard .sidebar .brand small{display:none}
+  #dashboard .sidebar .hotspot-picker,#dashboard .sidebar .location-picker{flex:1 1 100%;order:5;margin:0}
+  #dashboard .sidebar .profile-button{width:auto;min-height:0;padding:3px;margin:0}
+  #dashboard .sidebar .profile-label{display:none}
+  #dashboard .sidebar .signout{width:auto;min-height:30px;padding:0 10px;font-size:11px;margin:0}
+}
+@media(min-width:881px){
+  #dashboard{align-items:start}
+  #dashboard .content{align-self:start}
+  #dashboard .sidebar{max-height:calc(100vh - 20px);overflow:auto}
+}
+@media(min-width:881px) and (max-height:900px){
+  #dashboard .sidebar .nav button{padding-top:7px;padding-bottom:7px}
+  #dashboard .sidebar .brand{padding:2px 5px}
+}
