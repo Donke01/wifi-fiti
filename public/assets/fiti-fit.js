@@ -1,12 +1,12 @@
 /* Shrink the open page so all of it fits one screen, no scrolling (phone and desktop). */
 (function () {
   var MIN = 0.5, ROWS = 6, mq = window.matchMedia('(max-width:620px)'), timer = null, busy = false;
-  function minScale() { return mq.matches ? 0.42 : 0.6; }
+  function minScale() { return mq.matches ? 0.5 : 0.6; }
   function rowCap() { return mq.matches ? 6 : 8; }
   function content() { return document.querySelector('#dashboard .content'); }
   function nav() { return document.querySelector('#dashboard .sidebar .nav'); }
   function limitLists(root) {
-    var lists = root.querySelectorAll('.customer-results, #transactions-list, #sales-section .payments');
+    var lists = root.querySelectorAll('.customer-results, #transactions-list');
     lists.forEach(function (list) {
       var items = Array.prototype.filter.call(list.children, function (c) { return c.classList.contains('payment-card'); });
       if (list.dataset.fpAll === '1' || items.length <= rowCap()) { items.forEach(function (c) { c.classList.remove('fp-extra'); }); var old = list.querySelector('.fp-more'); if (old && items.length <= rowCap()) old.remove(); return; }
