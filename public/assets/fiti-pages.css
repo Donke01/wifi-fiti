@@ -106,3 +106,60 @@
   body{padding-bottom:70px}
 }
 @media(max-width:620px){#dashboard #locations>.fp-stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}#dashboard #locations .fp-stat{padding:10px}#dashboard #locations .fp-stat-value{font-size:22px}}
+/* Phone: compact density so each page fits one screen */
+@media(max-width:620px){
+  body{font-size:13px}
+  #dashboard{gap:8px;padding:8px 10px}
+  #dashboard .content{gap:8px}
+  #dashboard .section{margin:0}
+  #dashboard .module-heading,#dashboard .section-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;margin:0 0 6px;text-align:left}
+  #dashboard .module-heading h2,#dashboard .section-head h2{font-size:20px;margin:0}
+  #dashboard .module-heading p,#dashboard .section-head p{display:none}
+  #dashboard .module-heading .section-actions,#dashboard .section-head .section-actions{display:flex;gap:6px;flex-wrap:wrap}
+  #dashboard .panel{padding:10px;border-radius:14px}
+  #dashboard .button,#dashboard button{min-height:34px;padding:0 12px;font-size:12px}
+  #dashboard .toolbar-row{gap:6px;margin-bottom:6px}
+  #dashboard .toolbar-row input,#dashboard .toolbar-row select{min-height:36px;font-size:12px}
+  #page-tabs{gap:6px;margin:0 0 6px}#page-tabs button{min-height:30px;padding:0 10px;font-size:11px}
+  /* tiles */
+  .fp-stats{gap:6px;margin-bottom:8px}.fp-stat{padding:8px 10px;border-radius:12px;gap:1px}.fp-stat-label{font-size:10px}.fp-stat-value{font-size:18px}.fp-stat-sub{font-size:9px}
+  #dashboard .module-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  #dashboard .module-grid .metric,#dashboard .sms-balance .metric{min-height:0;padding:8px 10px 8px 14px}
+  #dashboard .metric-value{font-size:18px}#dashboard .metric-label,#dashboard .metric-foot{font-size:10px}
+  /* routers: compact cards */
+  #dashboard #locations{grid-template-columns:1fr;gap:8px}
+  .fp-router-art{padding:6px 0 0}.fp-router-art svg{width:120px;height:52px}
+  .fp-router>:not(.fp-router-art){margin-left:12px;margin-right:12px}
+  .fp-router>.location-top{margin-top:8px}.fp-router .location-top h3{font-size:14px}
+  .fp-router .location-data{grid-template-columns:repeat(2,1fr);gap:4px 8px;font-size:11px}
+  .fp-router .location-actions{margin-bottom:10px;flex-wrap:nowrap;overflow-x:auto;gap:6px}.fp-router .location-actions .button,.fp-router .location-actions button{white-space:nowrap}
+  /* packages: horizontal price block */
+  #dashboard #packages{grid-template-columns:1fr;gap:6px}
+  #dashboard .package-card{display:grid;grid-template-columns:104px 1fr}
+  #dashboard .package-card .package-price{order:0;padding:10px;font-size:18px}#dashboard .package-card .package-price small{font-size:9px}
+  #dashboard .package-card>div:first-child{padding:8px 10px;order:1}
+  #dashboard .package-card .location-meta{display:none}
+  /* customers / transactions lists scroll inside */
+  #dashboard .customer-results,#dashboard #transactions-list{max-height:calc(100vh - 330px);overflow:auto}
+  #dashboard .customer-results .payment-card,#dashboard #transactions-list .payment-card{padding:8px 10px}
+  .fp-avatar{width:30px;height:30px;font-size:11px}
+  /* money */
+  .fp-money-hero{padding:14px 16px;margin-bottom:8px;border-radius:16px}.fp-money-value{font-size:26px}.fp-money-arcs{width:90px;height:50px}
+  .fp-money-chart{padding:10px;margin:8px 0}.fp-money-bars{height:56px}.fp-money-split{display:none}
+  /* sms packages */
+  #dashboard .sms-packages{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+}
+
+@media(max-width:620px){
+  #dashboard .toolbar-row{display:grid;grid-template-columns:1fr 1fr}
+  #dashboard .toolbar-row input[type=search],#dashboard .toolbar-row input:only-child{grid-column:1/-1}
+  #dashboard .section-actions{width:100%}#dashboard .section-actions>*{flex:1 1 auto}
+  #dashboard .fields,#dashboard .fields.four{grid-template-columns:1fr 1fr!important;gap:6px!important}
+  #dashboard label span{font-size:11px}
+  #dashboard input,#dashboard select{min-height:36px;font-size:12px;padding:6px 9px}
+  #dashboard .sales-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  #dashboard .sales-metrics .metric{padding:8px 10px}
+  #dashboard .payment-card h3,#dashboard .package-card h3{font-size:13px}
+  #dashboard .payment-card .location-meta{font-size:11px}
+  .customer-results .payment-card .location-meta:last-child{display:none}
+}
