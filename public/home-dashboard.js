@@ -89,12 +89,13 @@
   function tile(ctx, o) {
     var attr = o.module ? ' data-card-module="' + o.module + '" tabindex="0" role="button" aria-label="Open ' + o.label + ' details"' : '';
     return '<article class="hd-tile" style="--tone:' + o.tone + '"' + attr + '><div class="hd-tile-top"><span class="hd-chip">' + icon(o.icon, 17) + '</span><div class="overview-kpi-label">' + o.label + '</div></div>' +
-      '<div class="hd-tile-value">' + o.value + '</div><div class="hd-tile-foot">' + (o.delta || '') + '<span>' + o.note + '</span></div>' + (o.spark || '') + '</article>';
+      '<div class="hd-tile-value">' + o.value + '</div><div class="hd-tile-foot">' + (o.delta || '') + '<span>' + o.note + '</span></div>' + (o.bar != null ? '<div class="hd-meter"><i style="width:' + Math.max(0, Math.min(100, o.bar)) + '%"></i></div>' : '') + (o.spark || '') + '</article>';
   }
   function delta(now, before, unit) {
     if (!before && !now) return '';
     if (!before) return '<b class="hd-delta up">new</b>';
     var pct = Math.round((now - before) / before * 100);
+    if (pct > 500) return '<b class="hd-delta up">▲ 5x+</b>';
     return '<b class="hd-delta ' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '▲ ' : '▼ ') + Math.abs(pct) + '%' + (unit || '') + '</b>';
   }
   function panel(title, iconName, body, extra) {
@@ -134,12 +135,12 @@
 
     var tiles = [
       tile(ctx, { icon: 'cash', tone: '#1769d8', label: 'Gross sales', value: failed ? '—' : kes(gross), note: payments ? plural(payments, 'payment') : 'No payments yet', module: 'money', spark: spark(buckets.map(function (b) { return b.revenueKes; }), '#1769d8') }),
-      tile(ctx, { icon: 'wallet', tone: '#168c62', label: 'Net to business', value: failed ? '—' : kes(net), note: gross ? 'After ' + (feeShare ? feeShare + '% fee' : 'no platform fee') : 'Nothing earned yet', module: 'money' }),
+      tile(ctx, { icon: 'wallet', tone: '#168c62', label: 'Net to business', value: failed ? '—' : kes(net), note: gross ? 'After ' + (feeShare ? feeShare + '% fee' : 'no platform fee') : 'Nothing earned yet', bar: gross ? net / gross * 100 : null, module: 'money' }),
       tile(ctx, { icon: 'fee', tone: '#e08a1e', label: 'Platform fee', value: failed ? '—' : kes(fee), note: fee ? 'Wi-Fi Fiti collection fee' : 'No platform fee in this period', module: 'money' }),
       tile(ctx, { icon: 'bolt', tone: '#7a5cd6', label: 'Today', value: failed ? '—' : kes(todayTotal), delta: delta(todayTotal, yesterdayTotal, ''), note: plural(todaySales.length, 'sale') + ' · yesterday ' + kes(yesterdayTotal), module: 'money' }),
       tile(ctx, { icon: 'receipt', tone: '#078d9b', label: 'Average sale', value: failed ? '—' : kes(Math.round(avgSale)), note: bestBucket && bestBucket.revenueKes ? 'Best ' + (ctx.revenue.granularity === 'hour' ? 'hour' : ctx.revenue.granularity === 'week' ? 'week' : 'day') + ': ' + esc(bestBucket.label) : 'Per completed payment', module: 'money' }),
       tile(ctx, { icon: 'people', tone: '#d6477a', label: 'Customers', value: failed ? '—' : String(customers.toLocaleString()), note: 'Different devices that paid', module: 'customers' }),
-      tile(ctx, { icon: 'router', tone: online ? '#168c62' : '#bd3852', label: 'System insights', value: '<span class="overview-status">' + (online ? 'Online' : 'Offline') + '</span>', note: online + ' of ' + plural(locations.length, 'router') + ' online · ' + Number(w.monthlyActiveDevices || 0) + ' active devices', module: 'routers' }),
+      tile(ctx, { icon: 'router', tone: online ? '#168c62' : '#bd3852', label: 'System insights', value: '<span class="overview-status">' + (online ? 'Online' : 'Offline') + '</span>', note: online + ' of ' + plural(locations.length, 'router') + ' online · ' + Number(w.monthlyActiveDevices || 0) + ' active devices', bar: locations.length ? online / locations.length * 100 : null, module: 'routers' }),
       tile(ctx, { icon: 'box', tone: '#1769d8', label: 'Packages', value: String(packages.length), note: packages.length ? 'On sale across your routers' : 'Add your first package', module: 'packages' })
     ].join('');
 
@@ -158,7 +159,7 @@
         '<i class="hd-avg" style="bottom:' + (max ? Math.round(avg / max * 100) : 0) + '%"><em>avg ' + shortMoney(avg) + '</em></i><div class="hd-cols">' +
         buckets.map(function (b, i) {
           var peak = bestBucket && b === bestBucket && b.revenueKes > 0;
-          return '<span class="hd-col' + (peak ? ' peak' : '') + '"><i style="height:' + (max > 0 ? Math.max(b.revenueKes ? 3 : 1, Math.round(b.revenueKes / max * 100)) : 1) + '%" title="' + esc(b.label) + ' · ' + kes(b.revenueKes) + ' · ' + plural(b.payments, 'payment') + '"></i><u>' + (i % every === 0 ? esc(b.label.replace('w/c ', '')) : '') + '</u></span>';
+          return '<span class="hd-col' + (peak ? ' peak' : '') + '"><i style="height:calc((100% - 18px) * ' + (max > 0 ? Math.max(b.revenueKes ? 0.03 : 0.01, b.revenueKes / max) : 0.01).toFixed(3) + ')" title="' + esc(b.label) + ' · ' + kes(b.revenueKes) + ' · ' + plural(b.payments, 'payment') + '"></i><u>' + (i % every === 0 ? esc(b.label.replace('w/c ', '')) : '') + '</u></span>';
         }).join('') + '</div></div></div>' +
         '<div class="hd-chart-sum"><span><b>' + kes(total) + '</b> total</span><span><b>' + kes(Math.round(avg)) + '</b> average</span><span><b>' + activeBuckets + '</b> of ' + buckets.length + ' with sales</span></div>';
     }
@@ -201,14 +202,31 @@
       return '<li><span class="hd-router-ico ' + (up ? 'ok' : 'off') + '">' + icon('router', 16) + '</span><div><b>' + esc(l.name || l.router_name || 'Router') + '</b><small>' + (seen ? 'Checked in ' + ago(seen, now) : 'Not connected yet') + '</small></div><span class="hd-state ' + (up ? 'ok' : 'off') + '">' + (up ? 'Online' : status === 'waiting' ? 'Waiting' : 'Offline') + '</span></li>';
     }).join('') + '</ul>' + (locations.length > 6 ? '<p class="hd-note">+' + (locations.length - 6) + ' more on the Routers page.</p>' : '') : empty('Add a router to start selling.');
 
+
+    // Needs your attention: things worth acting on, worked out from the data.
+    var items = [];
+    var offline = locations.filter(function (l) { return String(l.router_status || '').toLowerCase() !== 'online'; });
+    offline.slice(0, 3).forEach(function (l) {
+      var seen = parseTime(l.last_successful_sync_at);
+      items.push({ tone: 'bad', pill: 'Offline', title: esc(l.name || l.router_name || 'Router') + ' is not online', text: seen ? 'Last checked in ' + ago(seen, now) + '. Customers cannot connect until it is back.' : 'It has not checked in yet. Finish its setup to start selling.', action: 'Open routers', module: 'routers' });
+    });
+    if (!failed && attempts >= 5 && rate < 80) items.push({ tone: 'warn', pill: 'At risk', title: 'Only ' + rate + '% of payment attempts complete', text: plural(counts.failed, 'attempt') + ' did not go through in this period. Check the transactions for the reasons.', action: 'Review sales', module: 'money' });
+    if (!failed && counts.pending > 0) items.push({ tone: 'warn', pill: 'Waiting', title: plural(counts.pending, 'payment') + ' still waiting', text: 'Customers who started paying but have not confirmed yet.', action: 'Open sales', module: 'money' });
+    if (!packages.length) items.push({ tone: 'warn', pill: 'Set up', title: 'No packages on sale', text: 'Customers need at least one package to buy.', action: 'Add package', module: 'packages' });
+    if (!failed && locations.length && online && !todaySales.length && now - new Date().setHours(12, 0, 0, 0) > 0) items.push({ tone: 'info', pill: 'Quiet', title: 'No sales yet today', text: 'Yesterday you made ' + kes(yesterdayTotal) + '.', action: 'See customers', module: 'customers' });
+    var attention = items.length ? '<ul class="hd-attn">' + items.slice(0, 4).map(function (it) {
+      return '<li class="' + it.tone + '"><div class="hd-attn-head"><b>' + it.title + '</b><span class="hd-pill ' + it.tone + '">' + it.pill + '</span></div><p>' + it.text + '</p><button type="button" class="hd-btn" data-card-module="' + it.module + '">' + it.action + '</button></li>';
+    }).join('') + '</ul>' : '<div class="hd-allgood">' + icon('check', 22) + '<b>All clear</b><span>Your routers are online and payments are going through.</span></div>';
+
     var actions = [['routers', 'router', 'Routers', 'Status and setup'], ['packages', 'ticket', 'Packages & vouchers', 'Prices and codes'], ['customers', 'users', 'Customers', 'Who paid and who is online'], ['money', 'wallet', 'Money', 'Sales and payouts'], ['portal', 'wifi', 'Customer portal', 'Look and wording'], ['sms', 'trend', 'SMS', 'Messages to customers']]
       .map(function (a) { return '<button type="button" class="hd-action" data-card-module="' + a[0] + '"><span class="hd-chip">' + icon(a[1], 18) + '</span><span><b>' + a[2] + '</b><small>' + a[3] + '</small></span>' + icon('arrow', 14) + '</button>'; }).join('');
 
+    var attnHead = items.length ? '<span class="hd-count">' + Math.min(items.length, 4) + '</span>' : '';
     return '<div class="hd-tiles">' + tiles + '</div>' +
-      '<div class="hd-grid hd-main"><section class="hd-panel hd-wide overview-chart"><header><h3>' + icon('chart', 16) + chartTitle + '</h3><div class="overview-legend"><span>' + (ctx.sourceLabel ? 'Revenue · ' + esc(ctx.sourceLabel) : 'Revenue') + '</span></div></header>' + chart + '</section>' +
-      panel('Recent sales', 'receipt', recentBody, '<button type="button" class="hd-link" data-card-module="money">All sales</button>') + '</div>' +
+      '<div class="hd-grid hd-main"><section class="hd-panel hd-wide"><header><h3>' + icon('chart', 16) + chartTitle + '</h3><div class="overview-legend"><span>' + (ctx.sourceLabel ? 'Revenue · ' + esc(ctx.sourceLabel) : 'Revenue') + '</span></div></header>' + chart + '</section>' +
+      panel('Needs your attention', 'bolt', attention, attnHead) + '</div>' +
+      '<div class="hd-grid hd-three">' + panel('Recent sales', 'receipt', recentBody, '<button type="button" class="hd-link" data-card-module="money">All sales</button>') + panel('Router health', 'wifi', routerBody, '<button type="button" class="hd-link" data-card-module="routers">Manage</button>') + panel('Payment success', 'pie', ring + '<h4 class="hd-sub">Busiest hours</h4>' + hourBody) + '</div>' +
       '<div class="hd-grid hd-three">' + panel('Sales by router', 'pin', shareList(byRouter, ctx, sum(paid), 5)) + panel('Top packages', 'ticket', shareList(byPackage, ctx, sum(paid), 5)) + panel('How customers pay', 'wallet', shareList(bySource, ctx, sum(paidAll), 4)) + '</div>' +
-      '<div class="hd-grid hd-three">' + panel('Router health', 'wifi', routerBody, '<button type="button" class="hd-link" data-card-module="routers">Manage</button>') + panel('Payment success', 'pie', ring) + panel('Busiest hours', 'clock', hourBody) + '</div>' +
       '<div class="hd-actions" aria-label="Go to">' + actions + '</div>';
   }
 
