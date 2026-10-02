@@ -1,0 +1,32 @@
+/* Wi-Fi Fiti inner pages: Routers and Packages */
+#dashboard #locations{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;align-items:start}
+#dashboard #locations>.fp-stats,#dashboard #locations>.location-switcher,#dashboard #locations>.empty{grid-column:1/-1}
+.fp-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.fp-stat{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border:1px solid #DAE4F7;border-radius:16px;background:#fff;box-shadow:0 6px 20px rgba(10,26,69,.06)}
+.fp-stat-label{font-size:13px;font-weight:600;color:#5B6B8C}
+.fp-stat-value{font-size:28px;line-height:1.1;color:#0A1A45}
+.fp-stat.fp-green .fp-stat-value{color:#12A87A}.fp-stat.fp-red .fp-stat-value{color:#E5344A}.fp-stat.fp-blue .fp-stat-value{color:#0B7BE8}
+#dashboard .location-card.fp-router{padding:0;overflow:hidden;gap:0;background:#fff;border-color:#DAE4F7}
+.fp-router-art{align-self:stretch;display:flex;justify-content:center;padding:14px 0 0;background:linear-gradient(180deg,#E6F1FF,#F7FAFF)}
+.fp-router.fp-unknown .fp-router-art,.fp-router.fp-waiting .fp-router-art{background:linear-gradient(180deg,#EEF1F7,#F8F9FC)}
+.fp-router>:not(.fp-router-art){margin-left:18px;margin-right:18px;align-self:stretch}
+.fp-router>.location-top{margin-top:16px}
+.fp-router>.location-actions{margin-bottom:18px}
+#dashboard .location-card.fp-router:has(form){grid-column:1/-1}
+@media(max-width:620px){.fp-stats{grid-template-columns:1fr 1fr 1fr;gap:8px}.fp-stat{padding:10px}.fp-stat-value{font-size:22px}}
+/* Packages */
+#dashboard #packages{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px;align-items:start}
+#dashboard #packages>.empty{grid-column:1/-1}
+#dashboard .package-card{padding:0;overflow:hidden;gap:0;background:#fff;flex-direction:column;align-items:stretch;border-color:#DAE4F7}
+#dashboard .package-card>div:first-child{padding:16px 18px 18px}
+#dashboard .package-card .package-price{order:-1;align-self:stretch;padding:22px 18px 16px;font-size:34px;font-weight:800;letter-spacing:-.02em;color:#fff;background:linear-gradient(135deg,#FF3FB4,#2A1470 95%)}
+#dashboard .package-card .package-price small{display:block;margin-top:4px;font-size:13px;font-weight:600;color:rgba(255,255,255,.82);letter-spacing:0}
+#dashboard .package-card.fp-tone-1 .package-price{background:linear-gradient(135deg,#FFB000,#0A1A45 95%)}
+#dashboard .package-card.fp-tone-2 .package-price{background:linear-gradient(135deg,#8A3FFC,#0A1A45 95%)}
+#dashboard .package-card.fp-tone-3 .package-price{background:linear-gradient(135deg,#00B8F5,#0A3A8C 95%)}
+#dashboard .package-card.fp-tone-4 .package-price{background:linear-gradient(135deg,#0B7BE8,#0A1A45 95%)}
+#dashboard .package-card.fp-paused .package-price{background:linear-gradient(135deg,#8C97B3,#3A4565 95%)}
+#dashboard .package-card.fp-paused{opacity:.92}
+#dashboard .package-card .package-price{text-align:left}
+#dashboard .package-card .location-meta{font-size:13px;line-height:1.4}
+#dashboard .location-card.fp-router .location-meta{font-size:13px}
