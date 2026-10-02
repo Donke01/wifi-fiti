@@ -67,3 +67,8 @@
 #dashboard .sms-package:nth-child(4n+4){border-top:5px solid #FF3FB4}
 /* tables */
 #dashboard .workspace-table th{background:#F2F6FF;color:#5B6B8C}
+/* PPPoE entry */
+#dashboard .fp-pppoe-hero{display:flex;align-items:center;gap:24px;flex-wrap:wrap;background:linear-gradient(135deg,#F2F6FF,#E6F7FD)}
+#dashboard .fp-pppoe-hero p{margin:6px 0 14px;max-width:520px;color:#5B6B8C}
+/* Customer portal preview as a phone */
+#dashboard .portal-template-preview{border:10px solid #0A1A45;border-radius:38px;overflow:hidden;background:#fff;box-shadow:0 18px 40px rgba(10,26,69,.25)}
