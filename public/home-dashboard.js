@@ -40,7 +40,8 @@
     return '<svg class="hd-icon" width="' + px + '" height="' + px + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + (ICONS[name] || '') + '</svg>';
   }
 
-  var TONES = ['#1769d8', '#078d9b', '#7a5cd6', '#e08a1e', '#d6477a', '#168c62'];
+  var played = false;
+  var TONES = ['#0b7bde', '#00b8f5', '#8a3ffc', '#ffb000', '#ff3fb4', '#12a87a'];
   var SOURCE_NAMES = { fiti: 'Wi-Fi Fiti collection', own: 'Own Till / PayBill', c2b: 'Own Till / PayBill', tuma: 'Tuma', tuma_direct: 'Tuma' };
 
   function parseTime(raw) {
@@ -134,14 +135,14 @@
     var feeShare = gross ? Math.round(fee / gross * 1000) / 10 : 0;
 
     var tiles = [
-      tile(ctx, { icon: 'cash', tone: '#1769d8', label: 'Gross sales', value: failed ? '—' : kes(gross), note: payments ? plural(payments, 'payment') : 'No payments yet', module: 'money', spark: spark(buckets.map(function (b) { return b.revenueKes; }), '#1769d8') }),
-      tile(ctx, { icon: 'wallet', tone: '#168c62', label: 'Net to business', value: failed ? '—' : kes(net), note: gross ? 'After ' + (feeShare ? feeShare + '% fee' : 'no platform fee') : 'Nothing earned yet', bar: gross ? net / gross * 100 : null, module: 'money' }),
-      tile(ctx, { icon: 'fee', tone: '#e08a1e', label: 'Platform fee', value: failed ? '—' : kes(fee), note: fee ? 'Wi-Fi Fiti collection fee' : 'No platform fee in this period', module: 'money' }),
-      tile(ctx, { icon: 'bolt', tone: '#7a5cd6', label: 'Today', value: failed ? '—' : kes(todayTotal), delta: delta(todayTotal, yesterdayTotal, ''), note: plural(todaySales.length, 'sale') + ' · yesterday ' + kes(yesterdayTotal), module: 'money' }),
-      tile(ctx, { icon: 'receipt', tone: '#078d9b', label: 'Average sale', value: failed ? '—' : kes(Math.round(avgSale)), note: bestBucket && bestBucket.revenueKes ? 'Best ' + (ctx.revenue.granularity === 'hour' ? 'hour' : ctx.revenue.granularity === 'week' ? 'week' : 'day') + ': ' + esc(bestBucket.label) : 'Per completed payment', module: 'money' }),
-      tile(ctx, { icon: 'people', tone: '#d6477a', label: 'Customers', value: failed ? '—' : String(customers.toLocaleString()), note: 'Different devices that paid', module: 'customers' }),
+      tile(ctx, { icon: 'cash', tone: '#0b7bde', label: 'Gross sales', value: failed ? '—' : kes(gross), note: payments ? plural(payments, 'payment') : 'No payments yet', module: 'money', spark: spark(buckets.map(function (b) { return b.revenueKes; }), '#0b7bde') }),
+      tile(ctx, { icon: 'wallet', tone: '#12a87a', label: 'Net to business', value: failed ? '—' : kes(net), note: gross ? 'After ' + (feeShare ? feeShare + '% fee' : 'no platform fee') : 'Nothing earned yet', bar: gross ? net / gross * 100 : null, module: 'money' }),
+      tile(ctx, { icon: 'fee', tone: '#ffb000', label: 'Platform fee', value: failed ? '—' : kes(fee), note: fee ? 'Wi-Fi Fiti collection fee' : 'No platform fee in this period', module: 'money' }),
+      tile(ctx, { icon: 'bolt', tone: '#ff3fb4', label: 'Today', value: failed ? '—' : kes(todayTotal), delta: delta(todayTotal, yesterdayTotal, ''), note: plural(todaySales.length, 'sale') + ' · yesterday ' + kes(yesterdayTotal), module: 'money' }),
+      tile(ctx, { icon: 'receipt', tone: '#00b8f5', label: 'Average sale', value: failed ? '—' : kes(Math.round(avgSale)), note: bestBucket && bestBucket.revenueKes ? 'Best ' + (ctx.revenue.granularity === 'hour' ? 'hour' : ctx.revenue.granularity === 'week' ? 'week' : 'day') + ': ' + esc(bestBucket.label) : 'Per completed payment', module: 'money' }),
+      tile(ctx, { icon: 'people', tone: '#8a3ffc', label: 'Customers', value: failed ? '—' : String(customers.toLocaleString()), note: 'Different devices that paid', module: 'customers' }),
       tile(ctx, { icon: 'router', tone: online ? '#168c62' : '#bd3852', label: 'System insights', value: '<span class="overview-status">' + (online ? 'Online' : 'Offline') + '</span>', note: online + ' of ' + plural(locations.length, 'router') + ' online · ' + Number(w.monthlyActiveDevices || 0) + ' active devices', bar: locations.length ? online / locations.length * 100 : null, module: 'routers' }),
-      tile(ctx, { icon: 'box', tone: '#1769d8', label: 'Packages', value: String(packages.length), note: packages.length ? 'On sale across your routers' : 'Add your first package', module: 'packages' })
+      tile(ctx, { icon: 'box', tone: '#0b7bde', label: 'Packages', value: String(packages.length), note: packages.length ? 'On sale across your routers' : 'Add your first package', module: 'packages' })
     ].join('');
 
     // Revenue chart: bars with a scale, the average line and the peak marked.
@@ -221,14 +222,48 @@
     var actions = [['routers', 'router', 'Routers', 'Status and setup'], ['packages', 'ticket', 'Packages & vouchers', 'Prices and codes'], ['customers', 'users', 'Customers', 'Who paid and who is online'], ['money', 'wallet', 'Money', 'Sales and payouts'], ['portal', 'wifi', 'Customer portal', 'Look and wording'], ['sms', 'trend', 'SMS', 'Messages to customers']]
       .map(function (a) { return '<button type="button" class="hd-action" data-card-module="' + a[0] + '"><span class="hd-chip">' + icon(a[1], 18) + '</span><span><b>' + a[2] + '</b><small>' + a[3] + '</small></span>' + icon('arrow', 14) + '</button>'; }).join('');
 
+
+    // Today's takings hero: the one big, illustrated card at the top of Home.
+    var hourly = []; for (var hh = 0; hh < 24; hh += 1) hourly.push(0);
+    todaySales.forEach(function (tx) { var t = parseTime(tx.created_at); if (t) hourly[t.getHours()] += Number(tx.amount || 0); });
+    var hourMaxToday = Math.max.apply(null, [1].concat(hourly)); var nowHour = new Date().getHours();
+    var peakToday = Math.max.apply(null, hourly) > 0 ? hourly.indexOf(Math.max.apply(null, hourly)) : -1;
+    var heroBars = hourly.map(function (v, h) { return '<i class="' + (h === peakToday ? 'pk' : '') + (h > nowHour ? ' fut' : '') + '" style="--h:' + Math.max(v ? 6 : 3, Math.round(v / hourMaxToday * 100)) + '%;--i:' + h + '" title="' + String(h).padStart(2, '0') + ':00 · ' + kes(v) + '"></i>'; }).join('');
+    var arcPath = function (r) { var k = 0.7071; return 'M ' + (200 - r * k).toFixed(1) + ' ' + (205 - r * k).toFixed(1) + ' A ' + r + ' ' + r + ' 0 0 1 ' + (200 + r * k).toFixed(1) + ' ' + (205 - r * k).toFixed(1); };
+    var spark4 = function (x, y, s, c, d) { return '<path class="hd-spk" style="animation-delay:' + d + 's;transform-origin:' + x + 'px ' + y + 'px" fill="' + c + '" d="M' + x + ' ' + (y - s) + ' Q' + x + ' ' + y + ' ' + (x + s) + ' ' + y + ' Q' + x + ' ' + y + ' ' + x + ' ' + (y + s) + ' Q' + x + ' ' + y + ' ' + (x - s) + ' ' + y + ' Q' + x + ' ' + y + ' ' + x + ' ' + (y - s) + 'Z"/>'; };
+    var deco = '<svg class="hd-arcs" viewBox="0 0 400 260" aria-hidden="true" focusable="false"><path class="hd-arc a3" d="' + arcPath(150) + '" stroke="#35d4ff"/><path class="hd-arc a2" d="' + arcPath(104) + '" stroke="#ff3fb4"/><path class="hd-arc a1" d="' + arcPath(58) + '" stroke="#ffb000"/><circle class="hd-arc-dot" cx="200" cy="205" r="11" fill="#ffb000"/>' + spark4(330, 44, 15, '#ffb000', 0) + spark4(372, 108, 9, '#35d4ff', .8) + spark4(286, 112, 7, '#ff3fb4', 1.6) + '</svg>';
+    var heroStats = [['This month', failed ? '—' : kes(gross), gross], ['You keep', failed ? '—' : kes(net), net], ['Customers', failed ? '—' : String(customers.toLocaleString()), customers], ['Devices online now', String(Number(w.monthlyActiveDevices || 0)), Number(w.monthlyActiveDevices || 0)]]
+      .map(function (r) { return '<div><small>' + r[0] + '</small><b' + (failed ? '' : ' data-count="' + Math.round(r[2]) + '" data-prefix="' + (r[0] === 'This month' || r[0] === 'You keep' ? 'KES ' : '') + '"') + '>' + r[1] + '</b></div>'; }).join('');
+    var heroHtml = '<section class="hd-hero" aria-label="Today\'s takings">' + deco + '<div class="hd-hero-main"><div class="hd-hero-top"><span>Today’s takings</span>' + (todayTotal || yesterdayTotal ? delta(todayTotal, yesterdayTotal, '').replace('hd-delta', 'hd-delta hd-delta-hero') + '<em>vs yesterday</em>' : '') + '</div>' +
+      '<div class="hd-hero-big"><span class="hd-cur">KES</span><b data-count="' + Math.round(todayTotal) + '">' + Math.round(todayTotal).toLocaleString() + '</b></div>' +
+      '<p>' + plural(todaySales.length, 'sale') + (todaySales.length ? ' · average ' + kes(Math.round(todayTotal / todaySales.length)) : '') + (peakToday >= 0 ? ' · busiest hour ' + String(peakToday).padStart(2, '0') + ':00' : '') + '</p>' +
+      '<div class="hd-hbars" role="img" aria-label="Sales per hour today">' + heroBars + '</div><div class="hd-hscale"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>now</span></div>' +
+      '<div class="hd-hero-stats">' + heroStats + '</div></div></section>';
+    var animate = !played; played = true;
     var attnHead = items.length ? '<span class="hd-count">' + Math.min(items.length, 4) + '</span>' : '';
-    return '<div class="hd-tiles">' + tiles + '</div>' +
+    return '<div class="hd-wrap' + (animate ? ' hd-anim' : '') + '">' + heroHtml + '<div class="hd-tiles">' + tiles + '</div>' +
       '<div class="hd-grid hd-main"><section class="hd-panel hd-wide"><header><h3>' + icon('chart', 16) + chartTitle + '</h3><div class="overview-legend"><span>' + (ctx.sourceLabel ? 'Revenue · ' + esc(ctx.sourceLabel) : 'Revenue') + '</span></div></header>' + chart + '</section>' +
       panel('Needs your attention', 'bolt', attention, attnHead) + '</div>' +
       '<div class="hd-grid hd-three">' + panel('Recent sales', 'receipt', recentBody, '<button type="button" class="hd-link" data-card-module="money">All sales</button>') + panel('Router health', 'wifi', routerBody, '<button type="button" class="hd-link" data-card-module="routers">Manage</button>') + panel('Payment success', 'pie', ring + '<h4 class="hd-sub">Busiest hours</h4>' + hourBody) + '</div>' +
       '<div class="hd-grid hd-three">' + panel('Sales by router', 'pin', shareList(byRouter, ctx, sum(paid), 5)) + panel('Top packages', 'ticket', shareList(byPackage, ctx, sum(paid), 5)) + panel('How customers pay', 'wallet', shareList(bySource, ctx, sum(paidAll), 4)) + '</div>' +
-      '<div class="hd-actions" aria-label="Go to">' + actions + '</div>';
+      '<div class="hd-actions" aria-label="Go to">' + actions + '</div></div>';
   }
 
-  window.FitiHome = { html: html, icon: icon };
+
+  // Count-up for the big numbers, only the first time the page draws.
+  function animate(root) {
+    if (!root || !root.querySelector('.hd-anim')) return;
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; if (reduce) return;
+    var nodes = root.querySelectorAll('[data-count]'); var start = null; var DURATION = 800;
+    var targets = Array.prototype.map.call(nodes, function (node) { return { node: node, to: Number(node.getAttribute('data-count')) || 0, prefix: node.getAttribute('data-prefix') || '' }; });
+    function frame(now) {
+      if (start === null) start = now; var k = Math.min(1, (now - start) / DURATION); var eased = 1 - Math.pow(1 - k, 3);
+      targets.forEach(function (t) { t.node.textContent = t.prefix + Math.round(t.to * eased).toLocaleString(); });
+      if (k < 1) window.requestAnimationFrame(frame);
+    }
+    targets.forEach(function (t) { t.node.textContent = t.prefix + '0'; });
+    window.requestAnimationFrame(frame);
+  }
+
+  window.FitiHome = { html: html, icon: icon, animate: animate };
 })();

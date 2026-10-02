@@ -757,6 +757,39 @@
 .hd-btn{min-height:0;padding:5px 12px;border:1px solid var(--line);border-radius:9px;color:var(--ink);background:#fff;box-shadow:none;font-size:12px;font-weight:800}.hd-attn li.bad .hd-btn{color:#fff;border-color:#1769d8;background:#1769d8}
 .hd-allgood{display:grid;justify-items:start;gap:6px;padding:14px;border-radius:12px;color:#0b6b4a;background:#e9f8f1}.hd-allgood b{font-size:14px}.hd-allgood span{color:#2f6f58;font-size:12.5px;line-height:1.45}
 .hd-sub{margin:16px 0 10px;padding-top:14px;border-top:1px solid #eef3f8;color:var(--ink);font-size:13px;font-weight:820}
+/* Home, Fiti brand: navy hero, logo colours, motion. */
+.hd-hero{position:relative;overflow:hidden;margin-bottom:14px;padding:26px 28px 22px;border-radius:24px;color:#fff;background:radial-gradient(120% 140% at 100% 0%,#1b3a9a 0%,transparent 55%),radial-gradient(90% 120% at 0% 100%,#0b2a7a 0%,transparent 60%),#0a1a45;box-shadow:0 18px 44px #0a1a4540}
+.hd-arcs{position:absolute;right:-10px;top:-6px;width:min(46%,420px);height:auto;pointer-events:none}
+.hd-arc{fill:none;stroke-width:7;stroke-linecap:round;opacity:.55}
+.hd-arc-dot{filter:drop-shadow(0 0 8px #ffb00099)}
+.hd-hero-main{position:relative;z-index:1;max-width:100%}
+.hd-hero-top{display:flex;align-items:center;gap:10px;color:#ffffffb3;font-size:13px;font-weight:700}.hd-hero-top em{color:#ffffff80;font-style:normal;font-size:12px;font-weight:600}
+.hd-delta-hero{color:#06324a!important;background:#35d4ff!important}.hd-delta-hero.down{color:#fff!important;background:#ff3fb4!important}
+.hd-hero-big{display:flex;align-items:flex-end;gap:10px;margin:10px 0 4px;line-height:1}.hd-hero-big .hd-cur{padding-bottom:9px;color:#ffb000;font-size:24px;font-weight:850;letter-spacing:-.03em}.hd-hero-big b{font-size:clamp(46px,7vw,76px);font-weight:880;letter-spacing:-.065em}
+.hd-hero p{margin:0 0 16px;color:#ffffffa6;font-size:13px}
+.hd-hbars{display:flex;align-items:flex-end;gap:4px;height:84px;max-width:640px}
+.hd-hbars i{flex:1;min-width:0;height:var(--h);border-radius:4px 4px 2px 2px;background:#35d4ff;opacity:.7;transform-origin:bottom}.hd-hbars i.fut{background:#ffffff;opacity:.12;height:4px}.hd-hbars i.pk{background:#ff3fb4;opacity:1;box-shadow:0 0 14px #ff3fb488}
+.hd-hscale{display:flex;justify-content:space-between;max-width:640px;margin-top:6px;color:#ffffff66;font-size:10px}
+.hd-hero-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin-top:18px;max-width:760px}.hd-hero-stats>div{padding:0 18px;border-left:1px solid #ffffff1f}.hd-hero-stats>div:first-child{padding-left:0;border-left:0}
+.hd-hero-stats small{display:block;color:#ffffff80;font-size:11px;font-weight:600}.hd-hero-stats b{display:block;margin-top:3px;font-size:19px;font-weight:850;letter-spacing:-.04em}
+.hd-chip{background:color-mix(in srgb,var(--tone,#0b7bde) 14%,#fff)}
+.hd-col i{background:linear-gradient(#35d4ff,#0b7bde)}.hd-col.peak i{background:linear-gradient(#ff7ad0,#ff3fb4)}
+.hd-hours .l1{background:#d5e9ff}.hd-hours .l2{background:#8fd0ff}.hd-hours .l3{background:#0b7bde}.hd-hours .l4{background:#ff3fb4}
+.hd-state.ok:before{content:"";display:inline-block;width:6px;height:6px;margin-right:5px;border-radius:50%;background:#12a87a;vertical-align:1px}
+/* motion */
+@keyframes hdRise{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes hdArc{0%,100%{opacity:.3}50%{opacity:.95}}
+@keyframes hdTwinkle{0%,100%{transform:scale(.8);opacity:.7}50%{transform:scale(1.15);opacity:1}}
+@keyframes hdRing{0%{box-shadow:0 0 0 0 #12a87a66}100%{box-shadow:0 0 0 9px #12a87a00}}
+@keyframes hdIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.hd-arc.a1{animation:hdArc 4s ease-in-out infinite}.hd-arc.a2{animation:hdArc 4s ease-in-out 1.1s infinite}.hd-arc.a3{animation:hdArc 4s ease-in-out 2.2s infinite}
+.hd-spk{animation:hdTwinkle 3.2s ease-in-out infinite;transform-box:fill-box}
+.hd-anim .hd-hbars i{animation:hdRise .7s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i) * 25ms)}
+.hd-anim .hd-tile,.hd-anim .hd-panel{animation:hdIn .5s cubic-bezier(.2,.8,.2,1) both}.hd-anim .hd-tiles>:nth-child(2){animation-delay:.05s}.hd-anim .hd-tiles>:nth-child(3){animation-delay:.1s}.hd-anim .hd-tiles>:nth-child(4){animation-delay:.15s}
+.hd-state.ok:before{animation:hdRing 1.6s ease-out infinite}
+.hd-tile,.hd-panel,.hd-action{transition:transform .16s ease,box-shadow .16s ease}.hd-tile:hover,.hd-panel:hover{transform:translateY(-4px);box-shadow:0 14px 30px #0a1a4524}
+@media(max-width:760px){.hd-hero{padding:20px 18px}.hd-arcs{width:60%;opacity:.55}.hd-hero-stats{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:14px}.hd-hero-stats>div:nth-child(3){padding-left:0;border-left:0}}
+@media(prefers-reduced-motion:reduce){.hd-arc,.hd-spk,.hd-state.ok:before,.hd-anim .hd-hbars i,.hd-anim .hd-tile,.hd-anim .hd-panel{animation:none!important}.hd-tile:hover,.hd-panel:hover{transform:none}}
 </style>
 </head>
 <body>
@@ -1300,6 +1333,7 @@
         else recentCopy = 'Showing ' + plural(paid.length, OVERVIEW_SOURCE_LABELS[overviewSource()] + ' payment') + ' of ' + plural(total, 'confirmed sale') + ' ' + periodLabel + ((dashboard.transactions || []).length >= 500 ? ' (latest 500 records)' : '') + '.';
         if (window.FitiHome) {
           section.innerHTML = window.FitiHome.html({ dashboard: dashboard, workspace: state.workspace, paid: paid, revenue: revenue, failed: failed, sourceLabel: overviewSource() === 'all' ? '' : OVERVIEW_SOURCE_LABELS[overviewSource()], kes: kes, plural: plural, escapeHtml: escapeHtml });
+          if (window.FitiHome.animate) window.FitiHome.animate(section);
           installCardNavigation(); return;
         }
         section.innerHTML = '<div class="overview-kpis"><article class="overview-kpi"><div class="overview-kpi-label">Gross sales</div><div class="overview-kpi-value">' + (failed ? '—' : kes(gross)) + '</div><div class="overview-kpi-note">Completed payments in the period</div></article><article class="overview-kpi"><div class="overview-kpi-label">Platform fee</div><div class="overview-kpi-value">' + (failed ? '—' : kes(platformFee)) + '</div><div class="overview-kpi-note">' + (platformFee ? 'Wi-Fi Fiti collection fee' : 'No platform fee in this period') + '</div></article><article class="overview-kpi"><div class="overview-kpi-label">Net to business</div><div class="overview-kpi-value">' + (failed ? '—' : kes(net)) + '</div><div class="overview-kpi-note">After the platform fee</div></article><article class="overview-kpi"><div class="overview-kpi-label">System insights</div><div class="overview-kpi-value"><span class="overview-status">' + (online ? 'Online' : 'Offline') + '</span></div><div class="overview-kpi-note">' + online + ' router(s) online · ' + active + ' active devices</div></article></div><div class="overview-chart"><div class="overview-chart-head"><h3>' + chartTitle + '</h3><div class="overview-legend"><span>' + (overviewSource() === 'all' ? 'Revenue' : 'Revenue · ' + OVERVIEW_SOURCE_LABELS[overviewSource()]) + '</span></div></div>' + chartBody + '</div><div class="overview-recent"><h3>Recent sales</h3><p>' + recentCopy + '</p></div>';
