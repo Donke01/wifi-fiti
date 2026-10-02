@@ -744,6 +744,19 @@
 @media(max-width:1060px){.hd-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.hd-main{grid-template-columns:1fr}.hd-three{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.hd-tiles,.hd-three,.hd-actions{grid-template-columns:1fr}.hd-tile{min-height:0}.hd-spark{width:36%}.hd-chart{height:170px}}
 @media(prefers-reduced-motion:reduce){.hd-col i{animation:none}}
+/* Home additions: meters, attention list, pills. */
+.hd-meter{height:5px;margin-top:9px;border-radius:99px;background:#edf3f8;overflow:hidden}.hd-meter i{display:block;height:100%;border-radius:99px;background:var(--tone)}
+.hd-tile .hd-spark+.hd-meter{margin-right:0}
+.hd-count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:99px;color:#fff;background:#d6566b;font-size:11px;font-weight:850}
+.hd-attn{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.hd-attn li{padding:11px 12px;border:1px solid #eef3f8;border-left:3px solid var(--blue);border-radius:12px;background:#fbfdff}
+.hd-attn li.bad{border-left-color:#d6566b}.hd-attn li.warn{border-left-color:#e0a21b}
+.hd-attn-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hd-attn b{font-size:12.5px;color:var(--ink);line-height:1.3}
+.hd-attn p{margin:5px 0 9px;color:var(--muted);font-size:12px;line-height:1.45}
+.hd-pill{flex:0 0 auto;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:850;color:#245ea8;background:#e7f1fd}.hd-pill.bad{color:#9c2b42;background:#fde8ec}.hd-pill.warn{color:#8a5200;background:#fff2d9}
+.hd-btn{min-height:0;padding:5px 12px;border:1px solid var(--line);border-radius:9px;color:var(--ink);background:#fff;box-shadow:none;font-size:12px;font-weight:800}.hd-attn li.bad .hd-btn{color:#fff;border-color:#1769d8;background:#1769d8}
+.hd-allgood{display:grid;justify-items:start;gap:6px;padding:14px;border-radius:12px;color:#0b6b4a;background:#e9f8f1}.hd-allgood b{font-size:14px}.hd-allgood span{color:#2f6f58;font-size:12.5px;line-height:1.45}
+.hd-sub{margin:16px 0 10px;padding-top:14px;border-top:1px solid #eef3f8;color:var(--ink);font-size:13px;font-weight:820}
 </style>
 </head>
 <body>
