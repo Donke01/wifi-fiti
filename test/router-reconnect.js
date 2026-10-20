@@ -14,7 +14,7 @@ assert.equal(reconnectCandidates({location,report,findSubscription:get,now,enabl
 assert.equal(reconnectCandidates({location,report,findSubscription:get,now,enabled:true}).length,1);
 assert.equal(reconnectCandidates({location,report:{...report,sessions:[{mac:paid.mac}]},findSubscription:get,now,enabled:true}).length,0,'no repeated login if already active');
 assert.equal(reconnectCandidates({location,report:{devices:[{mac:paid.mac,ip:'192.168.0.999'}]},findSubscription:get,now,enabled:true}).length,0);
-assert.equal(reconnectCandidates({location,report,findSubscription:()=>({...paid,expires_at:new Date(now-1000).toISOString()}),now,enabled:true}).length,0,'expired package must not reconnect');
+assert.equal(reconnectCandidates({location,report,findSubscription:()=>({...paid,expires_at:new Date(now-1000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')}),now,enabled:true}).length,0,'expired package must not reconnect');
 assert.equal(reconnectCandidates({location,report,findSubscription:()=>({...paid,device_type:'tv'}),now,enabled:true}).length,0,'TV cannot enter phone reconnect');
 assert.equal(reconnectCandidates({location,report,findSubscription:()=>({...paid,mac:'AA:BB:CC:DD:EE:99'}),now,enabled:true}).length,0,'wrong MAC denied');
 assert.equal(reconnectCandidates({location,report,findSubscription:()=>({...paid,location_id:'loc-other'}),now,enabled:true}).length,0,'different location denied');
@@ -22,7 +22,7 @@ assert.equal(reconnectCandidates({location,report,findSubscription:get,now,enabl
 markAttempt('loc-test:'+paid.mac,now);
 assert.equal(reconnectCandidates({location,report,findSubscription:get,now:now+1000,enabled:true}).length,0,'cooldown avoids poll flooding');
 assert.equal(reconnectCandidates({location,report,findSubscription:get,now:now+91000,enabled:true}).length,1,'retry after cooldown');
-assert.equal(reconnectCandidates({location,report,findSubscription:()=>({...paid,expires_at:new Date(now+15000).toISOString()}),now,enabled:true}).length,0,
+assert.equal(reconnectCandidates({location,report,findSubscription:()=>({...paid,expires_at:new Date(now+15000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '')}),now,enabled:true}).length,0,
   'do not queue delayed auth when time will expire before dispatch');
 const safeJob = { id: 1, action:'reconnect', username:'254712345678', password:'PUECV9',
   profile:'standard', mac:paid.mac, ip:'10.5.50.34', total_seconds:3600 };
