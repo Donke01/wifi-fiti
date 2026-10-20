@@ -733,6 +733,7 @@ async function main() {
     database.prepare("DELETE FROM business_c2b_settings WHERE shortcode='600555'").run();
   });
 
+  process.env.FITI_EXPIRY_V2_LOCATIONS = alpha.location.id;
   await test('a phone package expires through router sync without generating repeated revoke jobs', async () => {
     const granted = await voucher(alpha, 'AA:BB:CC:00:00:50', '254712000050');
     const deviceRequest = { phone: '0712000050', subscriptionId: granted.subscriptionId,
@@ -790,6 +791,7 @@ async function main() {
     assert.notEqual(oldSession.body.authenticated, true, 'expired browser credentials cannot open newly paid time');
     await routerSync(alpha.location, { ack: applied.ids });
   });
+  delete process.env.FITI_EXPIRY_V2_LOCATIONS;
   await test('a portal design saved with the dropped rounded font is served as modern', async () => {
     database.prepare(`INSERT INTO tenant_portal_templates(id,business_id,name,layout,accent_color,font_family,active) VALUES('tpl_old_rounded',?,'Old rounded','classic','#1769D8','rounded',1)`)
       .run(alpha.business.id);
