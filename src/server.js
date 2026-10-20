@@ -316,7 +316,7 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     '      /tool fetch url=$fitiLoginUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/login.html")',
     '      :set fitiPortalHost $fitiDesiredPortalHost',
     '      :set fitiPortalUrl $fitiDesiredPortalUrl',
-    '      :set fitiRouterLoginVersion "' + (templateVersion || 'v1') + '"',
+    ...(templateVersion ? ['      :set fitiRouterLoginVersion "' + templateVersion + '"'] : []),
     '      :set fitiPortalAppliedHost $fitiDesiredPortalHost',
     '      :log info "fiti: customer portal address updated"',
     '    } on-error={ :log warning "fiti: customer portal login page download failed" }',
