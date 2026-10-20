@@ -36,3 +36,32 @@ jobs:
           node --check src/lib/portal-bootstrap.js
       - name: Run complete application suite
         run: npm test
+
+  customer-journey-targeted:
+    name: Customer portal, billing and router-focused regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Login, security and setup tests
+        run: |
+          node test/router-login.js
+          node test/portal-bootstrap.js
+          node test/router-reconnect.js
+          node test/router-setup.js
+      - name: Legacy and premium portal UI tests
+        run: |
+          node test/tenant-portal-ui.js
+          node test/tenant-portal-v2-ui.js
+      - name: Paid lifecycle, expiry and router telemetry
+        run: |
+          node --require ./test/in-process-http.js test/tenant-integration.js
+          node --require ./test/in-process-http.js test/hotspot-sessions.js
