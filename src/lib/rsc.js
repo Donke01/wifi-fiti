@@ -180,6 +180,16 @@ function jobToScript(job, hotspotServer) {
     `}`
   );
 
+  if (job.action === 'fresh-start') {
+    // A new sale after wall-clock expiry starts a NEW RouterOS uptime
+    // allowance. Merely lowering limit-uptime on the existing account
+    // would leave its old accumulated uptime and block the new purchase.
+    lines.unshift(
+      `:if ([:len [/ip hotspot active find where user="${username}"]] > 0) do={ /ip hotspot active remove [find where user="${username}"] }`,
+      `:if ([:len [/ip hotspot cookie find where user="${username}"]] > 0) do={ /ip hotspot cookie remove [find where user="${username}"] }`,
+      `:if ([:len [/ip hotspot user find where name="${username}"]] > 0) do={ /ip hotspot user remove [find where name="${username}"] }`
+    );
+  }
   if (job.action === 'transfer') {
     lines.unshift(
       `:if ([:len [/ip hotspot active find where user="${username}"]] > 0) do={ /ip hotspot active remove [find where user="${username}"] }`,
