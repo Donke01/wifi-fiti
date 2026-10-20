@@ -1961,9 +1961,9 @@ function remoteAccessPayload(location, record) {
   // shared by several safe router endpoints; only a completed sync proves
   // that the paired control-plane poll is working.
   const hasSuccessfulRouterSync = Boolean(location && location.last_successful_sync_at);
-  // A revoke is normally allowed to complete first. An explicit new consent
-  // request may, however, replace that pending control with a fresh prepare
-  // command; the router's poller executes only the newest command.
+  // A revoked router must complete remote-support cleanup before new owner
+  // consent can provision a replacement identity. Do not bypass a revoke
+  // that has not been acknowledged by the original router.
   const revokePending = status === 'revoked' && remoteSupportRevokeIsPending(location.id);
   // The owner needs a truthful connection state, but never a peer key,
   // endpoint credential, or a router-management secret. A configured record
@@ -1987,7 +1987,7 @@ function remoteAccessPayload(location, record) {
     gatewaySyncedAt: peer?.gateway_synced_at || null,
     gatewayError: peer?.gateway_error || null,
     cleanupPending: revokePending,
-    canRequest: hasSuccessfulRouterSync && (status === 'not_requested' || status === 'revoked'),
+    canRequest: hasSuccessfulRouterSync && (status === 'not_requested' || (status === 'revoked' && !revokePending)),
     canRevoke: REMOTE_ACCESS_ACTIVE_STATES.has(status),
   };
 }
@@ -2038,9 +2038,11 @@ function requestRemoteAccess({ locationId, businessId, actorType = 'business', a
   return withRemoteAccessTransaction(() => {
     const existing = remoteAccessByLocation.get(location.id);
     if (existing && existing.status !== 'revoked') return remoteAccessPayload(location, existing);
-    // Re-enabling is an explicit owner action. Replacing the pending revoke
-    // with a fresh prepare command is safe because the router accepts only
-    // the newest unacknowledged support control during its next poll.
+    // Never revive the old router's remote access before its revoke was
+    // acknowledged: a new owner request must not replace cleanup in flight.
+    if (existing && remoteSupportRevokeIsPending(location.id)) {
+      throw remoteAccessError('Previous router cleanup must acknowledge before new remote access can be requested.', 409);
+    }
     if (existing) reRequestRemoteAccess.run(location.id);
     else insertRemoteAccess.run(location.id);
     insertRemoteAccessEvent.run({ locationId: location.id, actorType, actorId, action: 'requested' });
