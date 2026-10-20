@@ -253,7 +253,14 @@
       overflow-wrap: anywhere;
       padding-right: 7px;
     }
-    .plan-detail { display: none; }
+    .plan-detail {
+      display: block;
+      margin-top: 4px;
+      font-size: 11px;
+      line-height: 1.35;
+      font-weight: 500;
+      color: #60768f;
+    }
     .plan .price {
       font-size: clamp(18px, 5vw, 23px);
       font-weight: 850;
@@ -848,7 +855,7 @@
       if (!packages.length) { message('error', 'This operator has not added packages yet.'); $('pay').disabled = true; return; }
       packages.forEach(function (pkg, index) {
         var button = document.createElement('button'), left = document.createElement('span'), name = document.createElement('span'), price = document.createElement('span');
-        button.type = 'button'; button.className = 'plan' + (index === 0 ? ' active' : ''); if (button.setAttribute) { button.setAttribute('data-package-id', String(pkg.id)); button.setAttribute('aria-pressed', index === 0 ? 'true' : 'false'); }
+        button.type = 'button'; button.className = 'plan' + (index === 0 ? ' active' : ''); if (button.setAttribute) { button.setAttribute('data-package-id', String(pkg.id)); button.setAttribute('aria-pressed', index === 0 ? 'true' : 'false'); button.setAttribute('aria-label', pkg.name + ', ' + formatSeconds(pkg.seconds) + ', KES ' + Number(pkg.price).toLocaleString()); }
         name.className = 'plan-title'; name.textContent = pkg.name;
         price.className = 'price'; price.textContent = 'KES ' + Number(pkg.price).toLocaleString();
         var duration = document.createElement('span'); duration.className = 'plan-detail'; duration.textContent = formatSeconds(pkg.seconds) + (pkg.rate_limit ? ' · Device speed ' + pkg.rate_limit : '');
