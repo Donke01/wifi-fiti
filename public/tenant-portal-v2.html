@@ -1066,7 +1066,9 @@
         }
         $('app-manifest').href = '/api/tenant/' + encodeURIComponent(site) + '/manifest.webmanifest';
         if ('serviceWorker' in navigator) navigator.serviceWorker.register('/wifi-fiti-sw.js', { scope: '/' }).catch(function () {});
-        var config = await api('/config');
+        var inlineConfig = typeof globalThis !== 'undefined' ? globalThis.__WIFI_FITI_CONFIG__ : null;
+        var config = inlineConfig && inlineConfig.location && String(inlineConfig.location.id) === site && Array.isArray(inlineConfig.packages)
+          ? inlineConfig : await api('/config');
         portalConfig = config;
         portalUrl = String(config.portalUrl || '');
         if (portalUrl) {
