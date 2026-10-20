@@ -122,6 +122,10 @@ function jobToScript(job, hotspotServer) {
       `:if ([:len [/ip hotspot active find where user=$u]] > 0) do={ /ip hotspot active remove [find where user=$u] }\n` +
       `:if ([:len [/ip hotspot cookie find where user=$u]] > 0) do={ /ip hotspot cookie remove [find where user=$u] }\n` +
       `:if ([:len [/ip hotspot user find where name=$u]] > 0) do={ /ip hotspot user remove [find where name=$u] }` +
+      // Remove the stale HotSpot host authorization, not the Wi-Fi association.
+      // The next ordinary HTTP request recreates an unauthenticated host and
+      // can be redirected to the already installed router login page.
+      (tvMac ? `\n:do { /ip hotspot host remove [find where mac-address=${tvMac}] } on-error={}` : '') +
       // A short-lived release connected TVs through RouterOS MAC
       // authentication: an extra user named after the TV's MAC, commented
       // "Wi-Fi Fiti TV <user>". Remove it with the package so it cannot
@@ -176,6 +180,16 @@ function jobToScript(job, hotspotServer) {
     `}`
   );
 
+  if (job.action === 'fresh-start') {
+    // A new sale after wall-clock expiry starts a NEW RouterOS uptime
+    // allowance. Merely lowering limit-uptime on the existing account
+    // would leave its old accumulated uptime and block the new purchase.
+    lines.unshift(
+      `:if ([:len [/ip hotspot active find where user="${username}"]] > 0) do={ /ip hotspot active remove [find where user="${username}"] }`,
+      `:if ([:len [/ip hotspot cookie find where user="${username}"]] > 0) do={ /ip hotspot cookie remove [find where user="${username}"] }`,
+      `:if ([:len [/ip hotspot user find where name="${username}"]] > 0) do={ /ip hotspot user remove [find where name="${username}"] }`
+    );
+  }
   if (job.action === 'transfer') {
     lines.unshift(
       `:if ([:len [/ip hotspot active find where user="${username}"]] > 0) do={ /ip hotspot active remove [find where user="${username}"] }`,
