@@ -654,6 +654,7 @@
     function showExpiredPurchase() {
       stop();
       current = null; sessionToken = ''; write('_session', null);
+      bypassLookup = false;
       $('buy').classList.remove('fiti-returning-mode');
       $('returning-device').classList.add('hidden');
       show('buy');
@@ -1105,6 +1106,9 @@
     }
     $('jump-recovery').onclick = function () { $('payment-recovery').open = true; };
     $('returning-buy').onclick = function () {
+      // The customer explicitly chose to purchase more time. Don't reopen
+      // the existing-package transfer dialog on their next Pay click.
+      bypassLookup = true;
       $('buy').classList.remove('fiti-returning-mode');
       $('returning-device').classList.add('hidden');
       message('error', '');
