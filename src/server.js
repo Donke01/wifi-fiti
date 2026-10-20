@@ -30,6 +30,8 @@ const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./
 const { portalFont } = require('./lib/tenant-portal-templates');
 const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { isCaptiveHost, captiveDomainScript } = require('./lib/captive-domain');
+const { renderRouterLoginPage, ROUTER_LOGIN_TEMPLATE_VERSION } = require('./lib/router-login');
+const { embedPublicPortalConfig } = require('./lib/portal-bootstrap');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const pppoeBilling = require('./lib/pppoe-billing');
@@ -261,7 +263,24 @@ function portalUrlForRouter(location, requestedHostname) {
  * response: a temporary old address after a restart is repaired on the next
  * poll, while an invalid boot-script rewrite can stop all future updates.
  */
+// The paired router confirms applied login.html versions through the existing
+// authenticated telemetry response; no polling-script rewrite is required.
+const observedRouterLoginVersions = new Map();
+function loginVersionConfirmed(locationId, expected) {
+  const entry = observedRouterLoginVersions.get(locationId);
+  return Boolean(expected && entry && entry.version === expected && Date.now() - entry.at < 180_000);
+}
+// Roll out new captive login HTML only to explicitly listed locations.
+function captiveLoginTemplateVersion(location) {
+  const id = String(location && location.id || '');
+  if (!id) return '';
+  const listed = (name) => String(process.env[name] || '').split(',').some((s) => s.trim() === id);
+  if (listed('CAPTIVE_LOGIN_V2_LOCATIONS')) return ROUTER_LOGIN_TEMPLATE_VERSION;
+  if (listed('CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS')) return 'v1';
+  return '';
+}
 function routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
+  const templateVersion = captiveLoginTemplateVersion(location);
   if (!config.domains.portalGatewayEnabled) return '';
   const desiredHost = edgeHostname(location && location.portal_hostname);
   const appliedHost = edgeHostname(reportedPortalAppliedHost);
@@ -270,7 +289,8 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
   // New pollers report portalApplied only after the replacement login file
   // was fetched. Older pollers retain compatibility when their reported
   // address already matches, without affecting router pairing readiness.
-  if (appliedHost === desiredHost || (!appliedHost && legacyHost === desiredHost)) return '';
+  const currentHost = appliedHost === desiredHost || (!appliedHost && legacyHost === desiredHost);
+  if (currentHost && (!templateVersion || loginVersionConfirmed(location.id, templateVersion))) return '';
   const desiredUrl = `https://${desiredHost}`;
   return [
     ':global fitiUrl',
@@ -279,13 +299,14 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     ':global fitiPortalUrl',
     ':global fitiPortalHost',
     ':global fitiPortalAppliedHost',
+    ':global fitiRouterLoginVersion',
     ':global fitiHotspotServer',
     ':if ([:len $fitiHotspotServer] = 0) do={ :set fitiHotspotServer "hotspot1" }',
     ':if ([:len $fitiPortalHost] = 0) do={ :set fitiPortalHost "" }',
     ':if ([:len $fitiPortalAppliedHost] = 0) do={ :set fitiPortalAppliedHost "" }',
     `:local fitiDesiredPortalHost "${desiredHost}"`,
     `:local fitiDesiredPortalUrl "${desiredUrl}"`,
-    ':if ($fitiPortalAppliedHost != $fitiDesiredPortalHost) do={',
+    ':if ($fitiPortalAppliedHost != $fitiDesiredPortalHost' + (templateVersion ? ' || $fitiRouterLoginVersion != "' + templateVersion + '"' : '') + ') do={',
     // A router can remain paired while its HotSpot was disabled by a prior
     // offboard/test action.  Re-enable only the configured customer server as
     // part of the portal refresh; offboarding removes/locks the router and is
@@ -304,6 +325,7 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     '      /tool fetch url=$fitiLoginUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/login.html")',
     '      :set fitiPortalHost $fitiDesiredPortalHost',
     '      :set fitiPortalUrl $fitiDesiredPortalUrl',
+    ...(templateVersion ? ['      :set fitiRouterLoginVersion "' + templateVersion + '"'] : []),
     '      :set fitiPortalAppliedHost $fitiDesiredPortalHost',
     '      :log info "fiti: customer portal address updated"',
     '    } on-error={ :log warning "fiti: customer portal login page download failed" }',
@@ -2761,6 +2783,24 @@ app.post('/api/business/vouchers', (req, res) => {
 /* Tenant customer portal                                             */
 /* ------------------------------------------------------------------ */
 
+// Versioned customer portal: a location must explicitly opt in. Keep the
+// original tenant-portal.html as the exact rollback without affecting others.
+const tenantPortalV2Path = path.join(__dirname, '..', 'public', 'tenant-portal-v2.html');
+const tenantPortalV2Html = fs.readFileSync(tenantPortalV2Path, 'utf8');
+function tenantPortalV2Enabled(locationId) {
+  const ids = String(process.env.FITI_PORTAL_V2_LOCATIONS || '').split(',').map(x => x.trim());
+  return ids.includes(String(locationId));
+}
+// Registered before the legacy /p route, so non-opted tenants use the
+// unmodified original implementation. The inline bootstrap from PR #51 is
+// used automatically when present; otherwise v2 uses the existing /config.
+app.get('/p/:locationId', (req, res, next) => {
+  if (!tenantPortalV2Enabled(req.params.locationId)) return next();
+  const location = tenant.locationById.get(req.params.locationId);
+  if (!location) return res.status(404).send('WiFi location not found.');
+  res.set('Cache-Control', 'no-cache');
+  return res.type('html').send(embedPublicPortalConfig(tenantPortalV2Html, tenantPortalPublicConfig(location, req)));
+});
 function tenantRemaining(subscription) {
   if (!subscription) return 0;
   const raw = String(subscription.expires_at || subscription.expiresAt || '');
@@ -2966,12 +3006,21 @@ function hotspotCapacityBlock(location, renewing) {
   return null;
 }
 
+// Keep a single static HTML template in memory. Package prices, branding and
+// availability remain live per response; only the template is cached.
+const tenantPortalHtmlPath = path.join(__dirname, '..', 'public', 'tenant-portal.html');
+const tenantPortalHtml = fs.readFileSync(tenantPortalHtmlPath, 'utf8');
 app.get('/p/:locationId', (req, res) => {
-  if (!tenant.locationById.get(req.params.locationId)) return res.status(404).send('WiFi location not found.');
-  // Always revalidate: a captive browser holding yesterday's portal script is
-  // how fixed bugs keep reappearing.
+  const location = tenant.locationById.get(req.params.locationId);
+  if (!location) return res.status(404).send('WiFi location not found.');
+  // Revalidate HTML and package prices on each visit. Never cache the public
+  // config along with a payment, session token or customer identity.
   res.set('Cache-Control', 'no-cache');
-  res.sendFile(path.join(__dirname, '..', 'public', 'tenant-portal.html'));
+  if (captiveLoginTemplateVersion(location) === ROUTER_LOGIN_TEMPLATE_VERSION) {
+    return res.type('html').send(embedPublicPortalConfig(
+      tenantPortalHtml, tenantPortalPublicConfig(location, req)));
+  }
+  res.sendFile(tenantPortalHtmlPath);
 });
 
 // Each tenant gets an installable app whose start URL stays on that tenant's
@@ -2988,9 +3037,7 @@ app.get('/api/tenant/:locationId/manifest.webmanifest', (req, res) => {
   });
 });
 
-app.get('/api/tenant/:locationId/config', (req, res) => {
-  const location = publicLocation(req.params.locationId, res); if (!location) return;
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+function tenantPortalPublicConfig(location, req) {
   const assetOrigin = edgePortalOriginForRequest(req, location) || config.domains.appUrl;
   const branding = brandingPayload({
     id: location.business_id, name: location.business_name, portal_name: location.portal_name,
@@ -3005,13 +3052,19 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
   const paybill = c2b && c2b.location_id === location.id ? { shortcode: c2b.shortcode, accountPrefix: c2b.account_prefix || '' } : null;
   const portalTemplate = db.db.prepare(`SELECT id,name,layout,accent_color,welcome_message,show_packages,show_utilities,font_family,text_align,package_style,background_style
     FROM tenant_portal_templates WHERE business_id=? AND active=1 ORDER BY updated_at DESC LIMIT 1`).get(location.business_id) || null;
-  res.json({ location: { id: location.id, name: location.name, businessName: branding.name },
+  return { location: { id: location.id, name: location.name, businessName: branding.name },
     portalUrl: portalUrlForLocation(location), branding,
     template: portalTemplate ? { id: portalTemplate.id, name: portalTemplate.name, layout: portalTemplate.layout, accentColor: portalTemplate.accent_color, welcomeMessage: portalTemplate.welcome_message, showPackages: Boolean(portalTemplate.show_packages), showUtilities: Boolean(portalTemplate.show_utilities), fontFamily: portalFont(portalTemplate.font_family), textAlign: portalTemplate.text_align || 'center', packageStyle: portalTemplate.package_style || 'stacked', backgroundStyle: portalTemplate.background_style || 'aurora' } : null,
     // Speed caps and service scope are tenant controls, never customer-facing
     // portal data. The router still receives the cap during provisioning.
     packages: tenant.packagesForLocation.all(location.id).map(({ id, name, price, seconds }) => ({ id, name, price, seconds })), supportPhone: branding.supportPhone,
-    paybill });
+    paybill };
+}
+
+app.get('/api/tenant/:locationId/config', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return res.json(tenantPortalPublicConfig(location, req));
 });
 
 app.get('/api/tenant/:locationId/session', (req, res) => {
@@ -3752,6 +3805,10 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
   const portal = req.query.page === 'status'
     ? `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)`
     : `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
+  if (captiveLoginTemplateVersion(location) === ROUTER_LOGIN_TEMPLATE_VERSION) {
+    res.set('Cache-Control', 'no-store, max-age=0');
+    return res.type('text/html').send(renderRouterLoginPage({ title: location.business_name, portalUrl: portal }));
+  }
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
 });
@@ -5234,6 +5291,7 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* ------------------------------------------------------------------ */
 
 const { buildScript, buildExpiryScript, buildRemoteSupportScript, buildMappedDeploymentScript, tvLoginScript } = require('./lib/rsc');
+const routerReconnect = require('./lib/router-reconnect');
 
 /** Constant-time compare so the token cannot be guessed by timing. */
 function tokenOk(supplied) {
@@ -5599,9 +5657,18 @@ function tenantRouterScript(location, options = {}) {
   // ROUTER_TELEMETRY=off stops the report on every router at once.
   if (String(process.env.ROUTER_TELEMETRY || '').toLowerCase() === 'off') return result;
   const since = Date.now() - (telemetryAskedAt.get(location.id) || 0);
-  if (!result.quiet && !(result.light && since >= TELEMETRY_OVERDUE_MS)) return result;
+  // Template delivery makes an otherwise idle reply non-quiet. Include one
+  // periodic read-only telemetry report so the server can stop sending it.
+  const targetLoginVersion = captiveLoginTemplateVersion(location);
+  const awaitingTemplateAck = Boolean(targetLoginVersion) &&
+    !loginVersionConfirmed(location.id, targetLoginVersion) &&
+    !(result.emitted && result.emitted.length) &&
+    !(result.supportEmitted && result.supportEmitted.length);
+  if (!result.quiet && !(result.light && since >= TELEMETRY_OVERDUE_MS) && !awaitingTemplateAck) return result;
   const viewing = Date.now() - (onlineViewedAt.get(location.id) || 0) < 2 * 60_000;
-  if (since < (viewing ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS)) return result;
+  const reconnectPilot = routerReconnect.optedIn(location.id);
+  const interval = viewing || reconnectPilot ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS;
+  if (since < interval) return result;
   telemetryAskedAt.set(location.id, Date.now());
   return { ...result, script: [result.script, hotspotSessions.telemetryReplyScript()].filter(Boolean).join('\n') };
 }
@@ -5683,6 +5750,7 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
     return { script: '', emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
   tenant.queueExpiredSubscriptions(location.id);
+  tenant.expireStaleReconnectJobs.run(location.id);
   // A universal-kit router paired before it had a Hotspot is "awaiting map":
   // Hotspot users, the portal page, mapped deployments and PPPoE all wait
   // until the owner maps where customers connect. Nothing is sent that
@@ -5906,7 +5974,25 @@ app.post('/api/router/telemetry', (req, res) => {
   telemetryReportAt.set(location.id, Date.now());
   try {
     hotspotSessions.recordReport(location, report);
+    if (report.loginTemplateVersion) {
+      observedRouterLoginVersions.set(location.id, { version: report.loginTemplateVersion, at: Date.now() });
+    }
     if (report.devices.length) tenant.recordRouterDeviceEntries(location.id, report.devices);
+    // The paired router (not a customer browser) observed these unauthenticated
+    // MAC/IP pairs on its HotSpot. Pilot auto-reconnect only for active paid
+    // subscriptions already bound to exactly the same device at this location.
+    for (const candidate of routerReconnect.reconnectCandidates({
+      location, report, findSubscription: (id, mac) => tenant.subscriptionByMac.get(id, mac),
+    })) {
+      if (tenant.pendingProvisioningJobForUsername.get(location.id, candidate.subscription.router_username)) continue;
+      const sub = candidate.subscription;
+      tenant.insertJob.run({
+        locationId: location.id, username: sub.router_username, password: sub.password,
+        profile: 'standard', totalSeconds: sub.total_seconds, rateLimit: sub.rate_limit,
+        mac: candidate.mac, ip: candidate.ip, action: 'reconnect',
+      });
+      routerReconnect.markAttempt(candidate.key);
+    }
     if (report.resources && Date.now() - (telemetrySampleAt.get(location.id) || 0) >= 50_000) {
       const sample = tenant.recordRouterTelemetry({ locationId: location.id, ...report.resources,
         activeUsers: report.customersOnline });
@@ -6170,7 +6256,7 @@ app.get('/api/health', async (req, res) => {
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk, provisionTenantPayment,
   documents: { buildReceiptPdf, buildReportPdf, buildReportXlsx, receiptReportSpec, rangeLabel: reportRangeLabel, formatDateTime,
-    payoutStatement: require('./lib/payout-statement').createPayoutStatement(db.db) } });
+    payoutStatement: () => require('./lib/payout-statement').createPayoutStatement(db.db) } });
 const fitiSignal = require('./lib/fiti-signal');
 fitiSignal.attachFitiSignalRoutes(app, { businessAuth, startPayment: async ({ business, purchase, phone: supplied }) => {
   const phone = mpesa.normalizePhone(supplied || business.owner_phone);

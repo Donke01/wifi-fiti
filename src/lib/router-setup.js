@@ -708,7 +708,7 @@ function buildAutomaticRouterKit({ location, token, appUrl, portalUrl, config })
     '/ip dhcp-server network add address=' + ros(config.network.cidr) + ' gateway=' + ros(config.network.gateway) + ' dns-server=' + ros(config.network.gateway) + ' comment="Wi-Fi Fiti customer DHCP network"',
     routerDnsLine({ ...config, wanMode: 'dhcp' }),
     '/ip firewall nat add chain=srcnat out-interface=$fitiWanOut action=masquerade comment="Wi-Fi Fiti hotspot NAT"',
-    '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=http-chap,http-pap use-radius=no',
+    '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=cookie,http-chap,http-pap,mac-cookie use-radius=no',
     // RouterOS Hotspot servers do not expose a comment property on all 7.x
     // builds. Keep ownership in the stable server name/profile instead of
     // sending an unsupported parameter that aborts the whole import.
@@ -829,7 +829,7 @@ function buildNewRouterKit({ location, token, appUrl, portalUrl, config }) {
     '/ip dhcp-server network add address=' + ros(config.network.cidr) + ' gateway=' + ros(config.network.gateway) + ' dns-server=' + ros(config.network.gateway) + ' comment="Wi-Fi Fiti customer DHCP network"',
     routerDnsLine(config),
     '/ip firewall nat add chain=srcnat out-interface=$fitiWanOut action=masquerade comment="Wi-Fi Fiti hotspot NAT"',
-    '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=http-chap,http-pap use-radius=no',
+    '/ip hotspot profile add name="fiti-hsprof" hotspot-address=' + ros(config.network.gateway) + ' html-directory="hotspot" login-by=cookie,http-chap,http-pap,mac-cookie use-radius=no',
     '/ip hotspot add name=$fitiHotspotServer interface=$fitiBridge address-pool="fiti-pool" profile="fiti-hsprof" addresses-per-mac=1 idle-timeout=10m keepalive-timeout=5m disabled=no',
     ':if ([:len [/ip hotspot user profile find where name="standard"]] = 0) do={ /ip hotspot user profile add name="standard" shared-users=1 add-mac-cookie=yes mac-cookie-timeout=1d status-autorefresh=1m transparent-proxy=no }',
     ...newRouterSecurityLines(),

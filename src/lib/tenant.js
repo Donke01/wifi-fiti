@@ -1613,6 +1613,10 @@ const insertJob = db.prepare(`
   INSERT INTO tenant_jobs (location_id, username, password, profile, total_seconds, rate_limit, mac, ip, action)
   VALUES (@locationId, @username, @password, @profile, @totalSeconds, @rateLimit, @mac, @ip, @action)
 `);
+// Expire short-lived router-observed reconnect intents before processing them.
+const expireStaleReconnectJobs = db.prepare(`UPDATE tenant_jobs SET acked_at=datetime('now')
+  WHERE location_id=? AND action='reconnect' AND acked_at IS NULL
+    AND created_at < datetime('now','-20 seconds')`);
 const pendingJobs = db.prepare(`
   SELECT * FROM tenant_jobs j WHERE location_id=? AND acked_at IS NULL
     -- Retry a lost poll response quickly enough for payment provisioning.
@@ -1636,7 +1640,7 @@ const jobById = db.prepare(`SELECT j.id, j.location_id, j.acked_at
 const pendingProvisioningJobForUsername = db.prepare(`
   SELECT id, action FROM tenant_jobs
    WHERE location_id=? AND username=? AND acked_at IS NULL
-     AND action IN ('upsert', 'transfer', 'tv-upsert')
+     AND action IN ('upsert', 'transfer', 'tv-upsert', 'fresh-start', 'reconnect')
      AND id=(SELECT MAX(newer.id) FROM tenant_jobs newer WHERE newer.location_id=tenant_jobs.location_id
        AND newer.username=tenant_jobs.username)
    ORDER BY id DESC LIMIT 1
@@ -1957,9 +1961,9 @@ function remoteAccessPayload(location, record) {
   // shared by several safe router endpoints; only a completed sync proves
   // that the paired control-plane poll is working.
   const hasSuccessfulRouterSync = Boolean(location && location.last_successful_sync_at);
-  // A revoke is normally allowed to complete first. An explicit new consent
-  // request may, however, replace that pending control with a fresh prepare
-  // command; the router's poller executes only the newest command.
+  // A revoked router must complete remote-support cleanup before new owner
+  // consent can provision a replacement identity. Do not bypass a revoke
+  // that has not been acknowledged by the original router.
   const revokePending = status === 'revoked' && remoteSupportRevokeIsPending(location.id);
   // The owner needs a truthful connection state, but never a peer key,
   // endpoint credential, or a router-management secret. A configured record
@@ -1983,7 +1987,7 @@ function remoteAccessPayload(location, record) {
     gatewaySyncedAt: peer?.gateway_synced_at || null,
     gatewayError: peer?.gateway_error || null,
     cleanupPending: revokePending,
-    canRequest: hasSuccessfulRouterSync && (status === 'not_requested' || status === 'revoked'),
+    canRequest: hasSuccessfulRouterSync && (status === 'not_requested' || (status === 'revoked' && !revokePending)),
     canRevoke: REMOTE_ACCESS_ACTIVE_STATES.has(status),
   };
 }
@@ -2034,9 +2038,11 @@ function requestRemoteAccess({ locationId, businessId, actorType = 'business', a
   return withRemoteAccessTransaction(() => {
     const existing = remoteAccessByLocation.get(location.id);
     if (existing && existing.status !== 'revoked') return remoteAccessPayload(location, existing);
-    // Re-enabling is an explicit owner action. Replacing the pending revoke
-    // with a fresh prepare command is safe because the router accepts only
-    // the newest unacknowledged support control during its next poll.
+    // Never revive the old router's remote access before its revoke was
+    // acknowledged: a new owner request must not replace cleanup in flight.
+    if (existing && remoteSupportRevokeIsPending(location.id)) {
+      throw remoteAccessError('Previous router cleanup must acknowledge before new remote access can be requested.', 409);
+    }
     if (existing) reRequestRemoteAccess.run(location.id);
     else insertRemoteAccess.run(location.id);
     insertRemoteAccessEvent.run({ locationId: location.id, actorType, actorId, action: 'requested' });
@@ -4186,6 +4192,12 @@ function releaseEndedSubscription(subscription) {
   }
 }
 
+// The expiry/re-entry rewrite is piloted per location before becoming a
+// platform default. Removing the location instantly restores legacy grants.
+function expiryV2Enabled(locationId) {
+  return String(process.env.FITI_EXPIRY_V2_LOCATIONS || '').split(',').some((id) => id.trim() === String(locationId));
+}
+
 function grantSubscription({ transaction, profile = 'standard' }) {
   const deviceType = purchaseDeviceType(transaction.device_type);
   const targetMac = deviceType === 'tv' ? normaliseTvMac(transaction.mac) : transaction.mac;
@@ -4211,10 +4223,14 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   // customer already saved. A new (or ended) package uses the code the
   // portal showed while the customer entered their PIN, because the captive
   // window usually closes the moment the phone goes online.
-  const password = existing && subscriptionLive(existing)
-    ? existing.password
-    : (validRecoveryCode(transaction.recovery_code) || existing?.password || generatePassword());
-  const totalSeconds = (existing?.total_seconds || 0) + transaction.seconds;
+  const continuingPackage = Boolean(existing && subscriptionLive(existing));
+  const freshCycle = Boolean(expiryV2Enabled(transaction.location_id) && existing && !continuingPackage);
+  const password = continuingPackage ? existing.password
+    : (validRecoveryCode(transaction.recovery_code) ||
+       (freshCycle ? null : existing?.password) || generatePassword());
+  // New cycle: paid uptime starts fresh with a matching router-side reset.
+  // Unpiloted locations retain their existing billing accounting unchanged.
+  const totalSeconds = (freshCycle ? 0 : (existing?.total_seconds || 0)) + transaction.seconds;
   // A top-up follows the package the customer selected. A blank speed means
   // return to the normal RouterOS profile rather than retain an old per-user
   // limit invisibly.
@@ -4223,13 +4239,22 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   const expiresAt = nowSql(Math.max(Date.now(), Number.isFinite(oldExpiry) ? oldExpiry : 0) + transaction.seconds * 1000);
   upsertSubscription.run({ id, businessId: transaction.business_id, locationId: transaction.location_id,
     routerUsername, payerPhone: transaction.phone, mac: transaction.mac, password, totalSeconds, rateLimit, expiresAt });
+  if (freshCycle) {
+    db.prepare("UPDATE tenant_subscriptions SET used_seconds=0, is_active=0 WHERE id=? AND location_id=?")
+      .run(id, transaction.location_id);
+    // Old browser capabilities must not grant access to a newly purchased
+    // package just because its subscription row was reused.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenant_browser_sessions'").get()) {
+      db.prepare("DELETE FROM tenant_browser_sessions WHERE subscription_id=?").run(id);
+    }
+  }
   setSubscriptionDevice.run({ id, locationId: transaction.location_id, deviceType,
     deviceLabel: normaliseDeviceLabel(transaction.device_label, deviceType) });
   meterDevice.run(transaction.business_id, transaction.mac);
   const job = insertJob.run({ locationId: transaction.location_id, username: routerUsername, password, profile,
     totalSeconds, rateLimit, mac: transaction.mac,
     ip: deviceType === 'tv' ? null : (transaction.ip || null),
-    action: deviceType === 'tv' ? 'tv-upsert' : 'upsert' });
+    action: freshCycle ? 'fresh-start' : (deviceType === 'tv' ? 'tv-upsert' : 'upsert') });
   // A top-up must refresh the TV's RouterOS ceiling too. Otherwise the
   // phone receives the extension but its paired TV disconnects early.
   for (const device of devicesForSubscription.all(transaction.location_id, id)) {
@@ -4436,7 +4461,7 @@ function queueExpiredSubscriptions(locationId) {
   for (const subscription of expired) {
     const job = insertJob.run({ locationId, username: subscription.router_username, password: '2222',
       profile: 'standard', totalSeconds: 1, rateLimit: null,
-      mac: subscription.device_type === 'tv' ? subscription.mac : null, ip: null, action: 'revoke' });
+      mac: (expiryV2Enabled(locationId) || subscription.device_type === 'tv') ? subscription.mac : null, ip: null, action: 'revoke' });
     // A TV has its own RouterOS identity and therefore its own local uptime
     // counter. Revoke it alongside the phone so a TV cannot outlive the
     // server's wall-clock expiry.
@@ -4682,7 +4707,7 @@ module.exports = {
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, latestPaidTransactionForSubscription, setSubscriptionMac,
   grantSubscription, provisionPaidTransaction, createPaymentClaim, claimPaymentDevice, recordUsage, expiredSubscriptions, activeMeter,
-  insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
+  insertJob, pendingJobs, expireStaleReconnectJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
   transferSubscription, removeTvDevice, linkedTvForMac, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,
   issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions, salesByPackage,

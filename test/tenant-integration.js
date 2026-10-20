@@ -384,7 +384,8 @@ async function main() {
     assert.equal(mine.body.locations[0].router_token, undefined);
     const publicConfig = await api(endpoint(alpha.location, 'config'));
     assert.deepEqual(publicConfig.body.packages.map((item) => item.id), [alpha.package.id]);
-    assert.equal(publicConfig.body.packages[0].rate_limit, '2M/5M');
+    assert.equal(publicConfig.body.packages[0].rate_limit, undefined,
+      'internal bandwidth caps are not disclosed by the public customer package API');
     assert.equal(publicConfig.headers.get('referrer-policy'), 'no-referrer');
     const routerLogin = await api(`/api/tenant/${alpha.location.id}/router-login`, { routerToken: alpha.location.routerToken });
     assert.equal(routerLogin.status, 200);
@@ -433,6 +434,60 @@ async function main() {
     const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
     assert.equal(whiteLabelRouterLogin.status, 200);
     assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));
+    // Opt-in upgrades must work on already paired routers without resetting
+    // their hotspot, changing the customer's portal hostname, or affecting peers.
+    process.env.CAPTIVE_LOGIN_V2_LOCATIONS = alpha.location.id;
+    try {
+      const loginV2 = await api('/api/tenant/' + alpha.location.id + '/router-login?portal=' + encodeURIComponent(alpha.location.portalHostname), {
+        routerToken: alpha.location.routerToken,
+      });
+      assert.equal(loginV2.status, 200);
+      assert.match(loginV2.text, /window\.location\.replace/, 'direct-login pilot avoids the white wait page');
+      assert.match(loginV2.text, /http-equiv="refresh"/, 'older captive browsers get a fallback');
+      assert.match(loginV2.text, /link-login-only=\$\(link-login-only\)/, 'native router login survives');
+      const fastPortal = await api('/p/' + alpha.location.id);
+      assert.equal(fastPortal.status, 200);
+      assert.match(fastPortal.text, /globalThis\.__WIFI_FITI_CONFIG__=\{/, 'public packages bootstrap inside HTML');
+      assert.ok(fastPortal.text.includes('"id":"' + alpha.location.id + '"'), 'correct tenant identity');
+      const refreshV2 = await routerSync(alpha.location, {
+        portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+      });
+      assert.match(refreshV2.script, /\$fitiRouterLoginVersion != "v2"/,
+        'router refreshes the login file even though portal hostname matches');
+      assert.match(refreshV2.script, /:set fitiRouterLoginVersion "v2"/,
+        'version stored only after successful download');
+      const telemetry = await realFetch(origin + '/api/router/telemetry?site=' + alpha.location.id, {
+        method: 'POST',
+        headers: { 'X-WiFi-Fiti-Router': alpha.location.routerToken, 'Content-Type': 'text/plain' },
+        body: 'fiti-telemetry-v1\nver|v2\nres|8|100000|200000|200|100|200|0\n',
+      });
+      assert.equal(telemetry.status, 200);
+      const confirmed = await routerSync(alpha.location, {
+        portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+      });
+      assert.doesNotMatch(confirmed.script, /fitiDesiredPortalUrl|:set fitiRouterLoginVersion "v2"/,
+        'confirmed version stops repeated portal update work during normal polling');
+    } finally {
+      delete process.env.CAPTIVE_LOGIN_V2_LOCATIONS;
+    }
+    const oldPortal = await api('/p/' + alpha.location.id);
+    assert.doesNotMatch(oldPortal.text, /globalThis\.__WIFI_FITI_CONFIG__=\{/,
+      'non-pilot locations continue their existing config flow');
+    process.env.CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS = alpha.location.id;
+    try {
+      const oldLogin = await api('/api/tenant/' + alpha.location.id + '/router-login', {
+        routerToken: alpha.location.routerToken,
+      });
+      assert.match(oldLogin.text, /Opening WiFi payment page/, 'rollback keeps the original HTML');
+      const rollback = await routerSync(alpha.location, {
+        portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+      });
+      assert.match(rollback.script, /\$fitiRouterLoginVersion != "v1"/,
+        'rollback updates the router with the unchanged portal hostname');
+      assert.match(rollback.script, /:set fitiRouterLoginVersion "v1"/);
+    } finally {
+      delete process.env.CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS;
+    }
     assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`)).status, 404,
       'the core must not reveal tenant hostname mappings without the Worker credential');
     const resolved = await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' });
@@ -733,6 +788,23 @@ async function main() {
     database.prepare("DELETE FROM business_c2b_settings WHERE shortcode='600555'").run();
   });
 
+  await test('customer portal v2 is served only to opted-in locations', async () => {
+    const portal = '/p/' + alpha.location.id;
+    delete process.env.FITI_PORTAL_V2_LOCATIONS;
+    const legacy = await api(portal);
+    assert.equal(legacy.status, 200);
+    assert.match(legacy.text, /BROWSE PACKAGES/, 'legacy customer UI stays unchanged by default');
+    process.env.FITI_PORTAL_V2_LOCATIONS = alpha.location.id;
+    try {
+      const redesigned = await api(portal);
+      assert.equal(redesigned.status, 200);
+      assert.match(redesigned.text, /Choose your Wi-Fi/, 'pilot location gets premium funnel');
+      assert.match(redesigned.text, /id="returning-device"/, 'reconnect state is part of v2');
+    } finally { delete process.env.FITI_PORTAL_V2_LOCATIONS; }
+    const restored = await api(portal);
+    assert.match(restored.text, /BROWSE PACKAGES/, 'removing flag rolls back with no router change');
+  });
+  process.env.FITI_EXPIRY_V2_LOCATIONS = alpha.location.id;
   await test('a phone package expires through router sync without generating repeated revoke jobs', async () => {
     const granted = await voucher(alpha, 'AA:BB:CC:00:00:50', '254712000050');
     const deviceRequest = { phone: '0712000050', subscriptionId: granted.subscriptionId,
@@ -753,6 +825,8 @@ async function main() {
     assert.equal(expired.ids.length, 1);
     assert.ok(expired.script.includes(`:local u "${granted.username}"`));
     assert.ok(expired.script.includes('/ip hotspot active remove'));
+    assert.ok(expired.script.includes('/ip hotspot host remove [find where mac-address=AA:BB:CC:00:00:50]'),
+      'the expired phone is reclassified as an unauthenticated hotspot host without disconnecting Wi-Fi');
     assert.equal((await api(endpoint(alpha.location, 'session?mac=AA:BB:CC:00:00:50'))).body.found, false);
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'delivery waits for the acknowledgement window before retrying');
     database.prepare("UPDATE tenant_jobs SET delivered_at=datetime('now','-61 seconds') WHERE location_id=? AND acked_at IS NULL").run(alpha.location.id);
@@ -763,6 +837,40 @@ async function main() {
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'acknowledged expiry is not emitted forever');
   });
 
+  await test('a new sale after expiry resets RouterOS uptime and cannot inherit the old browser capability', async () => {
+    const deviceMac = 'AA:BB:CC:00:00:5A';
+    const first = await voucher(alpha, deviceMac, '254712000059');
+    const firstRow = database.prepare('SELECT * FROM tenant_subscriptions WHERE id=?').get(first.subscriptionId);
+    const firstJob = await routerSync(alpha.location);
+    await routerSync(alpha.location, { ack: firstJob.ids });
+    database.prepare("UPDATE tenant_subscriptions SET expires_at=datetime('now','-2 seconds'), expiry_job_id=NULL WHERE id=?")
+      .run(first.subscriptionId);
+    const ended = await routerSync(alpha.location);
+    await routerSync(alpha.location, { ack: ended.ids });
+    const second = await voucher(alpha, deviceMac, '254712000059');
+    const renewed = database.prepare('SELECT * FROM tenant_subscriptions WHERE id=?').get(first.subscriptionId);
+    const pendingReset = tenant.pendingProvisioningJobForUsername.get(alpha.location.id, renewed.router_username);
+    assert.equal(pendingReset && pendingReset.action, 'fresh-start',
+      'new purchase stays pending until RouterOS old uptime is reset');
+    const returnedEarly = await api(endpoint(alpha.location, 'session?mac=' + deviceMac), {
+      sessionToken: second.sessionToken,
+    });
+    assert.equal(returnedEarly.body.awaitingRouter, true,
+      'a reopened captive page waits instead of superseding the reset with a normal upsert');
+    assert.ok(renewed, 'same MAC may reuse its subscription row for receipts');
+    assert.equal(renewed.total_seconds, Number(alpha.package.seconds), 'expired packages must not add prior consumed uptime');
+    assert.equal(renewed.used_seconds, 0, 'new cycle starts with no previous usage');
+    assert.notEqual(renewed.password, firstRow.password, 'new cycle rotates the recovery code');
+    const applied = await routerSync(alpha.location);
+    assert.match(applied.script, /\/ip hotspot user remove/, 'RouterOS cumulative uptime is reset before the new grant');
+    assert.match(applied.script, /limit-uptime=/, 'new grant contains a fresh paid allowance');
+    const oldSession = await api(endpoint(alpha.location, 'session?mac=' + deviceMac), {
+      sessionToken: first.sessionToken,
+    });
+    assert.notEqual(oldSession.body.authenticated, true, 'expired browser credentials cannot open newly paid time');
+    await routerSync(alpha.location, { ack: applied.ids });
+  });
+  delete process.env.FITI_EXPIRY_V2_LOCATIONS;
   await test('a portal design saved with the dropped rounded font is served as modern', async () => {
     database.prepare(`INSERT INTO tenant_portal_templates(id,business_id,name,layout,accent_color,font_family,active) VALUES('tpl_old_rounded',?,'Old rounded','classic','#1769D8','rounded',1)`)
       .run(alpha.business.id);
@@ -860,18 +968,18 @@ async function main() {
   });
 
   await test('platform administrator request limits cover changing record IDs', async () => {
-    // Three administrator checks above already consumed three of the shared
-    // 30-attempt window. Each new ticket ID must still count against it.
-    for (let i = 0; i < 27; i++) {
+    // Count across changing target IDs, regardless of how many unrelated
+    // admin checks earlier tests happened to perform. A brittle assumption
+    // about previous test order must not weaken the security assertion.
+    let refused = false;
+    for (let i = 0; i < 33; i++) {
       const response = await api(`/api/admin/business-operations/tickets/rate-limit-${i}`, {
         adminToken: 'integration-admin-token',
       });
+      if (response.status === 429) { refused = true; break; }
       assert.equal(response.status, 404);
     }
-    const blocked = await api('/api/admin/business-operations/tickets/rate-limit-blocked', {
-      adminToken: 'integration-admin-token',
-    });
-    assert.equal(blocked.status, 429);
+    assert.equal(refused, true, 'administrator request budget applies across changing ticket IDs');
   });
 
   console.log(`\nTenant HTTP integration: ${passed} passed, ${failures.length} failed`);

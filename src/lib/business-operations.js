@@ -60,6 +60,11 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
     );
   `);
 
+  // Defer statement preparation until the payout tables above exist. A fresh
+  // install must start without requiring a pre-populated production database.
+  const payoutStatement = documents && (typeof documents.payoutStatement === 'function'
+    ? documents.payoutStatement() : documents.payoutStatement);
+
   // Old deployments recorded whole-shilling fees. New payments preserve cents.
   const hasMinorFee = db.prepare('PRAGMA table_info(tenant_transactions)').all().some(row => row.name === 'platform_fee_minor');
   const feeSql = hasMinorFee ? 'COALESCE(platform_fee_minor, CAST(ROUND(platform_fee * 100) AS INTEGER))'
@@ -405,7 +410,7 @@ function attachBusinessOperations(app, { businessAuth, db: store, adminOk, provi
     const since = days ? new Date(Date.now() - days * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : '1970-01-01 00:00:00';
     const format = String(req.query.format || 'xlsx') === 'pdf' ? 'pdf' : 'xlsx';
     const rangeLabel = days ? documents.rangeLabel(since) : 'All time';
-    const spec = documents.payoutStatement.reportSpec({ business, since, rangeLabel, format, generatedBy: (req.teamSession && req.teamSession.member && req.teamSession.member.name) || business.owner_name || '' });
+    const spec = payoutStatement.reportSpec({ business, since, rangeLabel, format, generatedBy: (req.teamSession && req.teamSession.member && req.teamSession.member.name) || business.owner_name || '' });
     (format === 'pdf' ? documents.buildReportPdf : documents.buildReportXlsx)(spec).then((buffer) => {
       res.set('Content-Disposition', `attachment; filename="wifi-fiti-payout-statement.${format}"`);
       res.type(format).send(buffer);

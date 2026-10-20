@@ -571,4 +571,10 @@ expectInvalid({ ...newRouter, wanMode: 'static', staticWanAddress: '192.168.1.2/
 expectInvalid({ ...newRouter, wanMode: 'static', staticWanAddress: '10.5.50.2/24', staticWanGateway: '10.5.50.1', dnsServers: '1.1.1.1' }, 'static WAN must not overlap the Hotspot network');
 expectInvalid({ ...newRouter, routerOsVersion: '6' }, 'unsupported RouterOS version is rejected');
 
+// Both generated fresh-router paths support returning-user MAC cookies.
+const generatedKitSource = fs.readFileSync(path.join(__dirname, '../src/lib/router-setup.js'), 'utf8');
+assert.equal((generatedKitSource.match(/login-by=cookie,http-chap,http-pap,mac-cookie use-radius=no/g) || []).length, 2,
+  'every new hotspot profile accepts MAC cookies while retaining browser login methods');
+assert.ok(!generatedKitSource.includes('login-by=http-chap,http-pap use-radius=no'),
+  'new router kits must not silently disable MAC cookie logins');
 console.log('Router setup: safe existing and new-router kits passed.');

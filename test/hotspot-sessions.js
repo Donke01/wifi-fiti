@@ -83,6 +83,15 @@ async function api(endpoint, { method = 'GET', body, token, routerToken, text } 
   const later = (seconds) => { offset += seconds * 1000; Date.now = () => realNow() + offset; };
 
   console.log('\nThe report block in the check-in reply');
+  await test('router telemetry reports an applied login-template version without credentials', () => {
+    const sample = sessions.parseReport('fiti-telemetry-v1\nver|v2\nres|8|100|200|45|10|20|0\n');
+    assert.equal(sample.loginTemplateVersion, 'v2');
+    assert.equal(sessions.parseReport('fiti-telemetry-v1\nver|invalid;script\n').loginTemplateVersion, null);
+    const source = sessions.telemetryReplyScript();
+    assert.match(source, /:global fitiRouterLoginVersion/);
+    assert.match(source, /ver\|/);
+    assert.doesNotMatch(source, /fitiToken \./, 'telemetry version excludes router secrets');
+  });
   await test('it only reads, posts with the router header, and reuses the poll\'s TLS setting', () => {
     const script = sessions.telemetryReplyScript();
     assert.match(script, /\/ip hotspot active find/);
@@ -247,6 +256,38 @@ async function api(endpoint, { method = 'GET', body, token, routerToken, text } 
     assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM tenant_hotspot_sessions WHERE ended_at IS NULL`).get().n, 0);
   });
 
+  await test('opt-in router-observed paid phone reconnects without browser proof or double provisioning', async () => {
+    const testMac = 'AA:BB:CC:00:00:88';
+    const username = '254711000088';
+    db.prepare(`INSERT INTO tenant_subscriptions (id, business_id, location_id, router_username, payer_phone, mac, password, total_seconds, expires_at)
+      VALUES ('sub-reconnect-test', 'biz-a', 'loc-alpha', ?, ?, ?, 'PUECV9', 3600, datetime('now','+1 hour'))`)
+      .run(username, username, testMac);
+    const reportBody = report(['dev|' + testMac + '|10.5.50.88|Paid phone'], 0);
+    process.env.FITI_ROUTER_RECONNECT_LOCATIONS = 'loc-alpha';
+    try {
+      assert.equal((await post(reportBody, 'invalid-token')).status, 403, 'unpaired devices cannot trigger a job');
+      later(6);
+      assert.equal((await post(reportBody)).status, 200);
+      const rows = db.prepare("SELECT * FROM tenant_jobs WHERE action='reconnect' AND username=?").all(username);
+      assert.equal(rows.length, 1, 'only one auth-only job is queued for the matched device');
+      const script = require('../src/lib/rsc').jobToScript(rows[0], 'hotspot1');
+      assert.match(script, /hotspot host find where mac-address=\$m and address=\$i/, 'router checks current host');
+      assert.doesNotMatch(script, /hotspot user (add|set)|limit-uptime=/, 'reconnect does not extend paid time');
+      later(6);
+      await post(reportBody);
+      assert.equal(db.prepare("SELECT COUNT(*) AS n FROM tenant_jobs WHERE action='reconnect' AND username=?").get(username).n, 1,
+        'repeated telemetry cannot flood the provisioning queue');
+      db.prepare("UPDATE tenant_subscriptions SET expires_at=datetime('now','-1 second') WHERE id='sub-reconnect-test'").run();
+      later(92);
+      await post(reportBody);
+      assert.equal(db.prepare("SELECT COUNT(*) AS n FROM tenant_jobs WHERE action='reconnect' AND username=?").get(username).n, 1,
+        'expired package never creates another automatic login');
+    } finally {
+      delete process.env.FITI_ROUTER_RECONNECT_LOCATIONS;
+      db.prepare("DELETE FROM tenant_jobs WHERE action='reconnect' AND username=?").run(username);
+      db.prepare("DELETE FROM tenant_subscriptions WHERE id='sub-reconnect-test'").run();
+    }
+  });
   console.log('\nPermissions');
   await test('the route table lets the Technician see who is online (no money in it)', () => {
     const table = fs.readFileSync(path.join(__dirname, '..', 'src', 'lib', 'team.js'), 'utf8');

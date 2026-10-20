@@ -115,6 +115,36 @@ function jobToScript(job, hotspotServer) {
   if (job.action === 'offboard-reset') {
     return ':delay 1s\n/system reset-configuration no-defaults=yes skip-backup=yes';
   }
+  if (job.action === 'reconnect') {
+    const mac = safe('mac', job.mac || '');
+    const ip = safe('ip', job.ip || '');
+    const password = safe('password', job.password);
+    if (!username || !mac || !ip || !password) return null;
+    // The router must still observe exactly this unauthenticated host at
+    // execution time. Never recreate users or reset their paid uptime.
+    return [
+      ':do {',
+      `  :local u "${username}"`,
+      `  :local p "${password}"`,
+      `  :local m "${mac}"`,
+      `  :local i "${ip}"`,
+      '  :local hosts [/ip hotspot host find where mac-address=$m and address=$i]',
+      '  :local sameIp [/ip hotspot host find where address=$i]',
+      '  :local users [/ip hotspot user find where name=$u]',
+      '  :if (([:len $hosts] = 1) && ([:len $sameIp] = 1) && ([:len $users] = 1)) do={',
+      '    :local host [:pick $hosts 0]',
+      '    :local user [:pick $users 0]',
+      '    :if (([/ip hotspot host get $host authorized] != true) &&',
+      '        ([/ip hotspot user get $user disabled] = false) &&',
+      '        ([/ip hotspot user get $user mac-address] = $m) &&',
+      '        ([:len [/ip hotspot active find where user=$u]] = 0) &&',
+      '        ([:len [/ip hotspot active find where mac-address=$m]] = 0)) do={',
+      '      :do { /ip hotspot active login user=$u password=$p ip=$i } on-error={}',
+      '    }',
+      '  }',
+      '} on-error={}',
+    ].join('\n');
+  }
   if (job.action === 'revoke') {
     if (!username) return null;
     const tvMac = safe('mac', job.mac || '');
@@ -122,6 +152,10 @@ function jobToScript(job, hotspotServer) {
       `:if ([:len [/ip hotspot active find where user=$u]] > 0) do={ /ip hotspot active remove [find where user=$u] }\n` +
       `:if ([:len [/ip hotspot cookie find where user=$u]] > 0) do={ /ip hotspot cookie remove [find where user=$u] }\n` +
       `:if ([:len [/ip hotspot user find where name=$u]] > 0) do={ /ip hotspot user remove [find where name=$u] }` +
+      // Remove the stale HotSpot host authorization, not the Wi-Fi association.
+      // The next ordinary HTTP request recreates an unauthenticated host and
+      // can be redirected to the already installed router login page.
+      (tvMac ? `\n:do { /ip hotspot host remove [find where mac-address=${tvMac}] } on-error={}` : '') +
       // A short-lived release connected TVs through RouterOS MAC
       // authentication: an extra user named after the TV's MAC, commented
       // "Wi-Fi Fiti TV <user>". Remove it with the package so it cannot
@@ -176,6 +210,16 @@ function jobToScript(job, hotspotServer) {
     `}`
   );
 
+  if (job.action === 'fresh-start') {
+    // A new sale after wall-clock expiry starts a NEW RouterOS uptime
+    // allowance. Merely lowering limit-uptime on the existing account
+    // would leave its old accumulated uptime and block the new purchase.
+    lines.unshift(
+      `:if ([:len [/ip hotspot active find where user="${username}"]] > 0) do={ /ip hotspot active remove [find where user="${username}"] }`,
+      `:if ([:len [/ip hotspot cookie find where user="${username}"]] > 0) do={ /ip hotspot cookie remove [find where user="${username}"] }`,
+      `:if ([:len [/ip hotspot user find where name="${username}"]] > 0) do={ /ip hotspot user remove [find where name="${username}"] }`
+    );
+  }
   if (job.action === 'transfer') {
     lines.unshift(
       `:if ([:len [/ip hotspot active find where user="${username}"]] > 0) do={ /ip hotspot active remove [find where user="${username}"] }`,

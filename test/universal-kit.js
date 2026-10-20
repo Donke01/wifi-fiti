@@ -120,7 +120,7 @@ for (const forbidden of ['"address"', '"mac"', '"password"', '"secret"', '"token
 const plan = validateNetworkPlan({ bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['wlan1', 'ether3'], wifi: { ssid: 'Guest WiFi' } }],
   existing: [{ interface: 'bridge-tv', job: 'pppoe' }] }, parsed);
 assert.deepEqual(plan, { version: 1, bridges: [{ name: 'bridge-guests', job: 'hotspot', ports: ['ether3', 'wlan1'], wifi: { ssid: 'Guest WiFi', radios: [{ name: 'wlan1', type: 'wlan', mode: 'virtual' }] } }],
-  existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }], moves: [], keep: [] });
+  existing: [{ interface: 'bridge-tv', job: 'pppoe', alreadyRunning: false }], vlans: [], moves: [], keep: [] });
 const refuses = (input, pattern, why) => assert.throws(() => validateNetworkPlan(input, parsed), (e) => e.status === 400 && pattern.test(e.message), why);
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether4'] }] }, /already in use/, 'a port in use stays as it is');
 refuses({ bridges: [{ name: 'b1', job: 'hotspot', ports: ['ether1'] }] }, /already in use/, 'the internet port cannot be moved');

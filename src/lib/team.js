@@ -52,6 +52,9 @@ const ROUTES = [
   ['POST', `${B}/resend-code`, 'public'], ['POST', `${B}/forgot-password`, 'public'], ['POST', `${B}/reset-password`, 'public'],
   ['POST', `${B}/invite/check`, 'public'], ['POST', `${B}/invite/accept`, 'public'],
   ['POST', `${B}/logout`, 'any'], ['GET', `${B}/me`, 'any'],
+  // Full-period financial reports are limited to staff who may see
+  // historical sales; Attendants remain restricted to today.
+  ['GET', `${B}/reports/revenue`, 'sales.view'], ['GET', `${B}/reports/ledger`, 'sales.view'],
   // Excel/PDF of a table the person already sees in their dashboard.
   ['POST', `${B}/reports/table`, 'any'],
   // My profile: every signed-in person, about themselves only.
