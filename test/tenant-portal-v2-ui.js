@@ -257,6 +257,37 @@ async function test(name, callback) {
     assert.equal(JSON.parse(page.localData.get(storagePrefix + '_checkout')).checkoutRequestId, pendingCheckout.checkoutRequestId);
   });
 
+  await test('known same-device time offers reconnection before demanding another purchase', async () => {
+    const page = createPage({ respond(request) {
+      if (request.path.startsWith('/session?')) return { found: true, remainingSeconds: 960 };
+    } });
+    await page.flush();
+    assert.equal(page.visible('returning-device'), true);
+    assert.equal(page.element('buy').classList.contains('fiti-returning-mode'), true);
+    assert.match(page.element('returning-copy').textContent, /16m/);
+    assert.equal(page.count('/pay'), 0, 'no duplicate STK push for recognized package');
+    await page.click('returning-buy');
+    assert.equal(page.element('buy').classList.contains('fiti-returning-mode'), false,
+      'customer can intentionally buy more time');
+  });
+
+  await test('an expired saved browser session opens packages without a stale countdown loop', async () => {
+    const token = 'obsolete-paid-browser-session';
+    const page = createPage({
+      localData: new Map([[storagePrefix + '_session', JSON.stringify(token)]]),
+      respond(request) {
+        if (request.path.startsWith('/session?'))
+          return { ...activeSession, remainingSeconds: 0, expiresAt: new Date(originTime - 1000).toISOString() };
+      },
+    });
+    await page.flush();
+    assert.equal(page.visible('buy'), true);
+    assert.equal(page.visible('active'), false);
+    assert.equal(page.localData.has(storagePrefix + '_session'), false, 'old browser token was discarded');
+    await page.advance(6000);
+    assert.equal(page.visible('buy'), true, 'an old countdown cannot hijack a new purchase');
+    assert.equal(page.count('/pay'), 0);
+  });
   await test('an authenticated saved session connects automatically and waits for router acknowledgement', async () => {
     let ready = false;
     const sessionToken = 'opaque-browser-session-capability';
