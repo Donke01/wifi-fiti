@@ -6256,7 +6256,7 @@ app.get('/api/health', async (req, res) => {
 
 require('./lib/business-operations').attachBusinessOperations(app, { businessAuth, tenant, db, config, adminOk, provisionTenantPayment,
   documents: { buildReceiptPdf, buildReportPdf, buildReportXlsx, receiptReportSpec, rangeLabel: reportRangeLabel, formatDateTime,
-    payoutStatement: require('./lib/payout-statement').createPayoutStatement(db.db) } });
+    payoutStatement: () => require('./lib/payout-statement').createPayoutStatement(db.db) } });
 const fitiSignal = require('./lib/fiti-signal');
 fitiSignal.attachFitiSignalRoutes(app, { businessAuth, startPayment: async ({ business, purchase, phone: supplied }) => {
   const phone = mpesa.normalizePhone(supplied || business.owner_phone);
