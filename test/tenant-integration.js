@@ -848,6 +848,14 @@ async function main() {
     await routerSync(alpha.location, { ack: ended.ids });
     const second = await voucher(alpha, deviceMac, '254712000059');
     const renewed = database.prepare('SELECT * FROM tenant_subscriptions WHERE id=?').get(first.subscriptionId);
+    const pendingReset = tenant.pendingProvisioningJobForUsername.get(alpha.location.id, renewed.router_username);
+    assert.equal(pendingReset && pendingReset.action, 'fresh-start',
+      'new purchase stays pending until RouterOS old uptime is reset');
+    const returnedEarly = await api(endpoint(alpha.location, 'session?mac=' + deviceMac), {
+      sessionToken: second.sessionToken,
+    });
+    assert.equal(returnedEarly.body.awaitingRouter, true,
+      'a reopened captive page waits instead of superseding the reset with a normal upsert');
     assert.ok(renewed, 'same MAC may reuse its subscription row for receipts');
     assert.equal(renewed.total_seconds, Number(alpha.package.seconds), 'expired packages must not add prior consumed uptime');
     assert.equal(renewed.used_seconds, 0, 'new cycle starts with no previous usage');
