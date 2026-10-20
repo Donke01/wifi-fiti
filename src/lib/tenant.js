@@ -4186,6 +4186,12 @@ function releaseEndedSubscription(subscription) {
   }
 }
 
+// The expiry/re-entry rewrite is piloted per location before becoming a
+// platform default. Removing the location instantly restores legacy grants.
+function expiryV2Enabled(locationId) {
+  return String(process.env.FITI_EXPIRY_V2_LOCATIONS || '').split(',').some((id) => id.trim() === String(locationId));
+}
+
 function grantSubscription({ transaction, profile = 'standard' }) {
   const deviceType = purchaseDeviceType(transaction.device_type);
   const targetMac = deviceType === 'tv' ? normaliseTvMac(transaction.mac) : transaction.mac;
@@ -4211,10 +4217,14 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   // customer already saved. A new (or ended) package uses the code the
   // portal showed while the customer entered their PIN, because the captive
   // window usually closes the moment the phone goes online.
-  const password = existing && subscriptionLive(existing)
-    ? existing.password
-    : (validRecoveryCode(transaction.recovery_code) || existing?.password || generatePassword());
-  const totalSeconds = (existing?.total_seconds || 0) + transaction.seconds;
+  const continuingPackage = Boolean(existing && subscriptionLive(existing));
+  const freshCycle = Boolean(expiryV2Enabled(transaction.location_id) && existing && !continuingPackage);
+  const password = continuingPackage ? existing.password
+    : (validRecoveryCode(transaction.recovery_code) ||
+       (freshCycle ? null : existing?.password) || generatePassword());
+  // New cycle: paid uptime starts fresh with a matching router-side reset.
+  // Unpiloted locations retain their existing billing accounting unchanged.
+  const totalSeconds = (freshCycle ? 0 : (existing?.total_seconds || 0)) + transaction.seconds;
   // A top-up follows the package the customer selected. A blank speed means
   // return to the normal RouterOS profile rather than retain an old per-user
   // limit invisibly.
@@ -4223,13 +4233,22 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   const expiresAt = nowSql(Math.max(Date.now(), Number.isFinite(oldExpiry) ? oldExpiry : 0) + transaction.seconds * 1000);
   upsertSubscription.run({ id, businessId: transaction.business_id, locationId: transaction.location_id,
     routerUsername, payerPhone: transaction.phone, mac: transaction.mac, password, totalSeconds, rateLimit, expiresAt });
+  if (freshCycle) {
+    db.prepare("UPDATE tenant_subscriptions SET used_seconds=0, is_active=0 WHERE id=? AND location_id=?")
+      .run(id, transaction.location_id);
+    // Old browser capabilities must not grant access to a newly purchased
+    // package just because its subscription row was reused.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenant_browser_sessions'").get()) {
+      db.prepare("DELETE FROM tenant_browser_sessions WHERE subscription_id=?").run(id);
+    }
+  }
   setSubscriptionDevice.run({ id, locationId: transaction.location_id, deviceType,
     deviceLabel: normaliseDeviceLabel(transaction.device_label, deviceType) });
   meterDevice.run(transaction.business_id, transaction.mac);
   const job = insertJob.run({ locationId: transaction.location_id, username: routerUsername, password, profile,
     totalSeconds, rateLimit, mac: transaction.mac,
     ip: deviceType === 'tv' ? null : (transaction.ip || null),
-    action: deviceType === 'tv' ? 'tv-upsert' : 'upsert' });
+    action: freshCycle ? 'fresh-start' : (deviceType === 'tv' ? 'tv-upsert' : 'upsert') });
   // A top-up must refresh the TV's RouterOS ceiling too. Otherwise the
   // phone receives the extension but its paired TV disconnects early.
   for (const device of devicesForSubscription.all(transaction.location_id, id)) {
@@ -4436,7 +4455,7 @@ function queueExpiredSubscriptions(locationId) {
   for (const subscription of expired) {
     const job = insertJob.run({ locationId, username: subscription.router_username, password: '2222',
       profile: 'standard', totalSeconds: 1, rateLimit: null,
-      mac: subscription.device_type === 'tv' ? subscription.mac : null, ip: null, action: 'revoke' });
+      mac: (expiryV2Enabled(locationId) || subscription.device_type === 'tv') ? subscription.mac : null, ip: null, action: 'revoke' });
     // A TV has its own RouterOS identity and therefore its own local uptime
     // counter. Revoke it alongside the phone so a TV cannot outlive the
     // server's wall-clock expiry.
