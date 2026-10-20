@@ -378,6 +378,7 @@
         message('active-title', remaining ? 'Your Wi-Fi is active' : 'Your Wi-Fi time has ended');
         message('active-kicker', remaining ? 'YOUR WIFI PACKAGE' : 'TIME TO RENEW');
         $('top-up').textContent = remaining ? 'BUY MORE TIME' : 'RENEW WI-FI PACKAGE';
+        if (remaining <= 0) { clearInterval(clockTimer); clockTimer = null; show('buy'); message('error', 'Your Wi-Fi time has ended. Choose a new package to get back online.'); $('payment-recovery').open = false; }
         $('connect').disabled = remaining <= 0;
         $('manage-tv').disabled = remaining <= 0;
       }
@@ -784,13 +785,21 @@
           return;
         }
         var session = await api('/session?mac=' + encodeURIComponent(mac));
+        if (session.authenticated && session.remainingSeconds <= 0) {
+          show('buy');
+          message('error', 'Your Wi-Fi package has expired. Choose a new plan to reconnect.');
+          return;
+        }
         if (session.authenticated) {
           active(session);
           write('_receipt_pending', null);
           if (session.remainingSeconds > 0) reconnect();
           return;
         }
-        if (session.found) message('error', 'This device already has ' + formatSeconds(session.remainingSeconds) + '. Enter your paying number and use Check my time to reconnect.');
+        if (session.found) {
+          message('error', 'You have ' + formatSeconds(session.remainingSeconds) + ' left, but this browser is not signed in yet. Your payment is safe. Use your saved Wi-Fi recovery code to reconnect; do not buy again.');
+          $('payment-recovery').open = false;
+        }
       } catch (error) { message('error', error.message); }
     }
     $('jump-recovery').onclick = function () { $('payment-recovery').open = true; };
