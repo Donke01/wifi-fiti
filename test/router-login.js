@@ -1,0 +1,25 @@
+'use strict';
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const { renderRouterLoginPage, ROUTER_LOGIN_TEMPLATE_VERSION } = require('../src/lib/router-login');
+
+assert.equal(ROUTER_LOGIN_TEMPLATE_VERSION, 'v2');
+const target = 'https://supersurf.wififiti.co.ke/?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)';
+const html = renderRouterLoginPage({ title: 'SUPERSURF', portalUrl: target });
+assert.match(html, /^<!doctype html>/);
+assert.match(html, /window\.location\.replace/);
+assert.match(html, /http-equiv="refresh"/);
+assert.match(html, /Open packages/);
+assert.ok(html.includes('mac=$(mac)'));
+assert.ok(html.includes('link-login-only=$(link-login-only)'));
+assert.ok(html.includes('link-orig=$(link-orig-esc)'));
+assert.ok(!html.includes('src="http'), 'no remote assets before payment');
+let redirected = '';
+const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+vm.runInNewContext(script, { window: { location: { replace: (url) => { redirected = url; } } } });
+assert.equal(redirected, target);
+const hostile = renderRouterLoginPage({ title: '<b>x</b>', portalUrl: 'https://safe.example/?x=</script><script>evil()</script>&q="' });
+assert.ok(!hostile.includes('<script>evil()'), 'target cannot escape script context');
+assert.match(hostile, /&lt;b&gt;x&lt;\/b&gt;/);
+assert.throws(() => renderRouterLoginPage({ portalUrl: 'http://router/login' }), /HTTPS/);
+console.log('router login tests passed');
