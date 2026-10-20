@@ -30,6 +30,7 @@ const { purchaseDeviceType, normaliseTvMac, normaliseDeviceLabel } = require('./
 const { portalFont } = require('./lib/tenant-portal-templates');
 const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { isCaptiveHost, captiveDomainScript } = require('./lib/captive-domain');
+const { renderRouterLoginPage, ROUTER_LOGIN_TEMPLATE_VERSION } = require('./lib/router-login');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const pppoeBilling = require('./lib/pppoe-billing');
@@ -261,7 +262,17 @@ function portalUrlForRouter(location, requestedHostname) {
  * response: a temporary old address after a restart is repaired on the next
  * poll, while an invalid boot-script rewrite can stop all future updates.
  */
+// Roll out new captive login HTML only to explicitly listed locations.
+function captiveLoginTemplateVersion(location) {
+  const id = String(location && location.id || '');
+  if (!id) return '';
+  const listed = (name) => String(process.env[name] || '').split(',').some((s) => s.trim() === id);
+  if (listed('CAPTIVE_LOGIN_V2_LOCATIONS')) return ROUTER_LOGIN_TEMPLATE_VERSION;
+  if (listed('CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS')) return 'v1';
+  return '';
+}
 function routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
+  const templateVersion = captiveLoginTemplateVersion(location);
   if (!config.domains.portalGatewayEnabled) return '';
   const desiredHost = edgeHostname(location && location.portal_hostname);
   const appliedHost = edgeHostname(reportedPortalAppliedHost);
@@ -270,7 +281,7 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
   // New pollers report portalApplied only after the replacement login file
   // was fetched. Older pollers retain compatibility when their reported
   // address already matches, without affecting router pairing readiness.
-  if (appliedHost === desiredHost || (!appliedHost && legacyHost === desiredHost)) return '';
+  if ((appliedHost === desiredHost || (!appliedHost && legacyHost === desiredHost)) && !templateVersion) return '';
   const desiredUrl = `https://${desiredHost}`;
   return [
     ':global fitiUrl',
@@ -279,13 +290,14 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     ':global fitiPortalUrl',
     ':global fitiPortalHost',
     ':global fitiPortalAppliedHost',
+    ':global fitiRouterLoginVersion',
     ':global fitiHotspotServer',
     ':if ([:len $fitiHotspotServer] = 0) do={ :set fitiHotspotServer "hotspot1" }',
     ':if ([:len $fitiPortalHost] = 0) do={ :set fitiPortalHost "" }',
     ':if ([:len $fitiPortalAppliedHost] = 0) do={ :set fitiPortalAppliedHost "" }',
     `:local fitiDesiredPortalHost "${desiredHost}"`,
     `:local fitiDesiredPortalUrl "${desiredUrl}"`,
-    ':if ($fitiPortalAppliedHost != $fitiDesiredPortalHost) do={',
+    ':if ($fitiPortalAppliedHost != $fitiDesiredPortalHost' + (templateVersion ? ' || $fitiRouterLoginVersion != "' + templateVersion + '"' : '') + ') do={',
     // A router can remain paired while its HotSpot was disabled by a prior
     // offboard/test action.  Re-enable only the configured customer server as
     // part of the portal refresh; offboarding removes/locks the router and is
@@ -304,6 +316,7 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     '      /tool fetch url=$fitiLoginUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/login.html")',
     '      :set fitiPortalHost $fitiDesiredPortalHost',
     '      :set fitiPortalUrl $fitiDesiredPortalUrl',
+    '      :set fitiRouterLoginVersion "' + (templateVersion || 'v1') + '"',
     '      :set fitiPortalAppliedHost $fitiDesiredPortalHost',
     '      :log info "fiti: customer portal address updated"',
     '    } on-error={ :log warning "fiti: customer portal login page download failed" }',
@@ -3752,6 +3765,10 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
   const portal = req.query.page === 'status'
     ? `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)`
     : `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
+  if (captiveLoginTemplateVersion(location) === ROUTER_LOGIN_TEMPLATE_VERSION) {
+    res.set('Cache-Control', 'no-store, max-age=0');
+    return res.type('text/html').send(renderRouterLoginPage({ title: location.business_name, portalUrl: portal }));
+  }
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
 });
