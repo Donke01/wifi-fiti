@@ -5602,7 +5602,12 @@ function tenantRouterScript(location, options = {}) {
   const since = Date.now() - (telemetryAskedAt.get(location.id) || 0);
   if (!result.quiet && !(result.light && since >= TELEMETRY_OVERDUE_MS)) return result;
   const viewing = Date.now() - (onlineViewedAt.get(location.id) || 0) < 2 * 60_000;
-  if (since < (viewing ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS)) return result;
+  // Piloted session continuity needs a quicker fallback than ordinary
+  // dashboard telemetry. Native MAC cookies remain immediate and preferred.
+  // Only the explicitly opted-in location runs the 10-second scan.
+  const reconnectPilot = routerReconnect.optedIn(location.id);
+  const interval = viewing || reconnectPilot ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS;
+  if (since < interval) return result;
   telemetryAskedAt.set(location.id, Date.now());
   return { ...result, script: [result.script, hotspotSessions.telemetryReplyScript()].filter(Boolean).join('\n') };
 }
