@@ -243,6 +243,20 @@ async function test(name, callback) {
     assert.equal(status.headers['X-WiFi-Fiti-Portal'], pendingCheckout.portalToken);
   });
 
+  await test('explicit checkout is not blocked by an unrelated paid device using the same M-Pesa number', async () => {
+    const page = createPage({ respond(request) {
+      if (request.path === '/subscriptions/check') return { found: true, subscriptions: [
+        { id: 'different-device', mac: 'AA:BB:CC:00:00:77', remainingSeconds: 900 },
+      ] };
+    } });
+    await page.flush();
+    page.element('phone').value = '0712345678';
+    await page.click('pay');
+    assert.equal(page.count('/subscriptions/check'), 0, 'buyer chooses whether to check other device balances');
+    assert.equal(page.count('/pay'), 1, 'one explicit purchase starts one M-Pesa request');
+    assert.equal(page.visible('existing-section'), false, 'no uninvited transfer-code dialog');
+    assert.equal(page.visible('waiting'), true);
+  });
   await test('returning to packages and pressing pay resumes a pending checkout without a duplicate charge request', async () => {
     const page = createPage({ localData: savedCheckout() });
     await page.flush();
