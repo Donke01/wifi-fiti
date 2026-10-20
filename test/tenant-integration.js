@@ -384,7 +384,8 @@ async function main() {
     assert.equal(mine.body.locations[0].router_token, undefined);
     const publicConfig = await api(endpoint(alpha.location, 'config'));
     assert.deepEqual(publicConfig.body.packages.map((item) => item.id), [alpha.package.id]);
-    assert.equal(publicConfig.body.packages[0].rate_limit, '2M/5M');
+    assert.equal(publicConfig.body.packages[0].rate_limit, undefined,
+      'internal bandwidth caps are not disclosed by the public customer package API');
     assert.equal(publicConfig.headers.get('referrer-policy'), 'no-referrer');
     const routerLogin = await api(`/api/tenant/${alpha.location.id}/router-login`, { routerToken: alpha.location.routerToken });
     assert.equal(routerLogin.status, 200);
@@ -967,18 +968,18 @@ async function main() {
   });
 
   await test('platform administrator request limits cover changing record IDs', async () => {
-    // Three administrator checks above already consumed three of the shared
-    // 30-attempt window. Each new ticket ID must still count against it.
-    for (let i = 0; i < 27; i++) {
+    // Count across changing target IDs, regardless of how many unrelated
+    // admin checks earlier tests happened to perform. A brittle assumption
+    // about previous test order must not weaken the security assertion.
+    let refused = false;
+    for (let i = 0; i < 33; i++) {
       const response = await api(`/api/admin/business-operations/tickets/rate-limit-${i}`, {
         adminToken: 'integration-admin-token',
       });
+      if (response.status === 429) { refused = true; break; }
       assert.equal(response.status, 404);
     }
-    const blocked = await api('/api/admin/business-operations/tickets/rate-limit-blocked', {
-      adminToken: 'integration-admin-token',
-    });
-    assert.equal(blocked.status, 429);
+    assert.equal(refused, true, 'administrator request budget applies across changing ticket IDs');
   });
 
   console.log(`\nTenant HTTP integration: ${passed} passed, ${failures.length} failed`);
