@@ -175,7 +175,7 @@
     .payment-recovery summary::-webkit-details-marker{display:none}.payment-recovery summary:after{content:'+';float:right}.payment-recovery[open] summary:after{content:'−'}
     .recover-body{padding:0 16px 18px}
     #active.fiti-expired{display:flex;flex-direction:column}#active.fiti-expired #clock,#active.fiti-expired .active-actions{display:none!important}
-    #active.fiti-expired #top-up{order:-1;min-height:60px}#active.fiti-expired .notice{margin-top:16px}
+    #active.fiti-expired #top-up{min-height:60px}#active.fiti-expired .notice{margin-top:16px}
     @media(max-width:400px){.brand-name{font-size:29px}.utility{min-height:73px}}
 </style>
 </head>
@@ -793,6 +793,7 @@
         if (session.found) message('error', 'This device already has ' + formatSeconds(session.remainingSeconds) + '. Enter your paying number and use Check my time to reconnect.');
       } catch (error) { message('error', error.message); }
     }
+    $('jump-recovery').onclick = function () { $('payment-recovery').open = true; };
     $('pay').onclick = pay; $('connect').onclick = reconnect; $('recover-payment').onclick = recoverPayment;
     $('claim').onclick = claimPayment;
     function copyPortalLink() {
