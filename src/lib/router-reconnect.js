@@ -4,6 +4,7 @@
 // No customer-controlled MAC, query parameter, receipt or phone number grants it.
 const COOLDOWN_MS = 90_000;
 const MAX_PER_REPORT = 15;
+const MIN_REMAINING_MS = 30_000; // Never queue a slow fallback at the wall-clock expiry boundary.
 const lastAttempt = new Map();
 
 function optedIn(locationId, list = process.env.FITI_ROUTER_RECONNECT_LOCATIONS || '') {
@@ -26,7 +27,7 @@ function reconnectCandidates({ location, report, findSubscription, now = Date.no
     if (!subscription || subscription.mac !== mac || subscription.location_id !== location.id ||
         subscription.device_type === 'tv' || !subscription.router_username || !subscription.password) continue;
     const expiry = Date.parse(String(subscription.expires_at || '').replace(' ', 'T') + 'Z');
-    if (!Number.isFinite(expiry) || expiry <= now) continue;
+    if (!Number.isFinite(expiry) || expiry - now <= MIN_REMAINING_MS) continue;
     const key = location.id + ':' + mac;
     if ((lastAttempt.get(key) || 0) > now - COOLDOWN_MS) continue;
     found.push({ key, mac, ip, subscription });
@@ -41,4 +42,4 @@ function markAttempt(key, at = Date.now()) {
   }
 }
 
-module.exports = { reconnectCandidates, markAttempt, optedIn, COOLDOWN_MS };
+module.exports = { reconnectCandidates, markAttempt, optedIn, COOLDOWN_MS, MIN_REMAINING_MS };
