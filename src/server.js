@@ -31,6 +31,7 @@ const { portalFont } = require('./lib/tenant-portal-templates');
 const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { isCaptiveHost, captiveDomainScript } = require('./lib/captive-domain');
 const { renderRouterLoginPage, ROUTER_LOGIN_TEMPLATE_VERSION } = require('./lib/router-login');
+const { embedPublicPortalConfig } = require('./lib/portal-bootstrap');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
 const pppoeBilling = require('./lib/pppoe-billing');
@@ -2979,12 +2980,21 @@ function hotspotCapacityBlock(location, renewing) {
   return null;
 }
 
+// Keep a single static HTML template in memory. Package prices, branding and
+// availability remain live per response; only the template is cached.
+const tenantPortalHtmlPath = path.join(__dirname, '..', 'public', 'tenant-portal.html');
+const tenantPortalHtml = fs.readFileSync(tenantPortalHtmlPath, 'utf8');
 app.get('/p/:locationId', (req, res) => {
-  if (!tenant.locationById.get(req.params.locationId)) return res.status(404).send('WiFi location not found.');
-  // Always revalidate: a captive browser holding yesterday's portal script is
-  // how fixed bugs keep reappearing.
+  const location = tenant.locationById.get(req.params.locationId);
+  if (!location) return res.status(404).send('WiFi location not found.');
+  // Revalidate HTML and package prices on each visit. Never cache the public
+  // config along with a payment, session token or customer identity.
   res.set('Cache-Control', 'no-cache');
-  res.sendFile(path.join(__dirname, '..', 'public', 'tenant-portal.html'));
+  if (captiveLoginTemplateVersion(location) === ROUTER_LOGIN_TEMPLATE_VERSION) {
+    return res.type('html').send(embedPublicPortalConfig(
+      tenantPortalHtml, tenantPortalPublicConfig(location, req)));
+  }
+  res.sendFile(tenantPortalHtmlPath);
 });
 
 // Each tenant gets an installable app whose start URL stays on that tenant's
@@ -3001,9 +3011,7 @@ app.get('/api/tenant/:locationId/manifest.webmanifest', (req, res) => {
   });
 });
 
-app.get('/api/tenant/:locationId/config', (req, res) => {
-  const location = publicLocation(req.params.locationId, res); if (!location) return;
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+function tenantPortalPublicConfig(location, req) {
   const assetOrigin = edgePortalOriginForRequest(req, location) || config.domains.appUrl;
   const branding = brandingPayload({
     id: location.business_id, name: location.business_name, portal_name: location.portal_name,
@@ -3018,13 +3026,19 @@ app.get('/api/tenant/:locationId/config', (req, res) => {
   const paybill = c2b && c2b.location_id === location.id ? { shortcode: c2b.shortcode, accountPrefix: c2b.account_prefix || '' } : null;
   const portalTemplate = db.db.prepare(`SELECT id,name,layout,accent_color,welcome_message,show_packages,show_utilities,font_family,text_align,package_style,background_style
     FROM tenant_portal_templates WHERE business_id=? AND active=1 ORDER BY updated_at DESC LIMIT 1`).get(location.business_id) || null;
-  res.json({ location: { id: location.id, name: location.name, businessName: branding.name },
+  return { location: { id: location.id, name: location.name, businessName: branding.name },
     portalUrl: portalUrlForLocation(location), branding,
     template: portalTemplate ? { id: portalTemplate.id, name: portalTemplate.name, layout: portalTemplate.layout, accentColor: portalTemplate.accent_color, welcomeMessage: portalTemplate.welcome_message, showPackages: Boolean(portalTemplate.show_packages), showUtilities: Boolean(portalTemplate.show_utilities), fontFamily: portalFont(portalTemplate.font_family), textAlign: portalTemplate.text_align || 'center', packageStyle: portalTemplate.package_style || 'stacked', backgroundStyle: portalTemplate.background_style || 'aurora' } : null,
     // Speed caps and service scope are tenant controls, never customer-facing
     // portal data. The router still receives the cap during provisioning.
     packages: tenant.packagesForLocation.all(location.id).map(({ id, name, price, seconds }) => ({ id, name, price, seconds })), supportPhone: branding.supportPhone,
-    paybill });
+    paybill };
+}
+
+app.get('/api/tenant/:locationId/config', (req, res) => {
+  const location = publicLocation(req.params.locationId, res); if (!location) return;
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return res.json(tenantPortalPublicConfig(location, req));
 });
 
 app.get('/api/tenant/:locationId/session', (req, res) => {
