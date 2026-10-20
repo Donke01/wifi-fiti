@@ -753,6 +753,8 @@ async function main() {
     assert.equal(expired.ids.length, 1);
     assert.ok(expired.script.includes(`:local u "${granted.username}"`));
     assert.ok(expired.script.includes('/ip hotspot active remove'));
+    assert.ok(expired.script.includes('/ip hotspot host remove [find where mac-address=AA:BB:CC:00:00:50]'),
+      'the expired phone is reclassified as an unauthenticated hotspot host without disconnecting Wi-Fi');
     assert.equal((await api(endpoint(alpha.location, 'session?mac=AA:BB:CC:00:00:50'))).body.found, false);
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'delivery waits for the acknowledgement window before retrying');
     database.prepare("UPDATE tenant_jobs SET delivered_at=datetime('now','-61 seconds') WHERE location_id=? AND acked_at IS NULL").run(alpha.location.id);
