@@ -1636,7 +1636,7 @@ const jobById = db.prepare(`SELECT j.id, j.location_id, j.acked_at
 const pendingProvisioningJobForUsername = db.prepare(`
   SELECT id, action FROM tenant_jobs
    WHERE location_id=? AND username=? AND acked_at IS NULL
-     AND action IN ('upsert', 'transfer', 'tv-upsert')
+     AND action IN ('upsert', 'transfer', 'tv-upsert', 'fresh-start')
      AND id=(SELECT MAX(newer.id) FROM tenant_jobs newer WHERE newer.location_id=tenant_jobs.location_id
        AND newer.username=tenant_jobs.username)
    ORDER BY id DESC LIMIT 1
