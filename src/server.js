@@ -5684,6 +5684,7 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
     return { script: '', emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
   tenant.queueExpiredSubscriptions(location.id);
+  tenant.expireStaleReconnectJobs.run(location.id);
   // A universal-kit router paired before it had a Hotspot is "awaiting map":
   // Hotspot users, the portal page, mapped deployments and PPPoE all wait
   // until the owner maps where customers connect. Nothing is sent that
@@ -5919,7 +5920,7 @@ app.post('/api/router/telemetry', (req, res) => {
       tenant.insertJob.run({
         locationId: location.id, username: sub.router_username, password: sub.password,
         profile: 'standard', totalSeconds: sub.total_seconds, rateLimit: sub.rate_limit,
-        mac: candidate.mac, ip: candidate.ip, action: 'upsert',
+        mac: candidate.mac, ip: candidate.ip, action: 'reconnect',
       });
       routerReconnect.markAttempt(candidate.key);
     }
