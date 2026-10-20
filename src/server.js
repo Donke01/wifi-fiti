@@ -263,6 +263,13 @@ function portalUrlForRouter(location, requestedHostname) {
  * response: a temporary old address after a restart is repaired on the next
  * poll, while an invalid boot-script rewrite can stop all future updates.
  */
+// The paired router confirms applied login.html versions through the existing
+// authenticated telemetry response; no polling-script rewrite is required.
+const observedRouterLoginVersions = new Map();
+function loginVersionConfirmed(locationId, expected) {
+  const entry = observedRouterLoginVersions.get(locationId);
+  return Boolean(expected && entry && entry.version === expected && Date.now() - entry.at < 180_000);
+}
 // Roll out new captive login HTML only to explicitly listed locations.
 function captiveLoginTemplateVersion(location) {
   const id = String(location && location.id || '');
@@ -282,7 +289,8 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
   // New pollers report portalApplied only after the replacement login file
   // was fetched. Older pollers retain compatibility when their reported
   // address already matches, without affecting router pairing readiness.
-  if ((appliedHost === desiredHost || (!appliedHost && legacyHost === desiredHost)) && !templateVersion) return '';
+  const currentHost = appliedHost === desiredHost || (!appliedHost && legacyHost === desiredHost);
+  if (currentHost && (!templateVersion || loginVersionConfirmed(location.id, templateVersion))) return '';
   const desiredUrl = `https://${desiredHost}`;
   return [
     ':global fitiUrl',
@@ -5630,7 +5638,14 @@ function tenantRouterScript(location, options = {}) {
   // ROUTER_TELEMETRY=off stops the report on every router at once.
   if (String(process.env.ROUTER_TELEMETRY || '').toLowerCase() === 'off') return result;
   const since = Date.now() - (telemetryAskedAt.get(location.id) || 0);
-  if (!result.quiet && !(result.light && since >= TELEMETRY_OVERDUE_MS)) return result;
+  // Template delivery makes an otherwise idle reply non-quiet. Include one
+  // periodic read-only telemetry report so the server can stop sending it.
+  const targetLoginVersion = captiveLoginTemplateVersion(location);
+  const awaitingTemplateAck = Boolean(targetLoginVersion) &&
+    !loginVersionConfirmed(location.id, targetLoginVersion) &&
+    !(result.emitted && result.emitted.length) &&
+    !(result.supportEmitted && result.supportEmitted.length);
+  if (!result.quiet && !(result.light && since >= TELEMETRY_OVERDUE_MS) && !awaitingTemplateAck) return result;
   const viewing = Date.now() - (onlineViewedAt.get(location.id) || 0) < 2 * 60_000;
   if (since < (viewing ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS)) return result;
   telemetryAskedAt.set(location.id, Date.now());
@@ -5937,6 +5952,9 @@ app.post('/api/router/telemetry', (req, res) => {
   telemetryReportAt.set(location.id, Date.now());
   try {
     hotspotSessions.recordReport(location, report);
+    if (report.loginTemplateVersion) {
+      observedRouterLoginVersions.set(location.id, { version: report.loginTemplateVersion, at: Date.now() });
+    }
     if (report.devices.length) tenant.recordRouterDeviceEntries(location.id, report.devices);
     if (report.resources && Date.now() - (telemetrySampleAt.get(location.id) || 0) >= 50_000) {
       const sample = tenant.recordRouterTelemetry({ locationId: location.id, ...report.resources,
