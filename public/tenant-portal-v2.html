@@ -967,8 +967,10 @@
       }
       var button = $('pay'); button.disabled = true; message('error', '');
       try {
-        existingFromPay = true;
-        if (!bypassLookup && await checkExisting(true)) return;
+        // The customer explicitly tapped Pay. A prior purchase on another
+        // device using this M-Pesa number must not hijack checkout with a
+        // transfer-code dialog. Existing time is checked only when requested
+        // through Check remaining time or recognized by this device's MAC.
         existingFromPay = false;
         autoConnectStarted = false;
         // Show the waiting screen at once: the M-Pesa prompt can reach the
