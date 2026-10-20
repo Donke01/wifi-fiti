@@ -433,6 +433,49 @@ async function main() {
     const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
     assert.equal(whiteLabelRouterLogin.status, 200);
     assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));
+    // Opt-in upgrades must work on already paired routers without resetting
+    // their hotspot, changing the customer's portal hostname, or affecting peers.
+    process.env.CAPTIVE_LOGIN_V2_LOCATIONS = alpha.location.id;
+    try {
+      const loginV2 = await api('/api/tenant/' + alpha.location.id + '/router-login?portal=' + encodeURIComponent(alpha.location.portalHostname), {
+        routerToken: alpha.location.routerToken,
+      });
+      assert.equal(loginV2.status, 200);
+      assert.match(loginV2.text, /window\.location\.replace/, 'direct-login pilot avoids the white wait page');
+      assert.match(loginV2.text, /http-equiv="refresh"/, 'older captive browsers get a fallback');
+      assert.match(loginV2.text, /link-login-only=\$\(link-login-only\)/, 'native router login survives');
+      const fastPortal = await api('/p/' + alpha.location.id);
+      assert.equal(fastPortal.status, 200);
+      assert.match(fastPortal.text, /globalThis\.__WIFI_FITI_CONFIG__=\{/, 'public packages bootstrap inside HTML');
+      assert.ok(fastPortal.text.includes('"id":"' + alpha.location.id + '"'), 'correct tenant identity');
+      const refreshV2 = await routerSync(alpha.location, {
+        portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+      });
+      assert.match(refreshV2.script, /\$fitiRouterLoginVersion != "v2"/,
+        'router refreshes the login file even though portal hostname matches');
+      assert.match(refreshV2.script, /:set fitiRouterLoginVersion "v2"/,
+        'version stored only after successful download');
+    } finally {
+      delete process.env.CAPTIVE_LOGIN_V2_LOCATIONS;
+    }
+    const oldPortal = await api('/p/' + alpha.location.id);
+    assert.doesNotMatch(oldPortal.text, /globalThis\.__WIFI_FITI_CONFIG__=\{/,
+      'non-pilot locations continue their existing config flow');
+    process.env.CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS = alpha.location.id;
+    try {
+      const oldLogin = await api('/api/tenant/' + alpha.location.id + '/router-login', {
+        routerToken: alpha.location.routerToken,
+      });
+      assert.match(oldLogin.text, /Opening WiFi payment page/, 'rollback keeps the original HTML');
+      const rollback = await routerSync(alpha.location, {
+        portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+      });
+      assert.match(rollback.script, /\$fitiRouterLoginVersion != "v1"/,
+        'rollback updates the router with the unchanged portal hostname');
+      assert.match(rollback.script, /:set fitiRouterLoginVersion "v1"/);
+    } finally {
+      delete process.env.CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS;
+    }
     assert.equal((await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`)).status, 404,
       'the core must not reveal tenant hostname mappings without the Worker credential');
     const resolved = await api(`/api/edge/portal/resolve?host=${encodeURIComponent(alpha.location.portalHostname)}`, { edgeSecret: 'integration-edge-gateway-secret-for-tests-only' });
