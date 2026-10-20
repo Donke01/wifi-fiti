@@ -2761,6 +2761,29 @@ app.post('/api/business/vouchers', (req, res) => {
 /* Tenant customer portal                                             */
 /* ------------------------------------------------------------------ */
 
+// Versioned customer portal: a location must explicitly opt in. Keep the
+// original tenant-portal.html as the exact rollback without affecting others.
+const tenantPortalV2Path = path.join(__dirname, '..', 'public', 'tenant-portal-v2.html');
+const tenantPortalV2Html = fs.readFileSync(tenantPortalV2Path, 'utf8');
+function tenantPortalV2Enabled(locationId) {
+  const ids = String(process.env.FITI_PORTAL_V2_LOCATIONS || '').split(',').map(x => x.trim());
+  return ids.includes(String(locationId));
+}
+// Registered before the legacy /p route, so non-opted tenants use the
+// unmodified original implementation. The inline bootstrap from PR #51 is
+// used automatically when present; otherwise v2 uses the existing /config.
+app.get('/p/:locationId', (req, res, next) => {
+  if (!tenantPortalV2Enabled(req.params.locationId)) return next();
+  const location = tenant.locationById.get(req.params.locationId);
+  if (!location) return res.status(404).send('WiFi location not found.');
+  res.set('Cache-Control', 'no-cache');
+  // The bootstrap module and config helper ship in the independent PR #51.
+  // Checking availability permits either review branch to be tested first.
+  if (typeof embedPublicPortalConfig === 'function' && typeof tenantPortalPublicConfig === 'function') {
+    return res.type('html').send(embedPublicPortalConfig(tenantPortalV2Html, tenantPortalPublicConfig(location, req)));
+  }
+  res.sendFile(tenantPortalV2Path);
+});
 function tenantRemaining(subscription) {
   if (!subscription) return 0;
   const raw = String(subscription.expires_at || subscription.expiresAt || '');
