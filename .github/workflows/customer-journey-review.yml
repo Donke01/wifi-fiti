@@ -1,0 +1,38 @@
+name: Customer Journey Review
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: customer-journey-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  customer-journey:
+    name: Backend, billing and portal regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: JavaScript syntax checks
+        run: |
+          node --check src/server.js
+          node --check src/lib/rsc.js
+          node --check src/lib/tenant.js
+          node --check src/lib/router-reconnect.js
+          node --check src/lib/router-login.js
+          node --check src/lib/portal-bootstrap.js
+      - name: Run complete application suite
+        run: npm test
