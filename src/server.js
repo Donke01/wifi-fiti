@@ -2783,6 +2783,24 @@ app.post('/api/business/vouchers', (req, res) => {
 /* Tenant customer portal                                             */
 /* ------------------------------------------------------------------ */
 
+// Versioned customer portal: a location must explicitly opt in. Keep the
+// original tenant-portal.html as the exact rollback without affecting others.
+const tenantPortalV2Path = path.join(__dirname, '..', 'public', 'tenant-portal-v2.html');
+const tenantPortalV2Html = fs.readFileSync(tenantPortalV2Path, 'utf8');
+function tenantPortalV2Enabled(locationId) {
+  const ids = String(process.env.FITI_PORTAL_V2_LOCATIONS || '').split(',').map(x => x.trim());
+  return ids.includes(String(locationId));
+}
+// Registered before the legacy /p route, so non-opted tenants use the
+// unmodified original implementation. The inline bootstrap from PR #51 is
+// used automatically when present; otherwise v2 uses the existing /config.
+app.get('/p/:locationId', (req, res, next) => {
+  if (!tenantPortalV2Enabled(req.params.locationId)) return next();
+  const location = tenant.locationById.get(req.params.locationId);
+  if (!location) return res.status(404).send('WiFi location not found.');
+  res.set('Cache-Control', 'no-cache');
+  return res.type('html').send(embedPublicPortalConfig(tenantPortalV2Html, tenantPortalPublicConfig(location, req)));
+});
 function tenantRemaining(subscription) {
   if (!subscription) return 0;
   const raw = String(subscription.expires_at || subscription.expiresAt || '');
@@ -5273,6 +5291,7 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* ------------------------------------------------------------------ */
 
 const { buildScript, buildExpiryScript, buildRemoteSupportScript, buildMappedDeploymentScript, tvLoginScript } = require('./lib/rsc');
+const routerReconnect = require('./lib/router-reconnect');
 
 /** Constant-time compare so the token cannot be guessed by timing. */
 function tokenOk(supplied) {
@@ -5647,7 +5666,9 @@ function tenantRouterScript(location, options = {}) {
     !(result.supportEmitted && result.supportEmitted.length);
   if (!result.quiet && !(result.light && since >= TELEMETRY_OVERDUE_MS) && !awaitingTemplateAck) return result;
   const viewing = Date.now() - (onlineViewedAt.get(location.id) || 0) < 2 * 60_000;
-  if (since < (viewing ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS)) return result;
+  const reconnectPilot = routerReconnect.optedIn(location.id);
+  const interval = viewing || reconnectPilot ? TELEMETRY_VIEWING_EVERY_MS : TELEMETRY_EVERY_MS;
+  if (since < interval) return result;
   telemetryAskedAt.set(location.id, Date.now());
   return { ...result, script: [result.script, hotspotSessions.telemetryReplyScript()].filter(Boolean).join('\n') };
 }
@@ -5729,6 +5750,7 @@ function tenantRouterScriptCore(location, { reportedPortalAppliedHost, reportedP
     return { script: '', emitted: [], rejected: [], supportEmitted: [], supportRejected: [] };
   }
   tenant.queueExpiredSubscriptions(location.id);
+  tenant.expireStaleReconnectJobs.run(location.id);
   // A universal-kit router paired before it had a Hotspot is "awaiting map":
   // Hotspot users, the portal page, mapped deployments and PPPoE all wait
   // until the owner maps where customers connect. Nothing is sent that
@@ -5956,6 +5978,21 @@ app.post('/api/router/telemetry', (req, res) => {
       observedRouterLoginVersions.set(location.id, { version: report.loginTemplateVersion, at: Date.now() });
     }
     if (report.devices.length) tenant.recordRouterDeviceEntries(location.id, report.devices);
+    // The paired router (not a customer browser) observed these unauthenticated
+    // MAC/IP pairs on its HotSpot. Pilot auto-reconnect only for active paid
+    // subscriptions already bound to exactly the same device at this location.
+    for (const candidate of routerReconnect.reconnectCandidates({
+      location, report, findSubscription: (id, mac) => tenant.subscriptionByMac.get(id, mac),
+    })) {
+      if (tenant.pendingProvisioningJobForUsername.get(location.id, candidate.subscription.router_username)) continue;
+      const sub = candidate.subscription;
+      tenant.insertJob.run({
+        locationId: location.id, username: sub.router_username, password: sub.password,
+        profile: 'standard', totalSeconds: sub.total_seconds, rateLimit: sub.rate_limit,
+        mac: candidate.mac, ip: candidate.ip, action: 'reconnect',
+      });
+      routerReconnect.markAttempt(candidate.key);
+    }
     if (report.resources && Date.now() - (telemetrySampleAt.get(location.id) || 0) >= 50_000) {
       const sample = tenant.recordRouterTelemetry({ locationId: location.id, ...report.resources,
         activeUsers: report.customersOnline });
