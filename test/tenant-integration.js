@@ -455,6 +455,17 @@ async function main() {
         'router refreshes the login file even though portal hostname matches');
       assert.match(refreshV2.script, /:set fitiRouterLoginVersion "v2"/,
         'version stored only after successful download');
+      const telemetry = await realFetch(origin + '/api/router/telemetry?site=' + alpha.location.id, {
+        method: 'POST',
+        headers: { 'X-WiFi-Fiti-Router': alpha.location.routerToken, 'Content-Type': 'text/plain' },
+        body: 'fiti-telemetry-v1\nver|v2\nres|8|100000|200000|200|100|200|0\n',
+      });
+      assert.equal(telemetry.status, 200);
+      const confirmed = await routerSync(alpha.location, {
+        portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+      });
+      assert.doesNotMatch(confirmed.script, /fitiDesiredPortalUrl|:set fitiRouterLoginVersion "v2"/,
+        'confirmed version stops repeated portal update work during normal polling');
     } finally {
       delete process.env.CAPTIVE_LOGIN_V2_LOCATIONS;
     }
