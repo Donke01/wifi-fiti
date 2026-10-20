@@ -368,6 +368,22 @@ async function main() {
     assert.equal((await routerSync(bravo.location)).status, 200, 'a real router poll still works for other tenants');
   });
 
+  await test('customer portal v2 is served only to opted-in locations', async () => {
+    const portal = '/p/' + alpha.location.id;
+    delete process.env.FITI_PORTAL_V2_LOCATIONS;
+    const legacy = await api(portal);
+    assert.equal(legacy.status, 200);
+    assert.match(legacy.text, /BROWSE PACKAGES/, 'legacy customer UI stays unchanged by default');
+    process.env.FITI_PORTAL_V2_LOCATIONS = alpha.location.id;
+    try {
+      const redesigned = await api(portal);
+      assert.equal(redesigned.status, 200);
+      assert.match(redesigned.text, /Choose your Wi-Fi/, 'pilot location gets premium funnel');
+      assert.match(redesigned.text, /id="returning-device"/, 'reconnect state is part of v2');
+    } finally { delete process.env.FITI_PORTAL_V2_LOCATIONS; }
+    const restored = await api(portal);
+    assert.match(restored.text, /BROWSE PACKAGES/, 'removing flag rolls back with no router change');
+  });
   await test('business accounts, packages, location controls, and router secrets are isolated', async () => {
     assert.equal((await api('/api/business/me')).status, 401);
     assert.equal(alpha.portalUrl, `https://cloud.wififiti.co.ke/p/${alpha.location.id}`);
