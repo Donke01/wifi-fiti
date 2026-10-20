@@ -1,0 +1,1204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f8fc">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="icon" href="/wifi-fiti-icon.svg" type="image/svg+xml">
+  <link id="app-manifest" rel="manifest" href="">
+  <title>Customer Wi‑Fi</title>
+  <style>
+    :root{color-scheme:dark;--night:#071322;--ink:#f2faff;--muted:#9eb4c7;--line:rgba(175,220,244,.19);--glass:rgba(12,34,55,.78);--blue:#57c6ff;--aqua:#55e2c6;--good:#50dfa5;--warn:#ffc66d;--bad:#ff92a2;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{min-width:320px;min-height:100dvh;margin:0;color:var(--ink);background:radial-gradient(circle at 8% -6%,#299ee345,transparent 31rem),radial-gradient(circle at 98% 2%,#58e5cd21,transparent 27rem),var(--night)}button,input{font:inherit}button{-webkit-tap-highlight-color:transparent}button:focus-visible,input:focus-visible{outline:3px solid #5ee4cc8f;outline-offset:3px}.shell{width:min(560px,100%);margin:auto;padding:22px 16px 44px}.brand{text-align:center;margin:5px 0 22px}.brand-mark{display:inline-grid;place-items:center;width:42px;height:42px;margin-bottom:8px;border-radius:14px;background:linear-gradient(135deg,var(--aqua),var(--blue));color:#032333;font-size:15px;font-weight:900;letter-spacing:-.12em;box-shadow:0 12px 30px #40d2df3d}.brand-name{display:block;font-size:clamp(28px,7vw,38px);font-weight:900;letter-spacing:-.065em}.brand-location{display:block;margin-top:4px;color:var(--aqua);font-size:12px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}.card{border:1px solid var(--line);border-radius:24px;background:var(--glass);box-shadow:0 25px 70px #0006;backdrop-filter:blur(18px);padding:20px}.hidden{display:none!important}h1,h2,h3,p{margin-top:0}h1{margin-bottom:7px;font-size:clamp(25px,6vw,32px);letter-spacing:-.05em}h2{margin:0;font-size:19px;letter-spacing:-.035em}h3{margin-bottom:5px;font-size:16px}.copy{margin-bottom:18px;color:var(--muted);font-size:16px;line-height:1.52}.plans{display:grid;gap:10px;margin:17px 0}.plan{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:73px;padding:14px 15px;border:1px solid var(--line);border-radius:17px;color:var(--ink);background:#06182aaa;text-align:left;box-shadow:none}.plan:hover{border-color:#6ed9f766;background:#0c2942}.plan.active{border-color:var(--aqua);background:linear-gradient(120deg,#147f842e,#103b5a8a);box-shadow:inset 0 0 0 1px #5ae5cd1c}.plan-title{display:block;font-size:18px;font-weight:850;letter-spacing:-.025em}.plan-detail{display:block;margin-top:3px;color:var(--muted);font-size:13px}.price{color:var(--aqua);font-size:19px;font-weight:900;letter-spacing:-.035em;white-space:nowrap}label{display:block;margin:15px 0 5px;color:#b5ccde;font-size:13px;font-weight:760}input{width:100%;min-height:52px;padding:13px 14px;border:1px solid var(--line);border-radius:14px;color:var(--ink);background:#041525b8;box-shadow:inset 0 1px #fff1}input::placeholder{color:#66819a}.primary,.secondary,.text-button{display:inline-flex;justify-content:center;align-items:center;min-height:50px;border:1px solid transparent;border-radius:14px;font-weight:880;cursor:pointer;transition:transform .16s ease,filter .16s ease}.primary:hover,.secondary:hover,.text-button:hover{filter:brightness(1.06);transform:translateY(-1px)}.primary{width:100%;margin-top:17px;padding:13px;color:#022131;background:linear-gradient(135deg,var(--aqua),var(--blue));box-shadow:0 13px 30px #34bbde32}.secondary{padding:10px 13px;color:var(--ink);border-color:var(--line);background:#0a2137bd;box-shadow:none}.text-button{min-height:auto;padding:5px 0;color:var(--aqua);background:transparent;border:0;box-shadow:none;font-size:13px}.primary:disabled,.secondary:disabled{cursor:wait;opacity:.62;transform:none}.error{min-height:20px;margin:10px 0 0;color:var(--bad);font-size:14px;line-height:1.4}.utilities{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:13px}.utility{min-height:66px;padding:11px 12px;color:#d5e6f1;border:1px solid var(--line);border-radius:16px;background:#06192b94;text-align:left;box-shadow:none}.utility b{display:block;margin-bottom:3px;color:var(--aqua);font-size:13px}.utility small{color:var(--muted);font-size:12px;line-height:1.3}.waiting{text-align:center;padding:26px 20px}.spinner{width:43px;height:43px;margin:0 auto 19px;border:4px solid #eafaff1d;border-top-color:var(--aqua);border-radius:50%;animation:spin .85s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.waiting h1{margin-bottom:8px}.waiting p{max-width:360px;margin:0 auto;color:var(--muted);line-height:1.52}.elapsed{margin-top:18px;color:#c5dce9;font-size:13px}.active-card{overflow:hidden;position:relative}.active-card:after{position:absolute;right:-72px;top:-82px;width:210px;height:210px;border-radius:50%;background:radial-gradient(circle,#54e4c42d,transparent 65%);content:"";pointer-events:none}.active-card>*{position:relative;z-index:1}.active-kicker{color:var(--aqua);font-size:12px;font-weight:850;letter-spacing:.14em}.clock{margin:15px 0 3px;color:var(--good);font-size:clamp(42px,12vw,61px);font-weight:900;letter-spacing:-.075em;line-height:1}.expiry{margin:8px 0 19px;color:var(--muted);font-size:13px}.active-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.section{margin-top:14px}.section .card{padding:17px}.section-title{display:flex;align-items:center;justify-content:space-between;gap:10px}.section-copy{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.45}.existing-list{display:grid;gap:9px;margin-top:13px}.existing{padding:12px;border:1px solid var(--line);border-radius:13px;background:#06192b8a}.existing.active{border-color:var(--aqua);background:#147f8422}.existing-top{display:flex;align-items:center;justify-content:space-between;gap:8px}.existing b{font-size:14px}.remaining{color:var(--good);font-size:13px;font-weight:800}.notice{margin:12px 0 0;padding:11px 12px;border:1px solid #ffc66d38;border-radius:12px;color:#f8d9a6;background:#84601a19;font-size:13px;line-height:1.43}.footer{margin:25px 0 0;color:#7f98ae;font-size:12px;line-height:1.5;text-align:center}@media(max-width:400px){.utilities,.active-actions{grid-template-columns:1fr}.shell{padding:15px 12px 35px}.card{border-radius:20px;padding:17px}.brand{margin-bottom:17px}}
+    /* ---- Wi-Fi Fiti light customer portal ------------------------- */
+    :root{color-scheme:light;--night:#f6f8fc;--ink:#122740;--muted:#687a91;--line:#dce5f0;--glass:rgba(255,255,255,.98);--blue:#1769d8;--aqua:#078d9b;--good:#168c62;--warn:#9d6700;--bad:#bf3852;font-family:"Avenir Next",Avenir,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+    body{background:radial-gradient(circle at 7% -6%,#dcecff,transparent 31rem),radial-gradient(circle at 100% 0%,#e2f7f5,transparent 27rem),var(--night);color:var(--ink)}
+    button:focus-visible,input:focus-visible{outline-color:#1769d880}
+    .shell{width:min(600px,100%);padding:29px 18px 54px}.brand{margin:3px 0 28px}
+    .brand-mark{display:block;width:108px;height:108px;margin:0 auto 8px;border-radius:0;background:transparent;color:transparent;box-shadow:none;object-fit:contain;animation:fitiBrandFloat 6s ease-in-out infinite}.brand-mark[src^="data:image/gif"]{visibility:hidden}
+    .brand-name{color:var(--ink);font-size:clamp(42px,11vw,54px);line-height:.94;font-weight:900;letter-spacing:-.075em}.brand-location{color:var(--blue);font-size:11px;letter-spacing:.2em}
+    .card{background:var(--glass);border-color:var(--line);box-shadow:0 18px 50px rgba(32,57,86,.10);backdrop-filter:none;border-radius:25px;padding:24px}
+    h1,h2,h3{color:var(--ink)}h1{font-size:clamp(28px,8vw,37px);letter-spacing:-.06em}.copy,.section-copy,.expiry,.waiting p{color:var(--muted)}
+    .plans{gap:11px}.plan{cursor:pointer;color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px rgba(32,57,86,.035);transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}.plan:hover,.plan:focus-visible{border-color:#8fb7e8;background:#f8fbff;box-shadow:0 8px 18px rgba(32,57,86,.10);transform:translateY(-1px)}.plan:active{transform:translateY(0)}.plan.active{border-color:var(--blue);background:#eef5ff;box-shadow:inset 0 0 0 2px #c8ddf8,0 8px 18px rgba(23,105,216,.10)}.plan-title{color:var(--ink)}.plan-detail{display:none}.price{color:var(--blue)}
+    #buy > .copy{display:none}
+    #buy > .copy.owner-message{display:block;text-align:center}
+    body[data-portal-align="left"] #buy > .copy.owner-message{text-align:left}
+    label{color:#47617e}input{color:var(--ink);border-color:#cdd9e8;background:#fff;box-shadow:inset 0 1px 2px #193d7108}input::placeholder{color:#91a0b3}
+    .primary{color:#fff;background:linear-gradient(110deg,#1157ba,#1769d8 55%,#3187e6);box-shadow:0 12px 25px #1769d826}.secondary{color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px #193d7108}.text-button{color:var(--blue)}
+    .mpesa-button{color:#31ad4b;background:#fff;border:2px solid #37b957;box-shadow:0 10px 22px rgba(33,163,73,.16);gap:0;white-space:nowrap}.mpesa-button:hover{background:#f4fff6;border-color:#1e9b46}.mpesa-word{display:inline-flex;align-items:center;font-family:"Avenir Next Condensed",sans-serif-condensed,sans-serif;font-stretch:condensed;font-size:24px;font-weight:950;letter-spacing:-.06em;line-height:1}.mpesa-logo{width:34px;height:43px;flex:none;margin:0 1px}.mpesa-button .mpesa-label{margin-right:12px;font-family:"Avenir Next Condensed",sans-serif-condensed,sans-serif;font-stretch:condensed;font-size:19px;font-weight:900;letter-spacing:-.02em}
+    .utility{color:var(--ink);border-color:var(--line);background:#fff;box-shadow:0 4px 12px #193d7108}.utility b{color:var(--blue)}.utility small{color:var(--muted)}.error{color:var(--bad)}
+    .utilities{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
+    .utility{display:flex;min-height:124px;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:18px 15px;text-align:center;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+    .utility-icon{display:inline-grid;place-items:center;width:31px;height:31px;margin-bottom:7px;border-radius:10px}.utility-icon svg{width:19px;height:19px}
+    .utility:hover{transform:translateY(-3px);box-shadow:0 10px 22px rgba(32,57,86,.12)}
+    .utility b{margin:0;font-family:"Avenir Next Condensed",sans-serif-condensed,sans-serif;font-stretch:condensed;font-size:18px;line-height:1.15;letter-spacing:-.025em;text-transform:uppercase;white-space:normal;overflow-wrap:anywhere}
+    .utility small{display:none}
+    .early-recovery{margin:18px auto 0;padding:14px 12px;border:2px dashed var(--aqua);border-radius:15px;background:rgba(85,226,198,.08);text-align:center}.early-recovery small{display:block;color:var(--muted);font-size:12px;font-weight:800;margin-bottom:6px}.early-recovery b{display:block;font:900 30px ui-monospace,monospace;letter-spacing:.16em;overflow-wrap:anywhere}.early-recovery button{margin-top:6px;padding:0;color:var(--aqua);background:none;border:0;font-size:12px;font-weight:850;cursor:pointer}.early-recovery p{margin:8px 0 0;color:var(--muted);font-size:12px;line-height:1.45}
+    .portal-reminder{margin:18px auto 0;padding:11px 12px;border:1px solid var(--line);border-radius:13px;background:#f7fbff;text-align:left}.portal-reminder small{display:block;color:var(--muted);font-size:11px;margin-bottom:4px}.portal-reminder a{display:block;color:var(--blue);font-size:13px;font-weight:800;overflow-wrap:anywhere;text-decoration:none}.portal-reminder button{margin-top:6px;padding:0;color:var(--blue);background:none;border:0;font-size:12px;font-weight:800}
+    #buy-tv-start{border-color:#c6d8f7;background:linear-gradient(145deg,#f7faff,#edf4ff)}#buy-tv-start b{color:#255eb7}
+    #check-time{border-color:#bfe6dc;background:linear-gradient(145deg,#f7fffd,#eafaf5)}#check-time b{color:#087c70}
+    #open-voucher{border-color:#f0d8ad;background:linear-gradient(145deg,#fffdf8,#fff6e6)}#open-voucher b{color:#a26100}
+    #open-paybill{border-color:#bfe7c5;background:linear-gradient(145deg,#fbfffa,#edfaef)}#open-paybill b{color:#23843b}
+    #buy-tv-start .utility-icon{color:#255eb7;background:#dceaff}#check-time .utility-icon{color:#087c70;background:#d8f4ed}#open-voucher .utility-icon{color:#a26100;background:#ffedc7}#open-paybill .utility-icon{color:#23843b;background:#dff4e1}
+    .utilities{gap:12px;border:0;border-radius:0;overflow:visible;background:transparent;box-shadow:none}
+    .utilities .utility{border:1px solid #dce5f0!important;border-radius:16px}
+    #buy-tv-start{grid-column:1;grid-row:1}#check-time{grid-column:2;grid-row:1}#open-voucher{grid-column:1;grid-row:2}#open-paybill{grid-column:2;grid-row:2}
+    #buy.no-paybill #open-voucher{grid-column:1/-1}
+    .spinner{border-color:#dbe5f0;border-top-color:var(--blue)}.elapsed{color:var(--muted)}.active-card:after{background:radial-gradient(circle,#d4e6ff,transparent 65%)}.active-kicker{color:var(--blue)}.clock{color:var(--ink)}.notice{border-color:#cfe1f6;color:#355374;background:#f3f8ff}.notice strong{color:var(--ink)}.remaining{color:var(--good)}.existing{border-color:var(--line);background:#fff}.existing.active{border-color:var(--blue);background:#eef5ff}.footer{color:#8292a7}
+    @media (prefers-reduced-motion:no-preference){.card:not(.hidden){animation:fitiTileIn .48s cubic-bezier(.2,.8,.2,1) both}.plan{animation:fitiTileIn .45s cubic-bezier(.2,.8,.2,1) both}.plan:nth-child(2){animation-delay:.05s}.plan:nth-child(3){animation-delay:.1s}.plan:nth-child(4){animation-delay:.15s}}
+    @keyframes fitiBrandFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}@keyframes fitiTileIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    @media(max-width:480px){.utilities{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.utility{min-height:100px;padding:12px 5px}.utility b{font-size:13px;letter-spacing:-.045em}.utility small{font-size:11px}.utility-icon{width:35px;height:35px}.utility-icon svg{width:22px;height:22px}.mpesa-word{font-size:21px}.mpesa-button .mpesa-label{font-size:16px}.mpesa-logo{width:30px;height:38px}}
+    @media(max-width:400px){.shell{padding:18px 13px 40px}.brand-mark{width:92px;height:92px}.brand-name{font-size:42px}.card{padding:19px}}
+    #buy > h1{text-align:center;text-transform:uppercase;font-weight:950;letter-spacing:-.06em}
+    .receipt-button{width:100%;margin-top:10px}
+    .existing-prompt .existing-card{width:min(480px,100%);max-height:calc(100vh - 40px);overflow:auto}.existing-card{position:relative}.existing-card .section-title{justify-content:center;padding:0 38px}.existing-close{position:absolute;top:12px;right:12px;min-height:36px!important;width:36px;padding:0;font-size:18px}.existing-card #transfer{width:100%;margin-top:14px}.existing-or{display:flex;align-items:center;gap:10px;margin:16px 0 0;color:var(--muted);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.existing-or:before,.existing-or:after{content:'';flex:1;height:1px;background:var(--line)}.buy-another{min-height:62px!important;margin-top:14px!important;font-size:18px;letter-spacing:.04em;border-radius:16px}.picker-plans{margin:14px 0 4px;max-height:46vh;overflow:auto}.picker-back{display:block;width:100%;margin-top:10px}.buy-another:hover{filter:brightness(1.06);transform:translateY(-1px)}.receipt-prompt{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px;background:#07132299}.receipt-prompt.hidden{display:none}.receipt-prompt-card{width:min(440px,100%);padding:24px;border:1px solid var(--line);border-radius:22px;background:var(--glass);box-shadow:0 24px 70px #0005}.receipt-prompt-card h2{margin:0 0 8px}.receipt-prompt-card p{color:var(--muted);line-height:1.5}.receipt-prompt-actions{display:grid;gap:10px;margin-top:18px}.receipt-exit{min-height:38px!important;background:transparent!important;border:0!important;color:var(--muted)!important;box-shadow:none!important}
+    /* Center presentation content while keeping customer records and forms easy to scan. */
+    .brand,.waiting,.active-card,.section-title,.section-copy,.notice,.portal-reminder{text-align:center}.brand-location,.copy{margin-left:auto;margin-right:auto}.active-card h1,.active-card p,.section-title h2{margin-left:auto;margin-right:auto}.utilities .utility{align-items:center;text-align:center}.existing-list{text-align:left}.card{animation:fitiPortalIn .42s cubic-bezier(.2,.75,.25,1) both}.plan{transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}.plan:hover{transform:translateY(-2px);box-shadow:0 12px 25px rgba(33,95,147,.12)}@keyframes fitiPortalIn{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.card{animation:none!important}.plan{transition:none!important}}
+    @media(max-width:600px){
+      .shell{width:100%;padding:12px 10px 30px}
+      .brand{margin-bottom:16px}
+      .brand-name{font-size:clamp(30px,10vw,42px)}
+      .brand-location{font-size:11px;letter-spacing:.1em}
+      .card{padding:16px;border-radius:18px}
+      h1{font-size:clamp(24px,7vw,32px)}
+      .copy{font-size:14px;line-height:1.45}
+      .plans{gap:8px;margin-top:13px}
+      .plan{min-height:68px;padding:11px 12px;border-radius:14px}
+      .plan-title{font-size:16px}
+      .plan-detail{font-size:12px}
+      .price{font-size:17px}
+      .utilities{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+      .utility{min-height:92px;padding:10px 7px;border-radius:13px}
+      .utility b{font-size:12px;line-height:1.2;overflow-wrap:anywhere}
+      .utility small{font-size:10px;line-height:1.25}
+      .utility-icon{width:34px;height:34px}
+      .active-actions{grid-template-columns:1fr}
+      .section-title{display:block}
+      .section-title .text-button{margin-top:8px}
+      input,.primary,.secondary{min-height:48px}
+      .receipt-prompt{padding:12px}
+      .receipt-prompt-card{width:min(100%,380px);padding:18px}
+      .receipt-prompt-actions{grid-template-columns:1fr}
+    }
+    @media(max-width:380px){
+      /* Keep the 2 x 2 tile grid: the tiles are placed in two columns, so a
+         one-column grid would add an uneven extra column instead. */
+      .utilities{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .utility{min-height:74px}
+      .utility small{display:none}
+    }
+    /* Tenant template variants. Applied at runtime without changing router,
+       payment, or captive-login behaviour. */
+    body[data-portal-layout="cards"] .plans{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    body[data-portal-layout="cards"] .plan{min-height:118px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:7px;padding:17px;border-radius:20px;box-shadow:0 10px 22px rgba(33,95,147,.09)}
+    body[data-portal-layout="cards"] .plan .price{font-size:23px}
+    body[data-portal-layout="cards"] .brand-mark{border-radius:50%;transform:rotate(-6deg)}
+    body[data-portal-layout="cards"] .card{border-radius:28px}
+    body[data-portal-layout="minimal"] .shell{max-width:490px}
+    body[data-portal-layout="minimal"] .brand{margin-bottom:30px}
+    body[data-portal-layout="minimal"] .brand-mark{width:34px;height:34px;border-radius:10px}
+    body[data-portal-layout="minimal"] .card{border-radius:14px;box-shadow:0 12px 30px rgba(32,57,86,.08)}
+    body[data-portal-layout="minimal"] .plans{gap:0;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    body[data-portal-layout="minimal"] .plan{border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent;min-height:62px}
+    body[data-portal-layout="minimal"] .plan:last-child{border-bottom:0}
+    @media(max-width:480px){body[data-portal-layout="cards"] .plans{grid-template-columns:1fr}}
+    /* Centre the form fields, labels and messages across the portal. A tenant
+       whose template chooses left alignment keeps it. */
+    body:not([data-portal-align="left"]) :is(label,.error,.card h2,.card h3,.offline-device,.claim-device,.payment-recovery,.existing,.existing-or){text-align:center}
+    body:not([data-portal-align="left"]) input{text-align:center}
+    body:not([data-portal-align="left"]) input::placeholder{text-align:center}
+    body:not([data-portal-align="left"]) .existing-list{text-align:center}
+    body[data-portal-align="left"] :is(label,.error,input){text-align:left}
+    .recovery-jump{margin:-2px 0 4px;text-align:center;font-size:14px;font-weight:800}.recovery-jump a{color:var(--blue);text-decoration:none}.recovery-jump a:hover{text-decoration:underline}
+    body[data-portal-align="left"] .copy,body[data-portal-align="left"] .section-copy,body[data-portal-align="left"] .section-title,body[data-portal-align="left"] .waiting{text-align:left}
+    /* A left-aligned design aligns the whole header the same way: logo,
+       business name, location, the heading, the recovery link and the message. */
+    body[data-portal-align="left"] :is(.brand,#buy > h1,.recovery-jump){text-align:left}
+    body[data-portal-align="left"] .brand-mark{margin-left:0;margin-right:0}
+    body[data-portal-align="left"] .brand-location{margin-left:0}
+    /* Portal fonts: only fonts that phones already have (the portal loads no
+       web fonts behind the walled garden). Condensed: Avenir Next Condensed
+       on iPhone, Roboto Condensed ("sans-serif-condensed") on Android. Mono:
+       SF Mono or Menlo on iPhone, Droid Sans Mono on Android. There is no
+       rounded font on Android, so a saved "rounded" design shows as modern. */
+    body[data-portal-font="condensed"]{font-family:"Avenir Next Condensed",sans-serif-condensed,sans-serif;font-stretch:condensed}
+    body[data-portal-font="mono"]{font-family:ui-monospace,Menlo,monospace}
+    body[data-portal-background="midnight"]{background:radial-gradient(circle at 90% 0,#7c5cfa36,transparent 28rem),#090b1c}
+    /* The name and location sit on the page background, so they need light text on midnight. */
+    body[data-portal-background="midnight"] .brand-name{color:#fff}body[data-portal-background="midnight"] .brand-location{color:#c9d4ff}
+    body[data-portal-background="paper"]{background:linear-gradient(145deg,#fff,#edf4fb)}
+    body[data-portal-background="sunset"]{background:radial-gradient(circle at 10% 0,#ffb06c66,transparent 28rem),linear-gradient(145deg,#fff8f1,#fff)}
+    body[data-portal-background="mint"]{background:radial-gradient(circle at 90% 0,#72e0be70,transparent 28rem),linear-gradient(145deg,#f2fffb,#fff)}
+    body[data-portal-package-style="tiles"] .plans{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    body[data-portal-package-style="tiles"] .plan{min-height:116px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:6px;border-radius:20px}
+    body[data-portal-package-style="compact"] .plans{gap:0;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    body[data-portal-package-style="compact"] .plan{min-height:58px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+    body[data-portal-package-style="compact"] .plan:last-child{border-bottom:0}
+    body[data-portal-package-style="pill"] .plan{min-height:54px;border-radius:99px;padding:11px 18px}
+    body[data-portal-package-style="pill"] .plan-detail{display:none}
+    @media(max-width:480px){body[data-portal-package-style="tiles"] .plans{grid-template-columns:1fr}}
+    .tv-picker{display:grid;gap:10px;margin:16px 0}.tv-choice{display:grid;grid-template-columns:48px 1fr 18px;align-items:center;gap:10px;width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:16px;color:var(--ink);background:#fff;text-align:left;cursor:pointer;box-shadow:0 4px 12px rgba(32,57,86,.035)}.tv-choice:hover{border-color:#8fb7e8;background:#f8fbff}.tv-choice b,.tv-choice small{display:block}.tv-choice b{font-size:16px}.tv-choice small{margin-top:3px;color:var(--muted);font-size:13px;line-height:1.35}.tv-choice-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;color:var(--aqua);background:#e8fbfb;font-size:26px;font-weight:800}.tv-back-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}.tv-devices{display:grid;gap:9px;max-height:320px;overflow:auto;margin:12px 0}.tv-device{display:grid;grid-template-columns:42px 1fr;align-items:center;gap:10px;padding:13px;border:1px solid var(--line);border-radius:16px;background:#fff;text-align:left;cursor:pointer}.tv-device:hover,.tv-device.selected{border-color:var(--aqua);background:#f0fcfc;box-shadow:inset 0 0 0 1px #078d9b2a}.tv-device-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;color:var(--aqua);background:#e4fafa;font-size:20px}.tv-device b,.tv-device small{display:block}.tv-device b{font-size:16px}.tv-device small{margin-top:3px;color:var(--muted);font-size:13px;letter-spacing:.04em}.tv-manual-link{width:100%;margin-top:9px}.offline-device{margin:16px 0;padding:14px 16px;border:1px solid #b7d8f5;border-radius:16px;background:linear-gradient(135deg,#f1f8ff,#f8fcff)}.offline-device h3{margin:0 0 5px;font-size:16px}.offline-device p{margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45}.offline-device input{margin:0}.offline-device small{display:block;margin-top:7px;color:var(--muted);line-height:1.4}.claim-device{margin:16px 0;padding:14px 16px;border:1px solid #b7d8f5;border-radius:16px;background:linear-gradient(135deg,#f1f8ff,#f8fcff)}.claim-device h3{margin:0 0 5px;font-size:16px}.claim-device p{margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45}.claim-device input{margin:0}.claim-device button{width:100%;margin-top:10px}.claim-device .error{margin-top:8px}.tv-picker~.hidden{display:none!important}
+    .tv-remove{width:100%;margin-top:10px}.tv-step{margin:18px 0 0;font-size:15px}.tv-plans{margin-top:8px}.tv-plans + .tv-step + .tv-picker{margin-top:8px}
+  
+/* Routerboard motion for the payment tiles: each symbol does what it means.
+   CSS only, transform/opacity, and off for reduced-motion users. */
+@media (prefers-reduced-motion:no-preference){
+  #buy-tv-start .utility-icon svg rect{animation:fitiScreen 3.4s ease-in-out infinite}
+  #check-time .utility-icon svg path{transform-box:view-box;transform-origin:12px 12px;animation:fitiTick 6s steps(12,end) infinite}
+  #open-voucher .utility-icon svg path:last-child{animation:fitiMarch 1.4s linear infinite}
+  #open-paybill .utility-icon svg path{animation:fitiType 2.8s ease-in-out infinite}
+  .utility-icon{box-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 4px 10px -4px rgba(20,60,120,.35);transition:translate .3s ease}
+  .utility:hover .utility-icon,.utility:focus-visible .utility-icon{translate:0 -2px}
+  .mpesa-logo{animation:fitiBob 3.6s ease-in-out infinite}
+}
+@keyframes fitiScreen{0%,100%{fill:currentColor;fill-opacity:0}50%{fill:currentColor;fill-opacity:.25}}
+@keyframes fitiTick{from{rotate:0deg}to{rotate:360deg}}
+@keyframes fitiMarch{to{stroke-dashoffset:-8}}
+@keyframes fitiType{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes fitiBob{0%,100%{translate:0 0}50%{translate:0 -3px}}
+
+    /* Customer portal v2: compact, accessible, conversion-oriented layout. */
+    .shell {
+      width: min(100%, 520px);
+      padding: 18px 12px max(32px, env(safe-area-inset-bottom));
+      margin-inline: auto;
+    }
+    .brand {
+      margin: 4px 0 18px;
+      padding: 0 10px;
+      gap: 5px;
+    }
+    .brand-mark {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+      border-radius: 14px;
+      margin-bottom: 6px;
+    }
+    .brand-name {
+      font-size: clamp(23px, 6.5vw, 34px);
+      line-height: 1.12;
+      letter-spacing: -.035em;
+      font-weight: 850;
+      text-wrap: balance;
+    }
+    .brand-location {
+      letter-spacing: .11em;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    #buy,
+    #waiting,
+    #active,
+    .payment-recovery,
+    .section > .card {
+      border-radius: 22px;
+      box-shadow: 0 12px 38px rgba(16, 36, 63, .08);
+    }
+    #buy { padding: 21px 16px 19px; }
+    #buy > h1 {
+      text-align: left;
+      text-transform: none;
+      letter-spacing: -.04em;
+      font-size: clamp(25px, 6.8vw, 32px);
+      line-height: 1.15;
+      margin: 0;
+    }
+    .funnel-tip {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 8px 0 12px;
+    }
+    #buy > .recovery-jump { text-align: left; margin: 8px 0 14px; }
+    #buy > .recovery-jump a {
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .plans {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      margin: 15px 0 18px;
+    }
+    .plan {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: space-between;
+      text-align: left;
+      position: relative;
+      min-height: 96px;
+      width: 100%;
+      min-width: 0;
+      padding: 13px 12px 12px;
+      gap: 9px;
+      border: 1px solid #d9e3ee;
+      border-radius: 15px;
+      background: #fff;
+      box-shadow: none;
+      animation: none !important;
+      transition: border-color .14s ease, background-color .14s ease, box-shadow .14s ease;
+    }
+    .plan > span:first-child { min-width: 0; width: 100%; }
+    .plan-title {
+      display: block;
+      font-size: 13px;
+      line-height: 1.35;
+      font-weight: 760;
+      overflow-wrap: anywhere;
+      padding-right: 7px;
+    }
+    .plan-detail { display: none; }
+    .plan .price {
+      font-size: clamp(18px, 5vw, 23px);
+      font-weight: 850;
+      line-height: 1.1;
+      letter-spacing: -.025em;
+      color: var(--blue);
+    }
+    .plan.active {
+      background: #eef5ff;
+      border: 2px solid var(--blue);
+      box-shadow: 0 4px 13px rgba(23,105,216,.11);
+      padding: 12px 11px 11px;
+    }
+    .plan.active:after {
+      content: '✓';
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      display: grid;
+      place-items: center;
+      height: 20px;
+      width: 20px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: white;
+      font-size: 12px;
+      font-weight: 850;
+    }
+    .pay-group {
+      margin-top: 14px;
+      padding: 16px 14px 14px;
+      border: 1px solid #c8ddee;
+      border-radius: 17px;
+      background: linear-gradient(180deg,#f4f9ff,#f9fcff);
+    }
+    .pay-group h2 {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.3;
+      letter-spacing: -.02em;
+    }
+    .pay-group label { margin-top: 12px; text-align: left; font-weight: 750; }
+    .pay-group input {
+      min-height: 54px;
+      width: 100%;
+      border-radius: 12px;
+      font-size: 18px;
+      letter-spacing: .01em;
+      background: white;
+    }
+    .pay-group .mpesa-button {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      min-height: 61px;
+      width: 100%;
+      margin-top: 12px;
+      padding: 12px 10px;
+      border: 0;
+      border-radius: 13px;
+      background: #167944;
+      color: #fff;
+      box-shadow: 0 10px 22px rgba(22,121,68,.19);
+      gap: 5px;
+      cursor: pointer;
+    }
+    .pay-group .mpesa-button:disabled { opacity: .55; cursor: progress; }
+    .pay-group .mpesa-label,
+    .pay-group .mpesa-word { color: #fff; }
+    #pay-amount {
+      background: rgba(255,255,255,.16);
+      font-size: 13px;
+      font-weight: 850;
+      padding: 5px 8px;
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+    .more-title {
+      color: #5b718a;
+      font-size: 13px;
+      font-weight: 750;
+      margin: 20px 0 10px;
+      letter-spacing: .02em;
+    }
+    .utilities { margin-top: 0; gap: 9px; }
+    .utility {
+      min-height: 78px;
+      border-radius: 14px;
+      padding: 11px 9px;
+    }
+    .utility b { font-size: 13px; }
+    .utility small { font-size: 11px; line-height: 1.4; }
+    .payment-recovery { padding: 0 !important; margin-top: 12px; }
+    .payment-recovery summary {
+      cursor: pointer;
+      padding: 16px;
+      font-weight: 780;
+      font-size: 14px;
+      color: var(--blue);
+      list-style: none;
+    }
+    .payment-recovery summary::-webkit-details-marker { display: none; }
+    .payment-recovery summary:after { content: '+'; float: right; font-weight: 800; }
+    .payment-recovery[open] summary:after { content: '−'; }
+    .recover-body { padding: 0 16px 19px; }
+    .recover-body h2 { display: none; }
+    .recover-body input { text-align: left; }
+    .fiti-returning {
+      padding: 18px 16px;
+      border-radius: 17px;
+      border: 1px solid #a5d6bf;
+      background: #f1faf5;
+      margin: 16px 0 2px;
+      color: #153b2a;
+      text-align: left;
+    }
+    .fiti-returning-kicker {
+      display: block;
+      font-size: 10px;
+      letter-spacing: .12em;
+      color: #24754e;
+      font-weight: 850;
+    }
+    .fiti-returning h2 { font-size: 20px; margin: 7px 0 6px; letter-spacing: -.025em; }
+    .fiti-returning p { margin: 0 0 15px; font-size: 13px; line-height: 1.55; }
+    .fiti-returning-link {
+      display: block;
+      padding: 13px;
+      border-radius: 11px;
+      background: #1769d8;
+      text-align: center;
+      color: #fff;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .fiti-returning-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      margin-top: 10px;
+    }
+    .fiti-returning-actions button { width: 100%; min-height: 44px; }
+    #buy.fiti-returning-mode > .plans,
+    #buy.fiti-returning-mode > .pay-group,
+    #buy.fiti-returning-mode > .more-title,
+    #buy.fiti-returning-mode > .utilities,
+    #buy.fiti-returning-mode > .recovery-jump { display: none !important; }
+    #active { padding: 22px 16px; }
+    #active .clock { font-size: clamp(47px, 12vw, 65px); line-height: 1.1; }
+    #active #top-up { min-height: 58px; border-radius: 13px; }
+    #active .active-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    #active .active-actions > button { flex: 1 1 150px; min-height: 48px; }
+    .fiti-account-details { padding: 0; border-radius: 15px; margin-top: 15px; }
+    .fiti-account-details summary {
+      cursor: pointer;
+      padding: 14px 16px;
+      font-size: 14px;
+      font-weight: 770;
+      text-align: left;
+      list-style: none;
+    }
+    .fiti-account-details summary::-webkit-details-marker { display: none; }
+    .fiti-account-details summary:after { content: '+'; float: right; }
+    .fiti-account-details[open] summary:after { content: '−'; }
+    .fiti-account-inner { padding: 0 15px 15px; }
+    .fiti-account-inner p { line-height: 1.5; }
+    #waiting { padding: 23px 17px; }
+    #waiting h1 { font-size: 25px; letter-spacing: -.03em; }
+    #waiting .waiting { max-width: 420px; margin: auto; }
+    #existing-section .receipt-prompt-card {
+      border-radius: 23px;
+      padding: 22px 16px;
+      max-height: min(90vh, 760px);
+      overflow-y: auto;
+    }
+    #existing-section .existing { min-height: 65px; }
+    #existing-section .buy-another { min-height: 54px; }
+    #error:not(:empty), #recover-error:not(:empty), #waiting-error:not(:empty) {
+      line-height: 1.5;
+      font-size: 13px;
+      padding-block: 6px;
+    }
+    :is(button, a, input, summary):focus-visible {
+      outline: 3px solid #65aaff;
+      outline-offset: 3px;
+    }
+    @media (max-width: 355px) {
+      .plans { grid-template-columns: 1fr; }
+      .plan { min-height: 70px; flex-direction: row; align-items: center; }
+      .plan .price { font-size: 20px; white-space: nowrap; }
+      .brand-name { font-size: 23px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .plan, .mpesa-button { transition: none !important; animation: none !important; }
+    }
+</style>
+</head>
+<body>
+  <main class="shell">
+    <header class="brand" aria-label="Customer Wi-Fi"><img class="brand-mark" id="brand-logo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" aria-hidden="true"><strong class="brand-name" id="brand">Connecting…</strong><span class="brand-location" id="location">CUSTOMER WI-FI</span></header>
+    <section class="card" id="buy"><h1>Choose your Wi-Fi</h1><p class="funnel-tip">Pick a plan, enter your M-Pesa number and connect.</p><p class="recovery-jump"><a href="#payment-recovery" id="jump-recovery">Already paid? Recover your package</a></p><p class="copy" id="portal-message">Lipa na M‑Pesa. Your time begins immediately and stays saved even if this page closes.</p><div class="fiti-returning hidden" id="returning-device" role="status">
+  <span class="fiti-returning-kicker">ACTIVE PACKAGE FOUND</span>
+  <h2>Your Wi-Fi time is already paid</h2>
+  <p id="returning-copy">We're restoring your existing connection. No need to buy again.</p>
+  <a class="fiti-returning-link" href="http://neverssl.com" id="returning-check">Try opening the internet <span aria-hidden="true">↗</span></a>
+  <div class="fiti-returning-actions">
+    <button type="button" class="secondary" id="returning-recover">Reconnect with a recovery code</button>
+    <button type="button" class="text-button" id="returning-buy">Buy more time instead</button>
+  </div>
+</div><div class="plans" id="plans" aria-label="Packages"></div><div class="offline-device hidden" id="offline-device"><h3>Buying before joining this Wi‑Fi?</h3><p>Leave the MAC blank and we’ll give you a one-time claim code. Join the Wi‑Fi on the device you want to connect, then enter that code. You can also enter the MAC now if you already know it.</p><label for="device-mac">Device MAC address <span style="font-weight:500;color:var(--muted)">(optional)</span></label><input id="device-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><small>Your device does not need to be connected right now.</small></div><div class="claim-device hidden" id="claim-device"><h3>Already paid before joining?</h3><p>Join this Wi‑Fi on the device you want to connect, then enter the 8-digit code shown after payment.</p><label for="claim-code">Connection claim code</label><input id="claim-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="12345678"><button class="secondary" type="button" id="claim">CONNECT WITH CLAIM CODE</button><div class="error" id="claim-error" aria-live="polite"></div></div><div class="pay-group"><h2>Pay with M-Pesa</h2><p class="funnel-tip">We will send a payment request to this number.</p><label for="phone">M-Pesa phone number</label><input id="phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><div class="error" id="error" aria-live="polite"></div><button class="primary mpesa-button" type="button" id="pay"><span class="mpesa-label">LIPA NA</span><span class="mpesa-word">M<svg class="mpesa-logo" viewBox="0 0 40 48" fill="none" aria-hidden="true"><rect x="8" y="2" width="24" height="44" rx="7" fill="#dce8d8"/><rect x="12" y="8" width="16" height="23" rx="3" fill="#f5f8f1"/><path d="m13 14 7 6 7-6" stroke="#e5232b" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 14v10h14V14" stroke="#e5232b" stroke-width="2" stroke-linejoin="round"/></svg>PESA</span><span id="pay-amount"></span></button></div><h3 class="more-title">More options</h3><div class="utilities"><button class="utility" type="button" id="buy-tv-start"><span class="utility-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="13" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 21h8M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><b>Buy for TV</b><small>Separate package, locked to one TV.</small></button><button class="utility" type="button" id="check-time"><span class="utility-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><b>Check remaining time</b><small>Find a package already linked to your number.</small></button><button class="utility" type="button" id="open-voucher"><span class="utility-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v2a2.5 2.5 0 0 0 0 5v2a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-2a2.5 2.5 0 0 0 0-5v-2Z" stroke="currentColor" stroke-width="1.8"/><path d="M10 8v8M14 8v8" stroke="currentColor" stroke-width="1.8" stroke-dasharray="2 2"/></svg></span><b>I have a voucher</b><small>Use a prepaid WiFi code instead.</small></button><button class="utility hidden" type="button" id="open-paybill"><span class="utility-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M8 13h3M15 13h1M8 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><b>Lipa na PayBill</b><small>Pay manually using your phone number.</small></button></div></section>
+    <details class="card payment-recovery" id="payment-recovery"><summary>Already paid? Recover your package</summary><div class="recover-body"><h2>Already paid?</h2><p class="section-copy">Paid earlier, on another device, or before joining this Wi‑Fi? Enter the M‑Pesa transaction code and the number that paid. We connect the same package to this device without charging you again.</p><label for="recover-phone">Paying number</label><input id="recover-phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><label for="recover-receipt">M‑Pesa transaction code</label><input id="recover-receipt" inputmode="text" autocomplete="off" autocapitalize="characters" maxlength="32" placeholder="e.g. QAB12CD34"><div class="error" id="recover-error" aria-live="polite"></div><button class="secondary" type="button" id="recover-payment">RECOVER MY PACKAGE</button></div></details>
+    <section class="card hidden" id="waiting" aria-live="polite"><div class="waiting"><div class="spinner" id="waiting-spinner" aria-hidden="true"></div><h1 id="waiting-title">Check your phone</h1><p id="waiting-copy">Enter your M‑Pesa PIN to complete the payment.</p><div class="elapsed" id="elapsed"></div><div class="early-recovery hidden" id="waiting-recovery" role="note"><small id="waiting-recovery-label">Your WiFi recovery code · screenshot or write it down now</small><b id="waiting-recovery-code"></b><button type="button" id="copy-waiting-recovery">COPY CODE</button><p id="waiting-recovery-copy">You need this code and your M‑Pesa number to restore this package or move it to another phone. This page may close by itself once you are online.</p></div><div class="portal-reminder hidden" id="waiting-portal-reminder"><small>Save this portal link for later</small><a id="waiting-portal-url" target="_blank" rel="noopener"></a><button type="button" id="copy-waiting-portal">COPY PORTAL LINK</button></div><div class="error" id="waiting-error"></div><button class="secondary hidden" id="retry-waiting" type="button">Check again</button><button class="text-button" id="leave-waiting" type="button">Back to my packages</button><button class="text-button" id="start-new-payment" type="button">Start a new payment</button></div></section>
+    <section class="card active-card hidden" id="active" aria-live="polite"><div class="active-kicker" id="active-kicker">YOUR WIFI PACKAGE</div><h1 id="active-title">You have Wi‑Fi time</h1><div class="clock" id="clock">—</div><p class="expiry" id="expiry"></p><details class="notice fiti-account-details"><summary>Recovery &amp; device details</summary><div class="fiti-account-inner"><strong>Save your WiFi recovery code</strong><p class="section-copy">Use this code and the paying number to restore your package or move it to another phone.</p><p id="recovery-code" style="font:800 24px ui-monospace,monospace;letter-spacing:.12em;margin:12px 0;overflow-wrap:anywhere"></p><button class="text-button" id="copy-recovery" type="button">Copy recovery code</button><p class="section-copy" id="active-phone"></p></div></details><div class="error" id="active-error" aria-live="polite"></div><div class="active-actions"><button class="primary" type="button" id="connect">RECONNECT THIS DEVICE</button><button class="secondary" type="button" id="manage-tv">BUY FOR TV</button></div><button class="primary" type="button" id="top-up">BUY MORE TIME</button></section>
+    <div class="receipt-prompt existing-prompt hidden" id="existing-section" role="dialog" aria-modal="true" aria-labelledby="existing-title"><div class="receipt-prompt-card existing-card"><div id="existing-view"><div class="section-title"><h2 id="existing-title">Existing package found</h2><button class="text-button existing-close" type="button" id="close-existing" aria-label="Close">✕</button></div><p class="section-copy">This number already has time here. Choose the package to check its balance. To move its remaining time to this device, enter the WiFi recovery code; the previous device will be disconnected.</p><div id="existing-list" class="existing-list"></div><label for="transfer-password">WiFi recovery code</label><input id="transfer-password" autocomplete="off" autocapitalize="characters" placeholder="Your recovery code"><div class="error" id="transfer-error" aria-live="polite"></div><button class="secondary" type="button" id="transfer">CONNECT THIS PACKAGE</button><div class="existing-or"><span>or</span></div><button class="primary buy-another" type="button" id="buy-anyway">BUY ANOTHER PACKAGE</button></div><div id="picker-view" class="hidden"><div class="section-title"><h2>Choose a package</h2><button class="text-button existing-close" type="button" id="close-picker" aria-label="Close">✕</button></div><p class="section-copy" id="picker-copy">Pick the package you want. We will send the M‑Pesa prompt to your number.</p><div class="plans picker-plans" id="picker-plans" aria-label="Packages"></div><button class="primary buy-another" type="button" id="picker-pay">LIPA NA M‑PESA</button><button class="text-button picker-back" type="button" id="picker-back">← Back to my existing package</button></div></div></div>
+    <section class="section hidden" id="voucher-section"><div class="card"><div class="section-title"><h2>Use a voucher</h2><button class="text-button" type="button" id="close-voucher">Close</button></div><p class="section-copy">Enter the voucher code and the phone number that should own the package.</p><label for="voucher-code">Voucher code</label><input id="voucher-code" autocomplete="off" autocapitalize="characters" placeholder="FITI…"><div class="error" id="voucher-error" aria-live="polite"></div><button class="primary" type="button" id="redeem">REDEEM VOUCHER</button></div></section>
+    <section class="section hidden" id="paybill-section"><div class="card"><div class="section-title"><h2>Lipa na PayBill</h2><button class="text-button" type="button" id="close-paybill">Close</button></div><p class="section-copy">Open M‑Pesa, choose Lipa na PayBill, and use your phone number as the account reference.</p><p class="notice" id="paybill-details">PayBill details are provided by this WiFi operator.</p></div></section>
+    <section class="section hidden" id="tv-section"><div class="card"><div class="section-title"><h2>Buy for your TV</h2><button class="text-button" type="button" id="close-tv">Close</button></div><p class="section-copy">Connect the TV or streaming device to this Wi‑Fi first. Your phone is already connected; the router will show nearby devices that it can identify.</p><p class="notice" id="tv-existing"></p><button class="secondary tv-remove hidden" type="button" id="remove-tv">REMOVE THIS TV</button><h3 class="tv-step">Package for the TV</h3><div class="plans tv-plans" id="tv-plans" aria-label="TV packages"></div><h3 class="tv-step">Which TV?</h3><div id="tv-picker" class="tv-picker"><button class="tv-choice" type="button" id="tv-discover"><span class="tv-choice-icon" aria-hidden="true">⌁</span><span><b>Pick a nearby device</b><small>Choose a TV or device connected to this Wi‑Fi.</small></span><span aria-hidden="true">›</span></button><button class="tv-choice" type="button" id="tv-manual"><span class="tv-choice-icon" aria-hidden="true">✎</span><span><b>Enter the MAC address</b><small>Type the device MAC from its network settings.</small></span><span aria-hidden="true">›</span></button></div><div id="tv-discovery" class="hidden"><div class="tv-back-row"><button class="text-button" type="button" id="tv-back">← Back</button><button class="text-button" type="button" id="tv-refresh">↻ Refresh</button></div><h3>Choose your device</h3><p class="section-copy">Select a device, then confirm the last four characters of its MAC address.</p><div id="tv-devices" class="tv-devices"></div><label for="tv-confirm">Last 4 characters of the MAC</label><input id="tv-confirm" inputmode="text" autocomplete="off" maxlength="4" placeholder="EEFF"><p class="section-copy">This confirms the device is yours. The full MAC stays hidden.</p><button class="primary" type="button" id="tv-continue" disabled>CONTINUE</button><button class="secondary tv-manual-link" type="button" id="tv-manual-from-list">ENTER THE MAC ADDRESS</button></div><div id="tv-manual-form" class="hidden"><button class="text-button" type="button" id="tv-back-manual">← Back to device choices</button><label for="tv-phone">M‑Pesa number</label><input id="tv-phone" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><label for="tv-name">Device name</label><input id="tv-name" autocomplete="off" value="TV" maxlength="24"><label for="tv-mac">TV MAC address</label><input id="tv-mac" autocomplete="off" autocapitalize="characters" placeholder="AA:BB:CC:DD:EE:FF"><button class="primary" type="button" id="add-tv">LIPA NA M-PESA FOR TV</button></div><div id="tv-payment-form" class="hidden"><label for="tv-phone-payment">M‑Pesa number</label><input id="tv-phone-payment" inputmode="numeric" autocomplete="tel" placeholder="07XX XXX XXX"><label for="tv-name-payment">Device name</label><input id="tv-name-payment" autocomplete="off" value="TV" maxlength="24"><p class="notice" id="tv-selected"></p><button class="primary" type="button" id="add-tv-selected">LIPA NA M-PESA FOR TV</button></div><div class="error" id="tv-error" aria-live="polite"></div></div></section>
+    <button class="primary hidden" type="button" id="resume-payment">RESUME PAYMENT</button>
+    <p class="footer" id="support">© <span id="year"></span> Customer Wi‑Fi</p>
+  </main>
+  <script>
+  (function () {
+    'use strict';
+    var injectedSite = typeof globalThis !== 'undefined' ? globalThis.__WIFI_FITI_LOCATION_ID__ : '';
+    var site = decodeURIComponent(String(injectedSite || location.pathname.split('/').filter(Boolean).pop() || ''));
+    var params = new URLSearchParams(location.search);
+    var mac = (params.get('mac') || '').toUpperCase(), ip = params.get('ip') || '';
+    var previewMode = params.get('preview') === '1';
+    var loginUrl = params.get('link-login-only') || '', loginDestination = params.get('link-orig') || 'http://neverssl.com';
+    // Older routers may still serve a cached login.html containing the
+    // unsupported `$(link-login-only-esc)` placeholder. In that case the
+    // captive redirect's referrer is the router login page itself; derive a
+    // valid action from it so existing installations can connect without a
+    // manual router reinstall.
+    var referrerLoginUrl = '';
+    try {
+      var referrer = new URL(document.referrer || '');
+      if (/^(http:|https:)$/.test(referrer.protocol) && referrer.hostname) referrerLoginUrl = referrer.origin + '/login';
+    } catch (_) { /* no referrer in a normal browser */ }
+    var key = 'fiti_' + site + '_' + mac, current = null, checkout = null, selected = null;
+    var profileKey = 'fiti_profile_' + site;
+    var selectedSubscription = null, timer = null, clockTimer = null, generation = 0, bypassLookup = false, autoConnectStarted = false, portalConfig = null, portalUrl = '';
+    var $ = function (id) { return document.getElementById(id); };
+    function read(name) {
+      // Captive-portal browsers sometimes block one storage area but not the
+      // other. Try each separately so a blocked localStorage does not erase a
+      // saved payment or a legitimate signed-in browser session.
+      var raw = null;
+      try { raw = localStorage.getItem(key + name); } catch (_) { raw = null; }
+      if (raw) { try { return JSON.parse(raw); } catch (_) { /* try session storage */ } }
+      try { raw = sessionStorage.getItem(key + name); return raw ? JSON.parse(raw) : null; }
+      catch (_) { return null; }
+    }
+    function write(name, value) {
+      [function () { return localStorage; }, function () { return sessionStorage; }].forEach(function (storage) {
+        try { if (value === null) storage().removeItem(key + name); else storage().setItem(key + name, JSON.stringify(value)); }
+        catch (_) { /* The router can complete a paid connection even when browser storage is unavailable. */ }
+      });
+    }
+    function readProfile() {
+      try { return JSON.parse(localStorage.getItem(profileKey) || '{}'); } catch (_) { return {}; }
+    }
+    function rememberPayerPhone(value) {
+      var normalized = String(value || '').trim(); if (!normalized) return;
+      try { localStorage.setItem(profileKey, JSON.stringify({ payerPhone: normalized })); } catch (_) {}
+    }
+    var selectedTvDevice = null;
+    var existingFromPay = false;
+    var sessionToken = read('_session') || '';
+    var installPrompt = null;
+    var installButton = document.createElement('button');
+    installButton.type = 'button'; installButton.className = 'secondary hidden';
+    installButton.textContent = 'INSTALL THIS WIFI PORTAL'; installButton.style.cssText = 'width:100%;margin-bottom:14px;font-weight:850';
+    $('buy').appendChild(installButton);
+    if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener('beforeinstallprompt', function (event) {
+      event.preventDefault(); installPrompt = event; installButton.classList.remove('hidden');
+    });
+    installButton.onclick = async function () {
+      if (!installPrompt) return;
+      installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; installButton.classList.add('hidden');
+    };
+    if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener('appinstalled', function () { installPrompt = null; installButton.classList.add('hidden'); });
+    async function api(path, body) {
+      var headers = { 'X-WiFi-Fiti-Session': sessionToken };
+      if (checkout && checkout.portalToken) headers['X-WiFi-Fiti-Portal'] = checkout.portalToken;
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      var response = await fetch('/api/tenant/' + encodeURIComponent(site) + path, {
+        method: body === undefined ? 'GET' : 'POST', headers: headers,
+        body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store'
+      });
+      var result = await response.json().catch(function () { return {}; });
+      if (!response.ok) { var error = new Error(result.error || 'Please try again.'); error.status = response.status; throw error; }
+      return result;
+    }
+    function stop() { generation++; clearTimeout(timer); clearInterval(clockTimer); }
+    function clearCheckout() {
+      stop(); checkout = null; write('_checkout', null); write('_receipt_pending', null); autoConnectStarted = false;
+      show('buy'); message('waiting-error', ''); message('error', '');
+    }
+    function show() {
+      var visible = Array.prototype.slice.call(arguments);
+      ['buy','payment-recovery','waiting','active','existing-section','voucher-section','paybill-section','tv-section'].forEach(function (id) {
+        $(id).classList.toggle('hidden', visible.indexOf(id) === -1);
+      });
+      // Keep payment recovery available from both the package screen and an
+      // already-connected session. Customers often return after the router
+      // has connected, but still need to recover a receipt that was missed.
+      $('payment-recovery').classList.toggle('hidden', visible.indexOf('buy') === -1);
+      $('resume-payment').classList.toggle('hidden', visible.indexOf('resume-payment') === -1);
+    }
+    function message(id, text) { $(id).textContent = text || ''; }
+    function applyBranding(config) {
+      var branding = config && config.branding || {};
+      var template = config && config.template || {};
+      var name = branding.name || config.location.businessName || 'Wi-Fi Fiti';
+      message('brand', name);
+      message('location', config.location.name || 'CONNECT · PAY · GO');
+      document.title = name + ' WiFi';
+      if (branding.logoUrl) $('brand-logo').src = branding.logoUrl;
+      var color = String(branding.primaryColor || '');
+      if (/^#[0-9A-Fa-f]{6}$/.test(color) && document.documentElement && document.documentElement.style) {
+        document.documentElement.style.setProperty('--blue', color);
+        document.documentElement.style.setProperty('--aqua', color);
+      }
+      var templateColor = String(template.accentColor || '');
+      if (/^#[0-9A-Fa-f]{6}$/.test(templateColor) && document.documentElement && document.documentElement.style) {
+        document.documentElement.style.setProperty('--blue', templateColor);
+        document.documentElement.style.setProperty('--aqua', templateColor);
+      }
+      if (branding.message) message('portal-message', branding.message);
+      if (template.welcomeMessage) message('portal-message', template.welcomeMessage);
+      // The default payment line stays hidden; a message the owner wrote
+      // (Branding or the published template) is shown.
+      $('portal-message').classList.toggle('owner-message', Boolean(branding.message || template.welcomeMessage));
+      if (template.layout) document.body.dataset.portalLayout = template.layout;
+      if (template.fontFamily) document.body.dataset.portalFont = template.fontFamily === 'rounded' ? 'modern' : template.fontFamily;
+      if (template.textAlign) document.body.dataset.portalAlign = template.textAlign;
+      if (template.packageStyle) document.body.dataset.portalPackageStyle = template.packageStyle;
+      if (template.backgroundStyle) document.body.dataset.portalBackground = template.backgroundStyle;
+      // Toggled both ways: the dashboard preview re-applies each change.
+      $('plans').classList.toggle('hidden', template.showPackages === false);
+      var utilities = document.querySelector ? document.querySelector('.utilities') : null;
+      if (utilities) utilities.classList.toggle('hidden', template.showUtilities === false);
+      message('support', '© ' + new Date().getFullYear() + ' ' + name + '. All rights reserved.' +
+        (branding.supportPhone ? ' · Help: ' + branding.supportPhone : ''));
+    }
+    // PayBill is offered only when this location has one that is matched
+    // automatically; otherwise the option and its section stay hidden.
+    function showPayBill(paybill) {
+      var shortcode = paybill && paybill.shortcode ? String(paybill.shortcode) : '';
+      var prefix = paybill && paybill.accountPrefix ? String(paybill.accountPrefix) : '';
+      $('open-paybill').classList.toggle('hidden', !shortcode);
+      $('buy').classList.toggle('no-paybill', !shortcode);
+      if (!shortcode) { if (!$('paybill-section').classList.contains('hidden')) show('buy'); return; }
+      message('paybill-details', 'PayBill number: ' + shortcode + ' · Account number: ' +
+        (prefix ? prefix + ' then your M‑Pesa phone number, e.g. ' + prefix + '0712345678.' : 'your M‑Pesa phone number.'));
+    }
+    function applyPreview(config) {
+      portalConfig = config;
+      applyBranding(config);
+      renderPackages(config.packages || []);
+      showPayBill(config.paybill);
+      show('buy');
+      message('error', '');
+    }
+    if (previewMode && typeof globalThis.addEventListener === 'function') {
+      globalThis.addEventListener('message', function (event) {
+        if (event.data && event.data.type === 'wifi-fiti-template-preview' && event.data.config) applyPreview(event.data.config);
+      });
+    }
+    function phone() { return $('phone').value.trim(); }
+    function normaliseMac(value) {
+      var compact = String(value || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+      return compact.length === 12 ? compact.match(/.{2}/g).join(':') : '';
+    }
+    function purchaseMac() { return mac || normaliseMac($('device-mac').value); }
+    function configureDeviceTarget() {
+      if (mac) {
+        $('offline-device').classList.add('hidden');
+        $('claim-device').classList.remove('hidden');
+        return;
+      }
+      $('offline-device').classList.remove('hidden');
+      $('claim-device').classList.add('hidden');
+    }
+    function formatSeconds(value) {
+      var s = Math.max(0, Math.ceil(Number(value) || 0)), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+      return d ? d + 'd ' + h + 'h' : h ? h + 'h ' + String(m).padStart(2, '0') + 'm' : m + 'm ' + String(s % 60).padStart(2, '0') + 's';
+    }
+    function remember(result) {
+      if (result.sessionToken) { sessionToken = result.sessionToken; write('_session', sessionToken); }
+      current = result;
+      if (result.payerPhone) { $('phone').value = result.payerPhone; rememberPayerPhone(result.payerPhone); }
+    }
+    function showExpiredPurchase() {
+      stop();
+      current = null; sessionToken = ''; write('_session', null);
+      $('buy').classList.remove('fiti-returning-mode');
+      $('returning-device').classList.add('hidden');
+      show('buy');
+      $('payment-recovery').open = false;
+      message('error', 'Your package has ended. Pick a plan to get back online.');
+    }
+    function showReturningDevice(remaining) {
+      $('buy').classList.add('fiti-returning-mode');
+      $('returning-device').classList.remove('hidden');
+      message('returning-copy', 'You still have ' + formatSeconds(remaining) + ' of paid Wi-Fi time. We are checking your connection. There is no need to pay again.');
+      message('error', '');
+      show('buy');
+    }
+    function active(result) {
+      remember(result); stop();
+      var end = Date.parse(result.expiresAt);
+      if (!Number.isFinite(end) || end <= Date.now()) { showExpiredPurchase(); return; }
+      $('buy').classList.remove('fiti-returning-mode');
+      $('returning-device').classList.add('hidden');
+      show('active');
+      message('recovery-code', result.password || 'Use your saved recovery code to manage this package.');
+      message('active-phone', [result.payerPhone ? 'Paying number: ' + result.payerPhone : '',
+        result.rateLimit ? 'Your device speed: ' + result.rateLimit : ''].filter(Boolean).join(' · '));
+      function draw() {
+        var remaining = Math.max(0, (end - Date.now()) / 1000);
+        if (remaining <= 0) { showExpiredPurchase(); return false; }
+        message('clock', formatSeconds(remaining));
+        message('expiry', 'Time ends ' + new Date(end).toLocaleString());
+        message('active-title', 'Your Wi-Fi is active');
+        message('active-kicker', 'YOUR WIFI PACKAGE');
+        $('top-up').textContent = 'BUY MORE TIME';
+        $('connect').disabled = false; $('manage-tv').disabled = false;
+        return true;
+      }
+      if (draw()) clockTimer = setInterval(draw, 1000);
+    }
+    function waiting(title, copy) {
+      show('waiting'); message('waiting-title', title); message('waiting-copy', copy);
+      message('elapsed', 'Your payment and package are saved on Wi-Fi Fiti.');
+      $('retry-waiting').classList.add('hidden');
+      $('waiting-recovery').classList.add('hidden');
+    }
+    // Shown while the customer enters their PIN: the captive window often
+    // closes by itself the moment the phone goes online after payment.
+    function showEarlyRecovery() {
+      var box = $('waiting-recovery'); if (!checkout) return;
+      var code = checkout.recoveryCode || '';
+      if (!code && checkout.keepsRecoveryCode && current && current.password) code = current.password;
+      if (code) {
+        message('waiting-recovery-label', checkout.keepsRecoveryCode ? 'Adding time to your package · your recovery code stays the same' : 'Your WiFi recovery code · screenshot or write it down now');
+        message('waiting-recovery-code', code);
+        message('waiting-recovery-copy', 'You need this code and your M‑Pesa number to restore this package or move it to another phone. This page may close by itself once you are online.');
+      } else if (checkout.keepsRecoveryCode) {
+        message('waiting-recovery-label', 'Adding time to your package');
+        message('waiting-recovery-code', '');
+        message('waiting-recovery-copy', 'Your recovery code stays the same as before. Lost it? Use your M‑Pesa number and the M‑Pesa transaction code from your SMS under “Already paid? Recover your package”.');
+      } else { box.classList.add('hidden'); return; }
+      $('copy-waiting-recovery').classList.toggle('hidden', !code);
+      box.classList.remove('hidden');
+    }
+    function pauseWait(text, retry) {
+      message('waiting-copy', text); $('retry-waiting').classList.remove('hidden');
+      $('retry-waiting').onclick = retry;
+    }
+    function signIn(username, password) {
+      var action = loginUrl;
+      if (!action || action.indexOf('$(') !== -1) action = referrerLoginUrl;
+      if (!action || !username) return false;
+      var form = document.createElement('form'); form.method = 'POST'; form.action = action; form.style.display = 'none';
+      [['username', username], ['password', password || ''], ['dst', loginDestination]].forEach(function (pair) {
+        var input = document.createElement('input'); input.type = 'hidden'; input.name = pair[0]; input.value = pair[1]; form.appendChild(input);
+      });
+      document.body.appendChild(form); form.submit(); return true;
+    }
+    function signInIosFallback(username, password) {
+      var action = loginUrl || referrerLoginUrl;
+      if (!action || !username || !/iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return;
+      try {
+        var url = new URL(action, location.href);
+        url.searchParams.set('username', username); url.searchParams.set('password', password || '');
+        url.searchParams.set('dst', loginDestination); location.replace(url.toString());
+      } catch (_) { /* native POST remains the primary path */ }
+    }
+    // Ask the router for one final idempotent connect job before navigating
+    // away. This makes the browser handoff independent of captive-portal
+    // timing: the native login is submitted only after this fresh job is
+    // acknowledged by the router.
+    function connectAfterAck(result) {
+      if (result.deviceType === 'tv') return;
+      if (autoConnectStarted) return;
+      autoConnectStarted = true;
+      reconnect();
+      setTimeout(function () { signInIosFallback(result.username, result.password); }, 2200);
+    }
+    async function pollPayment() {
+      if (!checkout || !checkout.portalToken) return;
+      stop(); var version = generation, attempts = 0, lastAwaitingRouter = false;
+      waiting('Check your phone', checkout.offline ? 'Complete your M-Pesa payment. Your package will be saved for this Wi‑Fi. Join the Wi‑Fi on the device you want to connect afterwards. Your one-time claim code is ' + (checkout.claimCode || 'shown here after payment') + '.' : 'Complete your M-Pesa payment. We will connect your WiFi automatically after confirmation.');
+      showEarlyRecovery();
+      async function check() {
+        if (version !== generation || !checkout) return;
+        try {
+          var result = await api('/status/' + encodeURIComponent(checkout.checkoutRequestId));
+          if (version !== generation) return;
+          if (result.status === 'paid') {
+            var wasOfflinePurchase = Boolean(checkout && checkout.offline);
+            var purchasedMac = checkout && checkout.targetMac;
+            checkout = null; write('_checkout', null); remember(result);
+            // The router has applied the package, but the captive-portal
+            // browser still needs its session login. Submit RouterOS's
+            // native login form as soon as payment is confirmed. Waiting for
+            // a second reconnect job here made the page appear stuck until a
+            // manual refresh. If this is not a captive-portal redirect (for
+            // example a normal browser visit), keep the API reconnect as the
+            // fallback.
+            if (result.deviceType !== 'tv') {
+              // Connect straight away: the recovery code was already shown
+              // while the customer entered their PIN.
+              active(result);
+              if (wasOfflinePurchase) message('active-error', 'Payment confirmed. Join this Wi‑Fi on ' + (purchasedMac || 'your selected device') + ' to go online.');
+              else connectAfterAck(result);
+            } else {
+              active(result);
+            }
+            return;
+          }
+          if (result.status === 'claimed') {
+            checkout = null; write('_checkout', null); stop(); show('buy');
+            message('error', 'Payment received. Your package was connected on the device that entered the claim code.'); return;
+          }
+          if (result.status === 'failed' || result.status === 'transferred') {
+            checkout = null; write('_checkout', null); stop(); show('buy');
+            message('error', result.reason || 'This payment was not completed.'); return;
+          }
+          lastAwaitingRouter = Boolean(result.awaitingRouter);
+          if (result.awaitingRouter) {
+            message('waiting-title', 'Payment received');
+            message('waiting-copy', 'The router is connecting your device. Your package is saved. Keep this page open and be ready to screenshot your connection details.');
+          }
+          if (result.awaitingClaim) {
+            message('waiting-title', 'Join Wi‑Fi to finish setup');
+            message('waiting-copy', 'Payment received. Join this Wi‑Fi on the device you want to connect, open the portal there, and enter claim code ' + (checkout.claimCode || '') + '. The code expires soon.');
+          }
+        } catch (error) {
+          if (version !== generation) return;
+          if ([401,403,404,409].indexOf(error.status) !== -1) {
+            pauseWait(error.message + ' If you already paid, use Check my time and your recovery code.', pollPayment); return;
+          }
+          message('waiting-copy', 'Connection interrupted. We are checking again; do not make another payment.');
+        }
+        if (++attempts >= 150) { pauseWait('Confirmation is taking longer than expected. Check again or contact the operator; do not pay a second time.', pollPayment); return; }
+        // Paid and only the router left: check every second, so the receipt
+        // shows about a second after the router connects the device.
+        timer = setTimeout(check, lastAwaitingRouter ? 1000 : 2400);
+      }
+      check();
+    }
+    function waitForRouter(result, complete) {
+      remember(result); stop(); var version = generation, attempts = 0;
+      waiting('Connecting your WiFi', 'Your package is saved. Waiting for the router to finish connecting this device.');
+      async function check() {
+        if (version !== generation) return;
+        try {
+          var job = await api('/router-jobs/' + encodeURIComponent(result.provisioningJobId));
+          if (version !== generation) return;
+          if (job.ready) {
+            if (complete) complete();
+            else { active(result); signIn(result.username, result.password); }
+            return;
+          }
+        } catch (error) {
+          if ([401,403,404].indexOf(error.status) !== -1) { pauseWait(error.message, function () { waitForRouter(result, complete); }); return; }
+        }
+        if (++attempts >= 60) {
+          pauseWait('The router has not checked in yet. Your package is saved. Try again when the WiFi is available.',
+            function () { waitForRouter(result, complete); }); return;
+        }
+        timer = setTimeout(check, 1000);
+      }
+      check();
+    }
+    async function reconnect() {
+      if (!current || !sessionToken) { show('buy'); message('error', 'Enter your paying number, then use Check my time and your saved recovery code.'); return; }
+      $('connect').disabled = true;
+      try { var result = await api('/session/connect', { mac: mac, ip: ip }); waitForRouter(result); }
+      catch (error) { message('expiry', error.message); $('connect').disabled = false; }
+    }
+    function updatePayAmount() { var p = selectedPackage(); $('pay-amount').textContent = p ? 'KES ' + Number(p.price).toLocaleString() : ''; }
+    function renderPackages(packages) {
+      var root = $('plans'); root.replaceChildren();
+      if (!packages.length) { message('error', 'This operator has not added packages yet.'); $('pay').disabled = true; return; }
+      packages.forEach(function (pkg, index) {
+        var button = document.createElement('button'), left = document.createElement('span'), name = document.createElement('span'), price = document.createElement('span');
+        button.type = 'button'; button.className = 'plan' + (index === 0 ? ' active' : ''); if (button.setAttribute) { button.setAttribute('data-package-id', String(pkg.id)); button.setAttribute('aria-pressed', index === 0 ? 'true' : 'false'); }
+        name.className = 'plan-title'; name.textContent = pkg.name;
+        price.className = 'price'; price.textContent = 'KES ' + Number(pkg.price).toLocaleString();
+        var duration = document.createElement('span'); duration.className = 'plan-detail'; duration.textContent = formatSeconds(pkg.seconds) + (pkg.rate_limit ? ' · Device speed ' + pkg.rate_limit : '');
+        left.append(name, duration); button.append(left, price);
+        button.onclick = function (event) {
+          if (event && event.preventDefault) event.preventDefault();
+          selected = String(pkg.id); updatePayAmount();
+          root.querySelectorAll('.plan').forEach(function (item) { var isSelected = item === button; item.classList.toggle('active', isSelected); if (item.setAttribute) item.setAttribute('aria-pressed', isSelected ? 'true' : 'false'); });
+        };
+        root.appendChild(button);
+      });
+      selected = String(packages[0].id); updatePayAmount();
+    }
+    function renderExisting(subscriptions) {
+      var root = $('existing-list'); root.replaceChildren(); selectedSubscription = subscriptions[0] || null;
+      subscriptions.forEach(function (subscription, index) {
+        var button = document.createElement('button'); button.type = 'button'; button.className = 'existing' + (index === 0 ? ' active' : '');
+        button.style.color = 'inherit';
+        var name = document.createElement('b'); name.textContent = 'Device ' + subscription.mac;
+        var remaining = document.createElement('div'); remaining.className = 'remaining'; remaining.textContent = formatSeconds(subscription.remainingSeconds) + ' remaining' + (subscription.rateLimit ? ' · ' + subscription.rateLimit : '');
+        button.append(name, remaining);
+        button.onclick = function () {
+          selectedSubscription = subscription;
+          root.querySelectorAll('.existing').forEach(function (item) { item.classList.toggle('active', item === button); });
+        };
+        root.appendChild(button);
+      });
+      showExistingView(); show('buy', 'existing-section');
+      setTimeout(function () { var first = root.querySelector('.existing'); if (first) first.focus(); }, 0);
+    }
+    async function checkExisting(silent) {
+      if (!phone()) { if (!silent) message('error', 'Enter the number used to pay.'); return false; }
+      try {
+        var result = await api('/subscriptions/check', { phone: phone() });
+        if (result.found) { renderExisting(result.subscriptions); return true; }
+        if (!silent) message('error', 'No active package was found for this number at this location.');
+        return false;
+      } catch (error) {
+        // A busy hotspot can hit the lookup limit. The silent check before a
+        // purchase then counts as "nothing found" so the sale still goes on.
+        if (silent && error.status === 429) return false;
+        message('error', error.message); throw error;
+      }
+    }
+    async function recoverPayment() {
+      var payingPhone = String($('recover-phone').value || phone() || '').trim();
+      var receipt = String($('recover-receipt').value || '').trim().toUpperCase();
+      if (!payingPhone || !receipt) { message('recover-error', 'Enter the paying number and the M-Pesa transaction code.'); return; }
+      if (!/^[A-Z0-9]{6,32}$/.test(receipt)) { message('recover-error', 'Enter the M-Pesa receipt exactly as shown in the confirmation message.'); return; }
+      var button = $('recover-payment'); button.disabled = true; message('recover-error', 'Looking up your confirmed payment…');
+      try {
+        var result = await api('/payment-recover', { phone: payingPhone, receipt: receipt, mac: purchaseMac(), ip: ip });
+        remember(result); checkout = null; write('_checkout', null); message('recover-error', '');
+        waiting('Payment found', 'Payment confirmed. Waiting for the router to apply your package…');
+        waitForRouter(result, function () { active(result); signIn(result.username, result.password); });
+      } catch (error) { message('recover-error', error.message); }
+      finally { button.disabled = false; }
+    }
+    async function pay() {
+      var targetMac = purchaseMac();
+      var manualMac = String($('device-mac').value || '').trim();
+      if (!selected || !phone()) { message('error', 'Choose a package and enter your M-Pesa number.'); return; }
+      if (!mac && manualMac && !targetMac) { message('error', 'That device MAC address is incomplete. Leave it blank to use a claim code instead.'); return; }
+      rememberPayerPhone(phone());
+      if (checkout && checkout.portalToken && checkout.startedAt > Date.now() - 2 * 3600000) {
+        // The previous request is still recoverable. Checking it again is
+        // safer than sending a second STK prompt to the same customer.
+        pollPayment(); return;
+      }
+      var button = $('pay'); button.disabled = true; message('error', '');
+      try {
+        existingFromPay = true;
+        if (!bypassLookup && await checkExisting(true)) return;
+        existingFromPay = false;
+        autoConnectStarted = false;
+        // Show the waiting screen at once: the M-Pesa prompt can reach the
+        // phone before the request returns, and the page must not look idle.
+        waiting('Sending M-Pesa prompt', 'We are sending a payment request to ' + phone() + '. Keep this page open.');
+        checkout = await api('/pay', { packageId: selected, phone: phone(), mac: targetMac, ip: ip, deviceType: 'phone' });
+        checkout.startedAt = Date.now(); checkout.payerPhone = phone(); checkout.targetMac = targetMac; checkout.offline = !mac; write('_checkout', checkout); bypassLookup = false; pollPayment();
+      } catch (error) { show('buy'); message('error', error.message); }
+      finally { button.disabled = false; }
+    }
+    async function claimPayment() {
+      var code = String($('claim-code').value || '').replace(/\D/g, '');
+      if (!mac) { message('claim-error', 'Join this Wi‑Fi first so we can identify this device.'); return; }
+      if (!/^\d{8}$/.test(code)) { message('claim-error', 'Enter the 8-digit code shown after payment.'); return; }
+      $('claim').disabled = true; message('claim-error', 'Checking your code…');
+      try {
+        var result = await api('/claim', { code: code, mac: mac, ip: ip });
+        if (result.awaitingPayment && !result.portalToken) {
+          message('claim-error', 'The payment is still being confirmed. Keep this page open and try again shortly.'); return;
+        }
+        // This device now owns the purchase: follow it here exactly like a
+        // purchase made on this Wi-Fi (router setup, sign-in, receipt).
+        message('claim-error', '');
+        checkout = { checkoutRequestId: result.checkoutRequestId, portalToken: result.portalToken, startedAt: Date.now(), targetMac: mac, offline: false };
+        write('_checkout', checkout); pollPayment();
+      } catch (error) { message('claim-error', error.message); }
+      finally { $('claim').disabled = false; }
+    }
+    async function transfer() {
+      var password = $('transfer-password').value.trim();
+      if (!selectedSubscription || !password || !mac) { message('transfer-error', 'Join this WiFi, choose a package, and enter its recovery code.'); return; }
+      $('transfer').disabled = true; message('transfer-error', '');
+      try {
+        var result = await api('/subscriptions/transfer', { phone: phone(), subscriptionId: selectedSubscription.id, password: password, mac: mac, ip: ip });
+        waitForRouter(result);
+      } catch (error) { message('transfer-error', error.message); }
+      finally { $('transfer').disabled = false; }
+    }
+    async function redeem() {
+      var code = $('voucher-code').value.trim();
+      if (!code || !phone() || !mac) { message('voucher-error', 'Enter a voucher, your phone number, and join this WiFi.'); return; }
+      $('redeem').disabled = true;
+      try { var result = await api('/voucher/redeem', { code: code, phone: phone(), mac: mac, ip: ip }); waitForRouter(result); }
+      catch (error) { message('voucher-error', error.message); }
+      finally { $('redeem').disabled = false; }
+    }
+    function resetTvChooser() {
+      selectedTvDevice = null;
+      $('tv-picker').classList.remove('hidden'); $('tv-discovery').classList.add('hidden'); $('tv-manual-form').classList.add('hidden'); $('tv-payment-form').classList.add('hidden');
+      $('tv-devices').textContent = ''; $('tv-confirm').value = ''; $('tv-continue').disabled = true;
+    }
+    // A TV always buys its own package, locked to that TV. Its package is
+    // chosen here, so the choice works from the active screen too, where the
+    // package list is hidden.
+    // A TV linked to this phone's package before TVs bought their own can be
+    // removed here, so it can buy its own package.
+    function tvDetails() {
+      resetTvChooser();
+      var linked = Boolean(current && current.device);
+      message('tv-existing', linked ? 'A TV linked earlier to this package: ' + (current.device.label || 'TV') + ' · ' + current.device.mac + '. Remove it here to buy it its own package.' : 'A TV needs its own package. Choose it below, then pick the TV.');
+      $('remove-tv').classList.toggle('hidden', !(linked && current.password && current.subscriptionId));
+      renderPlanChoices($('tv-plans'), paintTvPay); paintTvPay();
+      show(current ? 'active' : 'buy', 'tv-section');
+    }
+    async function removeTv() {
+      if (!current || !current.device) return;
+      var button = $('remove-tv'); button.disabled = true; message('tv-error', '');
+      try {
+        await api('/devices/remove', { phone: current.payerPhone, subscriptionId: current.subscriptionId,
+          password: current.password, mac: current.device.mac });
+        current.device = null; tvDetails();
+        message('tv-existing', 'TV removed from this package. Choose a package below, then pick the TV.');
+      } catch (error) { message('tv-error', error.message); }
+      finally { button.disabled = false; }
+    }
+    function paintTvPay() {
+      var pkg = selectedPackage();
+      ['add-tv', 'add-tv-selected'].forEach(function (id) { $(id).textContent = pkg ? 'LIPA NA M-PESA FOR TV · KES ' + Number(pkg.price).toLocaleString() : 'LIPA NA M-PESA FOR TV'; });
+    }
+    function showTvManual() {
+      $('tv-picker').classList.add('hidden'); $('tv-discovery').classList.add('hidden'); $('tv-payment-form').classList.add('hidden'); $('tv-manual-form').classList.remove('hidden');
+      $('tv-phone').value = current && current.payerPhone ? current.payerPhone : ($('phone').value || '');
+    }
+    function renderNearby(devices) {
+      var list = $('tv-devices'); list.textContent = '';
+      if (!devices.length) { list.innerHTML = '<p class="notice">No nearby devices reported yet. Connect the TV to this Wi‑Fi, then tap Refresh. You can also enter its MAC address manually.</p>'; return; }
+      devices.forEach(function (device) {
+        var button = document.createElement('button'); button.type = 'button'; button.className = 'tv-device';
+        button.innerHTML = '<span class="tv-device-icon" aria-hidden="true">▣</span><span><b></b><small></small></span>';
+        button.querySelector('b').textContent = device.label || 'Wi‑Fi device'; button.querySelector('small').textContent = device.maskedMac;
+        button.onclick = function () { Array.prototype.forEach.call(list.children, function (child) { child.classList.remove('selected'); }); button.classList.add('selected'); selectedTvDevice = device; $('tv-confirm').value = ''; $('tv-continue').disabled = false; };
+        list.appendChild(button);
+      });
+    }
+    async function loadNearby() {
+      $('tv-picker').classList.add('hidden'); $('tv-manual-form').classList.add('hidden'); $('tv-payment-form').classList.add('hidden'); $('tv-discovery').classList.remove('hidden');
+      $('tv-continue').disabled = true; selectedTvDevice = null; $('tv-devices').innerHTML = '<p class="section-copy">Looking for devices connected to this Wi‑Fi…</p>';
+      try { var result = await api('/device-discovery?excludeMac=' + encodeURIComponent(mac)); renderNearby(result.devices || []); }
+      catch (error) { $('tv-devices').innerHTML = '<p class="notice">Nearby device discovery is unavailable right now. You can enter the MAC address manually.</p>'; message('tv-error', error.message); }
+    }
+    function continueNearby() {
+      if (!selectedTvDevice) return;
+      var entered = String($('tv-confirm').value || '').replace(/[^0-9A-F]/ig, '').toUpperCase();
+      if (entered.length !== 4) { message('tv-error', 'Enter the last four characters of the device MAC address.'); return; }
+      selectedTvDevice.confirm = entered;
+      $('tv-discovery').classList.add('hidden'); $('tv-payment-form').classList.remove('hidden'); $('tv-phone-payment').value = current && current.payerPhone ? current.payerPhone : ($('phone').value || ''); $('tv-selected').textContent = selectedTvDevice.label + ' · ' + selectedTvDevice.maskedMac; message('tv-error', '');
+    }
+    async function refreshSession() {
+      var result = await api('/session?mac=' + encodeURIComponent(mac));
+      if (!result.authenticated) throw new Error('Use your recovery code to manage this package.');
+      remember(result); return result;
+    }
+    async function payForTv(targetMac, payerPhone, label, button, deviceConfirm) {
+      if (!selected) throw new Error('Choose a package for the TV first.');
+      if (!payerPhone) throw new Error('Enter the M-Pesa number that will pay for the TV package.');
+      button.disabled = true; message('tv-error', ''); autoConnectStarted = false;
+      checkout = await api('/pay', { packageId: selected, phone: payerPhone, mac: targetMac, deviceConfirm: deviceConfirm || '', deviceType: 'tv', deviceLabel: label || 'TV' });
+      checkout.startedAt = Date.now(); checkout.payerPhone = payerPhone; write('_checkout', checkout); pollPayment();
+    }
+    async function addTv() {
+      var button = $('add-tv');
+      try {
+        var targetMac = $('tv-mac').value.trim();
+        if (targetMac.replace(/[^0-9A-F]/ig, '').length !== 12) throw new Error('Enter the full 12-character TV MAC address.');
+        var payerPhone = $('tv-phone').value.trim() || (current && current.payerPhone) || '';
+        await payForTv(targetMac, payerPhone, $('tv-name').value.trim() || 'TV', button);
+      } catch (error) { message('tv-error', error.message); }
+      finally { button.disabled = false; }
+    }
+    async function addSelectedTv() {
+      var button = $('add-tv-selected');
+      try {
+        if (!selectedTvDevice) throw new Error('Choose a nearby device first.');
+        await payForTv(selectedTvDevice.id, $('tv-phone-payment').value.trim(), $('tv-name-payment').value.trim() || selectedTvDevice.label || 'TV', button, selectedTvDevice.confirm);
+      } catch (error) { message('tv-error', error.message); }
+      finally { button.disabled = false; }
+    }
+    async function boot() {
+      try {
+        if (previewMode) {
+          applyPreview({ location: { name: 'PREVIEW LOCATION', businessName: 'Your Wi‑Fi business' }, branding: { name: 'Your Wi‑Fi business', primaryColor: '#1769D8' }, template: { name: 'Live preview', layout: 'classic', accentColor: '#1769D8', welcomeMessage: 'Fast Wi-Fi for everyone.', fontFamily: 'modern', textAlign: 'center', packageStyle: 'stacked', backgroundStyle: 'aurora', showPackages: true, showUtilities: true }, packages: [{ id: 'preview-24h', name: '24 hours', duration: '24 hours', price: 50 }, { id: 'preview-7d', name: '7 days', duration: '7 days', price: 400 }, { id: 'preview-30d', name: '30 days', duration: '30 days', price: 1000 }], supportPhone: '' });
+          return;
+        }
+        $('app-manifest').href = '/api/tenant/' + encodeURIComponent(site) + '/manifest.webmanifest';
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('/wifi-fiti-sw.js', { scope: '/' }).catch(function () {});
+        var config = await api('/config');
+        portalConfig = config;
+        portalUrl = String(config.portalUrl || '');
+        if (portalUrl) {
+          ['waiting-portal-url'].forEach(function (id) { $(id).href = portalUrl; $(id).textContent = portalUrl; });
+          $('waiting-portal-reminder').classList.remove('hidden');
+        }
+        applyBranding(config);
+        renderPackages(config.packages || []);
+        var savedProfile = readProfile();
+        if (savedProfile.payerPhone && !$('phone').value) $('phone').value = savedProfile.payerPhone;
+        showPayBill(config.paybill);
+        configureDeviceTarget();
+        checkout = read('_checkout');
+        if (checkout && checkout.portalToken && Number(checkout.startedAt) > Date.now() - 2 * 3600000) { pollPayment(); return; }
+        checkout = null; write('_checkout', null);
+        if (!mac) {
+          message('error', savedProfile.payerPhone ? 'Your saved number is ready. Check your remaining time or start a new purchase.' : 'Not connected? You can buy now with a claim code, then join this Wi‑Fi on the target device.');
+          // Do not pop a takeover modal just because the browser remembers a payer number.
+          return;
+        }
+        var session = await api('/session?mac=' + encodeURIComponent(mac));
+        if (session.authenticated && session.remainingSeconds <= 0) {
+          show('buy');
+          message('error', 'Your Wi-Fi package has expired. Choose a new plan to reconnect.');
+          return;
+        }
+        if (session.authenticated) {
+          active(session);
+          write('_receipt_pending', null);
+          if (session.remainingSeconds > 0) reconnect();
+          return;
+        }
+        if (session.found) { showReturningDevice(session.remainingSeconds); }
+      } catch (error) { message('error', error.message); }
+    }
+    $('jump-recovery').onclick = function () { $('payment-recovery').open = true; };
+    $('returning-buy').onclick = function () {
+      $('buy').classList.remove('fiti-returning-mode');
+      $('returning-device').classList.add('hidden');
+      message('error', '');
+    };
+    $('returning-recover').onclick = function () {
+      $('buy').classList.remove('fiti-returning-mode');
+      $('returning-device').classList.add('hidden');
+      if (phone()) { checkExisting(false).catch(function () {}); }
+      else { message('error', 'Enter the paying number, then choose Check remaining time to recover your package.'); }
+    };
+    $('pay').onclick = pay; $('connect').onclick = reconnect; $('recover-payment').onclick = recoverPayment;
+    $('claim').onclick = claimPayment;
+    function copyPortalLink() {
+      if (!portalUrl) return;
+      if (navigator.clipboard) navigator.clipboard.writeText(portalUrl).then(function () {
+        message('waiting-error', 'Portal link copied. Save it for your next visit.');
+      }).catch(function () { message('waiting-error', portalUrl); });
+      else message('waiting-error', portalUrl);
+    }
+    $('copy-waiting-portal').onclick = copyPortalLink;
+    $('check-time').onclick = function () { checkExisting(false).catch(function () {}); };
+    $('transfer').onclick = transfer; $('redeem').onclick = redeem; $('add-tv').onclick = addTv;
+    $('open-voucher').onclick = function () { show('buy', 'voucher-section'); };
+    $('open-paybill').onclick = function () { show('buy', 'paybill-section'); };
+    $('close-voucher').onclick = function () { show('buy'); };
+    $('close-paybill').onclick = function () { show('buy'); };
+    // "Buy another package": close the pop-up and carry on with the purchase
+    // the customer started, or, if they only checked their time, take them
+    // back to the packages.
+    // "Buy another package": swap the pop-up to a package picker, then send
+    // the M-Pesa prompt for the package the customer chooses.
+    function selectedPackage() {
+      return ((portalConfig && portalConfig.packages) || []).filter(function (item) { return String(item.id) === String(selected); })[0];
+    }
+    // A package list outside the main one (the pop-up picker, the TV section):
+    // choosing there also selects that package in the main list.
+    function renderPlanChoices(root, after) {
+      var packages = (portalConfig && portalConfig.packages) || [];
+      root.replaceChildren();
+      packages.forEach(function (pkg) {
+        var button = document.createElement('button'), left = document.createElement('span'), name = document.createElement('span'), price = document.createElement('span'), duration = document.createElement('span');
+        button.type = 'button'; button.className = 'plan' + (String(pkg.id) === String(selected) ? ' active' : '');
+        name.className = 'plan-title'; name.textContent = pkg.name;
+        duration.className = 'plan-detail'; duration.textContent = formatSeconds(pkg.seconds) + (pkg.rate_limit ? ' · Device speed ' + pkg.rate_limit : '');
+        price.className = 'price'; price.textContent = 'KES ' + Number(pkg.price).toLocaleString();
+        left.append(name, duration); button.append(left, price);
+        button.onclick = function () {
+          selected = String(pkg.id);
+          root.querySelectorAll('.plan').forEach(function (item) { item.classList.toggle('active', item === button); });
+          $('plans').querySelectorAll('.plan').forEach(function (item) { var on = item.getAttribute && item.getAttribute('data-package-id') === selected; item.classList.toggle('active', on); if (item.setAttribute) item.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+          after();
+        };
+        root.appendChild(button);
+      });
+    }
+    function renderPicker() { renderPlanChoices($('picker-plans'), paintPickerPay); paintPickerPay(); }
+    function paintPickerPay() {
+      var pkg = selectedPackage();
+      $('picker-pay').textContent = pkg ? 'LIPA NA M‑PESA · KES ' + Number(pkg.price).toLocaleString() : 'CHOOSE A PACKAGE';
+      $('picker-pay').disabled = !pkg;
+      message('picker-copy', phone() ? 'Pick the package you want. We will send the M‑Pesa prompt to ' + phone() + '.' : 'Pick the package you want, then enter your M‑Pesa number on the page.');
+    }
+    function showExistingView() { $('existing-view').classList.remove('hidden'); $('picker-view').classList.add('hidden'); }
+    $('buy-anyway').onclick = function () {
+      $('existing-view').classList.add('hidden'); $('picker-view').classList.remove('hidden'); renderPicker();
+    };
+    $('picker-back').onclick = showExistingView;
+    $('close-picker').onclick = function () { existingFromPay = false; showExistingView(); show('buy'); };
+    $('picker-pay').onclick = function () {
+      bypassLookup = true; existingFromPay = false; showExistingView(); show('buy');
+      if (selected && phone()) { pay(); return; }
+      message('error', 'Enter your M‑Pesa number to continue.'); if ($('phone').focus) $('phone').focus();
+    };
+    $('close-existing').onclick = function () { existingFromPay = false; showExistingView(); show('buy'); };
+    if (document.addEventListener) document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && !$('existing-section').classList.contains('hidden')) { existingFromPay = false; showExistingView(); show('buy'); }
+    });
+    $('phone').oninput = function () {
+      bypassLookup = false;
+      rememberPayerPhone(phone());
+      // A different payer must never inherit the previous payer's pending
+      // STK request or remain trapped on its router-wait screen.
+      if (checkout && ((!checkout.payerPhone && $('waiting').classList.contains('hidden') === false) ||
+          (checkout.payerPhone && phone() !== checkout.payerPhone))) clearCheckout();
+    };
+    $('buy-tv-start').onclick = tvDetails; $('manage-tv').onclick = tvDetails; $('remove-tv').onclick = removeTv; $('close-tv').onclick = function () { show(current ? 'active' : 'buy'); };
+    $('tv-discover').onclick = loadNearby; $('tv-refresh').onclick = loadNearby; $('tv-manual').onclick = showTvManual; $('tv-manual-from-list').onclick = showTvManual; $('tv-back').onclick = resetTvChooser; $('tv-back-manual').onclick = resetTvChooser; $('tv-continue').onclick = continueNearby; $('add-tv-selected').onclick = addSelectedTv;
+    $('top-up').onclick = function () { stop(); bypassLookup = true; show('buy'); message('error', 'New time will extend the package on this device.'); };
+    $('copy-waiting-recovery').onclick = function () { var code = $('waiting-recovery-code').textContent; if (code && navigator.clipboard) navigator.clipboard.writeText(code).then(function () { message('waiting-recovery-label', 'Copied. Also take a screenshot in case this page closes.'); }).catch(function () {}); };
+    $('copy-recovery').onclick = function () { if (current && current.password && navigator.clipboard) navigator.clipboard.writeText(current.password).then(function () { message('active-error', 'Recovery code copied.'); }).catch(function () { message('active-error', 'Select and copy the recovery code above.'); }); };
+    $('leave-waiting').onclick = function () { stop(); show('buy'); message('error', checkout ? 'Your previous payment is saved. Use Resume payment before making another purchase.' : 'Your package is saved. Use Check my time to reconnect.'); $('resume-payment').classList.toggle('hidden', !checkout); };
+    $('start-new-payment').onclick = function () { clearCheckout(); message('error', 'Start a new payment with the number and package you want.'); };
+    $('resume-payment').onclick = pollPayment;
+    $('year').textContent = String(new Date().getFullYear()); boot();
+  }());
+  </script>
+</body>
+</html>
