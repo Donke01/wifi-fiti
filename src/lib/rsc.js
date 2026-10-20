@@ -122,6 +122,10 @@ function jobToScript(job, hotspotServer) {
       `:if ([:len [/ip hotspot active find where user=$u]] > 0) do={ /ip hotspot active remove [find where user=$u] }\n` +
       `:if ([:len [/ip hotspot cookie find where user=$u]] > 0) do={ /ip hotspot cookie remove [find where user=$u] }\n` +
       `:if ([:len [/ip hotspot user find where name=$u]] > 0) do={ /ip hotspot user remove [find where name=$u] }` +
+      // Remove the stale HotSpot host authorization, not the Wi-Fi association.
+      // The next ordinary HTTP request recreates an unauthenticated host and
+      // can be redirected to the already installed router login page.
+      (tvMac ? `\n:do { /ip hotspot host remove [find where mac-address=${tvMac}] } on-error={}` : '') +
       // A short-lived release connected TVs through RouterOS MAC
       // authentication: an extra user named after the TV's MAC, commented
       // "Wi-Fi Fiti TV <user>". Remove it with the package so it cannot
