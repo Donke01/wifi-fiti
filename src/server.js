@@ -5234,6 +5234,7 @@ app.post('/api/admin/ledger/:phone/rebuild', (req, res) => {
 /* ------------------------------------------------------------------ */
 
 const { buildScript, buildExpiryScript, buildRemoteSupportScript, buildMappedDeploymentScript, tvLoginScript } = require('./lib/rsc');
+const routerReconnect = require('./lib/router-reconnect');
 
 /** Constant-time compare so the token cannot be guessed by timing. */
 function tokenOk(supplied) {
@@ -5907,6 +5908,21 @@ app.post('/api/router/telemetry', (req, res) => {
   try {
     hotspotSessions.recordReport(location, report);
     if (report.devices.length) tenant.recordRouterDeviceEntries(location.id, report.devices);
+    // The paired router (not a customer browser) observed these unauthenticated
+    // MAC/IP pairs on its HotSpot. Pilot auto-reconnect only for active paid
+    // subscriptions already bound to exactly the same device at this location.
+    for (const candidate of routerReconnect.reconnectCandidates({
+      location, report, findSubscription: (id, mac) => tenant.subscriptionByMac.get(id, mac),
+    })) {
+      if (tenant.pendingProvisioningJobForUsername.get(location.id, candidate.subscription.router_username)) continue;
+      const sub = candidate.subscription;
+      tenant.insertJob.run({
+        locationId: location.id, username: sub.router_username, password: sub.password,
+        profile: 'standard', totalSeconds: sub.total_seconds, rateLimit: sub.rate_limit,
+        mac: candidate.mac, ip: candidate.ip, action: 'upsert',
+      });
+      routerReconnect.markAttempt(candidate.key);
+    }
     if (report.resources && Date.now() - (telemetrySampleAt.get(location.id) || 0) >= 50_000) {
       const sample = tenant.recordRouterTelemetry({ locationId: location.id, ...report.resources,
         activeUsers: report.customersOnline });
