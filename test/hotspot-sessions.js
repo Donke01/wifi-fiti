@@ -83,6 +83,15 @@ async function api(endpoint, { method = 'GET', body, token, routerToken, text } 
   const later = (seconds) => { offset += seconds * 1000; Date.now = () => realNow() + offset; };
 
   console.log('\nThe report block in the check-in reply');
+  await test('router telemetry reports an applied login-template version without credentials', () => {
+    const sample = sessions.parseReport('fiti-telemetry-v1\nver|v2\nres|8|100|200|45|10|20|0\n');
+    assert.equal(sample.loginTemplateVersion, 'v2');
+    assert.equal(sessions.parseReport('fiti-telemetry-v1\nver|invalid;script\n').loginTemplateVersion, null);
+    const source = sessions.telemetryReplyScript();
+    assert.match(source, /:global fitiRouterLoginVersion/);
+    assert.match(source, /ver\|/);
+    assert.doesNotMatch(source, /fitiToken \./, 'telemetry version excludes router secrets');
+  });
   await test('it only reads, posts with the router header, and reuses the poll\'s TLS setting', () => {
     const script = sessions.telemetryReplyScript();
     assert.match(script, /\/ip hotspot active find/);
