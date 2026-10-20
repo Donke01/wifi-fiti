@@ -1,6 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { reconnectCandidates, optedIn, markAttempt } = require('../src/lib/router-reconnect');
+const { jobToScript } = require('../src/lib/rsc');
 const location = { id: 'loc-test' }, now = Date.now();
 const paid = { location_id: location.id, mac: 'AA:BB:CC:DD:EE:01', router_username:'254712345678',
   password:'TEST-ONLY', device_type:'phone', total_seconds: 3600,
@@ -21,4 +22,15 @@ assert.equal(reconnectCandidates({location,report,findSubscription:get,now,enabl
 markAttempt('loc-test:'+paid.mac,now);
 assert.equal(reconnectCandidates({location,report,findSubscription:get,now:now+1000,enabled:true}).length,0,'cooldown avoids poll flooding');
 assert.equal(reconnectCandidates({location,report,findSubscription:get,now:now+91000,enabled:true}).length,1,'retry after cooldown');
+assert.equal(reconnectCandidates({location,report,findSubscription:()=>({...paid,expires_at:new Date(now+15000).toISOString()}),now,enabled:true}).length,0,
+  'do not queue delayed auth when time will expire before dispatch');
+const safeJob = { id: 1, action:'reconnect', username:'254712345678', password:'PUECV9',
+  profile:'standard', mac:paid.mac, ip:'10.5.50.34', total_seconds:3600 };
+const script = jobToScript(safeJob, 'hotspot1');
+assert.match(script, /hotspot host find where mac-address=\$m and address=\$i/, 'uses live bound host');
+assert.match(script, /hotspot user get \$user mac-address/, 'user must be MAC-bound');
+assert.match(script, /hotspot active login user=\$u password=\$p ip=\$i/, 'logs in only the matched IP');
+assert.doesNotMatch(script, /hotspot user (add|set)|limit-uptime=/, 'a reconnect cannot create or extend service');
+assert.doesNotMatch(script, /hotspot active login user=\$u password=\$p\s*\}/, 'no credential-only fallback');
+assert.equal(jobToScript({...safeJob, ip:'10.5.50.34;:log error'}, 'hotspot1'),null,'reject injection');
 console.log('Router-verified reconnect candidate checks passed.');
