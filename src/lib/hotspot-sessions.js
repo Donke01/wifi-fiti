@@ -87,7 +87,7 @@ function ipv4(value) {
 function parseReport(raw) {
   const lines = String(typeof raw === 'string' ? raw : '').split('\n').map((line) => line.trim()).filter(Boolean);
   if (lines[0] !== 'fiti-telemetry-v1') return null;
-  const report = { resources: null, sessions: [], devices: [], activeCount: null, listed: 0 };
+  const report = { resources: null, sessions: [], devices: [], activeCount: null, listed: 0, loginTemplateVersion: null };
   for (const line of lines.slice(1)) {
     const parts = line.split('|');
     if (parts[0] === 'res' && !report.resources) {
@@ -96,6 +96,8 @@ function parseReport(raw) {
         rxBytes: parts[5], txBytes: parts[6],
       };
       report.activeCount = count(parts[7], 100000);
+    } else if (parts[0] === 'ver' && !report.loginTemplateVersion) {
+      if (/^v[0-9]{1,3}$/.test(parts[1] || '')) report.loginTemplateVersion = parts[1];
     } else if (parts[0] === 'sess' && report.listed < MAX_SESSIONS) {
       report.listed += 1;
       // Only Wi-Fi Fiti customers; the owner's own hotspot logins are skipped.
@@ -302,7 +304,11 @@ function telemetryReplyScript() {
     '  :global fitiSite',
     '  :global fitiToken',
     '  :global fitiBridge',
+    '  :global fitiRouterLoginVersion',
     '  :local fitiTmOut "fiti-telemetry-v1\\n"',
+    '  :local fitiTmVersion ""',
+    '  :do { :if ([:typeof $fitiRouterLoginVersion] = "str") do={ :set fitiTmVersion $fitiRouterLoginVersion } } on-error={}',
+    '  :set fitiTmOut ($fitiTmOut . "ver|" . $fitiTmVersion . "\\n")',
     '  :local fitiTmCpu ""',
     '  :local fitiTmFree ""',
     '  :local fitiTmTotal ""',
