@@ -4211,10 +4211,13 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   // customer already saved. A new (or ended) package uses the code the
   // portal showed while the customer entered their PIN, because the captive
   // window usually closes the moment the phone goes online.
-  const password = existing && subscriptionLive(existing)
+  const continuingPackage = Boolean(existing && subscriptionLive(existing));
+  const password = continuingPackage
     ? existing.password
-    : (validRecoveryCode(transaction.recovery_code) || existing?.password || generatePassword());
-  const totalSeconds = (existing?.total_seconds || 0) + transaction.seconds;
+    : (validRecoveryCode(transaction.recovery_code) || generatePassword());
+  // An expired package is a fresh sale, not a top-up to its historical
+  // RouterOS cumulative uptime. Its old RouterOS user must also be reset.
+  const totalSeconds = (continuingPackage ? existing.total_seconds : 0) + transaction.seconds;
   // A top-up follows the package the customer selected. A blank speed means
   // return to the normal RouterOS profile rather than retain an old per-user
   // limit invisibly.
@@ -4223,13 +4226,22 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   const expiresAt = nowSql(Math.max(Date.now(), Number.isFinite(oldExpiry) ? oldExpiry : 0) + transaction.seconds * 1000);
   upsertSubscription.run({ id, businessId: transaction.business_id, locationId: transaction.location_id,
     routerUsername, payerPhone: transaction.phone, mac: transaction.mac, password, totalSeconds, rateLimit, expiresAt });
+  if (existing && !continuingPackage) {
+    db.prepare("UPDATE tenant_subscriptions SET used_seconds=0, is_active=0 WHERE id=? AND location_id=?")
+      .run(id, transaction.location_id);
+    // Old browser capabilities must not grant access to a newly purchased
+    // package just because its subscription row was reused.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenant_browser_sessions'").get()) {
+      db.prepare("DELETE FROM tenant_browser_sessions WHERE subscription_id=?").run(id);
+    }
+  }
   setSubscriptionDevice.run({ id, locationId: transaction.location_id, deviceType,
     deviceLabel: normaliseDeviceLabel(transaction.device_label, deviceType) });
   meterDevice.run(transaction.business_id, transaction.mac);
   const job = insertJob.run({ locationId: transaction.location_id, username: routerUsername, password, profile,
     totalSeconds, rateLimit, mac: transaction.mac,
     ip: deviceType === 'tv' ? null : (transaction.ip || null),
-    action: deviceType === 'tv' ? 'tv-upsert' : 'upsert' });
+    action: existing && !continuingPackage ? 'fresh-start' : (deviceType === 'tv' ? 'tv-upsert' : 'upsert') });
   // A top-up must refresh the TV's RouterOS ceiling too. Otherwise the
   // phone receives the extension but its paired TV disconnects early.
   for (const device of devicesForSubscription.all(transaction.location_id, id)) {
