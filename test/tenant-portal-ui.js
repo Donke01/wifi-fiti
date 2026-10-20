@@ -9,6 +9,16 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '../public/tenant-portal.html'), 'utf8');
+assert.match(html, /id="pay-amount"/, 'selected package price is visible next to the M-Pesa action');
+assert.match(html, /class="pay-group"/, 'phone entry and payment button belong to one purchase section');
+assert.match(html, /<details class="card payment-recovery"/, 'recovery does not dominate new purchases');
+assert.match(html, /remaining <= 0\) \{ clearInterval\(clockTimer\)/,
+  'expired sessions stop rendering the active countdown and return to package selection');
+assert.match(html, /session\.authenticated && session\.remainingSeconds <= 0/,
+  'expired cached sessions cannot reopen the active screen after reload');
+assert.match(html, /Your payment is safe\. Use your saved Wi-Fi recovery code/,
+  'known but unauthenticated devices are told not to purchase twice');
+
 assert.match(html, /#buy > \.copy\{display:none\}\n\s*#buy > \.copy\.owner-message\{display:block;text-align:center\}/, 'only an owner-written message shows above the packages');
 assert.match(html, /body\[data-portal-background="midnight"\] \.brand-name\{color:#fff\}/, 'the business name stays readable on the midnight background');
 assert.match(html, /body\[data-portal-align="left"\] :is\(\.brand,#buy > h1,\.recovery-jump\)\{text-align:left\}/,
