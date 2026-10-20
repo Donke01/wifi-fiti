@@ -1089,8 +1089,7 @@
         }
         var session = await api('/session?mac=' + encodeURIComponent(mac));
         if (session.authenticated && session.remainingSeconds <= 0) {
-          show('buy');
-          message('error', 'Your Wi-Fi package has expired. Choose a new plan to reconnect.');
+          showExpiredPurchase();
           return;
         }
         if (session.authenticated) {
