@@ -4436,7 +4436,7 @@ function queueExpiredSubscriptions(locationId) {
   for (const subscription of expired) {
     const job = insertJob.run({ locationId, username: subscription.router_username, password: '2222',
       profile: 'standard', totalSeconds: 1, rateLimit: null,
-      mac: subscription.device_type === 'tv' ? subscription.mac : null, ip: null, action: 'revoke' });
+      mac: subscription.mac || null, ip: null, action: 'revoke' });
     // A TV has its own RouterOS identity and therefore its own local uptime
     // counter. Revoke it alongside the phone so a TV cannot outlive the
     // server's wall-clock expiry.
