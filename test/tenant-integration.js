@@ -787,6 +787,23 @@ async function main() {
     database.prepare("DELETE FROM business_c2b_settings WHERE shortcode='600555'").run();
   });
 
+  await test('customer portal v2 is served only to opted-in locations', async () => {
+    const portal = '/p/' + alpha.location.id;
+    delete process.env.FITI_PORTAL_V2_LOCATIONS;
+    const legacy = await api(portal);
+    assert.equal(legacy.status, 200);
+    assert.match(legacy.text, /BROWSE PACKAGES/, 'legacy customer UI stays unchanged by default');
+    process.env.FITI_PORTAL_V2_LOCATIONS = alpha.location.id;
+    try {
+      const redesigned = await api(portal);
+      assert.equal(redesigned.status, 200);
+      assert.match(redesigned.text, /Choose your Wi-Fi/, 'pilot location gets premium funnel');
+      assert.match(redesigned.text, /id="returning-device"/, 'reconnect state is part of v2');
+    } finally { delete process.env.FITI_PORTAL_V2_LOCATIONS; }
+    const restored = await api(portal);
+    assert.match(restored.text, /BROWSE PACKAGES/, 'removing flag rolls back with no router change');
+  });
+  process.env.FITI_EXPIRY_V2_LOCATIONS = alpha.location.id;
   await test('a phone package expires through router sync without generating repeated revoke jobs', async () => {
     const granted = await voucher(alpha, 'AA:BB:CC:00:00:50', '254712000050');
     const deviceRequest = { phone: '0712000050', subscriptionId: granted.subscriptionId,
@@ -807,6 +824,8 @@ async function main() {
     assert.equal(expired.ids.length, 1);
     assert.ok(expired.script.includes(`:local u "${granted.username}"`));
     assert.ok(expired.script.includes('/ip hotspot active remove'));
+    assert.ok(expired.script.includes('/ip hotspot host remove [find where mac-address=AA:BB:CC:00:00:50]'),
+      'the expired phone is reclassified as an unauthenticated hotspot host without disconnecting Wi-Fi');
     assert.equal((await api(endpoint(alpha.location, 'session?mac=AA:BB:CC:00:00:50'))).body.found, false);
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'delivery waits for the acknowledgement window before retrying');
     database.prepare("UPDATE tenant_jobs SET delivered_at=datetime('now','-61 seconds') WHERE location_id=? AND acked_at IS NULL").run(alpha.location.id);
@@ -817,6 +836,32 @@ async function main() {
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'acknowledged expiry is not emitted forever');
   });
 
+  await test('a new sale after expiry resets RouterOS uptime and cannot inherit the old browser capability', async () => {
+    const deviceMac = 'AA:BB:CC:00:00:5A';
+    const first = await voucher(alpha, deviceMac, '254712000059');
+    const firstRow = database.prepare('SELECT * FROM tenant_subscriptions WHERE id=?').get(first.subscriptionId);
+    const firstJob = await routerSync(alpha.location);
+    await routerSync(alpha.location, { ack: firstJob.ids });
+    database.prepare("UPDATE tenant_subscriptions SET expires_at=datetime('now','-2 seconds'), expiry_job_id=NULL WHERE id=?")
+      .run(first.subscriptionId);
+    const ended = await routerSync(alpha.location);
+    await routerSync(alpha.location, { ack: ended.ids });
+    const second = await voucher(alpha, deviceMac, '254712000059');
+    const renewed = database.prepare('SELECT * FROM tenant_subscriptions WHERE id=?').get(first.subscriptionId);
+    assert.ok(renewed, 'same MAC may reuse its subscription row for receipts');
+    assert.equal(renewed.total_seconds, Number(alpha.package.seconds), 'expired packages must not add prior consumed uptime');
+    assert.equal(renewed.used_seconds, 0, 'new cycle starts with no previous usage');
+    assert.notEqual(renewed.password, firstRow.password, 'new cycle rotates the recovery code');
+    const applied = await routerSync(alpha.location);
+    assert.match(applied.script, /\/ip hotspot user remove/, 'RouterOS cumulative uptime is reset before the new grant');
+    assert.match(applied.script, /limit-uptime=/, 'new grant contains a fresh paid allowance');
+    const oldSession = await api(endpoint(alpha.location, 'session?mac=' + deviceMac), {
+      sessionToken: first.sessionToken,
+    });
+    assert.notEqual(oldSession.body.authenticated, true, 'expired browser credentials cannot open newly paid time');
+    await routerSync(alpha.location, { ack: applied.ids });
+  });
+  delete process.env.FITI_EXPIRY_V2_LOCATIONS;
   await test('a portal design saved with the dropped rounded font is served as modern', async () => {
     database.prepare(`INSERT INTO tenant_portal_templates(id,business_id,name,layout,accent_color,font_family,active) VALUES('tpl_old_rounded',?,'Old rounded','classic','#1769D8','rounded',1)`)
       .run(alpha.business.id);
