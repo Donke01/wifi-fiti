@@ -1613,6 +1613,10 @@ const insertJob = db.prepare(`
   INSERT INTO tenant_jobs (location_id, username, password, profile, total_seconds, rate_limit, mac, ip, action)
   VALUES (@locationId, @username, @password, @profile, @totalSeconds, @rateLimit, @mac, @ip, @action)
 `);
+// Expire short-lived router-observed reconnect intents before processing them.
+const expireStaleReconnectJobs = db.prepare(`UPDATE tenant_jobs SET acked_at=datetime('now')
+  WHERE location_id=? AND action='reconnect' AND acked_at IS NULL
+    AND created_at < datetime('now','-20 seconds')`);
 const pendingJobs = db.prepare(`
   SELECT * FROM tenant_jobs j WHERE location_id=? AND acked_at IS NULL
     -- Retry a lost poll response quickly enough for payment provisioning.
@@ -1636,7 +1640,7 @@ const jobById = db.prepare(`SELECT j.id, j.location_id, j.acked_at
 const pendingProvisioningJobForUsername = db.prepare(`
   SELECT id, action FROM tenant_jobs
    WHERE location_id=? AND username=? AND acked_at IS NULL
-     AND action IN ('upsert', 'transfer', 'tv-upsert')
+     AND action IN ('upsert', 'transfer', 'tv-upsert', 'reconnect')
      AND id=(SELECT MAX(newer.id) FROM tenant_jobs newer WHERE newer.location_id=tenant_jobs.location_id
        AND newer.username=tenant_jobs.username)
    ORDER BY id DESC LIMIT 1
@@ -4701,7 +4705,7 @@ module.exports = {
   setTransactionResult, setTransactionTerms, setTransactionPortalCapability, setTransactionProvisioned, staleTransactions, paidUnprovisioned, duplicateReceipt,
   subscriptionByMac, subscriptionsForPayer, subscriptionById, subscriptionForPayer, latestPaidTransactionForSubscription, setSubscriptionMac,
   grantSubscription, provisionPaidTransaction, createPaymentClaim, claimPaymentDevice, recordUsage, expiredSubscriptions, activeMeter,
-  insertJob, pendingJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
+  insertJob, pendingJobs, expireStaleReconnectJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
   transferSubscription, removeTvDevice, linkedTvForMac, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,
   issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions, salesByPackage,
