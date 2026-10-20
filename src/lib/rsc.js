@@ -115,6 +115,36 @@ function jobToScript(job, hotspotServer) {
   if (job.action === 'offboard-reset') {
     return ':delay 1s\n/system reset-configuration no-defaults=yes skip-backup=yes';
   }
+  if (job.action === 'reconnect') {
+    const mac = safe('mac', job.mac || '');
+    const ip = safe('ip', job.ip || '');
+    const password = safe('password', job.password);
+    if (!username || !mac || !ip || !password) return null;
+    // The router must still observe exactly this unauthenticated host at
+    // execution time. Never recreate users or reset their paid uptime.
+    return [
+      ':do {',
+      `  :local u "${username}"`,
+      `  :local p "${password}"`,
+      `  :local m "${mac}"`,
+      `  :local i "${ip}"`,
+      '  :local hosts [/ip hotspot host find where mac-address=$m and address=$i]',
+      '  :local sameIp [/ip hotspot host find where address=$i]',
+      '  :local users [/ip hotspot user find where name=$u]',
+      '  :if (([:len $hosts] = 1) && ([:len $sameIp] = 1) && ([:len $users] = 1)) do={',
+      '    :local host [:pick $hosts 0]',
+      '    :local user [:pick $users 0]',
+      '    :if (([/ip hotspot host get $host authorized] != true) &&',
+      '        ([/ip hotspot user get $user disabled] = false) &&',
+      '        ([/ip hotspot user get $user mac-address] = $m) &&',
+      '        ([:len [/ip hotspot active find where user=$u]] = 0) &&',
+      '        ([:len [/ip hotspot active find where mac-address=$m]] = 0)) do={',
+      '      :do { /ip hotspot active login user=$u password=$p ip=$i } on-error={}',
+      '    }',
+      '  }',
+      '} on-error={}',
+    ].join('\n');
+  }
   if (job.action === 'revoke') {
     if (!username) return null;
     const tvMac = safe('mac', job.mac || '');
