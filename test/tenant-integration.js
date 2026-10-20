@@ -765,6 +765,31 @@ async function main() {
     assert.deepEqual((await routerSync(alpha.location)).ids, [], 'acknowledged expiry is not emitted forever');
   });
 
+  await test('a new sale after expiry resets RouterOS uptime and cannot inherit the old browser capability', async () => {
+    const deviceMac = 'AA:BB:CC:00:00:5A';
+    const first = await voucher(alpha, deviceMac, '254712000059');
+    const firstRow = database.prepare('SELECT * FROM tenant_subscriptions WHERE id=?').get(first.subscriptionId);
+    const firstJob = await routerSync(alpha.location);
+    await routerSync(alpha.location, { ack: firstJob.ids });
+    database.prepare("UPDATE tenant_subscriptions SET expires_at=datetime('now','-2 seconds'), expiry_job_id=NULL WHERE id=?")
+      .run(first.subscriptionId);
+    const ended = await routerSync(alpha.location);
+    await routerSync(alpha.location, { ack: ended.ids });
+    const second = await voucher(alpha, deviceMac, '254712000059');
+    const renewed = database.prepare('SELECT * FROM tenant_subscriptions WHERE id=?').get(first.subscriptionId);
+    assert.ok(renewed, 'same MAC may reuse its subscription row for receipts');
+    assert.equal(renewed.total_seconds, Number(alpha.package.seconds), 'expired packages must not add prior consumed uptime');
+    assert.equal(renewed.used_seconds, 0, 'new cycle starts with no previous usage');
+    assert.notEqual(renewed.password, firstRow.password, 'new cycle rotates the recovery code');
+    const applied = await routerSync(alpha.location);
+    assert.match(applied.script, /\/ip hotspot user remove/, 'RouterOS cumulative uptime is reset before the new grant');
+    assert.match(applied.script, /limit-uptime=/, 'new grant contains a fresh paid allowance');
+    const oldSession = await api(endpoint(alpha.location, 'session?mac=' + deviceMac), {
+      sessionToken: first.sessionToken,
+    });
+    assert.notEqual(oldSession.body.authenticated, true, 'expired browser credentials cannot open newly paid time');
+    await routerSync(alpha.location, { ack: applied.ids });
+  });
   await test('a portal design saved with the dropped rounded font is served as modern', async () => {
     database.prepare(`INSERT INTO tenant_portal_templates(id,business_id,name,layout,accent_color,font_family,active) VALUES('tpl_old_rounded',?,'Old rounded','classic','#1769D8','rounded',1)`)
       .run(alpha.business.id);
