@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const html = fs.readFileSync(path.join(__dirname, '../public/tenant-portal.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/tenant-portal.html'), 'utf8').replace(/\r\n/g, '\n');
 assert.match(html, /#buy > \.copy\{display:none\}\n\s*#buy > \.copy\.owner-message\{display:block;text-align:center\}/, 'only an owner-written message shows above the packages');
 assert.match(html, /body\[data-portal-background="midnight"\] \.brand-name\{color:#fff\}/, 'the business name stays readable on the midnight background');
 assert.match(html, /body\[data-portal-align="left"\] :is\(\.brand,#buy > h1,\.recovery-jump\)\{text-align:left\}/,

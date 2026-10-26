@@ -658,15 +658,88 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
   legacy.db.prepare(`UPDATE tenant_subscriptions
     SET expires_at=datetime('now', '-1 second'), expiry_job_id=NULL WHERE id=?`).run(firstGrant.id);
   assert.strictEqual(tenant.queueExpiredSubscriptions(alpha.id), 1);
-  const expiryRevokes = legacy.db.prepare(`SELECT username FROM tenant_jobs
+  const expiryRevokes = legacy.db.prepare(`SELECT username, mac FROM tenant_jobs
     WHERE location_id=? AND action='revoke' AND username IN (?, ?)
     ORDER BY username`).all(alpha.id, firstGrant.username, `${firstGrant.username}-tv`);
   assert.deepStrictEqual(expiryRevokes.map((job) => job.username),
     [firstGrant.username, `${firstGrant.username}-tv`].sort());
+  assert.strictEqual(expiryRevokes.find((job) => job.username === firstGrant.username).mac, mac,
+    'a phone expiry must remove its MAC host/cookie authorisation in every rollout state');
   assert.strictEqual(tenant.queueExpiredSubscriptions(alpha.id), 0,
     'an expired subscription must not create revoke jobs on every router poll');
   assert.strictEqual(tenant.removeTvDevice({ locationId: alpha.id, payerPhone: phone, subscriptionId: firstGrant.id,
     password: firstGrant.password, mac: 'AA:BB:CC:DD:EE:99' }), true);
+
+  // A purchase that follows an expiry revoke must win both before and after
+  // the revoke was handed to RouterOS. Queue ordering covers an undelivered
+  // retry; the RouterOS generation guard covers an already delivered script
+  // that executes only after the renewal.
+  const renewalMac = 'AA:BB:CC:DD:EE:5B';
+  const renewalPayment = addPaidTransaction({
+    checkoutRequestId: 'tenant-payment-renewal-first', businessId: 'business-a', locationId: alpha.id,
+    packageId: alphaPackageId, packageName: 'Ten minutes', amount: 10, seconds: 600, rateLimit: null,
+    phone: '254712000059', mac: renewalMac,
+  });
+  const renewalFirst = tenant.grantSubscription({ transaction: renewalPayment });
+  legacy.db.prepare(`UPDATE tenant_subscriptions SET expires_at=datetime('now', '-1 second'), expiry_job_id=NULL WHERE id=?`)
+    .run(renewalFirst.id);
+  assert.strictEqual(tenant.queueExpiredSubscriptions(alpha.id), 1);
+  const deliveredExpiryRevoke = legacy.db.prepare(`SELECT * FROM tenant_jobs
+    WHERE location_id=? AND username=? AND action='revoke' ORDER BY id DESC LIMIT 1`)
+    .get(alpha.id, renewalFirst.username);
+  assert.match(deliveredExpiryRevoke.cycle_token, /^[a-f0-9]{32}$/,
+    'the ending package must bind its expiry revoke to its RouterOS cycle');
+  tenant.markDelivered.run(deliveredExpiryRevoke.id);
+  process.env.FITI_EXPIRY_V2_LOCATIONS = alpha.id;
+  try {
+    const renewalPaymentAgain = addPaidTransaction({
+      checkoutRequestId: 'tenant-payment-renewal-second', businessId: 'business-a', locationId: alpha.id,
+      packageId: alphaPackageId, packageName: 'Ten minutes', amount: 10, seconds: 600, rateLimit: null,
+      phone: '254712000059', mac: renewalMac,
+    });
+    const renewal = tenant.grantSubscription({ transaction: renewalPaymentAgain });
+    assert.strictEqual(renewal.id, renewalFirst.id);
+    const pendingRenewal = tenant.pendingJobs.all(alpha.id).filter((job) => job.username === renewal.username);
+    assert.deepStrictEqual(pendingRenewal.map((job) => job.action), ['fresh-start'],
+      'the fresh grant supersedes the old expiry revoke until the router acknowledges it');
+    const renewedSubscription = tenant.subscriptionById.get(renewal.id, alpha.id);
+    assert.notStrictEqual(renewedSubscription.cycle_token, deliveredExpiryRevoke.cycle_token,
+      'fresh-start must rotate the package cycle before the router sees it');
+    const freshStartJob = legacy.db.prepare(`SELECT * FROM tenant_jobs
+      WHERE location_id=? AND username=? AND action='fresh-start' ORDER BY id DESC LIMIT 1`)
+      .get(alpha.id, renewal.username);
+    const { jobToScript } = require('../src/lib/rsc');
+    const staleRevokeScript = jobToScript(deliveredExpiryRevoke, 'hotspot1');
+    const freshStartScript = jobToScript(freshStartJob, 'hotspot1');
+    const legacyRevokeScript = jobToScript({ ...deliveredExpiryRevoke, cycle_token: null }, 'hotspot1');
+    const routerCommentFor = (token) => `Wi-Fi Fiti subscription ${token}`;
+    const revokeWouldAct = (script, routerComment) => {
+      const token = /:local fitiCycle "([a-f0-9]{32})"/.exec(script);
+      return Boolean(token && routerComment === routerCommentFor(token[1]));
+    };
+    assert.ok(staleRevokeScript.indexOf('comment] = ("Wi-Fi Fiti subscription " . $fitiCycle)') <
+      staleRevokeScript.indexOf('/ip hotspot active remove'),
+    'the destructive revoke commands must be inside the RouterOS cycle predicate');
+    assert.ok(freshStartScript.includes(routerCommentFor(renewedSubscription.cycle_token)),
+      'fresh-start writes the renewed cycle token onto the RouterOS user');
+    assert.strictEqual(revokeWouldAct(staleRevokeScript, routerCommentFor(renewedSubscription.cycle_token)), false,
+      'a revoke delivered before renewal must do nothing when it executes after fresh-start');
+    assert.strictEqual(revokeWouldAct(staleRevokeScript, routerCommentFor(deliveredExpiryRevoke.cycle_token)), true,
+      'the same revoke still removes the account when the expired package is current');
+    const legacyRevokeWouldAct = (script, routerComment) => {
+      assert.match(script, /fitiLegacyProtected/,
+        'a tokenless pre-release revoke must gain the runtime upgrade guard');
+      return !String(routerComment).includes('Wi-Fi Fiti subscription ');
+    };
+    assert.ok(legacyRevokeScript.indexOf('fitiLegacyProtected') < legacyRevokeScript.indexOf('/ip hotspot active remove'),
+      'a tokenless revoke must check for the renewed marker before deleting access');
+    assert.strictEqual(legacyRevokeWouldAct(legacyRevokeScript, routerCommentFor(renewedSubscription.cycle_token)), false,
+      'a delivered tokenless revoke from before this release cannot remove a renewed account');
+    assert.strictEqual(legacyRevokeWouldAct(legacyRevokeScript, ''), true,
+      'the same tokenless revoke still expires an unchanged legacy account');
+  } finally {
+    delete process.env.FITI_EXPIRY_V2_LOCATIONS;
+  }
 
   // A TV still linked to a phone package that has ended is not held by it:
   // buying the TV its own package drops the stale link. While the phone
