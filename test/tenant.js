@@ -711,6 +711,7 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
     const { jobToScript } = require('../src/lib/rsc');
     const staleRevokeScript = jobToScript(deliveredExpiryRevoke, 'hotspot1');
     const freshStartScript = jobToScript(freshStartJob, 'hotspot1');
+    const legacyRevokeScript = jobToScript({ ...deliveredExpiryRevoke, cycle_token: null }, 'hotspot1');
     const routerCommentFor = (token) => `Wi-Fi Fiti subscription ${token}`;
     const revokeWouldAct = (script, routerComment) => {
       const token = /:local fitiCycle "([a-f0-9]{32})"/.exec(script);
@@ -725,6 +726,17 @@ function addPaidTransaction({ checkoutRequestId, businessId, locationId, package
       'a revoke delivered before renewal must do nothing when it executes after fresh-start');
     assert.strictEqual(revokeWouldAct(staleRevokeScript, routerCommentFor(deliveredExpiryRevoke.cycle_token)), true,
       'the same revoke still removes the account when the expired package is current');
+    const legacyRevokeWouldAct = (script, routerComment) => {
+      assert.match(script, /fitiLegacyProtected/,
+        'a tokenless pre-release revoke must gain the runtime upgrade guard');
+      return !String(routerComment).includes('Wi-Fi Fiti subscription ');
+    };
+    assert.ok(legacyRevokeScript.indexOf('fitiLegacyProtected') < legacyRevokeScript.indexOf('/ip hotspot active remove'),
+      'a tokenless revoke must check for the renewed marker before deleting access');
+    assert.strictEqual(legacyRevokeWouldAct(legacyRevokeScript, routerCommentFor(renewedSubscription.cycle_token)), false,
+      'a delivered tokenless revoke from before this release cannot remove a renewed account');
+    assert.strictEqual(legacyRevokeWouldAct(legacyRevokeScript, ''), true,
+      'the same tokenless revoke still expires an unchanged legacy account');
   } finally {
     delete process.env.FITI_EXPIRY_V2_LOCATIONS;
   }

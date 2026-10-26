@@ -172,7 +172,26 @@ function jobToScript(job, hotspotServer) {
       (tvMac ? `\n:local fitiTvMac "${tvMac}"\n:local fitiTvUser [/ip hotspot user find where name=$fitiTvMac]\n` +
         `:if ([:len $fitiTvUser] = 1) do={ :if ([/ip hotspot user get $fitiTvUser comment] = ("Wi-Fi Fiti TV " . $u)) do={ ` +
         `:do { /ip hotspot active remove [find where user=$fitiTvMac] } on-error={}; /ip hotspot user remove $fitiTvUser } }` : '');
-    if (!safeCycleToken) return `:local u "${username}"\n${removal}`;
+    if (!safeCycleToken) {
+      // Pre-release revoke jobs did not carry a cycle token. They can still
+      // safely remove an unchanged legacy account, but must yield if they
+      // execute after this release has created a renewed, marked identity.
+      // This closes the upgrade window for a revoke already delivered by the
+      // previous server version.
+      return [
+        `:local u "${username}"`,
+        ':local fitiLegacyUsers [/ip hotspot user find where name=$u]',
+        ':local fitiLegacyProtected false',
+        ':if ([:len $fitiLegacyUsers] = 1) do={',
+        '  :local fitiLegacyUser [:pick $fitiLegacyUsers 0]',
+        '  :local fitiLegacyComment [/ip hotspot user get $fitiLegacyUser comment]',
+        '  :if ([:typeof [:find $fitiLegacyComment "Wi-Fi Fiti subscription "]] != "nil") do={ :set fitiLegacyProtected true }',
+        '}',
+        ':if ($fitiLegacyProtected) do={ :log info "Wi-Fi Fiti: skipping legacy revoke after renewal" } else={',
+        ...removal.split('\n').map((line) => `  ${line}`),
+        '}',
+      ].join('\n');
+    }
     return [
       `:local u "${username}"`,
       `:local fitiCycle "${safeCycleToken}"`,

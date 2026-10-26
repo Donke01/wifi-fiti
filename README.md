@@ -638,6 +638,13 @@ DNS/certificate pair. Restore the recorded profile values manually if that
 router did not start with empty DNS name and no profile certificate; verify
 the restored file and profile before clearing the rollback flag.
 
+Discovery setup is best-effort: a missing certificate, conflicting local DNS
+record, or missing original API file is logged and retried on the next poll;
+it never cancels payment, expiry, or acknowledgement jobs in that reply.
+Tokenless revokes delivered by a pre-upgrade server remain safe during the
+transition: they remove only an unchanged legacy RouterOS user and skip an
+account carrying a newer Wi-Fi Fiti package-cycle comment.
+
 Acceptance requires an expiry test with Wi-Fi left connected and the captive
 assistant/browser closed: after expiry, try ordinary HTTP and HTTPS and
 record the OS sign-in behaviour, HTTP payment redirect, and exact customer

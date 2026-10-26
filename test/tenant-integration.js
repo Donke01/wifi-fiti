@@ -475,6 +475,7 @@ async function main() {
       process.env.FITI_CAPTIVE_DISCOVERY_DNS_NAME = 'router-pilot.example.test';
       process.env.FITI_CAPTIVE_DISCOVERY_CERTIFICATE = 'router-pilot.example.test';
       try {
+        const paidDuringDiscovery = await voucher(alpha, 'AA:BB:CC:00:00:4F', '254712000049');
         const discovery = await routerSync(alpha.location, {
           portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
         });
@@ -490,6 +491,21 @@ async function main() {
           'CAPPORT is placed in the selected HotSpot HTML directory');
         assert.match(discovery.script, /\/file copy \$fitiApiJson name=\$fitiApiBackup/,
           'the router saves its previous api.json before CAPPORT replaces it');
+        assert.match(discovery.script, /:onerror fitiDiscoveryError in=\{/,
+          'a missing certificate, conflicting DNS record, or missing api.json is contained locally');
+        assert.match(discovery.script, /:error "certificate is unavailable"/,
+          'the contained setup block still reports the certificate failure that triggers its retry');
+        assert.match(discovery.script, /fiti: captive discovery deferred:/,
+          'a discovery setup failure is recorded in the router log instead of aborting the poll');
+        assert.match(discovery.script, new RegExp(`:local u "${paidDuringDiscovery.username}"`),
+          'a pending paid grant is appended even when the preceding discovery setup fails at runtime');
+        assert.ok(discovery.script.indexOf('} do={ :log warning ("fiti: captive discovery deferred: " . $fitiDiscoveryError) }') <
+          discovery.script.indexOf(`:local u "${paidDuringDiscovery.username}"`),
+        'the discovery error handler completes before customer provisioning starts');
+        assert.match(discovery.script, /:if \(\$fitiDiscoveryReady\) do=\{ :set fitiRouterLoginVersion "v3" \}/,
+          'a failed discovery attempt does not acknowledge v3, so the next router poll retries it');
+        assert.ok(discovery.ids.length >= 1,
+          'the paid grant remains deliverable alongside the failed optional discovery setup');
         assert.doesNotMatch(discovery.script, /dns-name=""/,
           'the discovery reconciliation does not clear its own hostname');
         const captiveApi = await api('/api/tenant/' + alpha.location.id + '/router-captive-api', {
@@ -500,6 +516,7 @@ async function main() {
         assert.match(captiveApi.text, /"captive"/);
         assert.doesNotMatch(captiveApi.text, /seconds-remaining/,
           'the API does not confuse a RouterOS counter with absolute purchased time');
+        await routerSync(alpha.location, { ack: discovery.ids });
 
         delete process.env.FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS;
         process.env.FITI_CAPTIVE_DISCOVERY_ROLLBACK_LOCATIONS = alpha.location.id;

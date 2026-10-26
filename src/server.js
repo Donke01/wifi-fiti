@@ -328,53 +328,63 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     '    :local fitiHtmlDir [/ip hotspot profile get [find where name=$fitiProfile] html-directory]',
     '    :if ([:len $fitiHtmlDir] = 0) do={ :set fitiHtmlDir "hotspot" }',
     ...(discovery.mode === 'enabled' ? [
-      `    :local fitiDiscoveryCertificate [/certificate find where name="${discovery.certificate}"]`,
-      '    :if ([:len $fitiDiscoveryCertificate] != 1) do={ :error "fiti: captive discovery certificate is unavailable" }',
-      `    :local fitiDiscoveryDnsEntries [/ip dns static find where name="${discovery.dnsName}"]`,
-      `    :local fitiDiscoveryManagedDns [/ip dns static find where name="${discovery.dnsName}" and comment="Wi-Fi Fiti CAPPORT discovery"]`,
-      '    :if (([:len $fitiDiscoveryDnsEntries] > 0) && ([:len $fitiDiscoveryManagedDns] = 0)) do={ :error "fiti: captive discovery DNS name is owned by another record" }',
-      '    :local fitiDiscoveryAddress [/ip hotspot profile get [find where name=$fitiProfile] hotspot-address]',
-      '    :if ([:len $fitiDiscoveryAddress] = 0) do={ :error "fiti: captive discovery HotSpot address is unavailable" }',
-      `    :if ([:len $fitiDiscoveryManagedDns] = 0) do={ /ip dns static add name="${discovery.dnsName}" address=$fitiDiscoveryAddress comment="Wi-Fi Fiti CAPPORT discovery" } else={ /ip dns static set $fitiDiscoveryManagedDns address=$fitiDiscoveryAddress }`,
-      `    /ip hotspot profile set [find where name=$fitiProfile] dns-name="${discovery.dnsName}" ssl-certificate="${discovery.certificate}"`,
+      // Discovery is optional. A local certificate/DNS/file problem must not
+      // terminate the enclosing check-in script and strand paid jobs that are
+      // appended below. Leave its revision unacknowledged to retry next poll.
+      '    :local fitiDiscoveryReady false',
+      '    :onerror fitiDiscoveryError in={',
+      `      :local fitiDiscoveryCertificate [/certificate find where name="${discovery.certificate}"]`,
+      '      :if ([:len $fitiDiscoveryCertificate] != 1) do={ :error "certificate is unavailable" }',
+      `      :local fitiDiscoveryDnsEntries [/ip dns static find where name="${discovery.dnsName}"]`,
+      `      :local fitiDiscoveryManagedDns [/ip dns static find where name="${discovery.dnsName}" and comment="Wi-Fi Fiti CAPPORT discovery"]`,
+      '      :if (([:len $fitiDiscoveryDnsEntries] > 0) && ([:len $fitiDiscoveryManagedDns] = 0)) do={ :error "DNS name is owned by another record" }',
+      '      :local fitiDiscoveryAddress [/ip hotspot profile get [find where name=$fitiProfile] hotspot-address]',
+      '      :if ([:len $fitiDiscoveryAddress] = 0) do={ :error "HotSpot address is unavailable" }',
+      // Preserve the router's original native file before changing discovery
+      // state. A failure here leaves the profile untouched and retries later.
+      '      :local fitiApiJson ($fitiHtmlDir . "/api.json")',
+      '      :local fitiApiBackup ($fitiHtmlDir . "/api.json.fiti-before-capport")',
+      '      :if ([:len [/file find where name=$fitiApiJson]] != 1) do={ :error "original hotspot api.json is unavailable" }',
+      '      :if ([:len [/file find where name=$fitiApiBackup]] = 0) do={ /file copy $fitiApiJson name=$fitiApiBackup }',
+      `      :if ([:len $fitiDiscoveryManagedDns] = 0) do={ /ip dns static add name="${discovery.dnsName}" address=$fitiDiscoveryAddress comment="Wi-Fi Fiti CAPPORT discovery" } else={ /ip dns static set $fitiDiscoveryManagedDns address=$fitiDiscoveryAddress }`,
+      `      /ip hotspot profile set [find where name=$fitiProfile] dns-name="${discovery.dnsName}" ssl-certificate="${discovery.certificate}"`,
+      '      :set fitiDiscoveryReady true',
+      '} do={ :log warning ("fiti: captive discovery deferred: " . $fitiDiscoveryError) }',
     ] : discovery.mode === 'rollback' ? [
-      // Rollback owns only the exact pair it applied. Never clear a
-      // customer's unrelated certificate while returning to legacy redirects.
-      `    :if ([/ip hotspot profile get [find where name=$fitiProfile] dns-name] = "${discovery.dnsName}") do={ /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }`,
-      `    :if ([/ip hotspot profile get [find where name=$fitiProfile] ssl-certificate] = "${discovery.certificate}") do={ /ip hotspot profile set [find where name=$fitiProfile] ssl-certificate=none }`,
-      `    /ip dns static remove [find where name="${discovery.dnsName}" and comment="Wi-Fi Fiti CAPPORT discovery"]`,
+      // Rollback owns only the exact pair it applied. It is also best-effort:
+      // a damaged backup must never block the customer job queue.
+      '    :local fitiDiscoveryReady false',
+      '    :onerror fitiDiscoveryRollbackError in={',
+      '      :local fitiApiJson ($fitiHtmlDir . "/api.json")',
+      '      :local fitiApiBackup ($fitiHtmlDir . "/api.json.fiti-before-capport")',
+      `      :if ([/ip hotspot profile get [find where name=$fitiProfile] dns-name] = "${discovery.dnsName}") do={ /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }`,
+      `      :if ([/ip hotspot profile get [find where name=$fitiProfile] ssl-certificate] = "${discovery.certificate}") do={ /ip hotspot profile set [find where name=$fitiProfile] ssl-certificate=none }`,
+      `      /ip dns static remove [find where name="${discovery.dnsName}" and comment="Wi-Fi Fiti CAPPORT discovery"]`,
+      '      :if ([:len [/file find where name=$fitiApiBackup]] != 1) do={ :error "CAPPORT api.json backup is unavailable" }',
+      '      :if ([:len [/file find where name=$fitiApiJson]] = 1) do={ /file remove $fitiApiJson }',
+      '      /file copy $fitiApiBackup name=$fitiApiJson',
+      '      /file remove $fitiApiBackup',
+      '      :set fitiDiscoveryReady true',
+      '} do={ :log warning ("fiti: captive discovery rollback deferred: " . $fitiDiscoveryRollbackError) }',
     ] : [
       // Legacy locations intentionally keep using the external redirect and
       // have no router-local CAPPORT hostname.
       '    /ip hotspot profile set [find where name=$fitiProfile] dns-name=""',
     ]),
-    ...(discovery.mode === 'enabled' ? [
-      // Preserve the router's original native file exactly once. CAPPORT
-      // replaces api.json, so rollback must put the previous file back rather
-      // than leave a stale API beside the legacy login page.
-      '    :local fitiApiJson ($fitiHtmlDir . "/api.json")',
-      '    :local fitiApiBackup ($fitiHtmlDir . "/api.json.fiti-before-capport")',
-      '    :if ([:len [/file find where name=$fitiApiJson]] != 1) do={ :error "fiti: original hotspot api.json is unavailable" }',
-      '    :if ([:len [/file find where name=$fitiApiBackup]] = 0) do={ /file copy $fitiApiJson name=$fitiApiBackup }',
-    ] : discovery.mode === 'rollback' ? [
-      '    :local fitiApiJson ($fitiHtmlDir . "/api.json")',
-      '    :local fitiApiBackup ($fitiHtmlDir . "/api.json.fiti-before-capport")',
-      '    :if ([:len [/file find where name=$fitiApiBackup]] = 1) do={',
-      '      :if ([:len [/file find where name=$fitiApiJson]] = 1) do={ /file remove $fitiApiJson }',
-      '      /file copy $fitiApiBackup name=$fitiApiJson',
-      '      /file remove $fitiApiBackup',
-      '    } else={ :log warning "fiti: CAPPORT api.json backup is unavailable; restore api.json manually" }',
-    ] : []),
     '    :local fitiLoginUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login?portal=" . $fitiDesiredPortalHost)',
     '    :do {',
     '      /tool fetch url=$fitiLoginUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/login.html")',
     ...(discovery.mode === 'enabled' ? [
-      '      :local fitiCaptiveApiUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-captive-api")',
-      '      /tool fetch url=$fitiCaptiveApiUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/api.json")',
+      '      :if ($fitiDiscoveryReady) do={',
+      '        :local fitiCaptiveApiUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-captive-api")',
+      '        /tool fetch url=$fitiCaptiveApiUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/api.json")',
+      '      }',
     ] : []),
     '      :set fitiPortalHost $fitiDesiredPortalHost',
     '      :set fitiPortalUrl $fitiDesiredPortalUrl',
-    ...(templateVersion ? ['      :set fitiRouterLoginVersion "' + templateVersion + '"'] : []),
+    ...(templateVersion ? (discovery.mode !== 'disabled'
+      ? ['      :if ($fitiDiscoveryReady) do={ :set fitiRouterLoginVersion "' + templateVersion + '" }']
+      : ['      :set fitiRouterLoginVersion "' + templateVersion + '"']) : []),
     '      :set fitiPortalAppliedHost $fitiDesiredPortalHost',
     '      :log info "fiti: customer portal address updated"',
     '    } on-error={ :log warning "fiti: customer portal login page download failed" }',
