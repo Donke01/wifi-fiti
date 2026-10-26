@@ -22,6 +22,10 @@ const PATTERNS = {
   rateLimit: /^\d+(?:\.\d+)?[kM]\/\d+(?:\.\d+)?[kM]$/,
   mac: /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/,
   ip: /^\d{1,3}(\.\d{1,3}){3}$/,
+  // A package-cycle token is written only to the RouterOS comment for the
+  // managed HotSpot user. It lets a delayed expiry revoke prove that it is
+  // still acting on the same paid package rather than a later renewal.
+  cycleToken: /^[a-f0-9]{32}$/,
 };
 
 function safe(field, value) {
@@ -148,7 +152,12 @@ function jobToScript(job, hotspotServer) {
   if (job.action === 'revoke') {
     if (!username) return null;
     const tvMac = safe('mac', job.mac || '');
-    return `:local u "${username}"\n` +
+    const cycleToken = job.cycle_token || job.cycleToken || '';
+    const safeCycleToken = cycleToken ? safe('cycleToken', cycleToken) : null;
+    // Do not degrade an intended generation guard into an unguarded revoke
+    // if corrupt queue data ever reaches this boundary.
+    if (cycleToken && !safeCycleToken) return null;
+    const removal =
       `:if ([:len [/ip hotspot active find where user=$u]] > 0) do={ /ip hotspot active remove [find where user=$u] }\n` +
       `:if ([:len [/ip hotspot cookie find where user=$u]] > 0) do={ /ip hotspot cookie remove [find where user=$u] }\n` +
       `:if ([:len [/ip hotspot user find where name=$u]] > 0) do={ /ip hotspot user remove [find where name=$u] }` +
@@ -163,6 +172,18 @@ function jobToScript(job, hotspotServer) {
       (tvMac ? `\n:local fitiTvMac "${tvMac}"\n:local fitiTvUser [/ip hotspot user find where name=$fitiTvMac]\n` +
         `:if ([:len $fitiTvUser] = 1) do={ :if ([/ip hotspot user get $fitiTvUser comment] = ("Wi-Fi Fiti TV " . $u)) do={ ` +
         `:do { /ip hotspot active remove [find where user=$fitiTvMac] } on-error={}; /ip hotspot user remove $fitiTvUser } }` : '');
+    if (!safeCycleToken) return `:local u "${username}"\n${removal}`;
+    return [
+      `:local u "${username}"`,
+      `:local fitiCycle "${safeCycleToken}"`,
+      ':local fitiUsers [/ip hotspot user find where name=$u]',
+      ':if ([:len $fitiUsers] = 1) do={',
+      '  :local fitiUser [:pick $fitiUsers 0]',
+      '  :if ([/ip hotspot user get $fitiUser comment] = ("Wi-Fi Fiti subscription " . $fitiCycle)) do={',
+      ...removal.split('\n').map((line) => `    ${line}`),
+      '  } else={ :log info "Wi-Fi Fiti: skipping stale package revoke" }',
+      '} else={ :log info "Wi-Fi Fiti: skipping stale package revoke" }',
+    ].join('\n');
   }
   const password = safe('password', job.password);
   const profile = safe('profile', job.profile);
@@ -176,14 +197,23 @@ function jobToScript(job, hotspotServer) {
   const mac = safe('mac', job.mac || '');
   const ip = safe('ip', job.ip || '');
   const rateLimit = job.rate_limit ? safe('rateLimit', job.rate_limit) : null;
+  const cycleToken = job.cycle_token || job.cycleToken || '';
+  const safeCycleToken = cycleToken ? safe('cycleToken', cycleToken) : null;
   // A malformed optional rate must reject the whole job. Silently omitting
   // it would turn a paid speed package into unlimited/profile speed.
   if (job.rate_limit && !rateLimit) return null;
+  // As above, reject malformed cycle metadata rather than replacing a
+  // guarded account with an unguarded one.
+  if (cycleToken && !safeCycleToken) return null;
   const effectiveProfile = rateLimit ? rateProfileName(rateLimit) : profile;
   const profileArg = rateLimit ? 'profile=$fitiProfile' : `profile=${effectiveProfile}`;
   const update = [`limit-uptime=${seconds}`, 'password=$p', profileArg, 'disabled=no'];
   const add = ['name=$u', 'password=$p', profileArg, `limit-uptime=${seconds}`, `server=${server}`];
   if (mac) { update.push(`mac-address=${mac}`); add.push(`mac-address=${mac}`); }
+  if (safeCycleToken) {
+    update.push('comment=$fitiCycleComment');
+    add.push('comment=$fitiCycleComment');
+  }
 
   const lines = [];
   if (rateLimit) {
@@ -209,6 +239,12 @@ function jobToScript(job, hotspotServer) {
     `  /ip hotspot user add ${add.join(' ')}`,
     `}`
   );
+  if (safeCycleToken) {
+    // Declare before the user mutation above. RouterOS locals are scoped to
+    // this received job, so a later fresh-start cannot inherit an old token.
+    lines.splice(rateLimit ? 2 : 0, 0,
+      `:local fitiCycleComment "Wi-Fi Fiti subscription ${safeCycleToken}"`);
+  }
 
   if (job.action === 'fresh-start') {
     // A new sale after wall-clock expiry starts a NEW RouterOS uptime

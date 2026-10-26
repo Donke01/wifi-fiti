@@ -1083,6 +1083,24 @@
       if (!result.authenticated) throw new Error('Use your recovery code to manage this package.');
       remember(result); return result;
     }
+    var lastVisibilityCheck = 0;
+    async function revalidateAfterReturn() {
+      // A captive assistant may keep this page suspended while the device
+      // sleeps. The browser timer is only presentation; ask the server for
+      // the authoritative wall-clock expiry whenever an active page returns.
+      if (!mac || !current || checkout || (document.hidden === true)) return;
+      if (Date.now() - lastVisibilityCheck < 1500) return;
+      lastVisibilityCheck = Date.now();
+      try {
+        var session = await api('/session?mac=' + encodeURIComponent(mac));
+        if (session.authenticated && session.remainingSeconds > 0) { active(session); return; }
+        if (session.found && session.remainingSeconds > 0) { stop(); showReturningDevice(session.remainingSeconds); return; }
+        showExpiredPurchase();
+      } catch (_) {
+        // The normal countdown still has the saved absolute expiry if a
+        // captive browser cannot make this one best-effort revalidation.
+      }
+    }
     async function payForTv(targetMac, payerPhone, label, button, deviceConfirm) {
       if (!selected) throw new Error('Choose a package for the TV first.');
       if (!payerPhone) throw new Error('Enter the M-Pesa number that will pay for the TV package.');
@@ -1251,6 +1269,12 @@
     $('leave-waiting').onclick = function () { stop(); show('buy'); message('error', checkout ? 'Your previous payment is saved. Use Resume payment before making another purchase.' : 'Your package is saved. Use Check my time to reconnect.'); $('resume-payment').classList.toggle('hidden', !checkout); };
     $('start-new-payment').onclick = function () { clearCheckout(); message('error', 'Start a new payment with the number and package you want.'); };
     $('resume-payment').onclick = pollPayment;
+    if (document.addEventListener) document.addEventListener('visibilitychange', function () {
+      if (document.hidden !== true) revalidateAfterReturn();
+    });
+    if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener('pageshow', function () {
+      revalidateAfterReturn();
+    });
     $('year').textContent = String(new Date().getFullYear()); boot();
   }());
   </script>

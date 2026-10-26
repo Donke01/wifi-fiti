@@ -121,7 +121,7 @@ assert.throws(() => buildExistingRouterBootstrap({
   token: bootstrapToken, appUrl,
 }), (error) => error && error.status === 400,
 'saved topology fields are revalidated before they become RouterOS source');
-const installer = fs.readFileSync(path.join(__dirname, '../public/tenant-router-install.rsc'), 'utf8');
+const installer = fs.readFileSync(path.join(__dirname, '../public/tenant-router-install.rsc'), 'utf8').replace(/\r\n/g, '\n');
 assert.match(installer, /X-WiFi-Fiti-Router/);
 assert.doesNotMatch(installer, /[?&]token=/);
 assert.match(installer, /fiti-support-bootstrap/);
@@ -358,6 +358,23 @@ assert.match(edgeKit.script, /:global fitiUrl "https:\/\/cloud\.wififiti\.co\.ke
 assert.match(edgeKit.script, /:global fitiPortalHost "test-branch\.wififiti\.co\.ke"/);
 assert.match(edgeKit.script, /dst-host=\$fitiPortalHost/);
 assert.match(installer, /fitiLoginUrl.*\?portal=/);
+
+process.env.FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS = location.id;
+process.env.FITI_CAPTIVE_DISCOVERY_DNS_NAME = 'router-pilot.example.test';
+process.env.FITI_CAPTIVE_DISCOVERY_CERTIFICATE = 'router-pilot.example.test';
+try {
+  const discoveryKit = buildRouterSetup({ location, token, appUrl, portalUrl: 'https://test-branch.wififiti.co.ke', input: existing });
+  assert.match(discoveryKit.script, /dns-name="router-pilot\.example\.test" ssl-certificate="router-pilot\.example\.test"/,
+    'a generated pilot kit configures discovery only with the named certificate');
+  assert.match(discoveryKit.script, /\/ip dns static add name="router-pilot\.example\.test" address=\$fitiDiscoveryAddress comment="Wi-Fi Fiti CAPPORT discovery"/,
+    'the discovery hostname resolves only to this HotSpot gateway on the customer network');
+  assert.match(discoveryKit.script, /captive discovery certificate is unavailable/,
+    'a missing local certificate stops pairing before an invalid DHCP advertisement');
+} finally {
+  delete process.env.FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS;
+  delete process.env.FITI_CAPTIVE_DISCOVERY_DNS_NAME;
+  delete process.env.FITI_CAPTIVE_DISCOVERY_CERTIFICATE;
+}
 
 const newKit = kit(newRouter);
 assert.equal(newKit.config.mode, 'new');

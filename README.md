@@ -619,6 +619,36 @@ every lost callback is a customer who paid and got nothing.
 
 ---
 
+## CAPPORT pilot and expiry acceptance
+
+CAPPORT and the revised expiry path are explicit per-location pilots. Enable
+the same location in `FITI_PORTAL_V2_LOCATIONS`,
+`CAPTIVE_LOGIN_V2_LOCATIONS`, `FITI_EXPIRY_V2_LOCATIONS`,
+`FITI_ROUTER_RECONNECT_LOCATIONS`, and
+`FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS`; discovery also requires a trusted
+router TLS certificate named by `FITI_CAPTIVE_DISCOVERY_CERTIFICATE` and its
+DNS hostname in `FITI_CAPTIVE_DISCOVERY_DNS_NAME`.
+
+Before rollout, record the HotSpot profile's `dns-name` and
+`ssl-certificate`, and download its original `hotspot/api.json`. The router
+saves that API file as `api.json.fiti-before-capport` before installing the
+native CAPPORT API. A one-deploy discovery rollback restores the saved file,
+removes only the tagged DNS record, and clears the rollout's exact
+DNS/certificate pair. Restore the recorded profile values manually if that
+router did not start with empty DNS name and no profile certificate; verify
+the restored file and profile before clearing the rollback flag.
+
+Acceptance requires an expiry test with Wi-Fi left connected and the captive
+assistant/browser closed: after expiry, try ordinary HTTP and HTTPS and
+record the OS sign-in behaviour, HTTP payment redirect, and exact customer
+interaction needed. A re-created unauthorised HotSpot host entry is normal;
+the criteria are that it has no authorisation, active session, cookie, or
+usable expired credentials. DHCP discovery proves joining only. Record the
+device's actual post-expiry API/sign-in recheck separately because CAPPORT
+refresh timing is client-specific.
+
+---
+
 ## Before taking real money
 
 - [ ] `MPESA_ENV=production` with the live shortcode and passkey
