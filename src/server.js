@@ -31,6 +31,8 @@ const { portalFont } = require('./lib/tenant-portal-templates');
 const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { isCaptiveHost, captiveDomainScript } = require('./lib/captive-domain');
 const { renderRouterLoginPage, ROUTER_LOGIN_TEMPLATE_VERSION } = require('./lib/router-login');
+const { renderRouterCaptiveApi } = require('./lib/router-captive-api');
+const { captiveDiscoveryForLocation, DISCOVERY_TEMPLATE_VERSION, DISCOVERY_ROLLBACK_TEMPLATE_VERSION } = require('./lib/captive-discovery');
 const { embedPublicPortalConfig } = require('./lib/portal-bootstrap');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
@@ -275,12 +277,20 @@ function captiveLoginTemplateVersion(location) {
   const id = String(location && location.id || '');
   if (!id) return '';
   const listed = (name) => String(process.env[name] || '').split(',').some((s) => s.trim() === id);
-  if (listed('CAPTIVE_LOGIN_V2_LOCATIONS')) return ROUTER_LOGIN_TEMPLATE_VERSION;
+  if (listed('CAPTIVE_LOGIN_V2_LOCATIONS')) {
+    const discovery = captiveDiscoveryForLocation(id);
+    return discovery.mode !== 'disabled' ? discovery.version : ROUTER_LOGIN_TEMPLATE_VERSION;
+  }
   if (listed('CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS')) return 'v1';
   return '';
 }
+function captiveLoginV2(location) {
+  const version = captiveLoginTemplateVersion(location);
+  return version === ROUTER_LOGIN_TEMPLATE_VERSION || version === DISCOVERY_TEMPLATE_VERSION || version === DISCOVERY_ROLLBACK_TEMPLATE_VERSION;
+}
 function routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
   const templateVersion = captiveLoginTemplateVersion(location);
+  const discovery = captiveDiscoveryForLocation(location && location.id);
   if (!config.domains.portalGatewayEnabled) return '';
   const desiredHost = edgeHostname(location && location.portal_hostname);
   const appliedHost = edgeHostname(reportedPortalAppliedHost);
@@ -312,20 +322,69 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     // part of the portal refresh; offboarding removes/locks the router and is
     // handled separately by the command queue.
     ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ /ip hotspot enable [find where name=$fitiHotspotServer] }',
-    // Avoid RouterOS's local dns-name alias (for example login.net) taking
-    // over desktop captive assistants before they follow the external portal.
-    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]; /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }',
     '  :if ([:len [/ip hotspot walled-garden find where dst-host=$fitiDesiredPortalHost]] = 0) do={ /ip hotspot walled-garden add dst-host=$fitiDesiredPortalHost comment="Wi-Fi Fiti customer portal" }',
     '  :if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={',
     '    :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]',
     '    :local fitiHtmlDir [/ip hotspot profile get [find where name=$fitiProfile] html-directory]',
     '    :if ([:len $fitiHtmlDir] = 0) do={ :set fitiHtmlDir "hotspot" }',
+    ...(discovery.mode === 'enabled' ? [
+      // Discovery is optional. A local certificate/DNS/file problem must not
+      // terminate the enclosing check-in script and strand paid jobs that are
+      // appended below. Leave its revision unacknowledged to retry next poll.
+      '    :local fitiDiscoveryReady false',
+      '    :onerror fitiDiscoveryError in={',
+      `      :local fitiDiscoveryCertificate [/certificate find where name="${discovery.certificate}"]`,
+      '      :if ([:len $fitiDiscoveryCertificate] != 1) do={ :error "certificate is unavailable" }',
+      `      :local fitiDiscoveryDnsEntries [/ip dns static find where name="${discovery.dnsName}"]`,
+      `      :local fitiDiscoveryManagedDns [/ip dns static find where name="${discovery.dnsName}" and comment="Wi-Fi Fiti CAPPORT discovery"]`,
+      '      :if (([:len $fitiDiscoveryDnsEntries] > 0) && ([:len $fitiDiscoveryManagedDns] = 0)) do={ :error "DNS name is owned by another record" }',
+      '      :local fitiDiscoveryAddress [/ip hotspot profile get [find where name=$fitiProfile] hotspot-address]',
+      '      :if ([:len $fitiDiscoveryAddress] = 0) do={ :error "HotSpot address is unavailable" }',
+      // Preserve the router's original native file before changing discovery
+      // state. A failure here leaves the profile untouched and retries later.
+      '      :local fitiApiJson ($fitiHtmlDir . "/api.json")',
+      '      :local fitiApiBackup ($fitiHtmlDir . "/api.json.fiti-before-capport")',
+      '      :if ([:len [/file find where name=$fitiApiJson]] != 1) do={ :error "original hotspot api.json is unavailable" }',
+      '      :if ([:len [/file find where name=$fitiApiBackup]] = 0) do={ /file copy $fitiApiJson name=$fitiApiBackup }',
+      `      :if ([:len $fitiDiscoveryManagedDns] = 0) do={ /ip dns static add name="${discovery.dnsName}" address=$fitiDiscoveryAddress comment="Wi-Fi Fiti CAPPORT discovery" } else={ /ip dns static set $fitiDiscoveryManagedDns address=$fitiDiscoveryAddress }`,
+      `      /ip hotspot profile set [find where name=$fitiProfile] dns-name="${discovery.dnsName}" ssl-certificate="${discovery.certificate}"`,
+      '      :set fitiDiscoveryReady true',
+      '} do={ :log warning ("fiti: captive discovery deferred: " . $fitiDiscoveryError) }',
+    ] : discovery.mode === 'rollback' ? [
+      // Rollback owns only the exact pair it applied. It is also best-effort:
+      // a damaged backup must never block the customer job queue.
+      '    :local fitiDiscoveryReady false',
+      '    :onerror fitiDiscoveryRollbackError in={',
+      '      :local fitiApiJson ($fitiHtmlDir . "/api.json")',
+      '      :local fitiApiBackup ($fitiHtmlDir . "/api.json.fiti-before-capport")',
+      `      :if ([/ip hotspot profile get [find where name=$fitiProfile] dns-name] = "${discovery.dnsName}") do={ /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }`,
+      `      :if ([/ip hotspot profile get [find where name=$fitiProfile] ssl-certificate] = "${discovery.certificate}") do={ /ip hotspot profile set [find where name=$fitiProfile] ssl-certificate=none }`,
+      `      /ip dns static remove [find where name="${discovery.dnsName}" and comment="Wi-Fi Fiti CAPPORT discovery"]`,
+      '      :if ([:len [/file find where name=$fitiApiBackup]] != 1) do={ :error "CAPPORT api.json backup is unavailable" }',
+      '      :if ([:len [/file find where name=$fitiApiJson]] = 1) do={ /file remove $fitiApiJson }',
+      '      /file copy $fitiApiBackup name=$fitiApiJson',
+      '      /file remove $fitiApiBackup',
+      '      :set fitiDiscoveryReady true',
+      '} do={ :log warning ("fiti: captive discovery rollback deferred: " . $fitiDiscoveryRollbackError) }',
+    ] : [
+      // Legacy locations intentionally keep using the external redirect and
+      // have no router-local CAPPORT hostname.
+      '    /ip hotspot profile set [find where name=$fitiProfile] dns-name=""',
+    ]),
     '    :local fitiLoginUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login?portal=" . $fitiDesiredPortalHost)',
     '    :do {',
     '      /tool fetch url=$fitiLoginUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/login.html")',
+    ...(discovery.mode === 'enabled' ? [
+      '      :if ($fitiDiscoveryReady) do={',
+      '        :local fitiCaptiveApiUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-captive-api")',
+      '        /tool fetch url=$fitiCaptiveApiUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/api.json")',
+      '      }',
+    ] : []),
     '      :set fitiPortalHost $fitiDesiredPortalHost',
     '      :set fitiPortalUrl $fitiDesiredPortalUrl',
-    ...(templateVersion ? ['      :set fitiRouterLoginVersion "' + templateVersion + '"'] : []),
+    ...(templateVersion ? (discovery.mode !== 'disabled'
+      ? ['      :if ($fitiDiscoveryReady) do={ :set fitiRouterLoginVersion "' + templateVersion + '" }']
+      : ['      :set fitiRouterLoginVersion "' + templateVersion + '"']) : []),
     '      :set fitiPortalAppliedHost $fitiDesiredPortalHost',
     '      :log info "fiti: customer portal address updated"',
     '    } on-error={ :log warning "fiti: customer portal login page download failed" }',
@@ -3016,7 +3075,7 @@ app.get('/p/:locationId', (req, res) => {
   // Revalidate HTML and package prices on each visit. Never cache the public
   // config along with a payment, session token or customer identity.
   res.set('Cache-Control', 'no-cache');
-  if (captiveLoginTemplateVersion(location) === ROUTER_LOGIN_TEMPLATE_VERSION) {
+  if (captiveLoginV2(location)) {
     return res.type('html').send(embedPublicPortalConfig(
       tenantPortalHtml, tenantPortalPublicConfig(location, req)));
   }
@@ -3152,6 +3211,7 @@ app.post('/api/tenant/:locationId/session/connect', (req, res) => {
     password: subscription.password, profile: 'standard', totalSeconds: subscription.total_seconds,
     rateLimit: subscription.rate_limit, mac: subscription.mac,
     ip: subscription.device_type === 'tv' ? null : ip,
+    cycleToken: subscription.cycle_token,
     action: subscription.device_type === 'tv' ? 'tv-upsert' : 'upsert' });
   res.json({ ...tenantSessionPayload(subscription), status: 'pending', provisioningJobId: Number(job.lastInsertRowid) });
 });
@@ -3221,6 +3281,7 @@ app.post('/api/tenant/:locationId/payment-recover', (req, res) => {
         password: subscription.password, profile: 'standard', totalSeconds: subscription.total_seconds,
         rateLimit: subscription.rate_limit, mac: subscription.mac,
         ip: subscription.mac === mac ? cleanIp(req.body && req.body.ip) : null,
+        cycleToken: subscription.cycle_token,
         action: subscription.device_type === 'tv' ? 'tv-upsert' : 'upsert' });
       pending = { id: Number(job.lastInsertRowid) };
     }
@@ -3674,7 +3735,7 @@ app.post('/api/tenant/:locationId/claim', async (req, res) => {
       if (subscription && subscription.mac === mac && tenantRemaining(subscription)) {
         tenant.insertJob.run({ locationId: location.id, username: subscription.router_username, password: subscription.password,
           profile: 'standard', totalSeconds: subscription.total_seconds, rateLimit: subscription.rate_limit, mac: subscription.mac,
-          ip: claimIp, action: 'upsert' });
+          ip: claimIp, cycleToken: subscription.cycle_token, action: 'upsert' });
       }
     }
     return res.json({ ...tenantPaidPayload(tx), ...handoff });
@@ -3805,12 +3866,22 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
   const portal = req.query.page === 'status'
     ? `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)`
     : `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
-  if (captiveLoginTemplateVersion(location) === ROUTER_LOGIN_TEMPLATE_VERSION) {
+  if (captiveLoginV2(location)) {
     res.set('Cache-Control', 'no-store, max-age=0');
     return res.type('text/html').send(renderRouterLoginPage({ title: location.business_name, portalUrl: portal }));
   }
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
+});
+
+// RouterOS serves this file from its HotSpot HTML directory when a profile is
+// explicitly configured for standards-based captive-portal discovery. It is
+// authenticated exactly like login.html so another tenant cannot write it.
+app.get('/api/tenant/:locationId/router-captive-api', (req, res) => {
+  const header = req.get('X-WiFi-Fiti-Router');
+  const location = tenant.authenticateRouter(req.params.locationId, header || req.query.token, header ? 'header' : 'query');
+  if (!location) return res.status(403).type('text/plain').send('forbidden');
+  res.set('Cache-Control', 'no-store, max-age=0').type('application/captive+json').send(renderRouterCaptiveApi());
 });
 
 /* ------------------------------------------------------------------ */
@@ -5088,7 +5159,7 @@ function handleTenantC2bReversal(req, setting) {
         const subscription = tenant.subscriptionById.get(transaction.subscription_id, transaction.location_id);
         if (subscription) {
           db.db.prepare("UPDATE tenant_subscriptions SET expires_at=datetime('now'), updated_at=datetime('now') WHERE id=? AND location_id=?").run(subscription.id, subscription.location_id);
-          tenant.insertJob.run({ locationId: subscription.location_id, username: subscription.router_username, password: subscription.password || '2222', profile: 'standard', totalSeconds: 1, rateLimit: subscription.rate_limit || null, mac: subscription.mac, ip: null, action: 'revoke' });
+          tenant.insertJob.run({ locationId: subscription.location_id, username: subscription.router_username, password: subscription.password || '2222', profile: 'standard', totalSeconds: 1, rateLimit: subscription.rate_limit || null, mac: subscription.mac, ip: null, cycleToken: subscription.cycle_token, action: 'revoke' });
         }
       }
       console.log(`[tenant c2b] reversed ${receipt}`);

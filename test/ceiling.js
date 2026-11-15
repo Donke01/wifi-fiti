@@ -24,7 +24,17 @@ const lookup = (phone) => realFetch(`http://127.0.0.1:${PORT}/api/session/lookup
   body: JSON.stringify({ phone }),
 }).then((r) => r.json());
 
+// Expiry timestamps are stored with second precision, while requests use the
+// current millisecond. A brand-new wall-clock package can therefore display
+// one second less if it is created just before a second boundary. Keep the
+// ceiling assertion exact without making the test depend on that boundary.
+const assertFreshPackage = (remaining, seconds, message) => {
+  assert.ok(remaining <= seconds && remaining >= seconds - 1,
+    `${message}: expected ${seconds - 1}..${seconds}, got ${remaining}`);
+};
+
 let pass = 0; const fails = [];
+let combinedPurchaseRemaining = 0;
 async function t(name, fn) {
   try { await fn(); pass++; console.log(`  ok   ${name}`); }
   catch (e) { fails.push(name); console.log(`  FAIL ${name}\n         ${e.message}`); }
@@ -41,7 +51,7 @@ async function t(name, fn) {
     await grantTime({ phone: '254712000030', seconds: 3600, profile: 'standard',
                       mac: null, ip: null, reason: 'hr1' });
     const s = await lookup('0712000030');
-    assert.strictEqual(s.remainingSeconds, 3600,
+    assertFreshPackage(s.remainingSeconds, 3600,
       'inflation must not leak into the balance');
   });
 
@@ -61,13 +71,18 @@ async function t(name, fn) {
     await grantTime({ phone: '254712000032', seconds: 10800, profile: 'standard',
                       mac: null, ip: null, reason: 'hr3' });
     const s = await lookup('0712000032');
-    assert.strictEqual(s.remainingSeconds, 14400);
+    combinedPurchaseRemaining = s.remainingSeconds;
+    assertFreshPackage(s.remainingSeconds, 14400, 'purchases must be capped at their sum');
   });
 
   await t('router usage does not change a wall-clock subscription', async () => {
     db.recordUsage.run({ phone: '254712000032', usedSeconds: 400, isActive: 0 });
     const s = await lookup('0712000032');
-    assert.strictEqual(s.remainingSeconds, 14400);
+    // The request itself may consume the next wall-clock second, but the
+    // router usage report must not remove the 400 reported seconds.
+    assert.ok(s.remainingSeconds >= combinedPurchaseRemaining - 1
+      && s.remainingSeconds <= combinedPurchaseRemaining,
+      `router usage must not change the wall-clock package: got ${s.remainingSeconds}`);
   });
 
   console.log(`\n${pass} passed, ${fails.length} failed`);

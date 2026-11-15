@@ -8,13 +8,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const html = fs.readFileSync(path.join(__dirname, '../public/tenant-portal-v2.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/tenant-portal-v2.html'), 'utf8').replace(/\r\n/g, '\n');
 assert.match(html, /id="pay-amount"/, 'selected plan amount appears beside the M-Pesa payment action');
 assert.match(html, /class="pay-group"/, 'phone number and payment CTA form one section');
 assert.match(html, /<details class="card payment-recovery"/, 'payment recovery is collapsed initially');
 assert.match(html, /id="returning-device"/, 'known paying devices receive a dedicated reconnect state');
 assert.match(html, /if \(draw\(\)\) clockTimer = setInterval\(draw, 1000\)/, 'expired timers do not restart');
 assert.match(html, /function showExpiredPurchase\(\)/, 'expiry goes directly to purchasing');
+assert.match(html, /function revalidateAfterReturn\(\)/, 'a resumed captive page revalidates expiry with the server');
+assert.match(html, /addEventListener\('visibilitychange'/, 'visibility return triggers an expiry recheck');
 
 assert.match(html, /#buy > \.copy\{display:none\}\n\s*#buy > \.copy\.owner-message\{display:block;text-align:center\}/, 'only an owner-written message shows above the packages');
 assert.match(html, /body\[data-portal-background="midnight"\] \.brand-name\{color:#fff\}/, 'the business name stays readable on the midnight background');

@@ -1,5 +1,7 @@
 'use strict';
 
+const { captiveDiscoveryForLocation } = require('./captive-discovery');
+
 /*
  * Router setup kits are intentionally generated on the server.  A kit
  * contains a one-time router credential, so keeping validation and RouterOS
@@ -279,11 +281,34 @@ function setupPrefix({ location, token, appUrl, portalUrl, config }) {
   ];
 }
 
+function captiveDiscoveryPairingLines(discovery) {
+  if (discovery.mode === 'enabled') {
+    return [
+      // The local DNS mapping is deliberately only for the certificate-bound
+      // discovery hostname. It lets guests reach the router's native /api
+      // endpoint without taking over arbitrary DNS names.
+      `:if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]; :if ([:len [/certificate find where name="${discovery.certificate}"]] != 1) do={ :error "Wi-Fi Fiti captive discovery certificate is unavailable" }; :local fitiDiscoveryDnsEntries [/ip dns static find where name="${discovery.dnsName}"]; :local fitiDiscoveryManagedDns [/ip dns static find where name="${discovery.dnsName}" and comment="Wi-Fi Fiti CAPPORT discovery"]; :if (([:len $fitiDiscoveryDnsEntries] > 0) && ([:len $fitiDiscoveryManagedDns] = 0)) do={ :error "Wi-Fi Fiti captive discovery DNS name is owned by another record" }; :local fitiDiscoveryAddress [/ip hotspot profile get [find where name=$fitiProfile] hotspot-address]; :if ([:len $fitiDiscoveryAddress] = 0) do={ :error "Wi-Fi Fiti captive discovery HotSpot address is unavailable" }; :if ([:len $fitiDiscoveryManagedDns] = 0) do={ /ip dns static add name="${discovery.dnsName}" address=$fitiDiscoveryAddress comment="Wi-Fi Fiti CAPPORT discovery" } else={ /ip dns static set $fitiDiscoveryManagedDns address=$fitiDiscoveryAddress }; /ip hotspot profile set [find where name=$fitiProfile] dns-name="${discovery.dnsName}" ssl-certificate="${discovery.certificate}" }`,
+    ];
+  }
+  if (discovery.mode === 'rollback') {
+    return [
+      `:if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]; :if ([/ip hotspot profile get [find where name=$fitiProfile] dns-name] = "${discovery.dnsName}") do={ /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }; :if ([/ip hotspot profile get [find where name=$fitiProfile] ssl-certificate] = "${discovery.certificate}") do={ /ip hotspot profile set [find where name=$fitiProfile] ssl-certificate=none }; /ip dns static remove [find where name="${discovery.dnsName}" and comment="Wi-Fi Fiti CAPPORT discovery"] }`,
+    ];
+  }
+  return [
+    // Do not leave a router-local alias such as `login.net` in the HotSpot
+    // profile. Desktop captive assistants can stop at that alias instead of
+    // following the external portal redirect.
+    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]; /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }',
+  ];
+}
+
 function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDetected = false }) {
   const origin = new URL(appUrl).origin;
   const host = new URL(origin).hostname;
   const portalOrigin = new URL(portalUrl || appUrl).origin;
   const portalHost = new URL(portalOrigin).hostname;
+  const discovery = captiveDiscoveryForLocation(location.id);
   const bootstrap = [
     ...routerTrustStoreLines(),
     ...(preserveDetected ? [
@@ -310,10 +335,7 @@ function pairingSuffix({ appUrl, portalUrl, location, token, config, preserveDet
     // offboarding/test action. Re-enable only the detected/configured server
     // so captive-portal redirects are available immediately after onboarding.
     ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ /ip hotspot enable [find where name=$fitiHotspotServer] }',
-    // Do not leave a router-local alias such as `login.net` in the HotSpot
-    // profile. Desktop captive assistants can stop at that alias instead of
-    // following the Wi-Fi Fiti external portal redirect.
-    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]; /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }',
+    ...captiveDiscoveryPairingLines(discovery),
     // A no-defaults reset deliberately leaves files behind. Never allow a
     // failed fetch to import an older Wi-Fi Fiti installer from that storage:
     // it could contain a different router credential or an obsolete agent.

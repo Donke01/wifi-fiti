@@ -297,7 +297,11 @@ function replaceOnce(text, find, replacement, label) {
 }
 
 function universalInstaller(source) {
-  let out = String(source || '');
+  // The production .rsc file may be checked out with CRLF on Windows, while
+  // the guarded replacement anchors intentionally describe RouterOS source
+  // with LF. Normalise only physical file line endings; the literal \r\
+  // sequences embedded inside RouterOS script strings remain untouched.
+  let out = String(source || '').replace(/\r\n/g, '\n');
   out = replaceOnce(out, '# =====================================================================\n#  Wi-Fi Fiti for Business',
     '# UNIVERSAL KIT INSTALLER (TEST): pairs any router without changing its network.\n# =====================================================================\n#  Wi-Fi Fiti for Business', 'header');
   // Never invent a bridge name on a router the owner has not mapped yet.

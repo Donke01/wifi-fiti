@@ -467,6 +467,76 @@ async function main() {
       });
       assert.doesNotMatch(confirmed.script, /fitiDesiredPortalUrl|:set fitiRouterLoginVersion "v2"/,
         'confirmed version stops repeated portal update work during normal polling');
+
+      // Standards-based discovery is an additional, exact-location pilot. It
+      // must not use the white-label payment hostname or affect any other
+      // router until a DNS name and matching RouterOS certificate are named.
+      process.env.FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS = alpha.location.id;
+      process.env.FITI_CAPTIVE_DISCOVERY_DNS_NAME = 'router-pilot.example.test';
+      process.env.FITI_CAPTIVE_DISCOVERY_CERTIFICATE = 'router-pilot.example.test';
+      try {
+        const paidDuringDiscovery = await voucher(alpha, 'AA:BB:CC:00:00:4F', '254712000049');
+        const discovery = await routerSync(alpha.location, {
+          portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+        });
+        assert.match(discovery.script, /\$fitiRouterLoginVersion != "v3"/,
+          'discovery has its own acknowledged router template revision');
+        assert.match(discovery.script, /dns-name="router-pilot\.example\.test" ssl-certificate="router-pilot\.example\.test"/,
+          'only the selected HotSpot profile receives the verified CAPPORT hostname and certificate');
+        assert.match(discovery.script, /\/ip dns static add name="router-pilot\.example\.test" address=\$fitiDiscoveryAddress comment="Wi-Fi Fiti CAPPORT discovery"/,
+          'the one discovery hostname resolves to the HotSpot gateway without general DNS hijacking');
+        assert.match(discovery.script, /router-captive-api/,
+          'the router downloads the native CAPPORT api.json alongside login.html');
+        assert.match(discovery.script, /dst-path=\(\$fitiHtmlDir \. "\/api\.json"\)/,
+          'CAPPORT is placed in the selected HotSpot HTML directory');
+        assert.match(discovery.script, /\/file copy \$fitiApiJson name=\$fitiApiBackup/,
+          'the router saves its previous api.json before CAPPORT replaces it');
+        assert.match(discovery.script, /:onerror fitiDiscoveryError in=\{/,
+          'a missing certificate, conflicting DNS record, or missing api.json is contained locally');
+        assert.match(discovery.script, /:error "certificate is unavailable"/,
+          'the contained setup block still reports the certificate failure that triggers its retry');
+        assert.match(discovery.script, /fiti: captive discovery deferred:/,
+          'a discovery setup failure is recorded in the router log instead of aborting the poll');
+        assert.match(discovery.script, new RegExp(`:local u "${paidDuringDiscovery.username}"`),
+          'a pending paid grant is appended even when the preceding discovery setup fails at runtime');
+        assert.ok(discovery.script.indexOf('} do={ :log warning ("fiti: captive discovery deferred: " . $fitiDiscoveryError) }') <
+          discovery.script.indexOf(`:local u "${paidDuringDiscovery.username}"`),
+        'the discovery error handler completes before customer provisioning starts');
+        assert.match(discovery.script, /:if \(\$fitiDiscoveryReady\) do=\{ :set fitiRouterLoginVersion "v3" \}/,
+          'a failed discovery attempt does not acknowledge v3, so the next router poll retries it');
+        assert.ok(discovery.ids.length >= 1,
+          'the paid grant remains deliverable alongside the failed optional discovery setup');
+        assert.doesNotMatch(discovery.script, /dns-name=""/,
+          'the discovery reconciliation does not clear its own hostname');
+        const captiveApi = await api('/api/tenant/' + alpha.location.id + '/router-captive-api', {
+          routerToken: alpha.location.routerToken,
+        });
+        assert.equal(captiveApi.status, 200);
+        assert.equal(captiveApi.headers.get('content-type'), 'application/captive+json; charset=utf-8');
+        assert.match(captiveApi.text, /"captive"/);
+        assert.doesNotMatch(captiveApi.text, /seconds-remaining/,
+          'the API does not confuse a RouterOS counter with absolute purchased time');
+        await routerSync(alpha.location, { ack: discovery.ids });
+
+        delete process.env.FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS;
+        process.env.FITI_CAPTIVE_DISCOVERY_ROLLBACK_LOCATIONS = alpha.location.id;
+        const rollbackDiscovery = await routerSync(alpha.location, {
+          portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+        });
+        assert.match(rollbackDiscovery.script, /\$fitiRouterLoginVersion != "v4"/,
+          'rollback has its own observed revision, so a prior v2 report cannot skip the clear action');
+        assert.match(rollbackDiscovery.script, /ssl-certificate=none/,
+          'rollback clears only the certificate named by the pilot configuration');
+        assert.match(rollbackDiscovery.script, /\/ip dns static remove \[find where name="router-pilot\.example\.test" and comment="Wi-Fi Fiti CAPPORT discovery"\]/,
+          'rollback removes only the tagged local CAPPORT DNS record');
+        assert.match(rollbackDiscovery.script, /\/file copy \$fitiApiBackup name=\$fitiApiJson/,
+          'rollback restores the saved native api.json rather than leaving CAPPORT active');
+      } finally {
+        delete process.env.FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS;
+        delete process.env.FITI_CAPTIVE_DISCOVERY_ROLLBACK_LOCATIONS;
+        delete process.env.FITI_CAPTIVE_DISCOVERY_DNS_NAME;
+        delete process.env.FITI_CAPTIVE_DISCOVERY_CERTIFICATE;
+      }
     } finally {
       delete process.env.CAPTIVE_LOGIN_V2_LOCATIONS;
     }

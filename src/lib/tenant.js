@@ -119,6 +119,7 @@ db.exec(`
     payer_phone     TEXT NOT NULL,
     mac             TEXT NOT NULL,
     password        TEXT NOT NULL,
+    cycle_token     TEXT,
     total_seconds   INTEGER NOT NULL DEFAULT 0,
     rate_limit      TEXT,
     expires_at      TEXT NOT NULL,
@@ -190,6 +191,7 @@ db.exec(`
     rate_limit      TEXT,
     mac             TEXT,
     ip              TEXT,
+    cycle_token     TEXT,
     action          TEXT NOT NULL DEFAULT 'upsert',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     delivered_at    TEXT,
@@ -630,7 +632,11 @@ for (const statement of [
   `ALTER TABLE tenant_subscriptions ADD COLUMN device_label TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE tenant_subscriptions ADD COLUMN expiry_job_id INTEGER`,
   `ALTER TABLE tenant_subscriptions ADD COLUMN rate_limit TEXT`,
+  // A cycle token guards a delivered expiry revoke from deleting a renewed
+  // RouterOS identity. It is not a customer credential.
+  `ALTER TABLE tenant_subscriptions ADD COLUMN cycle_token TEXT`,
   `ALTER TABLE tenant_jobs ADD COLUMN rate_limit TEXT`,
+  `ALTER TABLE tenant_jobs ADD COLUMN cycle_token TEXT`,
   `ALTER TABLE tenant_router_telemetry ADD COLUMN uptime_seconds INTEGER`,
   `ALTER TABLE tenant_router_telemetry ADD COLUMN uptime_text TEXT`,
   `ALTER TABLE tenant_vouchers ADD COLUMN rate_limit TEXT`,
@@ -1578,10 +1584,10 @@ const latestPaidTransactionForSubscription = db.prepare(`
 `);
 const upsertSubscription = db.prepare(`
   INSERT INTO tenant_subscriptions
-    (id, business_id, location_id, router_username, payer_phone, mac, password, total_seconds, rate_limit, expires_at)
-  VALUES (@id, @businessId, @locationId, @routerUsername, @payerPhone, @mac, @password, @totalSeconds, @rateLimit, @expiresAt)
+    (id, business_id, location_id, router_username, payer_phone, mac, password, cycle_token, total_seconds, rate_limit, expires_at)
+  VALUES (@id, @businessId, @locationId, @routerUsername, @payerPhone, @mac, @password, @cycleToken, @totalSeconds, @rateLimit, @expiresAt)
   ON CONFLICT(location_id, mac) DO UPDATE SET
-    password=excluded.password, total_seconds=excluded.total_seconds, rate_limit=excluded.rate_limit, expires_at=excluded.expires_at,
+    password=excluded.password, cycle_token=excluded.cycle_token, total_seconds=excluded.total_seconds, rate_limit=excluded.rate_limit, expires_at=excluded.expires_at,
     expiry_job_id=NULL, updated_at=datetime('now')
 `);
 const setSubscriptionMac = db.prepare(`
@@ -1596,7 +1602,7 @@ const expiredSubscriptions = db.prepare(`
    WHERE location_id=? AND expires_at <= datetime('now')
 `);
 const expiredSubscriptionsNeedingJob = db.prepare(`
-  SELECT id, router_username, location_id, device_type, mac FROM tenant_subscriptions
+  SELECT id, router_username, location_id, device_type, mac, cycle_token FROM tenant_subscriptions
    WHERE location_id=? AND expires_at <= datetime('now') AND expiry_job_id IS NULL
 `);
 const setExpiryJob = db.prepare(`UPDATE tenant_subscriptions SET expiry_job_id=? WHERE id=? AND location_id=?`);
@@ -1609,10 +1615,16 @@ const activeMeter = db.prepare(`
 const meterDevice = db.prepare(`INSERT OR IGNORE INTO tenant_monthly_devices(business_id, month, mac)
   VALUES (?, strftime('%Y-%m','now'), ?)`);
 
-const insertJob = db.prepare(`
-  INSERT INTO tenant_jobs (location_id, username, password, profile, total_seconds, rate_limit, mac, ip, action)
-  VALUES (@locationId, @username, @password, @profile, @totalSeconds, @rateLimit, @mac, @ip, @action)
+const insertJobStatement = db.prepare(`
+  INSERT INTO tenant_jobs (location_id, username, password, profile, total_seconds, rate_limit, mac, ip, cycle_token, action)
+  VALUES (@locationId, @username, @password, @profile, @totalSeconds, @rateLimit, @mac, @ip, @cycleToken, @action)
 `);
+// Keep the established `.run()` interface for all callers while adding a
+// nullable generation guard. Older lifecycle jobs intentionally remain
+// unguarded and preserve their prior behavior.
+const insertJob = {
+  run(job) { return insertJobStatement.run({ cycleToken: null, ...job }); },
+};
 // Expire short-lived router-observed reconnect intents before processing them.
 const expireStaleReconnectJobs = db.prepare(`UPDATE tenant_jobs SET acked_at=datetime('now')
   WHERE location_id=? AND action='reconnect' AND acked_at IS NULL
@@ -4225,6 +4237,12 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   // window usually closes the moment the phone goes online.
   const continuingPackage = Boolean(existing && subscriptionLive(existing));
   const freshCycle = Boolean(expiryV2Enabled(transaction.location_id) && existing && !continuingPackage);
+  // A cycle identifies one paid package on the router. Rotate it before a
+  // fresh-start so a revoke already delivered for the ended package cannot
+  // remove the just-renewed RouterOS account if it executes late.
+  const cycleToken = (freshCycle || !existing?.cycle_token)
+    ? crypto.randomBytes(16).toString('hex')
+    : existing.cycle_token;
   const password = continuingPackage ? existing.password
     : (validRecoveryCode(transaction.recovery_code) ||
        (freshCycle ? null : existing?.password) || generatePassword());
@@ -4238,7 +4256,7 @@ function grantSubscription({ transaction, profile = 'standard' }) {
   const oldExpiry = existing?.expires_at ? new Date(existing.expires_at.replace(' ', 'T') + 'Z').getTime() : 0;
   const expiresAt = nowSql(Math.max(Date.now(), Number.isFinite(oldExpiry) ? oldExpiry : 0) + transaction.seconds * 1000);
   upsertSubscription.run({ id, businessId: transaction.business_id, locationId: transaction.location_id,
-    routerUsername, payerPhone: transaction.phone, mac: transaction.mac, password, totalSeconds, rateLimit, expiresAt });
+    routerUsername, payerPhone: transaction.phone, mac: transaction.mac, password, cycleToken, totalSeconds, rateLimit, expiresAt });
   if (freshCycle) {
     db.prepare("UPDATE tenant_subscriptions SET used_seconds=0, is_active=0 WHERE id=? AND location_id=?")
       .run(id, transaction.location_id);
@@ -4252,14 +4270,14 @@ function grantSubscription({ transaction, profile = 'standard' }) {
     deviceLabel: normaliseDeviceLabel(transaction.device_label, deviceType) });
   meterDevice.run(transaction.business_id, transaction.mac);
   const job = insertJob.run({ locationId: transaction.location_id, username: routerUsername, password, profile,
-    totalSeconds, rateLimit, mac: transaction.mac,
+    totalSeconds, rateLimit, mac: transaction.mac, cycleToken,
     ip: deviceType === 'tv' ? null : (transaction.ip || null),
     action: freshCycle ? 'fresh-start' : (deviceType === 'tv' ? 'tv-upsert' : 'upsert') });
   // A top-up must refresh the TV's RouterOS ceiling too. Otherwise the
   // phone receives the extension but its paired TV disconnects early.
   for (const device of devicesForSubscription.all(transaction.location_id, id)) {
     insertJob.run({ locationId: transaction.location_id, username: `${routerUsername}-tv`, password, profile,
-      totalSeconds, rateLimit, mac: device.mac, ip: null, action: 'upsert' });
+      totalSeconds, rateLimit, mac: device.mac, ip: null, cycleToken, action: 'upsert' });
   }
   return { id, username: routerUsername, password, totalSeconds, rateLimit, expiresAt,
     provisioningJobId: Number(job.lastInsertRowid) };
@@ -4282,7 +4300,7 @@ function transferSubscription({ locationId, payerPhone, subscriptionId, password
   setSubscriptionMac.run({ id: subscription.id, locationId, mac });
   const job = insertJob.run({ locationId, username: subscription.router_username, password: subscription.password,
     profile, totalSeconds: subscription.total_seconds, rateLimit: subscription.rate_limit, mac,
-    ip: subscription.device_type === 'tv' ? null : (ip || null),
+    ip: subscription.device_type === 'tv' ? null : (ip || null), cycleToken: subscription.cycle_token,
     action: subscription.device_type === 'tv' ? 'tv-upsert' : 'transfer' });
   return { ...subscription, mac, provisioningJobId: Number(job.lastInsertRowid) };
 }
@@ -4305,7 +4323,7 @@ function removeTvDevice({ locationId, payerPhone, subscriptionId, password, mac 
   const removed = removeDevice.run({ locationId, mac, subscriptionId });
   if (!removed.changes) return false;
   insertJob.run({ locationId, username: `${subscription.router_username}-tv`, password: '2222', profile: 'standard',
-    totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
+    totalSeconds: 1, rateLimit: null, mac: null, ip: null, cycleToken: subscription.cycle_token, action: 'revoke' });
   return true;
 }
 
@@ -4378,18 +4396,20 @@ function manageVouchers({ businessId, codes, action, seconds = 0, maxSeconds = n
   const released = (sub) => !sub || String(sub.mac).startsWith('RELEASED:');
   const provision = (sub, totalSeconds) => {
     insertJob.run({ locationId: sub.location_id, username: sub.router_username, password: sub.password, profile: 'standard',
-      totalSeconds, rateLimit: sub.rate_limit, mac: sub.mac, ip: null, action: sub.device_type === 'tv' ? 'tv-upsert' : 'upsert' });
+      totalSeconds, rateLimit: sub.rate_limit, mac: sub.mac, ip: null, cycleToken: sub.cycle_token,
+      action: sub.device_type === 'tv' ? 'tv-upsert' : 'upsert' });
     for (const device of devicesForSubscription.all(sub.location_id, sub.id)) {
       insertJob.run({ locationId: sub.location_id, username: `${sub.router_username}-tv`, password: sub.password, profile: 'standard',
-        totalSeconds, rateLimit: sub.rate_limit, mac: device.mac, ip: null, action: 'upsert' });
+        totalSeconds, rateLimit: sub.rate_limit, mac: device.mac, ip: null, cycleToken: sub.cycle_token, action: 'upsert' });
     }
   };
   const disconnect = (sub) => {
     const job = insertJob.run({ locationId: sub.location_id, username: sub.router_username, password: '2222', profile: 'standard',
-      totalSeconds: 1, rateLimit: null, mac: sub.device_type === 'tv' ? sub.mac : null, ip: null, action: 'revoke' });
+      totalSeconds: 1, rateLimit: null, mac: sub.device_type === 'tv' ? sub.mac : null, ip: null,
+      cycleToken: sub.cycle_token, action: 'revoke' });
     for (const device of devicesForSubscription.all(sub.location_id, sub.id)) {
       insertJob.run({ locationId: sub.location_id, username: `${sub.router_username}-tv`, password: '2222', profile: 'standard',
-        totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
+        totalSeconds: 1, rateLimit: null, mac: null, ip: null, cycleToken: sub.cycle_token, action: 'revoke' });
     }
     setExpiryJob.run(Number(job.lastInsertRowid), sub.id, sub.location_id);
   };
@@ -4461,13 +4481,17 @@ function queueExpiredSubscriptions(locationId) {
   for (const subscription of expired) {
     const job = insertJob.run({ locationId, username: subscription.router_username, password: '2222',
       profile: 'standard', totalSeconds: 1, rateLimit: null,
-      mac: (expiryV2Enabled(locationId) || subscription.device_type === 'tv') ? subscription.mac : null, ip: null, action: 'revoke' });
+      // Revoke the HotSpot host/cookie for every MAC-bound subscription.
+      // Leaving this blank removed only the user identity; a phone could keep
+      // the old host authorisation and look as though Wi-Fi had not expired.
+      mac: subscription.mac, ip: null, cycleToken: subscription.cycle_token, action: 'revoke' });
     // A TV has its own RouterOS identity and therefore its own local uptime
     // counter. Revoke it alongside the phone so a TV cannot outlive the
     // server's wall-clock expiry.
     for (const device of devicesForSubscription.all(locationId, subscription.id)) {
       insertJob.run({ locationId, username: `${subscription.router_username}-tv`, password: '2222',
-        profile: 'standard', totalSeconds: 1, rateLimit: null, mac: null, ip: null, action: 'revoke' });
+        profile: 'standard', totalSeconds: 1, rateLimit: null, mac: null, ip: null,
+        cycleToken: subscription.cycle_token, action: 'revoke' });
     }
     setExpiryJob.run(Number(job.lastInsertRowid), subscription.id, locationId);
   }

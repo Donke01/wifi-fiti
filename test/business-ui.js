@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const html = fs.readFileSync(path.join(__dirname, '../public/business.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '../public/business.html'), 'utf8').replace(/\r\n/g, '\n');
 
 assert.match(html, /<section class="section" id="remote-section">[^\n]*Customer traffic and payments never use this path[^\n]*It turns on by itself once a new router finishes setup\. You can turn it off for any router below at any time, and it stays off until you turn it on again\./, 'the Remote access part explains the path, that it starts only after setup, and that turning it off sticks');
 assert.match(html, /Remote setup/, 'each location exposes managed setup without hiding it in a support-only view');
