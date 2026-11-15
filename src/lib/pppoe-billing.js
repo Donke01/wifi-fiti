@@ -806,6 +806,31 @@ function receiptText(business, user, result) {
   return `${head} Kept as credit (${kes(result.user.credit)}). Pay ${kes(state.amountDue)} more to add ${state.periodDays} days: ${safeLink(result.user) || ''}`;
 }
 /**
+ * The PayBill a PPPoE customer can pay with their username as the account
+ * number, or null. Only a tenant's own PayBill registered for C2B
+ * confirmations (business_c2b_settings) tells Wi-Fi Fiti about such a
+ * payment; Tuma has no PayBill collection, and a Till has no account number
+ * to match a username. Offering PayBill anywhere else would send customers to
+ * a payment that never extends their internet.
+ */
+let payBillQuery = null;
+function payBillFor(businessId) {
+  if (!businessId) return null;
+  try {
+    payBillQuery = payBillQuery || db.prepare(`SELECT c.shortcode, c.account_prefix, m.transaction_type
+      FROM business_c2b_settings c LEFT JOIN tenant_mpesa_connections m ON m.business_id=c.business_id AND m.shortcode=c.shortcode
+      WHERE c.business_id=? AND c.active=1`);
+    const row = payBillQuery.get(businessId);
+    if (!row || !row.shortcode || /buygoods/i.test(String(row.transaction_type || ''))) return null;
+    return { shortcode: String(row.shortcode), accountPrefix: String(row.account_prefix || '') };
+  } catch (_) { return null; } // C2B tables not created yet: no PayBill.
+}
+function payBillHint(business, user) {
+  const pb = payBillFor(business && business.id);
+  return pb ? ` or PayBill ${pb.shortcode}, account ${pb.accountPrefix}${user.username}` : '';
+}
+
+/**
  * The texts a subscriber should get now, latest stage only, one per paid
  * period: 3 days before, on the day, and once when the paid days end.
  */
@@ -832,7 +857,7 @@ function remindersDue(user, { now, settings, business }) {
     return { key: `day:${stamp}`, text: `${name}: your internet (${user.username}) ends today.${creditNote} Pay: ${link}` };
   }
   if (now >= paidUntil - REMIND_BEFORE_DAYS * DAY_MS && settings.remindBefore) {
-    return { key: `before:${stamp}`, text: `${name}: hi${user.full_name ? ` ${String(user.full_name).split(/\s+/)[0]}` : ''}, your internet (${user.username}) is paid until ${dayText(paidUntil)}.${creditNote} Pay: ${link} or PayBill with account ${user.username}.` };
+    return { key: `before:${stamp}`, text: `${name}: hi${user.full_name ? ` ${String(user.full_name).split(/\s+/)[0]}` : ''}, your internet (${user.username}) is paid until ${dayText(paidUntil)}.${creditNote} Pay: ${link}${payBillHint(business, user)}.` };
   }
   return null;
 }
@@ -883,6 +908,7 @@ async function sweep({ now = Date.now(), send = null } = {}) {
 }
 
 module.exports = {
+  payBillFor,
   DAY_MS, BOOST_HOURS,
   settingsFor, saveSettings, businessForPayCode, userFor, userByUsername, pricedPlans, planView, ownerCanServe,
   accountState, applyPayment, reversePayment, reverseByReceipt, changeQuote, scheduleChange, boostOptions, boostQuote, endBoosts,

@@ -1,0 +1,228 @@
+/* Wi-Fi Fiti for Business — dashboard v2 (Figma: "Dashboard Redesign").
+ *
+ * Loaded after business.html's own styles. It restyles the existing markup
+ * only: no ids, classes or scripts change, so every page keeps working.
+ * Tokens match the Figma variables (Fiti / Color, Fiti / Space).
+ */
+:root {
+  --v2-canvas: #f6f8fc;
+  --v2-surface: #ffffff;
+  --v2-subtle: #f0f4fa;
+  --v2-sidebar: #0b1a2e;
+  --v2-sidebar-active: #16304f;
+  --v2-ink: #132742;
+  --v2-muted: #64768f;
+  --v2-dim: #8392a7;
+  --v2-on-sidebar: #b7c7da;
+  --v2-sidebar-accent: #57c4ff;
+  --v2-line: #dce5f0;
+  --v2-blue: #1769d8;
+  --v2-blue-soft: #e8f1fd;
+  --v2-cyan: #078d9b;
+  --v2-good: #168c62;
+  --v2-good-soft: #e3f4ec;
+  --v2-warn: #a86b00;
+  --v2-warn-soft: #fbf1dd;
+  --v2-bad: #bd3852;
+  --v2-bad-soft: #fbe6ea;
+  --v2-radius-sm: 8px;
+  --v2-radius-md: 12px;
+  --v2-radius-lg: 16px;
+  --v2-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* ---------- Page canvas (dashboard only) ---------- */
+body:has(#dashboard:not(.hidden)) {
+  padding: 0 !important;
+  background: var(--v2-canvas) !important;
+  font-family: var(--v2-font) !important;
+  color: var(--v2-ink);
+}
+body:has(#dashboard:not(.hidden)) .app { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+body #dashboard, body #dashboard button, body #dashboard input, body #dashboard select { font-family: var(--v2-font); }
+body #dashboard h1, body #dashboard h2, body #dashboard h3 { letter-spacing: -0.02em; color: var(--v2-ink); }
+
+/* ---------- Desktop shell: full-height sidebar + content ---------- */
+@media (min-width: 881px) {
+  body #dashboard:not(.hidden) { display: grid !important; grid-template-columns: 264px minmax(0, 1fr) !important; gap: 0 !important; min-height: 100vh; }
+  body #dashboard .sidebar {
+    position: sticky !important; top: 0 !important; align-self: start !important;
+    display: flex !important; flex-direction: column; gap: 2px;
+    height: 100vh; overflow-y: auto; margin: 0 !important;
+    padding: 24px 16px !important; border: 0 !important; border-radius: 0 !important;
+    background: var(--v2-sidebar) !important; box-shadow: none !important; backdrop-filter: none !important;
+    scrollbar-width: thin; scrollbar-color: #24405f transparent;
+  }
+  body #dashboard .content { padding: 28px 32px 56px !important; min-width: 0; }
+  body.admin-view #dashboard .sidebar { top: 44px !important; height: calc(100vh - 44px); }
+}
+
+/* ---------- Sidebar contents ---------- */
+body #dashboard .sidebar .brand { display: flex !important; align-items: center; gap: 12px; padding: 4px 12px 20px !important; color: #fff !important; text-decoration: none; }
+body #dashboard .sidebar .brand .mark { width: 36px; height: 36px; border-radius: var(--v2-radius-md); background: #fff; padding: 3px; object-fit: contain; }
+body #dashboard .sidebar .brand span { color: #fff !important; font-size: 16px !important; font-weight: 700 !important; line-height: 1.15; }
+body #dashboard .sidebar .brand small { display: block; margin-top: 3px; color: var(--v2-sidebar-accent) !important; font-size: 10px !important; font-weight: 600 !important; letter-spacing: .12em; }
+body #dashboard .sidebar .hotspot-picker,
+body #dashboard .sidebar .hotspot-picker * { color: #fff !important; }
+body #dashboard .sidebar .hotspot-picker { margin: 0 0 12px !important; background: var(--v2-sidebar-active) !important; border: 1px solid #24405f !important; border-radius: var(--v2-radius-md) !important; box-shadow: none !important; }
+body #dashboard .sidebar .hotspot-picker small { color: var(--v2-on-sidebar) !important; }
+body #dashboard .sidebar .hotspot-picker select { background: transparent !important; border: 0 !important; }
+body #dashboard .sidebar .hotspot-picker option { color: var(--v2-ink) !important; }
+
+body #dashboard .sidebar .nav { display: grid !important; gap: 2px !important; }
+body #dashboard .sidebar .nav button {
+  display: flex !important; align-items: center; gap: 12px; width: 100%; min-height: 40px !important;
+  padding: 10px 12px !important; border: 0 !important; border-radius: var(--v2-radius-md) !important;
+  color: var(--v2-on-sidebar) !important; background: transparent !important; box-shadow: none !important;
+  font-size: 14px !important; font-weight: 500 !important; text-align: left; transition: background .15s, color .15s;
+}
+body #dashboard .sidebar .nav button:hover { background: rgba(255, 255, 255, .06) !important; color: #fff !important; }
+body #dashboard .sidebar .nav button:focus-visible { outline: 2px solid var(--v2-sidebar-accent); outline-offset: 1px; }
+body #dashboard .sidebar .nav button.active,
+body #dashboard .sidebar .nav button[aria-current="page"] { background: var(--v2-sidebar-active) !important; color: #fff !important; font-weight: 600 !important; }
+body #dashboard .sidebar .nav .symbol { color: inherit !important; opacity: .9; }
+body #dashboard .sidebar .nav button.active .symbol,
+body #dashboard .sidebar .nav button[aria-current="page"] .symbol { color: var(--v2-sidebar-accent) !important; opacity: 1; }
+
+body #dashboard .sidebar .rule { flex: 1 1 auto; min-height: 16px; border: 0 !important; background: none !important; }
+body #dashboard .sidebar .plan-mini {
+  margin: 0 0 8px !important; padding: 14px 16px !important; border: 0 !important;
+  border-radius: var(--v2-radius-md) !important; background: var(--v2-sidebar-active) !important; box-shadow: none !important;
+}
+body #dashboard .sidebar .plan-mini strong { color: #fff !important; font-size: 13px; }
+body #dashboard .sidebar .plan-mini small { color: var(--v2-on-sidebar) !important; }
+body #dashboard .sidebar .profile-button,
+body #dashboard .sidebar .signout {
+  display: flex !important; align-items: center; gap: 12px; width: 100%;
+  padding: 10px 12px !important; border: 0 !important; border-radius: var(--v2-radius-md) !important;
+  background: transparent !important; box-shadow: none !important; color: var(--v2-on-sidebar) !important; font-weight: 500 !important;
+}
+body #dashboard .sidebar .profile-button:hover,
+body #dashboard .sidebar .signout:hover { background: rgba(255, 255, 255, .06) !important; color: #fff !important; }
+body #dashboard .sidebar .profile-label { color: #fff !important; font-weight: 600; }
+body #dashboard .sidebar .profile-avatar { background: var(--v2-cyan) !important; color: #fff !important; }
+body #dashboard .sidebar .signout { justify-content: flex-start; font-size: 13px !important; }
+
+/* ---------- Top line + hero (page heading) ---------- */
+body #dashboard .topline { margin-bottom: 20px !important; }
+body #dashboard .identity { background: var(--v2-surface) !important; border: 1px solid var(--v2-line) !important; box-shadow: none !important; }
+body #dashboard .hero {
+  margin-bottom: 24px !important; padding: 0 !important; text-align: left !important;
+  background: none !important; border: 0 !important; box-shadow: none !important; overflow: visible !important;
+}
+body #dashboard .hero::before, body #dashboard .hero::after { display: none !important; }
+body #dashboard .hero h1 { margin: 6px 0 4px !important; font-size: clamp(24px, 2.4vw, 30px) !important; font-weight: 700 !important; text-align: left !important; }
+body #dashboard .hero p { margin: 0 !important; max-width: 70ch; color: var(--v2-muted) !important; font-size: 14px !important; text-align: left !important; }
+body #dashboard .hero .chip { background: var(--v2-blue-soft) !important; color: var(--v2-blue) !important; border: 0 !important; box-shadow: none !important; font-weight: 600 !important; }
+body #dashboard .hero .gs-list { margin: 20px 0 0 !important; max-width: none !important; padding: 20px !important; text-align: left; background: var(--v2-blue-soft) !important; border: 0 !important; border-radius: var(--v2-radius-lg) !important; box-shadow: none !important; }
+body #dashboard .hero .gs-item { background: var(--v2-surface) !important; border: 1px solid var(--v2-line) !important; border-radius: var(--v2-radius-md) !important; box-shadow: none !important; }
+
+/* ---------- Cards: flat surfaces, one border, no glow ---------- */
+body #dashboard .glass:not(.sidebar):not(.hero),
+body #dashboard .panel,
+body #dashboard .metric,
+body #dashboard .hd-tile,
+body #dashboard .hd-panel,
+body #dashboard .onboarding-shell {
+  background: var(--v2-surface) !important;
+  border: 1px solid var(--v2-line) !important;
+  border-radius: var(--v2-radius-lg) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+body #dashboard .hd-tile { border-left-width: 1px !important; }
+body #dashboard .hd-tile::before, body #dashboard .metric::before { display: none !important; }
+body #dashboard .metric-value, body #dashboard .hd-tile-value { color: var(--v2-ink) !important; font-weight: 700 !important; letter-spacing: -0.02em; }
+body #dashboard .metric-label, body #dashboard .overview-kpi-label { color: var(--v2-muted) !important; font-weight: 500 !important; text-transform: none !important; letter-spacing: 0 !important; }
+body #dashboard .metric-foot { color: var(--v2-dim) !important; }
+body #dashboard .hd-chip { background: var(--v2-blue-soft) !important; color: var(--v2-blue) !important; border-radius: var(--v2-radius-sm) !important; }
+body #dashboard .hd-delta.up { color: var(--v2-good) !important; }
+body #dashboard .hd-delta.down { color: var(--v2-bad) !important; }
+body #dashboard .hd-panel header h3 { font-size: 16px !important; font-weight: 600 !important; }
+body #dashboard .section-head h2, body #dashboard .module-heading h2 { font-size: 22px !important; font-weight: 700 !important; text-align: left !important; }
+body #dashboard .section-head p, body #dashboard .module-heading p { color: var(--v2-muted) !important; text-align: left !important; }
+body #dashboard .section-head, body #dashboard .module-heading { text-align: left !important; justify-content: space-between !important; }
+
+/* Buttons: one solid blue primary, white secondary. */
+body #dashboard button:not(.secondary):not(.signout):not(.profile-button):not(.identity):not([data-module]):not(.link-btn) {
+  background: var(--v2-blue); border-color: var(--v2-blue); box-shadow: none;
+}
+body #dashboard button.secondary:not(.signout) { background: var(--v2-surface) !important; color: var(--v2-ink) !important; border: 1px solid var(--v2-line) !important; box-shadow: none !important; }
+
+/* Form fields */
+body #dashboard input:not([type="checkbox"]):not([type="radio"]), body #dashboard select, body #dashboard textarea {
+  border: 1px solid var(--v2-line) !important; border-radius: var(--v2-radius-md) !important; background: var(--v2-surface) !important; box-shadow: none !important;
+}
+body #dashboard input:focus, body #dashboard select:focus, body #dashboard textarea:focus { border-color: var(--v2-blue) !important; outline: 3px solid rgba(23, 105, 216, .15); }
+
+/* ---------- Floating notifications (public/fiti-notify.js) ---------- */
+.fiti-notify-stack {
+  position: fixed; right: 20px; bottom: 20px; z-index: 2147483000;
+  display: flex; flex-direction: column-reverse; gap: 10px; width: min(380px, calc(100vw - 32px));
+  pointer-events: none; font-family: var(--v2-font);
+}
+.fiti-notify {
+  pointer-events: auto; position: relative; display: grid; grid-template-columns: 36px 1fr 24px; gap: 12px; align-items: start;
+  padding: 14px 14px 14px 16px; border: 1px solid var(--v2-line); border-left: 4px solid var(--v2-blue);
+  border-radius: var(--v2-radius-md); background: var(--v2-surface); color: var(--v2-ink);
+  box-shadow: 0 12px 32px rgba(19, 39, 66, .14), 0 2px 6px rgba(19, 39, 66, .06);
+  transition: transform .22s cubic-bezier(.2, .8, .2, 1), opacity .22s;
+}
+.fiti-notify.entering { transform: translateY(12px); opacity: 0; }
+.fiti-notify.leaving { transform: translateX(24px); opacity: 0; }
+.fiti-notify.overflow { display: none; }
+.fiti-notify-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--v2-blue-soft); color: var(--v2-blue); }
+.fiti-notify-body strong { display: block; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.fiti-notify-body p { margin: 4px 0 0; color: var(--v2-muted); font-size: 13px; line-height: 1.45; }
+.fiti-notify-actions { display: flex; gap: 8px; margin-top: 10px; }
+.fiti-notify-actions:empty { display: none; }
+.fiti-notify .fiti-notify-primary, .fiti-notify .fiti-notify-ghost {
+  min-height: 0; padding: 7px 12px; border-radius: var(--v2-radius-sm); font: 600 13px/1 var(--v2-font); cursor: pointer; box-shadow: none;
+}
+.fiti-notify .fiti-notify-primary { border: 1px solid var(--v2-blue); background: var(--v2-blue); color: #fff; }
+.fiti-notify .fiti-notify-ghost { border: 1px solid var(--v2-line); background: var(--v2-surface); color: var(--v2-ink); }
+.fiti-notify .fiti-notify-close { display: grid; place-items: center; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--v2-dim); cursor: pointer; box-shadow: none; }
+.fiti-notify .fiti-notify-close:hover { background: var(--v2-subtle); color: var(--v2-ink); }
+.fiti-notify button:focus-visible { outline: 2px solid var(--v2-blue); outline-offset: 2px; }
+.fiti-notify-danger { border-left-color: var(--v2-bad); }
+.fiti-notify-danger .fiti-notify-icon { background: var(--v2-bad-soft); color: var(--v2-bad); }
+.fiti-notify-danger .fiti-notify-primary { background: var(--v2-bad); border-color: var(--v2-bad); }
+.fiti-notify-warn { border-left-color: #d08a12; }
+.fiti-notify-warn .fiti-notify-icon { background: var(--v2-warn-soft); color: var(--v2-warn); }
+.fiti-notify-success { border-left-color: var(--v2-good); }
+.fiti-notify-success .fiti-notify-icon { background: var(--v2-good-soft); color: var(--v2-good); }
+.fiti-notify-more {
+  pointer-events: auto; align-self: flex-end; min-height: 0; padding: 6px 12px; border: 1px solid var(--v2-line); border-radius: 999px;
+  background: var(--v2-surface); color: var(--v2-ink); font: 600 12px/1 var(--v2-font); cursor: pointer; box-shadow: 0 4px 12px rgba(19, 39, 66, .1);
+}
+@media (max-width: 650px) {
+  .fiti-notify-stack { right: 12px; left: 12px; bottom: 12px; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fiti-notify { transition: none; }
+}
+
+/* ---------- Admin view (opened from the platform Command Center) ---------- */
+.admin-view-bar {
+  position: sticky; top: 0; z-index: 2147482000; display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 20px;
+  background: #3b1f6e; color: #fff; font: 500 13px/1 var(--v2-font);
+}
+.admin-view-bar strong { font-weight: 700; }
+.admin-view-dot { width: 8px; height: 8px; border-radius: 50%; background: #c9b3ff; box-shadow: 0 0 0 3px rgba(201, 179, 255, .25); }
+.admin-view-name { color: #e7dcff; }
+.admin-view-ro { margin-left: auto; color: #d6c8f5; }
+.admin-view-bar button { min-height: 0; padding: 7px 12px; border: 1px solid rgba(255, 255, 255, .35); border-radius: 8px; background: transparent; color: #fff; font: 600 12px/1 var(--v2-font); cursor: pointer; box-shadow: none; }
+.admin-view-bar button:hover { background: rgba(255, 255, 255, .12); }
+body.admin-view #onboarding-section,
+body.admin-view #setup-checklist,
+body.admin-view #dashboard .sidebar #sign-out,
+body.admin-view #router-draft-modal { display: none !important; }
+.admin-view-ended { max-width: 440px; margin: 18vh auto; padding: 32px; text-align: center; font-family: var(--v2-font); color: var(--v2-ink); background: var(--v2-surface); border: 1px solid var(--v2-line); border-radius: var(--v2-radius-lg); }
+.admin-view-ended h1 { margin: 0 0 8px; font-size: 22px; }
+.admin-view-ended p { margin: 0 0 20px; color: var(--v2-muted); }
+@media (max-width: 650px) { .admin-view-ro { display: none; } }
+
+/* Sidebar fine-tuning: readable wordmark, router picker on the navy surface. */
+body #dashboard .sidebar .brand span { font-family: var(--v2-font) !important; letter-spacing: -0.01em !important; font-stretch: normal !important; white-space: nowrap; }
+body #dashboard .sidebar .hotspot-picker, body #dashboard .sidebar .hotspot-picker button { background: var(--v2-sidebar-active) !important; border-color: #24405f !important; box-shadow: none !important; }
+body #dashboard .sidebar .hotspot-picker:hover, body #dashboard .sidebar .hotspot-picker button:hover { background: #1c3a5e !important; }
