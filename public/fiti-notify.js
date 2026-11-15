@@ -185,7 +185,7 @@
       list.push({ key: 'pppoe:paybill-manual', tone: 'info', icon: 'info', snoozeDays: 30,
         title: 'Direct PayBill payments need recording',
         message: 'When a PPPoE customer pays your PayBill instead of their pay link, Wi-Fi Fiti isn’t told. Record it on the PPPoE page so their internet is extended.',
-        action: 'Record a payment', href: '/pppoe.html' });
+        action: 'Record a payment', href: '/pppoe' });
     }
     // The server calls a paired router offline after 90 s without a check-in;
     // wait 5 minutes before raising it so a short blip never nags.

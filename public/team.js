@@ -34,7 +34,7 @@
   };
   var PARTS = {
     '.overview-controls': 'sales.view', '#sales-period': 'sales.view', '#analytics-period': 'sales.view',
-    '.plan-mini': 'billing', 'a[href="/operations.html"]': 'payouts', '[data-pppoe-link]': 'customers.view',
+    '.plan-mini': 'billing', 'a[href="/operations"]': 'payouts', '[data-pppoe-link]': 'customers.view',
     '#voucher-form': 'vouchers.create', '.vm-select': 'vouchers.manage', '#vm-actions': 'vouchers.manage', '.vm-help': 'vouchers.manage',
   };
   var ROLE_KEY = 'fiti_business_role';

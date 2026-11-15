@@ -119,7 +119,7 @@ async function test(name, fn) {
   const tokenOf = (link) => decodeURIComponent(new URL(link).hash.replace(/^#invite=/, ''));
   await test('an invite gives a one-time link and a WhatsApp share link; only a hash is stored', async () => {
     const made = await invite({ role: 'manager', name: 'Mary', phone: '0711000001' });
-    assert.match(made.link, /^https:\/\/cloud\.wififiti\.co\.ke\/business\.html#invite=/);
+    assert.match(made.link, /^https:\/\/cloud\.wififiti\.co\.ke\/business#invite=/);
     assert.match(made.whatsappUrl, /^https:\/\/wa\.me\/254711000001\?text=/);
     assert.ok(decodeURIComponent(made.whatsappUrl).includes(made.link));
     assert.equal(made.emailed, false, 'no Resend in tests');

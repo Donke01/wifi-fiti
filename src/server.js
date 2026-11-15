@@ -92,7 +92,7 @@ app.use((req, res, next) => {
   // The signed-in dashboard embeds the exact customer portal in its live
   // template preview. Keep every other page frame-protected; only this
   // same-origin, data-free preview route may be embedded.
-  res.setHeader('X-Frame-Options', req.path === '/tenant-portal.html' && req.query.preview === '1' ? 'SAMEORIGIN' : 'DENY');
+  res.setHeader('X-Frame-Options', (req.path === '/tenant-portal' || req.path === '/tenant-portal.html') && req.query.preview === '1' ? 'SAMEORIGIN' : 'DENY');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
   next();
@@ -478,12 +478,12 @@ app.use((req, res, next) => {
       }
       return res.sendFile(path.join(publicDirectory, 'marketing.html'));
     }
-    if (isGet && req.path === '/marketing.html') {
+    if (isGet && (req.path === '/marketing' || req.path === '/marketing.html')) {
       return res.sendFile(path.join(publicDirectory, 'marketing.html'));
     }
     // The public landing lives at the root; the original dashboard and
     // operations pages have moved to app.
-    if (isGet && (req.path === '/business' || req.path === '/business.html' || req.path === '/operations.html')) {
+    if (isGet && (req.path === '/business' || req.path === '/business.html' || req.path === '/operations' || req.path === '/operations.html')) {
       return redirectToApp(req, res);
     }
     // "Request a demo" and the live demos run on the app host, where their
@@ -508,11 +508,11 @@ app.use((req, res, next) => {
   if (host === config.domains.appHost) {
     if (req.path === '/' || req.path === '/index.html') {
       if (legacyPortalRequest(req)) return sendLegacyPortal(res);
-      return res.redirect(302, '/business.html');
+      return res.redirect(302, '/business');
     }
     if (isGet && req.path === '/business') return res.sendFile(path.join(publicDirectory, 'business.html'));
     if (req.path === '/legacy' || req.path === '/legacy/') return sendLegacyPortal(res);
-    if (req.path === '/marketing.html') return res.redirect(302, config.domains.marketingUrl);
+    if (req.path === '/marketing' || req.path === '/marketing.html') return res.redirect(302, config.domains.marketingUrl);
     // The app host is the full runtime: dashboard, customer portals, M-Pesa
     // callbacks, and outbound router polling all continue to its routes.
     // If an old/staging setup intentionally has app and legacy on one host,
@@ -529,7 +529,7 @@ app.use((req, res, next) => {
     // In a local or transitional single-host deployment the app and legacy
     // names may intentionally be identical. Redirecting a business page in
     // that case would point straight back to itself forever.
-    if (host !== config.domains.appHost && isGet && (req.path === '/business' || req.path === '/business.html' || req.path === '/operations.html')) return redirectToApp(req, res);
+    if (host !== config.domains.appHost && isGet && (req.path === '/business' || req.path === '/business.html' || req.path === '/operations' || req.path === '/operations.html')) return redirectToApp(req, res);
     return next();
   }
 
@@ -554,7 +554,7 @@ app.use((req, res, next) => {
     return res.status(410).json({ error: 'This old portal is switched off. Reconnect to the Wi-Fi to open its login page.' });
   }
   // Without this, the static handler below would serve public/index.html.
-  if (isGet && (req.path === '/' || req.path === '/index.html')) return res.redirect(302, '/business.html');
+  if (isGet && (req.path === '/' || req.path === '/index.html')) return res.redirect(302, '/business');
   next();
 });
 
@@ -661,7 +661,21 @@ app.get('/online-users.js', (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.type('application/javascript').sendFile(path.join(publicDirectory, 'online-users.js'));
 });
-app.use(express.static(publicDirectory));
+// Clean page addresses: /platform-admin, /pppoe, /operations… instead of the
+// .html filenames. Old .html links (bookmarks, emails, shared links) keep
+// working through a permanent redirect that keeps the query string (and the
+// browser keeps any #fragment). Pages that routers or captive portals fetch
+// by filename keep answering at both addresses with no redirect.
+const KEEP_HTML_ADDRESS = new Set(['index', 'tenant-portal', 'tenant-portal-v2', 'router-login']);
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const match = /^\/([a-z0-9-]+)\.html$/.exec(req.path);
+  if (!match || KEEP_HTML_ADDRESS.has(match[1])) return next();
+  if (!fs.existsSync(path.join(publicDirectory, `${match[1]}.html`))) return next();
+  const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
+  return res.redirect(301, `/${match[1]}${query}`);
+});
+app.use(express.static(publicDirectory, { extensions: ['html'] }));
 
 // This repository is intentionally private, so a new VPS cannot rely on a
 // public raw-GitHub URL to retrieve its non-secret management agent. Serve the
@@ -1258,7 +1272,7 @@ function memberSignedIn(res, member) {
 app.get('/api/business/google/start', (req, res) => {
   const oauth = googleOAuthConfig();
   if (!oauth) {
-    return res.redirect(`${config.domains.appUrl}/business.html?google_error=${encodeURIComponent('Google sign-in is not configured on this deployment yet. Use email sign-in.')}`);
+    return res.redirect(`${config.domains.appUrl}/business?google_error=${encodeURIComponent('Google sign-in is not configured on this deployment yet. Use email sign-in.')}`);
   }
   const { clientId } = oauth;
   const mode = String(req.query.mode || 'login') === 'register' ? 'register' : 'login';
@@ -1294,7 +1308,7 @@ app.get('/api/business/google/callback', async (req, res) => {
     let account = db.businessByEmail.get(email);
     // A team member's Google account signs in as that member.
     const member = account ? null : team.memberForLogin(email);
-    if (member) return res.redirect(`${config.domains.appUrl}/business.html#google_token=${encodeURIComponent(issueBusinessSession(member.business_id, member.id))}`);
+    if (member) return res.redirect(`${config.domains.appUrl}/business#google_token=${encodeURIComponent(issueBusinessSession(member.business_id, member.id))}`);
     if (!account) {
       const id = businessId('biz');
       db.addBusiness.run({ id, name: '', ownerName: String(profile.name || email.split('@')[0]).slice(0, 80), ownerPhone: '', email, passwordHash: hashPassword(crypto.randomBytes(32).toString('hex')), plan: 'starter', collectionMode: 'own', onboardingState: 'organisation', organisationCompletedAt: null, hotspotName: null });
@@ -1303,7 +1317,7 @@ app.get('/api/business/google/callback', async (req, res) => {
     }
     const token = issueBusinessSession(account.id);
     // The fragment never reaches servers, proxies or access logs.
-    res.redirect(`${config.domains.appUrl}/business.html#google_token=${encodeURIComponent(token)}`);
+    res.redirect(`${config.domains.appUrl}/business#google_token=${encodeURIComponent(token)}`);
   } catch (error) {
     console.error('[business] Google sign-in failed:', error.message);
     res.status(502).send('Google sign-in could not be completed. Return to Wi-Fi Fiti and use email sign-in.');
@@ -1480,7 +1494,7 @@ app.post('/api/business/profile/sessions/end-others', (req, res) => {
 // when Resend is set up). The token sits in the URL fragment, so it never
 // reaches server logs; only its hash is stored.
 function inviteLinks(token, invite, business) {
-  const link = `${config.domains.appUrl}/business.html#invite=${encodeURIComponent(token)}`;
+  const link = `${config.domains.appUrl}/business#invite=${encodeURIComponent(token)}`;
   const who = invite.name ? `Hi ${invite.name}, ` : 'Hi, ';
   const text = invite.kind === 'reset'
     ? `${who}here is your link to set a new Wi-Fi Fiti password for ${business.name || 'our business'}. It works once and expires in ${team.INVITE_DAYS} days: ${link}`
