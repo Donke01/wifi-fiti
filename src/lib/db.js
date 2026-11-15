@@ -271,6 +271,9 @@ for (const stmt of [
   // Team accounts: a session belongs to a person. NULL is the business
   // owner (every session made before team accounts existed).
   `ALTER TABLE business_sessions ADD COLUMN member_id TEXT`,
+  // Platform-admin dashboard view: a short-lived, read-only owner session
+  // opened from the Command Center. It never changes billing or setup.
+  `ALTER TABLE business_sessions ADD COLUMN admin_view INTEGER NOT NULL DEFAULT 0`,
 ]) {
   try { db.exec(stmt); } catch { /* already present */ }
 }

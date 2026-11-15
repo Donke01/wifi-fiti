@@ -148,7 +148,8 @@ for (const text of ['Renew it in Settings → Billing & payments.', 'Pay it in S
 }
 
 // Guided setup still owns the screen while it runs, and the tabs stay out of it.
-assert.match(html, /if \(model && onboardingFlowState\(model\)\.active\) \{ setSequentialOnboarding\(true\); moduleView = 'onboarding'; return; \}/);
+// The platform admin's read-only view is never held on the guided setup.
+assert.match(html, /if \(model && !adminView && onboardingFlowState\(model\)\.active\) \{ setSequentialOnboarding\(true\); moduleView = 'onboarding'; return; \}/);
 assert.match(html, /#dashboard\.sequential-onboarding \.page-tabs,#dashboard:not\(\.module-view\) \.page-tabs\{display:none\}/);
 
 console.log('Dashboard navigation: nine pages and every old link passed.');

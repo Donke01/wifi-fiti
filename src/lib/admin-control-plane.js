@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { requireAdminPassword } = require('./admin/confirm');
 
 /* Single-administrator platform controls. Kept separate from portal/router
@@ -96,6 +97,21 @@ function attachAdminControlPlane(app, { db: suppliedDb, adminOk, tenant } = {}) 
     db.prepare(`UPDATE businesses SET plan=?,collection_mode=?,billing_status=?,billing_expires_at=? WHERE id=?`).run(plan, collectionMode, status, expires, b.id);
     audit(req, 'tenant_billing_change', b.id, null, { plan, collectionMode, status, expires });
     res.json({ tenant: tenantRow(b.id) });
+  }));
+
+  // Open a tenant's business dashboard as the platform admin. The session is
+  // read-only (enforced on every /api/business write), lasts two hours, needs
+  // no payment, trial or router, and is recorded in the audit log. Only the
+  // token's hash is stored; the token goes once to the admin's browser.
+  const ADMIN_VIEW_HOURS = 2;
+  app.post('/api/admin/control-plane/tenants/:businessId/dashboard-session', guard((req, res) => {
+    const b = requireTenant(req.params.businessId); confirm(req);
+    const token = crypto.randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + ADMIN_VIEW_HOURS * 3600_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+    db.prepare(`INSERT INTO business_sessions(token_hash,business_id,member_id,expires_at,admin_view) VALUES(?,?,NULL,?,1)`)
+      .run(crypto.createHash('sha256').update(token).digest('hex'), b.id, expiresAt);
+    audit(req, 'tenant_dashboard_viewed', b.id, null, { expiresAt, readOnly: true });
+    res.json({ token, expiresAt, readOnly: true, business: { id: b.id, name: b.name } });
   }));
 
   app.post('/api/admin/control-plane/tenants/:businessId/revoke-sessions', guard((req, res) => {

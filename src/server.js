@@ -767,6 +767,22 @@ setInterval(() => tenantAccess.purge(), 60 * 60_000).unref();
 // (explicit table in src/lib/team.js, deny by default for staff).
 app.use(team.guard);
 
+// Platform-admin dashboard view (opened from the Command Center) is read-only:
+// it can load every page, but any change must be made by the business itself.
+// Signing out of the admin view is the one write it may do.
+const adminViewSession = db.db.prepare(`SELECT 1 FROM business_sessions WHERE token_hash=? AND admin_view=1 AND expires_at>datetime('now')`);
+function isAdminViewToken(token) {
+  return Boolean(token) && Boolean(adminViewSession.get(crypto.createHash('sha256').update(token).digest('hex')));
+}
+app.use('/api/business', (req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/logout') return next();
+  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (isAdminViewToken(token)) {
+    return res.status(403).json({ code: 'admin_view_read_only', error: 'Admin view is read-only. Changes must be made by the business owner.' });
+  }
+  next();
+});
+
 /* ------------------------------------------------------------------ */
 /* Throttle                                                            */
 /* ------------------------------------------------------------------ */
@@ -1415,6 +1431,11 @@ app.get('/api/business/me', (req, res) => {
       rootDomain: config.domains.portalRootDomain || null,
       kind: 'managed-subdomain',
     },
+    // The PayBill PPPoE customers can pay with their username (own C2B only),
+    // or null: then direct PayBill payments must be recorded by hand.
+    pppoePayBill: pppoeBilling.payBillFor(business.id),
+    // True only for a read-only session opened from the platform admin.
+    adminView: isAdminViewToken(String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')),
     note: 'Monthly active-device usage is measured from subscriptions at paired locations.' });
 });
 
