@@ -171,7 +171,33 @@
         { done: packagesDone, title: 'Create your packages', text: 'Set the times and prices customers can buy.', go: 'packages' },
       ]);
       if (!listBox) { listBox = h('div', { class: 'gs-list', id: 'setup-checklist' }); hero.appendChild(listBox); }
-      if (steps.every(function (s) { return s.done; })) { listBox.remove(); listBox = null; return; }
+      function runStep(step, button) {
+        if (step.phone) { openPhoneForm(button); return; }
+        if (step.tuma) { goToPayments(); return; }
+        if (step.target === 'network-services-section' && window.fitiBillingHub) { window.fitiBillingHub.open('plan'); return; }
+        window.location.hash = '#' + step.go;
+        if (step.target) setTimeout(function () { var el = $(step.target); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 400);
+      }
+      var notify = window.FitiNotify && window.FitiNotify.reminder ? window.FitiNotify : null;
+      if (steps.every(function (s) { return s.done; })) { listBox.remove(); listBox = null; if (notify) notify.dismissPrefix('setup:'); return; }
+      // One step left: a floating reminder instead of the whole checklist.
+      // (Phone verification keeps the checklist: its code form lives inline.)
+      var left = steps.filter(function (s) { return !s.done; });
+      if (notify && left.length === 1 && !left[0].phone) {
+        var last = left[0];
+        listBox.remove(); listBox = null;
+        notify.dismissPrefix('setup:');
+        notify.reminder({
+          key: 'setup:' + (last.tuma ? 'payments' : last.go), tone: 'warn', icon: 'warn',
+          title: last.tuma ? 'One last step: connect your Tuma payout' : 'One last step: ' + last.title.charAt(0).toLowerCase() + last.title.slice(1),
+          message: last.tuma ? 'Customers can pay, but Tuma needs to know where to send your money: bank, Sacco, Till or PayBill.' : last.text,
+          action: last.tuma ? 'Set up payouts' : 'Open',
+          snoozeOnActionMs: 30 * 60000, // don't pop back while they're doing it
+          onAction: function () { runStep(last, null); }
+        });
+        return;
+      }
+      if (notify) notify.dismissPrefix('setup:');
       listBox.replaceChildren();
       var doneCount = steps.filter(function (s) { return s.done; }).length;
       listBox.appendChild(h('h3', { text: 'Finish setting up · ' + doneCount + ' of ' + steps.length + ' done' }));
@@ -183,13 +209,7 @@
       steps.forEach(function (step, index) {
         var isNext = !step.done && !nextMarked; if (isNext) nextMarked = true;
         var button = step.done ? null : h('button', { type: 'button', class: isNext ? '' : 'secondary', text: isNext ? 'Start' : 'Open' });
-        if (button) button.addEventListener('click', function () {
-          if (step.phone) { openPhoneForm(button); return; }
-          if (step.tuma) { goToPayments(); return; }
-          if (step.target === 'network-services-section' && window.fitiBillingHub) { window.fitiBillingHub.open('plan'); return; }
-          window.location.hash = '#' + step.go;
-          if (step.target) setTimeout(function () { var el = $(step.target); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 400);
-        });
+        if (button) button.addEventListener('click', function () { runStep(step, button); });
         listBox.appendChild(h('div', { class: 'gs-item' + (step.done ? ' done' : isNext ? ' next' : '') }, [
           h('span', { class: 'gs-dot', text: step.done ? '✓' : String(index + 1) }),
           h('div', {}, [h('strong', { text: step.title }), h('small', { text: step.text })]),
