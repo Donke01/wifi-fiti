@@ -675,7 +675,16 @@ app.use((req, res, next) => {
   const query = req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
   return res.redirect(301, `/${match[1]}${query}`);
 });
-app.use(express.static(publicDirectory, { extensions: ['html'] }));
+// Pages, scripts and stylesheets change together on every deploy. "no-cache"
+// lets browsers and any CDN keep a copy but check it first (a cheap 304 when
+// nothing changed), so a new script can never run against an old stylesheet.
+// Images and fonts may be cached as usual.
+app.use(express.static(publicDirectory, {
+  extensions: ['html'],
+  setHeaders(res, filePath) {
+    if (/\.(?:html|css|js|mjs)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 
 // This repository is intentionally private, so a new VPS cannot rely on a
 // public raw-GitHub URL to retrieve its non-secret management agent. Serve the
