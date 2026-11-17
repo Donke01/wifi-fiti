@@ -1725,6 +1725,17 @@ const salesSummary = db.prepare(`
     FROM tenant_transactions
    WHERE business_id=? AND status='paid' AND created_at >= ?
 `);
+// Paid sales and failed attempts per Nairobi calendar day, for the Home
+// charts and trend arrows. Same rules as salesSummary (paid only for money).
+const salesDaily = db.prepare(`
+  SELECT date(created_at, '+3 hours') AS day,
+         COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END), 0) AS gross,
+         SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END) AS payments,
+         SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+    FROM tenant_transactions
+   WHERE business_id=? AND created_at >= ?
+   GROUP BY day ORDER BY day
+`);
 const salesByLocation = db.prepare(`
   SELECT l.id, l.name, COUNT(t.checkout_request_id) AS payments, COALESCE(SUM(t.amount), 0) AS gross,
          COALESCE(SUM(COALESCE(t.platform_fee_minor, ROUND(t.platform_fee*100))), 0)/100.0 AS platform_fee
@@ -4734,7 +4745,7 @@ module.exports = {
   insertJob, pendingJobs, expireStaleReconnectJobs, markDelivered, markAcked, jobById, pendingProvisioningJobForUsername, latestPaymentForMac, pendingPaymentForPhone,
   transferSubscription, removeTvDevice, linkedTvForMac, deviceForSubscription, devicesForSubscription,
   businessPackageById, updateBusinessPackage, setBusinessPackageActive,
-  issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesByLocation, recentSales, salesTransactions, salesByPackage,
+  issueVouchers, redeemVoucher, manageVouchers, vouchersForBusiness, salesSummary, salesDaily, salesByLocation, recentSales, salesTransactions, salesByPackage,
   paymentConnectionSummary, savePaymentConnection, paymentCredentials,
   insertBusinessBilling, businessBillingTransaction, setBusinessBillingResult, staleBusinessBilling,
   paidBusinessBilling, duplicateBusinessBillingReceipt, activateBusinessBilling,

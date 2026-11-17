@@ -2697,6 +2697,11 @@ app.get('/api/business/dashboard', (req, res) => {
     byLocation: tenant.salesByLocation.all(since, business.id),
     recentPayments: tenant.recentSales.all(business.id, 25).filter((row) => !req.salesFrom || String(row.created_at) >= since),
     transactions: tenant.salesTransactions.all(business.id, since, 500),
+    // Day-by-day totals for this period and the one before it, so trends
+    // compare like with like and are never cut short by the 500-row list.
+    daily: tenant.salesDaily.all(business.id, req.salesFrom ? since
+      : new Date(Date.now() - days * 2 * 86400_000).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''))
+      .map((row) => ({ day: row.day, gross: Number(row.gross || 0), payments: Number(row.payments || 0), failed: Number(row.failed || 0) })),
   });
 });
 
