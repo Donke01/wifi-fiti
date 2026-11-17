@@ -155,7 +155,9 @@
       var trial = workspace.services && workspace.services.trial;
       var routerDone = locations.some(function (l) { return l.last_router_contact_at || l.last_successful_sync_at || /online/i.test(String(l.router_status || '')); });
       var servicesDone = Boolean(workspace.servicePlan && workspace.servicePlan.chosen);
-      var paymentsDone = (integrations.selected === 'tuma' && settlement.connected) || (integrations.selected && integrations.selected !== 'tuma' && integrations.status === 'ready');
+      // Wi-Fi Fiti collection and an own Daraja PayBill/Till report 'active';
+      // other providers report 'ready'. Both mean customers can pay.
+      var paymentsDone = (integrations.selected === 'tuma' && settlement.connected) || (integrations.selected && integrations.selected !== 'tuma' && ['ready', 'active'].indexOf(String(integrations.status)) !== -1);
       var packagesDone = packages.length > 0;
       var phone = workspace.phoneVerification || {};
       var steps = [];

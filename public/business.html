@@ -1263,6 +1263,10 @@
         var existing = $('overview-golive'); if (existing) existing.remove();
         var locations = ((state.workspace && state.workspace.locations) || []).filter(function (l) { return l.router_setup_verified_at && !l.archived_at; });
         if (!locations.length) return;
+        // A business that has already been paid by customers is past its first
+        // sale: the go-live walkthrough has done its job, even if this router's
+        // own test purchase never happened.
+        if (((state.dashboard && state.dashboard.recentPayments) || []).some(function (t) { return t.status === 'paid'; })) return;
         var hero = $('overview'); if (!hero || !hero.parentNode) return;
         var holder = document.createElement('div'); holder.id = 'overview-golive'; holder.dataset.module = 'overview'; holder.className = 'overview-golive';
         hero.parentNode.insertBefore(holder, hero.nextSibling);
