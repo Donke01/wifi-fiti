@@ -1340,6 +1340,9 @@
         if (window.FitiHome) {
           section.innerHTML = window.FitiHome.html({ dashboard: dashboard, workspace: state.workspace, paid: paid, revenue: revenue, failed: failed, sourceLabel: overviewSource() === 'all' ? '' : OVERVIEW_SOURCE_LABELS[overviewSource()], kes: kes, plural: plural, escapeHtml: escapeHtml });
           if (window.FitiHome.animate) window.FitiHome.animate(section);
+          // Live Home view on top: one persistent node that animates changes
+          // on every refresh. Roles without sales access get no dashboard.
+          if (window.FitiHomeLive) window.FitiHomeLive.render($('overview') || section, { dashboard: failed ? null : dashboard, workspace: state.workspace, failed: failed, open: activateDashboardModule });
           installCardNavigation(); return;
         }
         section.innerHTML = '<div class="overview-kpis"><article class="overview-kpi"><div class="overview-kpi-label">Gross sales</div><div class="overview-kpi-value">' + (failed ? '—' : kes(gross)) + '</div><div class="overview-kpi-note">Completed payments in the period</div></article><article class="overview-kpi"><div class="overview-kpi-label">Platform fee</div><div class="overview-kpi-value">' + (failed ? '—' : kes(platformFee)) + '</div><div class="overview-kpi-note">' + (platformFee ? 'Wi-Fi Fiti collection fee' : 'No platform fee in this period') + '</div></article><article class="overview-kpi"><div class="overview-kpi-label">Net to business</div><div class="overview-kpi-value">' + (failed ? '—' : kes(net)) + '</div><div class="overview-kpi-note">After the platform fee</div></article><article class="overview-kpi"><div class="overview-kpi-label">System insights</div><div class="overview-kpi-value"><span class="overview-status">' + (online ? 'Online' : 'Offline') + '</span></div><div class="overview-kpi-note">' + online + ' router(s) online · ' + active + ' active devices</div></article></div><div class="overview-chart"><div class="overview-chart-head"><h3>' + chartTitle + '</h3><div class="overview-legend"><span>' + (overviewSource() === 'all' ? 'Revenue' : 'Revenue · ' + OVERVIEW_SOURCE_LABELS[overviewSource()]) + '</span></div></div>' + chartBody + '</div><div class="overview-recent"><h3>Recent sales</h3><p>' + recentCopy + '</p></div>';
@@ -4384,6 +4387,7 @@
   <script src="/profile.js"></script>
   <script src="/home-dashboard.js"></script>
   <script src="/fiti-notify.js"></script>
+  <script src="/home-live.js"></script>
   <script src="/terminal.js" defer></script>
   <script src="/tuma-payout.js" defer></script>
   <script src="/online-users.js?v=customer-details-2" defer></script>

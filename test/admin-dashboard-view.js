@@ -42,6 +42,7 @@ async function api(endpoint, { method = 'GET', body, token, admin } = {}) {
   return { status: response.status, body: parsed };
 }
 
+let html_;
 (async () => {
   const { db } = require('../src/lib/db');
   const pppoeBilling = require('../src/lib/pppoe-billing');
@@ -111,7 +112,28 @@ async function api(endpoint, { method = 'GET', body, token, admin } = {}) {
   db.prepare(`UPDATE business_c2b_settings SET active=0 WHERE business_id=?`).run(id);
   assert.equal(pppoeBilling.payBillFor(id), null, 'an inactive C2B setting offers no PayBill');
 
+  // Live Home: day-by-day totals cover this period and the one before it,
+  // count paid money only, and keep failed attempts for the success rate.
+  const loc2 = db.prepare('SELECT id FROM locations WHERE business_id=?').get(id).id;
+  const addSale = db.prepare(`INSERT INTO tenant_transactions(checkout_request_id,business_id,location_id,phone,package_id,package_name,amount,seconds,mac,status,created_at)
+    VALUES(?,?,?,'254700000001',1,'1 Hour',?,3600,'AA:BB:CC:00:00:09',?,datetime('now',?))`);
+  addSale.run('ws_live_a', id, loc2, 100, 'paid', '-1 hours');
+  addSale.run('ws_live_b', id, loc2, 50, 'paid', '-1 hours');
+  addSale.run('ws_live_c', id, loc2, 999, 'failed', '-1 hours');
+  addSale.run('ws_live_d', id, loc2, 70, 'paid', '-10 days'); // previous 7-day period
+  addSale.run('ws_live_e', id, loc2, 30, 'paid', '-20 days'); // outside both
+  const week = await api('/api/business/dashboard?period=7d', { token: ownerToken });
+  assert.equal(week.status, 200);
+  const total = (key) => week.body.daily.reduce((s, r) => s + r[key], 0);
+  assert.equal(total('gross'), 220, 'paid money only, this period and the previous one');
+  assert.equal(total('payments'), 3);
+  assert.equal(total('failed'), 1, 'failed attempts are counted for the success rate');
+  assert.ok(week.body.daily.every((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.day)), 'days are calendar dates');
+  assert.equal(week.body.gross, 150, 'the period total itself is unchanged');
+
   // The dashboard wiring is in place.
+  assert.match(html_ = fs.readFileSync(path.join(__dirname, '..', 'public', 'business.html'), 'utf8'), /<script src="\/home-live\.js"><\/script>/);
+  assert.match(html_, /window\.FitiHomeLive\.render\(/, 'the live Home view renders after each overview load');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'business.html'), 'utf8');
   assert.match(html, /<script src="\/fiti-notify\.js"><\/script>/);
   assert.match(html, /function openRouterDraftModal\(\) \{ if \(adminView\) return;/, 'admin view never forces the add-router modal');
