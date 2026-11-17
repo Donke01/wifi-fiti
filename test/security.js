@@ -247,10 +247,10 @@ async function test(name, fn) {
     assert.equal(page.status, 404, 'the old portal page is not served');
     const root = await fetch(`${origin}/?mac=AA:BB:CC:00:10:01&ip=10.0.0.2`, { headers: { Host: 'cloud.wififiti.co.ke' }, redirect: 'manual' });
     assert.equal(root.status, 302);
-    assert.equal(root.headers.get('location'), '/business.html');
+    assert.equal(root.headers.get('location'), '/business');
     const local = await fetch(`${origin}/index.html`, { headers: { Host: 'localhost' }, redirect: 'manual' });
     assert.equal(local.status, 302, 'public/index.html is not served statically');
-    assert.equal(local.headers.get('location'), '/business.html');
+    assert.equal(local.headers.get('location'), '/business');
   });
   await test('a failed recovery says why: other router, other number, still confirming, code not received', async () => {
     database.prepare(`INSERT INTO locations (id, business_id, name, router_token) VALUES ('loc-2', 'biz', 'Sirende', 'rt-2')`).run();

@@ -31,7 +31,7 @@
     var text = doc.createElement('p');
     text.textContent = 'You are signed in as ' + role + '. ' + (options.what ? options.what + ' ' : '') + 'Ask the owner if you need it.';
     var back = doc.createElement('a');
-    back.href = '/business.html';
+    back.href = '/business';
     if (options.linkClass) back.className = options.linkClass;
     back.textContent = 'Back to the dashboard';
     card.appendChild(title); card.appendChild(text); card.appendChild(back);

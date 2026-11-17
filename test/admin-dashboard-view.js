@@ -132,10 +132,10 @@ let html_;
   assert.equal(week.body.gross, 150, 'the period total itself is unchanged');
 
   // The dashboard wiring is in place.
-  assert.match(html_ = fs.readFileSync(path.join(__dirname, '..', 'public', 'business.html'), 'utf8'), /<script src="\/home-live\.js"><\/script>/);
+  assert.match(html_ = fs.readFileSync(path.join(__dirname, '..', 'public', 'business.html'), 'utf8'), /<script src="\/home-live\.js(?:\?v=\d+)?"><\/script>/);
   assert.match(html_, /window\.FitiHomeLive\.render\(/, 'the live Home view renders after each overview load');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'business.html'), 'utf8');
-  assert.match(html, /<script src="\/fiti-notify\.js"><\/script>/);
+  assert.match(html, /<script src="\/fiti-notify\.js(?:\?v=\d+)?"><\/script>/);
   assert.match(html, /function openRouterDraftModal\(\) \{ if \(adminView\) return;/, 'admin view never forces the add-router modal');
   assert.doesNotMatch(html, /admin-view-token[^\n]*localStorage\.setItem/, 'the admin token is never put in localStorage');
   const admin = fs.readFileSync(path.join(__dirname, '..', 'public', 'platform-admin.html'), 'utf8');

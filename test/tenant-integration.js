@@ -281,7 +281,7 @@ async function main() {
     assert.equal(rootPortal.headers.get('x-robots-tag'), 'noindex, nofollow');
     const cloudRoot = await api('/', { host: cloudHost, redirect: 'manual' });
     assert.equal(cloudRoot.status, 302);
-    assert.equal(cloudRoot.headers.get('location'), '/business.html');
+    assert.equal(cloudRoot.headers.get('location'), '/business');
     assert.equal((await api('/api/config', { host: cloudHost, redirect: 'manual' })).status, 410,
       'the old portal API is off on the cloud host too');
     const forwardedHost = await api('/', { host: cloudHost, forwardedHost: root, redirect: 'manual' });
@@ -289,7 +289,7 @@ async function main() {
     assert.equal((await api('/legacy?mac=AA:BB:CC:00:00:01', { host: cloudHost, redirect: 'manual' })).status, 404);
     const cloudOldRedirect = await api('/?mac=AA:BB:CC:00:00:01&ip=10.0.0.2', { host: cloudHost, redirect: 'manual' });
     assert.equal(cloudOldRedirect.status, 302);
-    assert.equal(cloudOldRedirect.headers.get('location'), '/business.html');
+    assert.equal(cloudOldRedirect.headers.get('location'), '/business');
     const rootOldRedirect = await api('/?mac=AA:BB:CC:00:00:01', { host: root, redirect: 'manual' });
     assert.equal(rootOldRedirect.status, 200);
     assert.match(rootOldRedirect.text, /Run your Wi‑Fi business/, 'an old router redirect sees the public landing');

@@ -26,10 +26,10 @@
 </head>
 <body>
 <main>
-  <header><a class="brand" href="/business.html"><img class="mark" src="/assets/wifi-fiti-logo.png" alt="" aria-hidden="true"><span>Wi-Fi Fiti<small>FOR BUSINESS</small></span></a><a href="/business.html">Back to workspace</a></header>
+  <header><a class="brand" href="/business"><img class="mark" src="/assets/wifi-fiti-logo.png" alt="" aria-hidden="true"><span>Wi-Fi Fiti<small>FOR BUSINESS</small></span></a><a href="/business">Back to workspace</a></header>
   <div class="hero"><span class="eyebrow">Your everyday control centre</span><h1>Keep business moving.</h1><p class="muted" id="identity">Customers, support, billing records and collection payouts.</p></div>
   <p class="error" id="page-error" role="alert"></p>
-  <section id="sign-in" class="panel hidden"><h2>Sign in to your workspace</h2><p class="muted">Your business account keeps these customer and payment records private.</p><a href="/business.html">Go to sign in</a></section>
+  <section id="sign-in" class="panel hidden"><h2>Sign in to your workspace</h2><p class="muted">Your business account keeps these customer and payment records private.</p><a href="/business">Go to sign in</a></section>
   <div id="role-gate" class="hidden"></div>
   <div id="operator-workspace" class="hidden">
     <nav class="tabs" aria-label="Business operations"><a href="#customers">Customers</a><a href="#support">Support</a><a href="#billing">Receipts</a><a href="#payouts">Payouts</a></nav>
@@ -40,7 +40,7 @@
   </div>
   <section class="panel hidden" id="admin-sign-in"><h2>Platform support desk</h2><p class="muted">Administrator access is separate from a business account. The access token stays in memory until this page closes.</p><form id="admin-form"><label>Administrator token<input type="password" id="admin-token" required autocomplete="off"></label><button type="submit">Open support desk</button></form></section>
   <div class="hidden" id="admin-workspace"><section class="panel"><div class="row"><div><h2>Platform support desk</h2><p class="muted">Review requests from all business workspaces.</p></div><button type="button" class="secondary" id="admin-refresh">Refresh queues</button></div><h3>Support tickets</h3><div id="admin-tickets" class="list"></div><button type="button" class="secondary hidden" id="admin-more-tickets">Load more tickets</button><div class="detail hidden" id="admin-ticket-detail" aria-live="polite"></div></section><section class="panel"><h2>Payout review</h2><p class="warning">These controls record manual processing. They never transfer funds. Verify the destination and the external payment independently before recording a payout as paid.</p><div id="admin-payouts" class="list"></div><button type="button" class="secondary hidden" id="admin-more-payouts">Load more requests</button></section></div>
-  <p class="footer">© <span id="year"></span> Wi-Fi Fiti. <a class="subtle-link" href="/operations.html?admin=1">Platform support desk</a></p>
+  <p class="footer">© <span id="year"></span> Wi-Fi Fiti. <a class="subtle-link" href="/operations?admin=1">Platform support desk</a></p>
 </main>
 <script>
 (function () {

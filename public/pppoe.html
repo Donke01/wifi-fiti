@@ -74,7 +74,7 @@ a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.bu
 <main class="shell">
   <header class="topbar">
     <div class="brand"><div class="brand-mark" aria-hidden="true">↔</div><div><h1>PPPoE subscribers</h1><small>Wi-Fi Fiti for Business</small></div></div>
-    <a class="back" href="/business.html#pppoe">← Back to dashboard</a>
+    <a class="back" href="/business#pppoe">← Back to dashboard</a>
   </header>
   <section id="app" aria-live="polite"><div class="card muted">Loading your workspace…</div></section>
 </main>
@@ -208,8 +208,8 @@ a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.bu
     return load().then(draw);
   }).catch(function (e) {
     app.textContent = '';
-    if (e.status && e.status !== 401) { app.appendChild(h('section', { class: 'card' }, [h('h2', { text: 'Could not open this page' }), h('p', { class: 'lead', text: e.message }), h('a', { class: 'back', href: '/business.html', text: 'Back to the dashboard' })])); return; }
-    app.appendChild(h('section', { class: 'card' }, [h('h2', { text: 'Sign in required' }), h('p', { class: 'lead', text: 'Open the business dashboard and sign in first.' }), h('a', { class: 'back', href: '/business.html', text: 'Open business dashboard' })]));
+    if (e.status && e.status !== 401) { app.appendChild(h('section', { class: 'card' }, [h('h2', { text: 'Could not open this page' }), h('p', { class: 'lead', text: e.message }), h('a', { class: 'back', href: '/business', text: 'Back to the dashboard' })])); return; }
+    app.appendChild(h('section', { class: 'card' }, [h('h2', { text: 'Sign in required' }), h('p', { class: 'lead', text: 'Open the business dashboard and sign in first.' }), h('a', { class: 'back', href: '/business', text: 'Open business dashboard' })]));
   });
 
   function draw() {

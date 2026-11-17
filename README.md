@@ -79,7 +79,7 @@ subscribes for the capacity it needs, pairs its own routers, and runs its own
 customer portal. It does not reuse Pawa branding, code, accounts or customer
 data.
 
-Open `https://cloud.wififiti.co.ke/business.html` to create an operator account
+Open `https://cloud.wififiti.co.ke/business` to create an operator account
 or sign in. A newly registered business starts with a 7-day trial. During the
 trial, the workspace can select any plan without a charge, pair one router,
 and use unlimited customer-device, PPPoE and SMS platform resources. The

@@ -18,11 +18,17 @@ const call = (path, body, token) => fetch(`http://127.0.0.1:${PORT}${path}`, { m
   body: JSON.stringify(body || {}) }).then(async r => ({ status:r.status, body:await r.json() }));
 (async () => {
   await new Promise(r => setTimeout(r, 200));
-  const sameHostBusinessPage = await fetch(`http://127.0.0.1:${PORT}/business.html`, {
+  const sameHostBusinessPage = await fetch(`http://127.0.0.1:${PORT}/business`, {
     headers: { Host: 'fiti.test' }, redirect: 'manual',
   });
   assert.strictEqual(sameHostBusinessPage.status, 200,
     'a single-host local deployment must serve the dashboard instead of redirecting to itself');
+  // Old .html links land on the clean address once, never in a loop.
+  const oldBusinessLink = await fetch(`http://127.0.0.1:${PORT}/business.html?from=email`, {
+    headers: { Host: 'fiti.test' }, redirect: 'manual',
+  });
+  assert.strictEqual(oldBusinessLink.status, 301);
+  assert.strictEqual(oldBusinessLink.headers.get('location'), '/business?from=email');
   const created = await call('/api/business/register', {name:'North Star WiFi',ownerName:'Amina',phone:'0712345678',email:'amina@example.test',password:'securepass',plan:'starter',collectionMode:'own'});
   assert.strictEqual(created.status, 201); assert.ok(created.body.token);
   assert.strictEqual(created.body.onboarding.organisationComplete, true);

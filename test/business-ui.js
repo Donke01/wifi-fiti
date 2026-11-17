@@ -929,7 +929,7 @@ for (const value of ['payment', 'connection', 'router', 'billing', 'other']) ass
   assert.equal(card.id, 'role-blocked');
   assert.equal(card.children[0].textContent, 'Your role can’t open this page');
   assert.match(card.children[1].textContent, /signed in as Technician\. .*Ask the owner/);
-  assert.equal(card.children[2].href, '/business.html', 'a link back to the dashboard');
+  assert.equal(card.children[2].href, '/business', 'a link back to the dashboard');
 
   const pppoe = fs.readFileSync(path.join(__dirname, '../public/pppoe.html'), 'utf8');
   assert.match(pppoe, /<script src="\/team-gate\.js"><\/script>/);

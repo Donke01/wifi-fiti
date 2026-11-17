@@ -24,7 +24,7 @@ assert.deepEqual(items, [
 assert.equal(nav.replace(/<button type="button" data-module="[a-z-]+"><span class="symbol" aria-hidden="true">[^<]*<\/span>[^<]+<\/button>/g, ''), '',
   'nothing else sits in the sidebar menu (no labels, links or extra pages)');
 assert.doesNotMatch(html, /nav-extended'|installExtendedNavigation|installPppoeNavLink|data-pppoe-link/, 'no script adds more sidebar items later');
-assert.match(html, /if \(module === 'pppoe'\) \{ window\.location\.href = '\/pppoe\.html'; return; \}/, 'the PPPoE menu item opens the PPPoE page in one click');
+assert.match(html, /if \(module === 'pppoe'\) \{ window\.location\.href = '\/pppoe'; return; \}/, 'the PPPoE menu item opens the PPPoE page in one click');
 for (const file of ['public/billing-hub.js', 'public/tuma-payout.js', 'public/setup-flow.js', 'public/fiti-actions.js']) {
   assert.doesNotMatch(read(file), /\.sidebar|\.nav\b|data-module/, file + ' adds nothing to the sidebar');
 }
@@ -116,7 +116,7 @@ collect(read('public/setup-flow.js'), /go: '([a-z-]+)'/g);
 for (const file of ['public/billing-hub.js', 'public/setup-flow.js']) collect(read(file), /hash !== '#([a-z-]+)'/g);
 collect(read('src/server.js'), /fix = '([a-z-]+)'/g);
 collect(read('src/lib/service-reminders.js'), /\/business(?:\.html)?#([a-z-]+)/g);
-collect(read('public/pppoe.html'), /\/business\.html#([a-z-]+)/g);
+collect(read('public/pppoe.html'), /\/business(?:\.html)?#([a-z-]+)/g);
 assert.ok(used.size > 10, 'the page names in use were found');
 for (const name of used) assert.ok(known(name), name + ' is a known dashboard page');
 
@@ -126,7 +126,7 @@ assert.match(html, /'\/api\/business\/operations\/billing\/' \+ encodeURICompone
 assert.match(html, /api\('\/api\/business\/operations\/tickets\?offset=' \+ offset\)/, 'support tickets come from the owner tickets API');
 assert.match(html, /api\('\/api\/business\/operations\/tickets', \{ method: 'POST'/, 'a new ticket is sent to the owner tickets API');
 assert.match(html, /'\/api\/business\/operations\/tickets\/' \+ encodeURIComponent\(ticket\.id\) \+ '\/messages'/, 'a reply goes to the ticket');
-assert.doesNotMatch(html, /\/payouts|admin-token|business-operations\/|\/operations\.html/, 'the dashboard neither shows payouts nor links operations.html');
+assert.doesNotMatch(html, /\/payouts|admin-token|business-operations\/|\/operations(?:\.html)?["'?#]/, 'the dashboard neither shows payouts nor links operations.html');
 assert.match(html, /if \(requested === 'receipts' && token && !\(options\.silent && helpLoaded\.receipts\)\) loadReceiptsTab\(\);/, 'Receipts loads when opened, not on every redraw');
 assert.match(html, /if \(requested === 'tickets' && token && !\(options\.silent && helpLoaded\.tickets\)\) loadSupportTab\(\);/, 'support tickets load when opened, not on every redraw');
 assert.match(html, /var anchorId = Object\.prototype\.hasOwnProperty\.call\(moduleAnchors, String\(module\)\) \? moduleAnchors\[String\(module\)\] : ''; var first = \(anchorId && \$\(anchorId\)\) \|\| tabs/, 'an old #analytics link scrolls to Usage analytics on Home');
