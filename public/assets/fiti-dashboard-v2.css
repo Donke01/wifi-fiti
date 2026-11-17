@@ -393,3 +393,6 @@ body.home-live-on #dashboard #overview .hl-root { margin-bottom: 4px; }
   .hl-tools .overview-controls > * { width: 100% !important; min-width: 0 !important; margin: 0 !important; }
   .hl-tools .overview-controls button { grid-column: 1 / -1; }
 }
+
+.hl-avatar.bad { background: var(--v2-bad-soft); color: var(--v2-bad); }
+.hl-avatar.warn { background: var(--v2-warn-soft); color: var(--v2-warn); }

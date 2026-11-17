@@ -52,6 +52,7 @@
     cart: '<path d="M3 4h2l2.2 10.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L20.5 8H6.2"/><circle cx="9.5" cy="19.5" r="1.2"/><circle cx="17" cy="19.5" r="1.2"/>',
     users: '<circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 6.2a3 3 0 0 1 0 5.6"/><path d="M18 14a5 5 0 0 1 3 5"/>',
     pulse: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
+    wifi: '<path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M12 19.5h.01"/><path d="M2 9a15 15 0 0 1 20 0"/>',
     router: '<rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 17h.01M11 17h.01"/><path d="M8 10.5a5.5 5.5 0 0 1 8 0"/><path d="M5.5 8a9 9 0 0 1 13 0"/>',
     up: '<path d="M7 17L17 7M9 7h8v8"/>',
     down: '<path d="M7 7l10 10M17 9v8H9"/>'
@@ -175,9 +176,9 @@
   function activityItem(t, fresh) {
     var ms = parseSql(t.created_at);
     var status = t.status === 'paid' ? '' : '<span class="hl-status ' + (t.status === 'failed' ? 'bad' : 'warn') + '">' + (t.status === 'failed' ? 'Failed' : 'Waiting') + '</span>';
-    var initials = String(t.package_name || '?').replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).map(function (w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
+
     return '<li class="hl-act' + (fresh ? ' fresh' : '') + '" data-id="' + esc(t.checkout_request_id) + '">' +
-      '<span class="hl-avatar">' + esc(initials || 'WF') + '</span>' +
+      '<span class="hl-avatar' + (t.status === 'paid' ? '' : t.status === 'failed' ? ' bad' : ' warn') + '">' + icon('wifi', 18) + '</span>' +
       '<span class="hl-act-body"><strong>' + esc(maskPhone(t.phone)) + '</strong> bought <b>' + esc(t.package_name || 'a package') + '</b>' + (t.location_name ? ' at ' + esc(t.location_name) : '') +
       '<small data-ago="' + (ms || '') + '">' + esc(ms ? ago(ms) : '') + '</small></span>' +
       '<span class="hl-act-amt">' + status + esc(kes(t.amount)) + '</span></li>';

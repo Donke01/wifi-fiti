@@ -104,7 +104,7 @@
     el.onclick = function (event) {
       var button = event.target.closest('[data-act]'); if (!button) return;
       var act = button.getAttribute('data-act');
-      if (act === 'go') { if (n.onAction) n.onAction(); else if (n.href) window.location.href = n.href; else if (n.module) openModule(n.module); if (!n.keepOnAction) remove(n.key); }
+      if (act === 'go') { if (n.snoozeOnActionMs) snooze(n.key, n.snoozeOnActionMs); if (n.onAction) n.onAction(); else if (n.href) window.location.href = n.href; else if (n.module) openModule(n.module); if (!n.keepOnAction) remove(n.key); }
       var wait = n.snoozeDays ? n.snoozeDays * DAY : n.tone === 'danger' ? 4 * 3600000 : DAY;
       if (act === 'later') { snooze(n.key, wait); remove(n.key); }
       if (act === 'close') { if (n.snoozable) snooze(n.key, wait); remove(n.key); }
@@ -223,6 +223,10 @@
     sync: sync,
     toast: toast,
     clear: function () { Object.keys(cards).forEach(remove); },
+    // A reminder raised by another part of the dashboard (not by sync()):
+    // sticky, with Later, and quiet while snoozed. Same key = updated in place.
+    reminder: function (n) { if (!n || !n.key || snoozed(n.key)) return null; return show(Object.assign({ tone: 'warn' }, n, { sticky: true, snoozable: true, managed: false })); },
+    dismissPrefix: function (prefix) { Object.keys(cards).forEach(function (key) { if (key.indexOf(prefix) === 0) remove(key); }); },
     _remindersFor: remindersFor
   };
 }());
