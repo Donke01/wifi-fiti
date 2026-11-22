@@ -477,6 +477,56 @@ async function main() {
       assert.doesNotMatch(confirmed.script, /fitiDesiredPortalUrl|:set fitiRouterLoginVersion "v5"/,
         'confirmed version stops repeated portal update work during normal polling');
 
+      process.env.FITI_HOTSPOT_LOGIN_ALIASES = alpha.location.id + '=hotspot.alpha.example';
+      try {
+        const loginPath = '/api/tenant/' + alpha.location.id + '/router-login?portal=' + encodeURIComponent(alpha.location.portalHostname);
+        const branded = await api(loginPath, { routerToken: alpha.location.routerToken });
+        assert.ok(branded.text.includes('$(if http-header == "Location")https://hotspot.alpha.example/?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)$(endif)'),
+          'the branded redirect carries the device and RouterOS login values');
+        const status = await api(loginPath + '&page=status', { routerToken: alpha.location.routerToken });
+        assert.ok(!status.text.includes('hotspot.alpha.example'), 'the status page keeps the tenant destination');
+        const unrelated = await api('/api/tenant/' + bravo.location.id + '/router-login', { routerToken: bravo.location.routerToken });
+        assert.equal(unrelated.status, 200);
+        assert.ok(!unrelated.text.includes('hotspot.alpha.example'), 'another router never receives the alias');
+
+        const brandedRefresh = await routerSync(alpha.location, {
+          portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+        });
+        const [appliedVersion] = brandedRefresh.script.match(/v5-[0-9a-f]{12}/) || [];
+        assert.ok(appliedVersion, 'adding an alias invalidates a confirmed login template');
+        assert.match(brandedRefresh.script, /server=\$fitiHotspotServer dst-host="hotspot\.alpha\.example" action=allow/);
+        assert.match(brandedRefresh.script, /:set fitiPortalAppliedHost \$fitiDesiredPortalHost/,
+          'the router still reports the managed tenant host');
+        // The previous, unbranded report already consumed the five-second slot.
+        await pause(5_050);
+        const brandedTelemetry = await realFetch(origin + '/api/router/telemetry?site=' + alpha.location.id, {
+          method: 'POST',
+          headers: { 'X-WiFi-Fiti-Router': alpha.location.routerToken, 'Content-Type': 'text/plain' },
+          body: 'fiti-telemetry-v1\nver|' + appliedVersion + '\nres|8|100000|200000|200|100|200|0\n',
+        });
+        assert.equal(brandedTelemetry.status, 200);
+        assert.equal(await brandedTelemetry.text(), '# ok\n');
+        const brandedConfirmed = await routerSync(alpha.location, {
+          portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+        });
+        assert.doesNotMatch(brandedConfirmed.script, /fitiDesiredPortalUrl/,
+          'telemetry acknowledges the alias revision');
+
+        process.env.FITI_HOTSPOT_LOGIN_ALIASES = alpha.location.id + '=next.alpha.example';
+        const newAlias = await routerSync(alpha.location, {
+          portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+        });
+        assert.ok(!newAlias.script.includes(appliedVersion), 'a replacement alias has a different revision');
+        assert.match(newAlias.script, /comment="Wi-Fi Fiti HotSpot login alias"\] do=\{ :if .*dst-host\] != "next\.alpha\.example"/,
+          'the router retires only app-owned rules for old aliases');
+        process.env.FITI_HOTSPOT_LOGIN_ALIASES = alpha.location.id + '=invalid.example/other-path';
+        const invalidAlias = await api(loginPath, { routerToken: alpha.location.routerToken });
+        assert.ok(invalidAlias.text.includes('$(if http-header == "Location")https://' + alpha.location.portalHostname + '?mac=$(mac)'),
+          'an invalid alias falls back to the managed host');
+      } finally {
+        delete process.env.FITI_HOTSPOT_LOGIN_ALIASES;
+      }
+
       // Standards-based discovery is an additional, exact-location pilot. It
       // must not use the white-label payment hostname or affect any other
       // router until a DNS name and matching RouterOS certificate are named.

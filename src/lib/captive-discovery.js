@@ -25,6 +25,18 @@ function certificateName(value) {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(raw) ? raw : null;
 }
 
+function hotspotLoginAliasForLocation(locationId) {
+  const id = String(locationId || '');
+  if (!id) return null;
+  for (const entry of String(process.env.FITI_HOTSPOT_LOGIN_ALIASES || '').split(',')) {
+    const separator = entry.indexOf('=');
+    if (separator > 0 && entry.slice(0, separator).trim() === id) {
+      return hostname(entry.slice(separator + 1));
+    }
+  }
+  return null;
+}
+
 function captiveDiscoveryForLocation(locationId) {
   const enabled = listed('FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS', locationId);
   const rollback = listed('FITI_CAPTIVE_DISCOVERY_ROLLBACK_LOCATIONS', locationId);
@@ -40,4 +52,4 @@ function captiveDiscoveryForLocation(locationId) {
     version: enabled ? DISCOVERY_TEMPLATE_VERSION : DISCOVERY_ROLLBACK_TEMPLATE_VERSION };
 }
 
-module.exports = { DISCOVERY_TEMPLATE_VERSION, DISCOVERY_ROLLBACK_TEMPLATE_VERSION, captiveDiscoveryForLocation };
+module.exports = { DISCOVERY_TEMPLATE_VERSION, DISCOVERY_ROLLBACK_TEMPLATE_VERSION, captiveDiscoveryForLocation, hotspotLoginAliasForLocation };
