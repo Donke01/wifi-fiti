@@ -433,6 +433,7 @@ async function main() {
       'the portal refresh records success only after the login page fetch succeeds');
     const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
     assert.equal(whiteLabelRouterLogin.status, 200);
+    assert.ok(!whiteLabelRouterLogin.text.startsWith('$(if http-status'), 'unlisted locations retain their existing login template');
     assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));
     // Opt-in upgrades must work on already paired routers without resetting
     // their hotspot, changing the customer's portal hostname, or affecting peers.
@@ -442,9 +443,17 @@ async function main() {
         routerToken: alpha.location.routerToken,
       });
       assert.equal(loginV2.status, 200);
+      assert.ok(loginV2.text.startsWith('$(if http-status == 302)'), 'RouterOS returns a native HTTP redirect');
+      assert.ok(loginV2.text.includes('$(if http-header == "Location")https://' + alpha.location.portalHostname + '?mac=$(mac)&ip=$(ip)'),
+        'the redirect points to the current HotSpot payment page with RouterOS query values');
       assert.match(loginV2.text, /window\.location\.replace/, 'direct-login pilot avoids the white wait page');
       assert.match(loginV2.text, /http-equiv="refresh"/, 'older captive browsers get a fallback');
       assert.match(loginV2.text, /link-login-only=\$\(link-login-only\)/, 'native router login survives');
+      const hotspotStatus = await api('/api/tenant/' + alpha.location.id + '/router-login?page=status', {
+        routerToken: alpha.location.routerToken,
+      });
+      assert.equal(hotspotStatus.status, 200);
+      assert.ok(hotspotStatus.text.startsWith('<!doctype html>'), 'the logged-in status page keeps its HTML response');
       const fastPortal = await api('/p/' + alpha.location.id);
       assert.equal(fastPortal.status, 200);
       assert.match(fastPortal.text, /globalThis\.__WIFI_FITI_CONFIG__=\{/, 'public packages bootstrap inside HTML');
@@ -452,20 +461,20 @@ async function main() {
       const refreshV2 = await routerSync(alpha.location, {
         portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
       });
-      assert.match(refreshV2.script, /\$fitiRouterLoginVersion != "v2"/,
+      assert.match(refreshV2.script, /\$fitiRouterLoginVersion != "v5"/,
         'router refreshes the login file even though portal hostname matches');
-      assert.match(refreshV2.script, /:set fitiRouterLoginVersion "v2"/,
+      assert.match(refreshV2.script, /:set fitiRouterLoginVersion "v5"/,
         'version stored only after successful download');
       const telemetry = await realFetch(origin + '/api/router/telemetry?site=' + alpha.location.id, {
         method: 'POST',
         headers: { 'X-WiFi-Fiti-Router': alpha.location.routerToken, 'Content-Type': 'text/plain' },
-        body: 'fiti-telemetry-v1\nver|v2\nres|8|100000|200000|200|100|200|0\n',
+        body: 'fiti-telemetry-v1\nver|v5\nres|8|100000|200000|200|100|200|0\n',
       });
       assert.equal(telemetry.status, 200);
       const confirmed = await routerSync(alpha.location, {
         portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
       });
-      assert.doesNotMatch(confirmed.script, /fitiDesiredPortalUrl|:set fitiRouterLoginVersion "v2"/,
+      assert.doesNotMatch(confirmed.script, /fitiDesiredPortalUrl|:set fitiRouterLoginVersion "v5"/,
         'confirmed version stops repeated portal update work during normal polling');
 
       // Standards-based discovery is an additional, exact-location pilot. It
@@ -479,7 +488,7 @@ async function main() {
         const discovery = await routerSync(alpha.location, {
           portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
         });
-        assert.match(discovery.script, /\$fitiRouterLoginVersion != "v3"/,
+        assert.match(discovery.script, /\$fitiRouterLoginVersion != "v6"/,
           'discovery has its own acknowledged router template revision');
         assert.match(discovery.script, /dns-name="router-pilot\.example\.test" ssl-certificate="router-pilot\.example\.test"/,
           'only the selected HotSpot profile receives the verified CAPPORT hostname and certificate');
@@ -502,8 +511,8 @@ async function main() {
         assert.ok(discovery.script.indexOf('} do={ :log warning ("fiti: captive discovery deferred: " . $fitiDiscoveryError) }') <
           discovery.script.indexOf(`:local u "${paidDuringDiscovery.username}"`),
         'the discovery error handler completes before customer provisioning starts');
-        assert.match(discovery.script, /:if \(\$fitiDiscoveryReady\) do=\{ :set fitiRouterLoginVersion "v3" \}/,
-          'a failed discovery attempt does not acknowledge v3, so the next router poll retries it');
+        assert.match(discovery.script, /:if \(\$fitiDiscoveryReady\) do=\{ :set fitiRouterLoginVersion "v6" \}/,
+          'a failed discovery attempt does not acknowledge the new revision, so the next router poll retries it');
         assert.ok(discovery.ids.length >= 1,
           'the paid grant remains deliverable alongside the failed optional discovery setup');
         assert.doesNotMatch(discovery.script, /dns-name=""/,
@@ -524,13 +533,19 @@ async function main() {
           portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
         });
         assert.match(rollbackDiscovery.script, /\$fitiRouterLoginVersion != "v4"/,
-          'rollback has its own observed revision, so a prior v2 report cannot skip the clear action');
+          'rollback has its own observed revision, so a prior report cannot skip the clear action');
         assert.match(rollbackDiscovery.script, /ssl-certificate=none/,
           'rollback clears only the certificate named by the pilot configuration');
         assert.match(rollbackDiscovery.script, /\/ip dns static remove \[find where name="router-pilot\.example\.test" and comment="Wi-Fi Fiti CAPPORT discovery"\]/,
           'rollback removes only the tagged local CAPPORT DNS record');
         assert.match(rollbackDiscovery.script, /\/file copy \$fitiApiBackup name=\$fitiApiJson/,
           'rollback restores the saved native api.json rather than leaving CAPPORT active');
+        const rollbackLogin = await api('/api/tenant/' + alpha.location.id + '/router-login', {
+          routerToken: alpha.location.routerToken,
+        });
+        assert.equal(rollbackLogin.status, 200);
+        assert.ok(rollbackLogin.text.startsWith('<!doctype html>'),
+          'CAPPORT rollback keeps the previous HTML while its router revision remains valid');
       } finally {
         delete process.env.FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS;
         delete process.env.FITI_CAPTIVE_DISCOVERY_ROLLBACK_LOCATIONS;
@@ -549,6 +564,7 @@ async function main() {
         routerToken: alpha.location.routerToken,
       });
       assert.match(oldLogin.text, /Opening WiFi payment page/, 'rollback keeps the original HTML');
+      assert.ok(!oldLogin.text.startsWith('$(if http-status'), 'rollback removes the native HTTP redirect');
       const rollback = await routerSync(alpha.location, {
         portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
       });

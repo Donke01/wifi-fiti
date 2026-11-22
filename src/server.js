@@ -3917,7 +3917,11 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
     : `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
   if (captiveLoginV2(location)) {
     res.set('Cache-Control', 'no-store, max-age=0');
-    return res.type('text/html').send(renderRouterLoginPage({ title: location.business_name, portalUrl: portal }));
+    return res.type('text/html').send(renderRouterLoginPage({
+      title: location.business_name,
+      portalUrl: portal,
+      httpRedirect: req.query.page !== 'status' && captiveDiscoveryForLocation(location.id).mode !== 'rollback',
+    }));
   }
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);

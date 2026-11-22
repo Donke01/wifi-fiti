@@ -4,7 +4,7 @@
 // profile has both a DNS name and a server certificate.  Keep that change
 // fail-closed and explicitly per-location: using the payment portal hostname
 // here would be wrong unless its certificate is installed on the router.
-const DISCOVERY_TEMPLATE_VERSION = 'v3';
+const DISCOVERY_TEMPLATE_VERSION = 'v6';
 const DISCOVERY_ROLLBACK_TEMPLATE_VERSION = 'v4';
 
 function listed(name, locationId) {
@@ -35,9 +35,8 @@ function captiveDiscoveryForLocation(locationId) {
   const certificate = certificateName(process.env.FITI_CAPTIVE_DISCOVERY_CERTIFICATE);
   if (!dnsName || !certificate) return { mode: 'disabled', version: null };
   return { mode: enabled ? 'enabled' : 'rollback', dnsName, certificate,
-    // The rollback needs its own observed revision. Without it, a router that
-    // previously reported v2 could make the server believe the clear action
-    // had already happened and never receive it.
+    // Give each transition its own observed revision so an earlier report
+    // cannot cause the server to skip applying or clearing discovery.
     version: enabled ? DISCOVERY_TEMPLATE_VERSION : DISCOVERY_ROLLBACK_TEMPLATE_VERSION };
 }
 
