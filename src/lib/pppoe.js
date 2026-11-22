@@ -252,7 +252,8 @@ function expiredPageFor(locationId) {
     // The router's own portal address when PPPoE uses it, else cloud.
     const host = require('./pppoe-address').tenantHost({ locationId }) || new URL(config.domains.appUrl).hostname;
     if (!/^[a-z0-9.-]{1,253}$/i.test(host)) return null;
-    return { host, target: `${host}/pay/${row.pay_code}` };
+    const legacyTarget = `${host}/pay/${row.pay_code}`;
+    return { host, target: `https://${legacyTarget}`, legacyTarget };
   } catch (_) { return null; } // billing tables not created yet
 }
 /**
@@ -273,10 +274,10 @@ function expiredPageSetup(subnet, page) {
     ':local fitiPppExpiredOk false',
     ':do {',
     `  :if ([:len [/ppp profile find where name="fiti-expired"]] = 0) do={ /ppp profile add name="fiti-expired" local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" rate-limit="512k/512k" dns-server=1.1.1.1,8.8.8.8 only-one=yes comment="${tag}" } else={ /ppp profile set [find where name="fiti-expired"] local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" }`,
-    `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${page.host}" comment="${tag}" }`,
-    // A router set up earlier follows a new pay-page address (e.g. the
-    // tenant's own portal address): only its own entry, only if different.
-    `  :do { :foreach fitiPayHost in=[/ip firewall address-list find where list="fiti-pay-host" and comment="${tag}"] do={ :if ([/ip firewall address-list get $fitiPayHost address] != "${page.host}") do={ /ip firewall address-list set $fitiPayHost address="${page.host}" } } } on-error={}`,
+    // Ensure the redirect destination is reachable even if the operator has
+    // already allowed some branded aliases. Only retire entries we manage.
+    `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host" and address="${page.host}"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${page.host}" comment="${tag}" }`,
+    `  :foreach fitiPayHost in=[/ip firewall address-list find where list="fiti-pay-host" and comment="${tag}"] do={ :if ([/ip firewall address-list get $fitiPayHost address] != "${page.host}") do={ /ip firewall address-list remove $fitiPayHost } }`,
     `  :if ([:len [/ip firewall filter find where comment="${tag}"]] = 0) do={`,
     `    ${top('/ip firewall filter', `chain=forward action=drop src-address-list="fiti-pppoe-expired" comment="${tag}"`)}`,
     `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" protocol=udp dst-port=53 comment="${tag}"`)}`,
@@ -289,13 +290,14 @@ function expiredPageSetup(subnet, page) {
     // Never take over a web proxy the owner already runs on another port.
     '  :if ([/ip proxy get enabled]) do={ :if ([/ip proxy get port] != 8089) do={ :error "proxy_in_use" } } else={ /ip proxy set enabled=yes port=8089 }',
     `  :if ([:len [/ip proxy access find where comment="${tag}"]] = 0) do={`,
-    // RouterOS 7 says action=redirect action-data=…; 6 says action=deny redirect-to=….
-    `    :do { ${run(`/ip proxy access add src-address=${subnet.network} action=redirect action-data="${page.target}" comment="${tag}"`)} } on-error={ ${run(`/ip proxy access add src-address=${subnet.network} action=deny redirect-to="${page.target}" comment="${tag}"`)} }`,
+    // The modern proxy sends action-data as Location. Keep the host/path
+    // form for routers using the older redirect-to field.
+    `    :do { ${run(`/ip proxy access add src-address=${subnet.network} action=redirect action-data="${page.target}" comment="${tag}"`)} } on-error={ ${run(`/ip proxy access add src-address=${subnet.network} action=deny redirect-to="${page.legacyTarget}" comment="${tag}"`)} }`,
     // Nobody else may use the proxy.
     `    ${run(`/ip proxy access add action=deny comment="${tag}"`)}`,
     '  }',
     // …and its redirect follows the new address too (RouterOS 7, then 6).
-    `  :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] action-data="${page.target}"`)} } on-error={ :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] redirect-to="${page.target}"`)} } on-error={} }`,
+    `  :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] action-data="${page.target}"`)} } on-error={ :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] redirect-to="${page.legacyTarget}"`)} } on-error={} }`,
     '  :set fitiPppExpiredOk true',
     '} on-error={ :log warning "fiti: PPPoE pay page setup failed; expired customers are cut off instead" }',
   ].join('\n');

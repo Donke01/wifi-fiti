@@ -170,8 +170,12 @@ db.prepare(`UPDATE businesses SET pppoe_billing_expires_at=? WHERE id='b1'`).run
   assert.equal(billing.userFor('b1', u2.id).status, 'expired');
   assert.match(script, /\/ppp secret set \[find where name="otieno"\] profile="fiti-expired" disabled=no/);
   assert.match(script, /address-list="fiti-pppoe-expired"/);
-  assert.match(script, /list="fiti-pay-host" address="cloud\.fiti\.test"/);
-  assert.match(script, /action-data=\\"cloud\.fiti\.test\/pay\/[a-z0-9]+\\"/);
+  assert.match(script, /find where list="fiti-pay-host" and address="cloud\.fiti\.test"\]\] = 0\) do=\{ \/ip firewall address-list add/,
+    'a list that already contains branded aliases still gets the payment host');
+  assert.match(script, /:foreach fitiPayHost in=\[\/ip firewall address-list find where list="fiti-pay-host" and comment="Wi-Fi Fiti PPPoE expired"\]/,
+    'updating the destination only retires Wi-Fi Fiti entries');
+  assert.equal((script.match(/action-data=\\"https:\/\/cloud\.fiti\.test\/pay\/[a-z0-9]+\\"/g) || []).length, 2,
+    'both new and existing proxy rules send an absolute HTTPS Location');
   assert.match(script, /redirect-to=\\"cloud\.fiti\.test\/pay\/[a-z0-9]+\\"/);
   assert.match(script, /:error "proxy_in_use"/, 'an owner web proxy on another port is never taken over');
   assert.match(script, /\} else=\{ :do \{ :if \(\[:len \[\/ppp secret find where name="otieno"\]\] > 0\) do=\{ \/ppp secret set \[find where name="otieno"\] disabled=yes \}/, 'without the page, it is cut off as before');
