@@ -97,7 +97,7 @@ function parseReport(raw) {
       };
       report.activeCount = count(parts[7], 100000);
     } else if (parts[0] === 'ver' && !report.loginTemplateVersion) {
-      if (/^v[0-9]{1,3}$/.test(parts[1] || '')) report.loginTemplateVersion = parts[1];
+      if (/^v[0-9]{1,3}(?:-[0-9a-f]{12})?$/.test(parts[1] || '')) report.loginTemplateVersion = parts[1];
     } else if (parts[0] === 'sess' && report.listed < MAX_SESSIONS) {
       report.listed += 1;
       // Only Wi-Fi Fiti customers; the owner's own hotspot logins are skipped.

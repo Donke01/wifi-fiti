@@ -2,7 +2,8 @@
 
 // This small document is fetched to the router's hotspot/login.html. It must
 // work in restricted captive-network browsers with no third-party assets.
-const ROUTER_LOGIN_TEMPLATE_VERSION = 'v2';
+// v3 and v4 were used by the original CAPPORT rollout and rollback.
+const ROUTER_LOGIN_TEMPLATE_VERSION = 'v5';
 
 function escapeHtml(value) {
   return String(value == null ? '' : value)
@@ -10,11 +11,22 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function renderRouterLoginPage({ title, portalUrl }) {
+function renderRouterLoginPage({ title, portalUrl, httpRedirect = false }) {
   const url = String(portalUrl || '');
   if (!/^https:\/\/[^\s/]+(?:\/|\?|$)/i.test(url)) {
     throw new Error('Captive portal redirect must use an HTTPS URL');
   }
+  if (httpRedirect && /[\x00-\x20\x7f<>"']/.test(url)) {
+    throw new Error('Invalid captive portal Location header');
+  }
+  // RouterOS consumes these directives when it serves login.html. A network
+  // probe can follow the HTTPS Location without executing the fallback HTML.
+  const headers = httpRedirect ? [
+    '$(if http-status == 302)Hotspot login required$(endif)',
+    '$(if http-header == "Location")' + url + '$(endif)',
+    '$(if http-header == "Cache-Control")no-store$(endif)',
+    '',
+  ].join('\n') : '';
   const href = escapeHtml(url);
   // Escape HTML-significant characters in a JavaScript string, rather than
   // HTML-escaping inside <script>. Keep RouterOS $(...) macros untouched so
@@ -23,7 +35,7 @@ function renderRouterLoginPage({ title, portalUrl }) {
     .replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
     .replace(/&/g, '\\u0026')
     .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-  return `<!doctype html>
+  return headers + `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">

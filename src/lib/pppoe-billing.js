@@ -413,7 +413,8 @@ function applyPayment({ userId, amount, method, purpose = 'pay', targetProfileId
     const serve = ownerCanServe(business);
     const before = { credit: Number(user.credit) || 0, install: Number(user.install_fee_due) || 0,
       paidUntil: paidUntilOf(user), profileId: user.profile_id, nextProfileId: user.next_profile_id || null };
-    const wasCutOff = user.status === 'expired' || (before.paidUntil != null && before.paidUntil + graceMs <= now);
+    const wasCutOff = user.status === 'expired' || user.status === 'awaiting_payment'
+      || (before.paidUntil != null && before.paidUntil + graceMs <= now);
     let credit = before.credit; let install = before.install; let paidUntil = before.paidUntil;
     let profileId = before.profileId; let nextProfileId = before.nextProfileId;
     let boostProfileId = user.boost_profile_id || null; let boostUntil = parse(user.boost_until);

@@ -4,7 +4,7 @@
 // profile has both a DNS name and a server certificate.  Keep that change
 // fail-closed and explicitly per-location: using the payment portal hostname
 // here would be wrong unless its certificate is installed on the router.
-const DISCOVERY_TEMPLATE_VERSION = 'v3';
+const DISCOVERY_TEMPLATE_VERSION = 'v6';
 const DISCOVERY_ROLLBACK_TEMPLATE_VERSION = 'v4';
 
 function listed(name, locationId) {
@@ -25,6 +25,18 @@ function certificateName(value) {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(raw) ? raw : null;
 }
 
+function hotspotLoginAliasForLocation(locationId) {
+  const id = String(locationId || '');
+  if (!id) return null;
+  for (const entry of String(process.env.FITI_HOTSPOT_LOGIN_ALIASES || '').split(',')) {
+    const separator = entry.indexOf('=');
+    if (separator > 0 && entry.slice(0, separator).trim() === id) {
+      return hostname(entry.slice(separator + 1));
+    }
+  }
+  return null;
+}
+
 function captiveDiscoveryForLocation(locationId) {
   const enabled = listed('FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS', locationId);
   const rollback = listed('FITI_CAPTIVE_DISCOVERY_ROLLBACK_LOCATIONS', locationId);
@@ -35,10 +47,9 @@ function captiveDiscoveryForLocation(locationId) {
   const certificate = certificateName(process.env.FITI_CAPTIVE_DISCOVERY_CERTIFICATE);
   if (!dnsName || !certificate) return { mode: 'disabled', version: null };
   return { mode: enabled ? 'enabled' : 'rollback', dnsName, certificate,
-    // The rollback needs its own observed revision. Without it, a router that
-    // previously reported v2 could make the server believe the clear action
-    // had already happened and never receive it.
+    // Give each transition its own observed revision so an earlier report
+    // cannot cause the server to skip applying or clearing discovery.
     version: enabled ? DISCOVERY_TEMPLATE_VERSION : DISCOVERY_ROLLBACK_TEMPLATE_VERSION };
 }
 
-module.exports = { DISCOVERY_TEMPLATE_VERSION, DISCOVERY_ROLLBACK_TEMPLATE_VERSION, captiveDiscoveryForLocation };
+module.exports = { DISCOVERY_TEMPLATE_VERSION, DISCOVERY_ROLLBACK_TEMPLATE_VERSION, captiveDiscoveryForLocation, hotspotLoginAliasForLocation };

@@ -433,6 +433,7 @@ async function main() {
       'the portal refresh records success only after the login page fetch succeeds');
     const whiteLabelRouterLogin = await api(`/api/tenant/${alpha.location.id}/router-login?portal=${encodeURIComponent(alpha.location.portalHostname)}`, { routerToken: alpha.location.routerToken });
     assert.equal(whiteLabelRouterLogin.status, 200);
+    assert.ok(!whiteLabelRouterLogin.text.startsWith('$(if http-status'), 'unlisted locations retain their existing login template');
     assert.match(whiteLabelRouterLogin.text, new RegExp(`https://${alpha.location.portalHostname.replace(/[.]/g, '\\.')}(?:/)?\\?mac=\\$\\(mac\\)`));
     // Opt-in upgrades must work on already paired routers without resetting
     // their hotspot, changing the customer's portal hostname, or affecting peers.
@@ -442,9 +443,17 @@ async function main() {
         routerToken: alpha.location.routerToken,
       });
       assert.equal(loginV2.status, 200);
+      assert.ok(loginV2.text.startsWith('$(if http-status == 302)'), 'RouterOS returns a native HTTP redirect');
+      assert.ok(loginV2.text.includes('$(if http-header == "Location")https://' + alpha.location.portalHostname + '?mac=$(mac)&ip=$(ip)'),
+        'the redirect points to the current HotSpot payment page with RouterOS query values');
       assert.match(loginV2.text, /window\.location\.replace/, 'direct-login pilot avoids the white wait page');
       assert.match(loginV2.text, /http-equiv="refresh"/, 'older captive browsers get a fallback');
       assert.match(loginV2.text, /link-login-only=\$\(link-login-only\)/, 'native router login survives');
+      const hotspotStatus = await api('/api/tenant/' + alpha.location.id + '/router-login?page=status', {
+        routerToken: alpha.location.routerToken,
+      });
+      assert.equal(hotspotStatus.status, 200);
+      assert.ok(hotspotStatus.text.startsWith('<!doctype html>'), 'the logged-in status page keeps its HTML response');
       const fastPortal = await api('/p/' + alpha.location.id);
       assert.equal(fastPortal.status, 200);
       assert.match(fastPortal.text, /globalThis\.__WIFI_FITI_CONFIG__=\{/, 'public packages bootstrap inside HTML');
@@ -452,21 +461,71 @@ async function main() {
       const refreshV2 = await routerSync(alpha.location, {
         portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
       });
-      assert.match(refreshV2.script, /\$fitiRouterLoginVersion != "v2"/,
+      assert.match(refreshV2.script, /\$fitiRouterLoginVersion != "v5"/,
         'router refreshes the login file even though portal hostname matches');
-      assert.match(refreshV2.script, /:set fitiRouterLoginVersion "v2"/,
+      assert.match(refreshV2.script, /:set fitiRouterLoginVersion "v5"/,
         'version stored only after successful download');
       const telemetry = await realFetch(origin + '/api/router/telemetry?site=' + alpha.location.id, {
         method: 'POST',
         headers: { 'X-WiFi-Fiti-Router': alpha.location.routerToken, 'Content-Type': 'text/plain' },
-        body: 'fiti-telemetry-v1\nver|v2\nres|8|100000|200000|200|100|200|0\n',
+        body: 'fiti-telemetry-v1\nver|v5\nres|8|100000|200000|200|100|200|0\n',
       });
       assert.equal(telemetry.status, 200);
       const confirmed = await routerSync(alpha.location, {
         portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
       });
-      assert.doesNotMatch(confirmed.script, /fitiDesiredPortalUrl|:set fitiRouterLoginVersion "v2"/,
+      assert.doesNotMatch(confirmed.script, /fitiDesiredPortalUrl|:set fitiRouterLoginVersion "v5"/,
         'confirmed version stops repeated portal update work during normal polling');
+
+      process.env.FITI_HOTSPOT_LOGIN_ALIASES = alpha.location.id + '=hotspot.alpha.example';
+      try {
+        const loginPath = '/api/tenant/' + alpha.location.id + '/router-login?portal=' + encodeURIComponent(alpha.location.portalHostname);
+        const branded = await api(loginPath, { routerToken: alpha.location.routerToken });
+        assert.ok(branded.text.includes('$(if http-header == "Location")https://hotspot.alpha.example/?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)$(endif)'),
+          'the branded redirect carries the device and RouterOS login values');
+        const status = await api(loginPath + '&page=status', { routerToken: alpha.location.routerToken });
+        assert.ok(!status.text.includes('hotspot.alpha.example'), 'the status page keeps the tenant destination');
+        const unrelated = await api('/api/tenant/' + bravo.location.id + '/router-login', { routerToken: bravo.location.routerToken });
+        assert.equal(unrelated.status, 200);
+        assert.ok(!unrelated.text.includes('hotspot.alpha.example'), 'another router never receives the alias');
+
+        const brandedRefresh = await routerSync(alpha.location, {
+          portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+        });
+        const [appliedVersion] = brandedRefresh.script.match(/v5-[0-9a-f]{12}/) || [];
+        assert.ok(appliedVersion, 'adding an alias invalidates a confirmed login template');
+        assert.match(brandedRefresh.script, /server=\$fitiHotspotServer dst-host="hotspot\.alpha\.example" action=allow/);
+        assert.match(brandedRefresh.script, /:set fitiPortalAppliedHost \$fitiDesiredPortalHost/,
+          'the router still reports the managed tenant host');
+        // The previous, unbranded report already consumed the five-second slot.
+        await pause(5_050);
+        const brandedTelemetry = await realFetch(origin + '/api/router/telemetry?site=' + alpha.location.id, {
+          method: 'POST',
+          headers: { 'X-WiFi-Fiti-Router': alpha.location.routerToken, 'Content-Type': 'text/plain' },
+          body: 'fiti-telemetry-v1\nver|' + appliedVersion + '\nres|8|100000|200000|200|100|200|0\n',
+        });
+        assert.equal(brandedTelemetry.status, 200);
+        assert.equal(await brandedTelemetry.text(), '# ok\n');
+        const brandedConfirmed = await routerSync(alpha.location, {
+          portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+        });
+        assert.doesNotMatch(brandedConfirmed.script, /fitiDesiredPortalUrl/,
+          'telemetry acknowledges the alias revision');
+
+        process.env.FITI_HOTSPOT_LOGIN_ALIASES = alpha.location.id + '=next.alpha.example';
+        const newAlias = await routerSync(alpha.location, {
+          portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
+        });
+        assert.ok(!newAlias.script.includes(appliedVersion), 'a replacement alias has a different revision');
+        assert.match(newAlias.script, /comment="Wi-Fi Fiti HotSpot login alias"\] do=\{ :if .*dst-host\] != "next\.alpha\.example"/,
+          'the router retires only app-owned rules for old aliases');
+        process.env.FITI_HOTSPOT_LOGIN_ALIASES = alpha.location.id + '=invalid.example/other-path';
+        const invalidAlias = await api(loginPath, { routerToken: alpha.location.routerToken });
+        assert.ok(invalidAlias.text.includes('$(if http-header == "Location")https://' + alpha.location.portalHostname + '?mac=$(mac)'),
+          'an invalid alias falls back to the managed host');
+      } finally {
+        delete process.env.FITI_HOTSPOT_LOGIN_ALIASES;
+      }
 
       // Standards-based discovery is an additional, exact-location pilot. It
       // must not use the white-label payment hostname or affect any other
@@ -479,7 +538,7 @@ async function main() {
         const discovery = await routerSync(alpha.location, {
           portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
         });
-        assert.match(discovery.script, /\$fitiRouterLoginVersion != "v3"/,
+        assert.match(discovery.script, /\$fitiRouterLoginVersion != "v6"/,
           'discovery has its own acknowledged router template revision');
         assert.match(discovery.script, /dns-name="router-pilot\.example\.test" ssl-certificate="router-pilot\.example\.test"/,
           'only the selected HotSpot profile receives the verified CAPPORT hostname and certificate');
@@ -502,8 +561,8 @@ async function main() {
         assert.ok(discovery.script.indexOf('} do={ :log warning ("fiti: captive discovery deferred: " . $fitiDiscoveryError) }') <
           discovery.script.indexOf(`:local u "${paidDuringDiscovery.username}"`),
         'the discovery error handler completes before customer provisioning starts');
-        assert.match(discovery.script, /:if \(\$fitiDiscoveryReady\) do=\{ :set fitiRouterLoginVersion "v3" \}/,
-          'a failed discovery attempt does not acknowledge v3, so the next router poll retries it');
+        assert.match(discovery.script, /:if \(\$fitiDiscoveryReady\) do=\{ :set fitiRouterLoginVersion "v6" \}/,
+          'a failed discovery attempt does not acknowledge the new revision, so the next router poll retries it');
         assert.ok(discovery.ids.length >= 1,
           'the paid grant remains deliverable alongside the failed optional discovery setup');
         assert.doesNotMatch(discovery.script, /dns-name=""/,
@@ -524,13 +583,19 @@ async function main() {
           portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
         });
         assert.match(rollbackDiscovery.script, /\$fitiRouterLoginVersion != "v4"/,
-          'rollback has its own observed revision, so a prior v2 report cannot skip the clear action');
+          'rollback has its own observed revision, so a prior report cannot skip the clear action');
         assert.match(rollbackDiscovery.script, /ssl-certificate=none/,
           'rollback clears only the certificate named by the pilot configuration');
         assert.match(rollbackDiscovery.script, /\/ip dns static remove \[find where name="router-pilot\.example\.test" and comment="Wi-Fi Fiti CAPPORT discovery"\]/,
           'rollback removes only the tagged local CAPPORT DNS record');
         assert.match(rollbackDiscovery.script, /\/file copy \$fitiApiBackup name=\$fitiApiJson/,
           'rollback restores the saved native api.json rather than leaving CAPPORT active');
+        const rollbackLogin = await api('/api/tenant/' + alpha.location.id + '/router-login', {
+          routerToken: alpha.location.routerToken,
+        });
+        assert.equal(rollbackLogin.status, 200);
+        assert.ok(rollbackLogin.text.startsWith('<!doctype html>'),
+          'CAPPORT rollback keeps the previous HTML while its router revision remains valid');
       } finally {
         delete process.env.FITI_CAPTIVE_DISCOVERY_V2_LOCATIONS;
         delete process.env.FITI_CAPTIVE_DISCOVERY_ROLLBACK_LOCATIONS;
@@ -549,6 +614,7 @@ async function main() {
         routerToken: alpha.location.routerToken,
       });
       assert.match(oldLogin.text, /Opening WiFi payment page/, 'rollback keeps the original HTML');
+      assert.ok(!oldLogin.text.startsWith('$(if http-status'), 'rollback removes the native HTTP redirect');
       const rollback = await routerSync(alpha.location, {
         portal: alpha.location.portalHostname, portalApplied: alpha.location.portalHostname, health: 'ready',
       });
@@ -590,11 +656,9 @@ async function main() {
       const pppoeLib = require('../src/lib/pppoe');
       database.prepare('UPDATE pppoe_billing_settings SET expired_page=1 WHERE business_id=?').run(alpha.business.id);
       const page = pppoeLib._test.expiredPageFor(alpha.location.id);
-      const tenantPaymentAddress = `${alpha.location.portalHostname}/pay/${payCode}`;
       assert.deepEqual(page, {
         host: alpha.location.portalHostname,
-        target: `https://${tenantPaymentAddress}`,
-        legacyTarget: tenantPaymentAddress,
+        target: `${alpha.location.portalHostname}/pay/${payCode}?renew=1`,
       }, 'an expired customer is sent to the tenant address');
       const setup = pppoeLib._test.expiredPageSetup({ gateway: '10.20.0.1', network: '10.20.0.0/24' }, page);
       assert.ok(setup.includes(`list="fiti-pay-host" and address="${alpha.location.portalHostname}"`), 'the new destination is checked even on an existing allowlist');

@@ -163,7 +163,7 @@ footer{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
   }
   window.addEventListener('popstate', function () { location.reload(); });
 
-  function loadAccount() {
+  function loadAccount(resumePayment) {
     render([h('div', { class: 'card muted', text: 'Finding ' + username + '…' })]);
     var suffix = accountKey ? '?k=' + encodeURIComponent(accountKey) : '';
     api(accountPath(suffix)).then(function (b) {
@@ -171,7 +171,9 @@ footer{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
       if (b.private) saveKey(b.token || accountKey);
       else if (accountKey) { accountKey = ''; }
       if (!form.phone && b.private && b.account.phone) form.phone = '';
-      tab = 'pay'; draw();
+      tab = 'pay';
+      var checkout = resumePayment === false ? null : recentCheckout();
+      if (checkout) waiting(checkout); else draw();
     }).catch(function (e) { if (e.status === 404) findScreen(e.message); else render([errorBox(e.message)]); });
   }
 
@@ -409,12 +411,33 @@ footer{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
   }
 
   // ---- M-Pesa prompt ------------------------------------------------------
+  function checkoutKey() { return 'fiti-checkout:' + code + ':' + username.toLowerCase(); }
+  function recentCheckout() {
+    try {
+      var checkout = JSON.parse(sessionStorage.getItem(checkoutKey()));
+      if (checkout && checkout.checkoutRequestId && checkout.statusToken && Date.now() - checkout.startedAt < 30 * 60000) return checkout;
+      sessionStorage.removeItem(checkoutKey());
+    } catch (e) {}
+    return null;
+  }
+  function keepCheckout(checkout) {
+    try { sessionStorage.setItem(checkoutKey(), JSON.stringify(checkout)); } catch (e) {}
+  }
+  function clearCheckout() {
+    try { sessionStorage.removeItem(checkoutKey()); } catch (e) {}
+  }
   function startPrompt(body, box, privateOnly) {
+    var previousCheckout = recentCheckout();
+    if (previousCheckout) return waiting(previousCheckout);
     if (!body.phone || body.phone.replace(/\D/g, '').length < 9) { box.appendChild(errorBox('Enter your M-Pesa number, e.g. 0712 345 678.')); return; }
     if (privateOnly || data.private) body.k = accountKey;
     api(accountPath('/pay'), { method: 'POST', body: body }).then(function (r) {
       if (r.applied || r.scheduled) { data.account = r.account; tab = 'pay'; return draw(); }
-      waiting(r);
+      var status = data.account.status;
+      var checkout = { checkoutRequestId: r.checkoutRequestId, statusToken: r.statusToken, amount: r.amount,
+        startedAt: Date.now(), restoringAccess: status === 'expired' || status === 'awaiting_payment' };
+      keepCheckout(checkout);
+      waiting(checkout);
     }).catch(function (e) {
       if (e.body && e.body.code === 'provider_paused') { info.paused = e.message; return draw(); }
       box.appendChild(errorBox(e.message));
@@ -422,26 +445,40 @@ footer{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
   }
   function waiting(r) {
     var cancelled = false;
+    var started = Date.now();
     render([h('section', { class: 'card stack center', style: 'padding:30px 20px' }, [
       h('div', { class: 'spinner', role: 'img', 'aria-label': 'Waiting' }),
-      h('h1', { text: 'Check your phone' }),
-      h('p', { class: 'muted', text: 'An M-Pesa prompt for ' + kes(r.amount) + ' was sent to ' + r.phoneDisplay + '. Enter your PIN to finish.' }),
-      h('button', { type: 'button', class: 'ghost', text: 'Back', onclick: function () { cancelled = true; clearTimeout(pollTimer); loadAccount(); } }),
+      h('h1', { text: 'Confirming your payment' }),
+      h('p', { class: 'muted', text: 'Approve the M-Pesa prompt for ' + kes(r.amount) + ' once. This page checks for your payment while the router reconnects.' }),
+      h('button', { type: 'button', class: 'ghost', text: 'Back to account', onclick: function () { cancelled = true; clearTimeout(pollTimer); loadAccount(false); } }),
     ])]);
-    var started = Date.now();
-    (function poll() {
+    function checkAgain(delay) {
+      if (cancelled) return;
+      if (Date.now() - started < 150000) { pollTimer = setTimeout(poll, delay); return; }
+      render([h('section', { class: 'card stack center' }, [
+        h('h1', { text: 'Payment confirmation pending' }),
+        h('p', { class: 'muted', text: 'If M-Pesa confirmed the payment, check again before sending another.' }),
+        h('button', { type: 'button', text: 'Check payment again', onclick: function () { waiting(r); } }),
+        h('button', { type: 'button', class: 'ghost', text: 'Back to account', onclick: function () { loadAccount(false); } }),
+      ])]);
+    }
+    function poll() {
       if (cancelled) return;
       api(base() + '/status/' + encodeURIComponent(r.checkoutRequestId), { status: r.statusToken }).then(function (s) {
+        if (cancelled) return;
         if (s.status === 'paid') return paid(r, s);
-        if (s.status === 'failed') return failed(s.reason || 'The payment did not go through.');
-        if (Date.now() - started > 150000) return failed('No answer from M-Pesa yet. If money left your phone, it will still reach your account: check your receipts in a few minutes.');
-        pollTimer = setTimeout(poll, 3000);
-      }).catch(function () { pollTimer = setTimeout(poll, 4000); });
-    })();
+        if (s.status === 'failed') {
+          clearCheckout();
+          return failed(s.reason || 'The payment did not go through.');
+        }
+        checkAgain(3000);
+      }).catch(function () { checkAgain(4000); });
+    }
+    poll();
   }
   function paid(r, s) {
     var receipt = s.receipt || {};
-    var back = s.account && s.account.status !== 'expired' && data.account && (data.account.status === 'expired' || data.account.status === 'awaiting_payment');
+    var active = s.account && (s.account.status === 'paid' || s.account.status === 'due');
     render([h('section', { class: 'card stack center', style: 'padding:30px 20px' }, [
       h('div', { class: 'tick', 'aria-hidden': 'true' }, [svgTick()]),
       h('h1', { text: 'Payment received' }),
@@ -451,8 +488,8 @@ footer{margin-top:18px;text-align:center;font-size:13px;color:var(--muted)}
         h('div', {}, [h('span', { text: 'What it did' }), h('strong', { text: receipt.what || 'Applied' })]),
         h('div', {}, [h('span', { text: 'Credit now' }), h('strong', { text: kes(receipt.creditAfter) })]),
       ]),
-      back ? h('p', { class: 'small muted', text: 'The internet comes back within a minute. If it does not, switch the router off and on again.' }) : null,
-      h('button', { type: 'button', style: 'width:100%', text: 'Done', onclick: function () { loadAccount(); } }),
+      active && r.restoringAccess ? h('p', { class: 'small muted', text: 'Your plan is active. The router should reconnect within a minute. You can close this page and continue browsing once it reconnects.' }) : null,
+      h('button', { type: 'button', style: 'width:100%', text: 'Back to account', onclick: function () { clearCheckout(); loadAccount(false); } }),
     ])]);
   }
   function failed(reason) {

@@ -262,6 +262,9 @@ export async function handleRequest(request, env, runtime = globalThis) {
   if (payCode && (pppoePagePath(pathname, payCode) || pppoeApiPath(pathname, payCode))) {
     const api = pathname.startsWith('/api/');
     if (!(api ? ['GET', 'POST'] : ['GET', 'HEAD']).includes(request.method)) return response(405, 'Method not allowed.');
+    if (pathname === `/pay/${payCode}` && url.searchParams.get('renew') === '1') {
+      return new Response(null, { status: 302, headers: { location: `https://${host}${pathname}`, 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow' } });
+    }
     try {
       const upstream = await fetchWithTimeout(runtime, upstreamRequest(request, origin, env, host, pathname), null, PROXY_TIMEOUT_MS);
       if (upstream.status >= 300 && upstream.status < 400) return response(502, 'Customer portal unavailable.');

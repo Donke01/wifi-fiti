@@ -191,7 +191,10 @@ a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.bu
     var r = (state.routers || []).filter(function (v) { return v.id === u.location_id; })[0];
     if (r && !r.ready && u.job_status !== 'acked') return ['Waiting: confirm this router’s map', 'warn'];
     if (!u.job_status) return u.status === 'awaiting_payment' ? ['Sent once paid', 'warn'] : ['Not sent', ''];
-    if (u.job_status === 'acked') return [u.job_action === 'revoke' ? 'Off on the router' : 'On the router', 'ok'];
+    if (u.job_status === 'acked') {
+      if (u.job_action === 'upsert' && u.status === 'awaiting_payment' && r && r.firstPaymentPortal) return ['Payment page only', 'ok'];
+      return [u.job_action === 'revoke' ? 'Off on the router' : 'On the router', 'ok'];
+    }
     if (u.job_status === 'failed') return ['Failed: ' + (REASONS[u.job_error] || 'the router did not apply it'), 'bad'];
     if (u.job_error) return ['Retrying: ' + (REASONS[u.job_error] || u.job_error), 'warn'];
     return ['Waiting for the router', 'warn'];
@@ -404,7 +407,7 @@ a.button.secondary{background:#fff;color:#175aa7;border:1.5px solid #c8d5e6}a.bu
         var linked = request ? api('/api/business/pppoe/requests/' + encodeURIComponent(request.id), { method: 'PATCH', body: { status: 'connected', userId: u.id } }).catch(function () {}) : Promise.resolve();
         if (request) fromRequest = null;
         return linked.then(function () { return u.status === 'active' ? api('/api/business/pppoe/users/' + encodeURIComponent(u.id) + '/provision', { method: 'POST', body: { locationId: u.location_id } }) : null; }).then(function () {
-          return reload(u.status === 'awaiting_payment' ? u.username + ' added. Send them their pay link: the login goes to the router as soon as they pay.' : u.username + ' added and sent to the router.');
+          return reload(u.status === 'awaiting_payment' ? u.username + ' added. You can share their pay link for the first payment.' : u.username + ' added and sent to the router.');
         });
       }).catch(function (e) { msg(box, e.message); });
     } }, [
