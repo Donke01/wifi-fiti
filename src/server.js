@@ -32,7 +32,7 @@ const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { isCaptiveHost, captiveDomainScript } = require('./lib/captive-domain');
 const { renderRouterLoginPage, ROUTER_LOGIN_TEMPLATE_VERSION } = require('./lib/router-login');
 const { renderRouterCaptiveApi } = require('./lib/router-captive-api');
-const { captiveDiscoveryForLocation, DISCOVERY_TEMPLATE_VERSION, DISCOVERY_ROLLBACK_TEMPLATE_VERSION } = require('./lib/captive-discovery');
+const { captiveDiscoveryForLocation, hotspotLoginAliasForLocation } = require('./lib/captive-discovery');
 const { embedPublicPortalConfig } = require('./lib/portal-bootstrap');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
@@ -256,8 +256,8 @@ function portalUrlForRouter(location, requestedHostname) {
 /**
  * Keep a paired router's captive-login redirect aligned with the customer
  * address selected after setup. It uses a reported current host when
- * available, otherwise the known cloud host used by older kits. It creates one exact
- * walled-garden entry and refreshes login.html; it never opens an inbound
+ * available, otherwise the known cloud host used by older kits. It allows the
+ * exact payment hosts and refreshes login.html; it never opens an inbound
  * management service or changes a customer's network.
  *
  * The polling agent re-applies this desired address after every boot.  That
@@ -273,24 +273,24 @@ function loginVersionConfirmed(locationId, expected) {
   return Boolean(expected && entry && entry.version === expected && Date.now() - entry.at < 180_000);
 }
 // Roll out new captive login HTML only to explicitly listed locations.
-function captiveLoginTemplateVersion(location) {
+function captiveLoginTemplate(location, discovery = captiveDiscoveryForLocation(location && location.id)) {
   const id = String(location && location.id || '');
-  if (!id) return '';
-  const listed = (name) => String(process.env[name] || '').split(',').some((s) => s.trim() === id);
-  if (listed('CAPTIVE_LOGIN_V2_LOCATIONS')) {
-    const discovery = captiveDiscoveryForLocation(id);
-    return discovery.mode !== 'disabled' ? discovery.version : ROUTER_LOGIN_TEMPLATE_VERSION;
-  }
-  if (listed('CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS')) return 'v1';
-  return '';
-}
-function captiveLoginV2(location) {
-  const version = captiveLoginTemplateVersion(location);
-  return version === ROUTER_LOGIN_TEMPLATE_VERSION || version === DISCOVERY_TEMPLATE_VERSION || version === DISCOVERY_ROLLBACK_TEMPLATE_VERSION;
+  const listed = (name) => Boolean(id) && String(process.env[name] || '').split(',').some((s) => s.trim() === id);
+  const modern = listed('CAPTIVE_LOGIN_V2_LOCATIONS');
+  const revision = modern
+    ? discovery.version || ROUTER_LOGIN_TEMPLATE_VERSION
+    : listed('CAPTIVE_LOGIN_V2_ROLLBACK_LOCATIONS') ? 'v1' : '';
+  const httpRedirect = modern && discovery.mode !== 'rollback';
+  const canonical = config.domains.portalGatewayEnabled && edgeHostname(location && location.portal_hostname);
+  const configuredAlias = httpRedirect && canonical ? hotspotLoginAliasForLocation(id) : null;
+  const alias = configuredAlias === canonical ? null : configuredAlias;
+  // An alias change needs a fresh login.html even when the tenant host is the same.
+  const version = alias ? revision + '-' + crypto.createHash('sha256').update(alias).digest('hex').slice(0, 12) : revision;
+  return { modern, httpRedirect, alias, version };
 }
 function routerPortalRefreshScript(location, { reportedPortalAppliedHost, reportedPortalHost } = {}) {
-  const templateVersion = captiveLoginTemplateVersion(location);
   const discovery = captiveDiscoveryForLocation(location && location.id);
+  const { alias, version: templateVersion } = captiveLoginTemplate(location, discovery);
   if (!config.domains.portalGatewayEnabled) return '';
   const desiredHost = edgeHostname(location && location.portal_hostname);
   const appliedHost = edgeHostname(reportedPortalAppliedHost);
@@ -373,7 +373,13 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
     ]),
     '    :local fitiLoginUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login?portal=" . $fitiDesiredPortalHost)',
     '    :do {',
+    ...(alias ? [
+      '      :if ([:len [/ip hotspot walled-garden find where server=$fitiHotspotServer and dst-host="' + alias + '" and action=allow and disabled=no]] = 0) do={ /ip hotspot walled-garden add server=$fitiHotspotServer dst-host="' + alias + '" action=allow comment="Wi-Fi Fiti HotSpot login alias" }',
+    ] : []),
     '      /tool fetch url=$fitiLoginUrl check-certificate=yes http-header-field=("X-WiFi-Fiti-Router: " . $fitiToken) dst-path=($fitiHtmlDir . "/login.html")',
+    ...(templateVersion ? [
+      '      :foreach fitiOldAlias in=[/ip hotspot walled-garden find where server=$fitiHotspotServer and comment="Wi-Fi Fiti HotSpot login alias"] do={ :if ([/ip hotspot walled-garden get $fitiOldAlias dst-host] != "' + (alias || '') + '") do={ /ip hotspot walled-garden remove $fitiOldAlias } }',
+    ] : []),
     ...(discovery.mode === 'enabled' ? [
       '      :if ($fitiDiscoveryReady) do={',
       '        :local fitiCaptiveApiUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-captive-api")',
@@ -3124,7 +3130,7 @@ app.get('/p/:locationId', (req, res) => {
   // Revalidate HTML and package prices on each visit. Never cache the public
   // config along with a payment, session token or customer identity.
   res.set('Cache-Control', 'no-cache');
-  if (captiveLoginV2(location)) {
+  if (captiveLoginTemplate(location).modern) {
     return res.type('html').send(embedPublicPortalConfig(
       tenantPortalHtml, tenantPortalPublicConfig(location, req)));
   }
@@ -3912,12 +3918,19 @@ app.get('/api/tenant/:locationId/router-login', (req, res) => {
   // captive browser never authenticates until the page is refreshed.
   // status.html is what a logged-in customer sees on the router's own
   // address (the easy hotspot address). It has no login link to carry.
-  const portal = req.query.page === 'status'
-    ? `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)`
-    : `${portalUrlForRouter(location, req.query.portal)}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
-  if (captiveLoginV2(location)) {
+  const template = captiveLoginTemplate(location);
+  const statusPage = req.query.page === 'status';
+  const destination = template.alias && !statusPage ? 'https://' + template.alias + '/' : portalUrlForRouter(location, req.query.portal);
+  const portal = statusPage
+    ? `${destination}?mac=$(mac)&ip=$(ip)`
+    : `${destination}?mac=$(mac)&ip=$(ip)&link-login-only=$(link-login-only)&link-orig=$(link-orig-esc)`;
+  if (template.modern) {
     res.set('Cache-Control', 'no-store, max-age=0');
-    return res.type('text/html').send(renderRouterLoginPage({ title: location.business_name, portalUrl: portal }));
+    return res.type('text/html').send(renderRouterLoginPage({
+      title: location.business_name,
+      portalUrl: portal,
+      httpRedirect: !statusPage && template.httpRedirect,
+    }));
   }
   const safePortal = escapeHtml(portal);
   res.type('text/html').send(`<!doctype html><meta http-equiv="refresh" content="0;url=${safePortal}"><title>${escapeHtml(location.business_name)}</title><p>Opening WiFi payment page… <a href="${safePortal}">Continue</a></p>`);
@@ -5779,7 +5792,7 @@ function tenantRouterScript(location, options = {}) {
   const since = Date.now() - (telemetryAskedAt.get(location.id) || 0);
   // Template delivery makes an otherwise idle reply non-quiet. Include one
   // periodic read-only telemetry report so the server can stop sending it.
-  const targetLoginVersion = captiveLoginTemplateVersion(location);
+  const targetLoginVersion = captiveLoginTemplate(location).version;
   const awaitingTemplateAck = Boolean(targetLoginVersion) &&
     !loginVersionConfirmed(location.id, targetLoginVersion) &&
     !(result.emitted && result.emitted.length) &&
