@@ -52,4 +52,12 @@ function captiveDiscoveryForLocation(locationId) {
     version: enabled ? DISCOVERY_TEMPLATE_VERSION : DISCOVERY_ROLLBACK_TEMPLATE_VERSION };
 }
 
-module.exports = { DISCOVERY_TEMPLATE_VERSION, DISCOVERY_ROLLBACK_TEMPLATE_VERSION, captiveDiscoveryForLocation, hotspotLoginAliasForLocation };
+function clearUncertifiedHotspotAlias() {
+  return [
+    '    :local fitiProfileId [/ip hotspot profile find where name=$fitiProfile]',
+    '    :local fitiProfileCert [/ip hotspot profile get $fitiProfileId ssl-certificate]',
+    '    :if ([:len [/certificate find where name=$fitiProfileCert]] = 0) do={ /ip hotspot profile set $fitiProfileId dns-name="" }',
+  ];
+}
+
+module.exports = { DISCOVERY_TEMPLATE_VERSION, DISCOVERY_ROLLBACK_TEMPLATE_VERSION, captiveDiscoveryForLocation, hotspotLoginAliasForLocation, clearUncertifiedHotspotAlias };

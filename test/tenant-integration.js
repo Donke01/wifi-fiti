@@ -465,6 +465,8 @@ async function main() {
         'router refreshes the login file even though portal hostname matches');
       assert.match(refreshV2.script, /:set fitiRouterLoginVersion "v5"/,
         'version stored only after successful download');
+      assert.match(refreshV2.script, /:if \(\[:len \[\/certificate find where name=\$fitiProfileCert\]\] = 0\) do=\{ \/ip hotspot profile set \$fitiProfileId dns-name="" \}/,
+        'a normal portal refresh only clears an alias without a certificate');
       const telemetry = await realFetch(origin + '/api/router/telemetry?site=' + alpha.location.id, {
         method: 'POST',
         headers: { 'X-WiFi-Fiti-Router': alpha.location.routerToken, 'Content-Type': 'text/plain' },

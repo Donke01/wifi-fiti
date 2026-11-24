@@ -1,6 +1,6 @@
 'use strict';
 
-const { captiveDiscoveryForLocation } = require('./captive-discovery');
+const { captiveDiscoveryForLocation, clearUncertifiedHotspotAlias } = require('./captive-discovery');
 
 /*
  * Router setup kits are intentionally generated on the server.  A kit
@@ -296,10 +296,10 @@ function captiveDiscoveryPairingLines(discovery) {
     ];
   }
   return [
-    // Do not leave a router-local alias such as `login.net` in the HotSpot
-    // profile. Desktop captive assistants can stop at that alias instead of
-    // following the external portal redirect.
-    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={ :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]; /ip hotspot profile set [find where name=$fitiProfile] dns-name="" }',
+    ':if ([:len [/ip hotspot find where name=$fitiHotspotServer]] = 1) do={',
+    '    :local fitiProfile [/ip hotspot get [find where name=$fitiHotspotServer] profile]',
+    ...clearUncertifiedHotspotAlias(),
+    '}',
   ];
 }
 
