@@ -282,7 +282,7 @@ function expiredPageSetup(subnet, page) {
   const run = (command) => `:local fitiRun [:parse "${command.replace(/"/g, '\\"')}"]; $fitiRun`;
   return [
     ':local fitiPppExpiredOk false',
-    ':do {',
+    ':if ($fitiPppInfra) do={ :do {',
     `  :if ([:len [/ppp profile find where name="fiti-expired"]] = 0) do={ /ppp profile add name="fiti-expired" local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" rate-limit="512k/512k" dns-server=1.1.1.1,8.8.8.8 only-one=yes use-ipv6=no comment="${tag}" } else={ /ppp profile set [find where name="fiti-expired"] local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" use-ipv6=no }`,
     // Allow the handoff and the tenant payment page. Only retire managed entries.
     ...allowedHosts.map((host) => `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host" and address="${host}"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${host}" comment="${hostTag}" }`),
@@ -311,7 +311,7 @@ function expiredPageSetup(subnet, page) {
     // …and its redirect follows the new address too (RouterOS 7, then 6).
     `  :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] action-data="${page.target}"`)} } on-error={ :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] redirect-to="${page.target}"`)} } on-error={} }`,
     '  :set fitiPppExpiredOk true',
-    '} on-error={ :log warning "fiti: PPPoE pay page setup failed; expired customers are cut off instead" }',
+    '} on-error={ :log warning "fiti: PPPoE pay page setup failed; expired customers are cut off instead" } }',
   ].join('\n');
 }
 function hasSubscribers(locationId) {
@@ -379,8 +379,7 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
       // Use the account's normal credentials while restricting its PPPoE
       // session to payment. A first-time subscriber may need a new secret.
       expiredUsed = true;
-      const target = '"fiti-expired"';
-      upserts.push({ profile: target, line: `:if ($fitiPppInfra && $fitiPppExpiredOk) do={ :do { ${installSecret(target)}; ${kick}; ${ok} } on-error={ :do { ${disable} } on-error={}; ${fail} } } else={ :do { ${disable} } on-error={}; ${fail} }` });
+      upserts.push({ profile, line: `:if ($fitiPppInfra && $fitiPppExpiredOk) do={ :do { ${installSecret('"fiti-expired"')}; ${kick}; ${ok} } on-error={ :do { ${disable} } on-error={}; ${fail} } } else={ :do { ${disable} } on-error={}; ${fail} }` });
       continue;
     }
     if (revoke) {
@@ -397,7 +396,6 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
     const reconnect = job.reconnect ? ` ${kick};` : '';
     upserts.push({ profile, line: `:if ($fitiPppInfra) do={ :do { :if ([:len [/ppp profile find where name=${profile}]] > 0) do={ /ppp profile set [find where name=${profile}] ${profileArgs} } else={ /ppp profile add name=${profile} ${profileArgs} comment="Wi-Fi Fiti PPPoE" }; ${installSecret(profile)};${reconnect} ${ok} } on-error={ ${fail} } } else={ ${fail} }` });
   }
-  if (expiredUsed) lines.splice(5, 0, expiredPageSetup(subnet, expiredPage));
   if (upserts.length) {
     // Router-wide setup the subscribers depend on. It runs once per batch and
     // is idempotent. If it fails, every subscriber in the batch is reported
@@ -421,6 +419,7 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
       '  :set fitiPppInfra true',
       '} on-error={ :if ([:len $fitiPppReason] = 0) do={ :set fitiPppReason "setup_failed" } }',
     ].join('\n'));
+    if (expiredUsed) lines.push(expiredPageSetup(subnet, expiredPage));
     for (const upsert of upserts) lines.push(upsert.line);
   }
   for (const idValue of ids) db.prepare("UPDATE pppoe_jobs SET status='delivered',delivered_at=datetime('now'),updated_at=datetime('now') WHERE id=? AND status='queued'").run(idValue);

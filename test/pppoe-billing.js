@@ -203,6 +203,9 @@ db.prepare(`UPDATE businesses SET pppoe_billing_expires_at=? WHERE id='b1'`).run
     const staged = pppoe.scriptForLocation('l1');
     assert.match(staged, /\/ppp secret add name="first-payment" [^\n]+?profile="fiti-expired" disabled=no/);
     assert.match(staged, /\$fitiPppInfra && \$fitiPppExpiredOk/);
+    assert.match(staged, /\/ip pool add name="fiti-pppoe-pool"[\s\S]*\/ppp profile add name="fiti-expired"[\s\S]*\/ppp secret add name="first-payment"/,
+      'the pool exists before the payment-only profile and the first subscriber');
+    assert.doesNotMatch(staged, /default-profile="fiti-expired"/);
     assert.doesNotMatch(staged, /\/ppp secret add name="(?:different-location|locked-account)"/);
     assert.doesNotMatch(pppoe.scriptForLocation('l2'), /\/ppp secret add name="different-location"/);
     const stageJob = db.prepare('SELECT * FROM pppoe_jobs WHERE user_id=?').get(first.id);
