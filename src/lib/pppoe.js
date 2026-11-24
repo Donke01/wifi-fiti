@@ -252,10 +252,13 @@ function expiredPageFor(locationId) {
     const row = db.prepare(`SELECT s.pay_code FROM pppoe_billing_settings s JOIN locations l ON l.business_id=s.business_id
       WHERE l.id=? AND s.expired_page=1`).get(locationId);
     if (!row || !/^[a-z0-9]{4,16}$/.test(String(row.pay_code))) return null;
-    // The router's own portal address when PPPoE uses it, else cloud.
-    const host = require('./pppoe-address').tenantHost({ locationId }) || new URL(config.domains.appUrl).hostname;
+    // RouterOS can prepend HTTP to a proxy redirect. Start at the cloud app,
+    // where the TLS handoff works even with an older tenant gateway Worker.
+    const host = new URL(config.domains.appUrl).hostname;
     if (!/^[a-z0-9.-]{1,253}$/i.test(host)) return null;
-    return { host, target: `${host}/pay/${row.pay_code}?renew=1` };
+    const portalHost = require('./pppoe-address').tenantHost({ locationId });
+    const locationQuery = portalHost ? `&loc=${encodeURIComponent(locationId)}` : '';
+    return { host, portalHost, target: `${host}/pay/${row.pay_code}?renew=1${locationQuery}` };
   } catch (_) { return null; } // billing tables not created yet
 }
 /**
@@ -270,6 +273,9 @@ function expiredPageFor(locationId) {
 function expiredPageSetup(subnet, page) {
   const tag = 'Wi-Fi Fiti PPPoE expired';
   const hostTag = `${tag} host`;
+  const allowedHosts = [page.host];
+  if (page.portalHost && page.portalHost !== page.host) allowedHosts.push(page.portalHost);
+  const obsoleteHost = allowedHosts.map((host) => `($fitiPayAddress != "${host}")`).join(' && ');
   // Re-read the first rule's ID for each insertion. A printed rule number
   // can still point to the original rule after earlier inserts in a batch.
   const top = (menu, args) => `:do { :local rules [${menu} find]; :if ([:len $rules] > 0) do={ ${menu} add ${args} place-before=($rules->0) } else={ ${menu} add ${args} } }`;
@@ -278,10 +284,9 @@ function expiredPageSetup(subnet, page) {
     ':local fitiPppExpiredOk false',
     ':do {',
     `  :if ([:len [/ppp profile find where name="fiti-expired"]] = 0) do={ /ppp profile add name="fiti-expired" local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" rate-limit="512k/512k" dns-server=1.1.1.1,8.8.8.8 only-one=yes use-ipv6=no comment="${tag}" } else={ /ppp profile set [find where name="fiti-expired"] local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" use-ipv6=no }`,
-    // Ensure the redirect destination is reachable even if the operator has
-    // already allowed some branded aliases. Only retire entries we manage.
-    `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host" and address="${page.host}"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${page.host}" comment="${hostTag}" }`,
-    `  :foreach fitiPayHost in=[/ip firewall address-list find where list="fiti-pay-host" and comment="${hostTag}"] do={ :if ([/ip firewall address-list get $fitiPayHost address] != "${page.host}") do={ /ip firewall address-list remove $fitiPayHost } }`,
+    // Allow the handoff and the tenant payment page. Only retire managed entries.
+    ...allowedHosts.map((host) => `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host" and address="${host}"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${host}" comment="${hostTag}" }`),
+    `  :foreach fitiPayHost in=[/ip firewall address-list find where list="fiti-pay-host" and comment="${hostTag}"] do={ :local fitiPayAddress [/ip firewall address-list get $fitiPayHost address]; :if (${obsoleteHost}) do={ /ip firewall address-list remove $fitiPayHost } }`,
     `  :if ([:len [/ip firewall filter find where comment="${tag}"]] = 0) do={`,
     `    ${top('/ip firewall filter', `chain=forward action=drop src-address-list="fiti-pppoe-expired" comment="${tag}"`)}`,
     `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" protocol=udp dst-port=53 comment="${tag}"`)}`,
