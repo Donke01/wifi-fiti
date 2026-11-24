@@ -10,10 +10,9 @@
  * is, which this block replaces with the same redirect. Each router therefore
  * sends its customers to its own tenant's portal.
  *
- * The HotSpot profile's built-in dns-name is deliberately NOT used: the kits
- * clear it because desktop captive assistants can stop at that alias instead
- * of following the external portal redirect. A plain static DNS entry has no
- * effect on captive-portal detection.
+ * The shortcut uses a static DNS entry. Kits clear uncertified aliases in the
+ * HotSpot profile because desktop captive assistants can stop at them. A
+ * separately configured HTTPS discovery hostname stays on the profile.
  *
  * The block is idempotent and guarded by a router global, so a router that
  * has already applied this domain does nothing until it reboots or the

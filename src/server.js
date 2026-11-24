@@ -32,7 +32,7 @@ const { sendEmail, verificationEmail, inviteEmail } = require('./lib/email');
 const { isCaptiveHost, captiveDomainScript } = require('./lib/captive-domain');
 const { renderRouterLoginPage, ROUTER_LOGIN_TEMPLATE_VERSION } = require('./lib/router-login');
 const { renderRouterCaptiveApi } = require('./lib/router-captive-api');
-const { captiveDiscoveryForLocation, hotspotLoginAliasForLocation } = require('./lib/captive-discovery');
+const { captiveDiscoveryForLocation, hotspotLoginAliasForLocation, clearUncertifiedHotspotAlias } = require('./lib/captive-discovery');
 const { embedPublicPortalConfig } = require('./lib/portal-bootstrap');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
@@ -367,11 +367,7 @@ function routerPortalRefreshScript(location, { reportedPortalAppliedHost, report
       '      /file remove $fitiApiBackup',
       '      :set fitiDiscoveryReady true',
       '} do={ :log warning ("fiti: captive discovery rollback deferred: " . $fitiDiscoveryRollbackError) }',
-    ] : [
-      // Legacy locations intentionally keep using the external redirect and
-      // have no router-local CAPPORT hostname.
-      '    /ip hotspot profile set [find where name=$fitiProfile] dns-name=""',
-    ]),
+    ] : clearUncertifiedHotspotAlias()),
     '    :local fitiLoginUrl ($fitiUrl . "/api/tenant/" . $fitiSite . "/router-login?portal=" . $fitiDesiredPortalHost)',
     '    :do {',
     ...(alias ? [
