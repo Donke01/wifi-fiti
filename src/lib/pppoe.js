@@ -145,10 +145,13 @@ function routersFor(businessId) {
   const b = business(businessId);
   return db.prepare(`SELECT l.id, l.name, l.customer_bridge, h.status AS health_status, h.active_sessions, h.last_seen_at
     FROM locations l LEFT JOIN pppoe_health h ON h.location_id=l.id AND h.business_id=l.business_id
-    WHERE l.business_id=? ORDER BY l.name`).all(b).map((row) => ({ id: row.id, name: row.name,
-    ready: Boolean(customerBridgeFor(row.id)), customerBridge: customerBridgeFor(row.id) || null,
-    subnet: pppoeSubnetForLocation(row.id).network,
-    health: row.last_seen_at ? { status: row.health_status, activeSessions: row.active_sessions, lastSeenAt: row.last_seen_at } : null }));
+    WHERE l.business_id=? ORDER BY l.name`).all(b).map((row) => {
+    const bridge = customerBridgeFor(row.id);
+    return { id: row.id, name: row.name, ready: Boolean(bridge), customerBridge: bridge || null,
+      firstPaymentPortal: Boolean(bridge) && firstPaymentOptedIn(row.id) && Boolean(expiredPageFor(row.id)),
+      subnet: pppoeSubnetForLocation(row.id).network,
+      health: row.last_seen_at ? { status: row.health_status, activeSessions: row.active_sessions, lastSeenAt: row.last_seen_at } : null };
+  });
 }
 function revokeExpiredForLocation(locationId) {
   // julianday() compares ISO (…T…Z) and SQLite times correctly; a plain
@@ -249,10 +252,13 @@ function expiredPageFor(locationId) {
     const row = db.prepare(`SELECT s.pay_code FROM pppoe_billing_settings s JOIN locations l ON l.business_id=s.business_id
       WHERE l.id=? AND s.expired_page=1`).get(locationId);
     if (!row || !/^[a-z0-9]{4,16}$/.test(String(row.pay_code))) return null;
-    // The router's own portal address when PPPoE uses it, else cloud.
-    const host = require('./pppoe-address').tenantHost({ locationId }) || new URL(config.domains.appUrl).hostname;
+    // RouterOS can prepend HTTP to a proxy redirect. Start at the cloud app,
+    // where the TLS handoff works even with an older tenant gateway Worker.
+    const host = new URL(config.domains.appUrl).hostname;
     if (!/^[a-z0-9.-]{1,253}$/i.test(host)) return null;
-    return { host, target: `${host}/pay/${row.pay_code}` };
+    const portalHost = require('./pppoe-address').tenantHost({ locationId });
+    const locationQuery = portalHost ? `&loc=${encodeURIComponent(locationId)}` : '';
+    return { host, portalHost, target: `${host}/pay/${row.pay_code}?renew=1${locationQuery}` };
   } catch (_) { return null; } // billing tables not created yet
 }
 /**
@@ -266,30 +272,38 @@ function expiredPageFor(locationId) {
  */
 function expiredPageSetup(subnet, page) {
   const tag = 'Wi-Fi Fiti PPPoE expired';
-  // Each rule goes to the top of its chain, so they are added last-first.
-  const top = (menu, args) => `:if ([:len [${menu} find]] > 0) do={ ${menu} add ${args} place-before=0 } else={ ${menu} add ${args} }`;
+  const hostTag = `${tag} host`;
+  const allowedHosts = [page.host];
+  if (page.portalHost && page.portalHost !== page.host) allowedHosts.push(page.portalHost);
+  const obsoleteHost = allowedHosts.map((host) => `($fitiPayAddress != "${host}")`).join(' && ');
+  // Re-read the first rule's ID for each insertion. A printed rule number
+  // can still point to the original rule after earlier inserts in a batch.
+  const top = (menu, args) => `:do { :local rules [${menu} find]; :if ([:len $rules] > 0) do={ ${menu} add ${args} place-before=($rules->0) } else={ ${menu} add ${args} } }`;
   const run = (command) => `:local fitiRun [:parse "${command.replace(/"/g, '\\"')}"]; $fitiRun`;
   return [
     ':local fitiPppExpiredOk false',
-    ':do {',
-    `  :if ([:len [/ppp profile find where name="fiti-expired"]] = 0) do={ /ppp profile add name="fiti-expired" local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" rate-limit="512k/512k" dns-server=1.1.1.1,8.8.8.8 only-one=yes comment="${tag}" } else={ /ppp profile set [find where name="fiti-expired"] local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" }`,
-    `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${page.host}" comment="${tag}" }`,
-    // A router set up earlier follows a new pay-page address (e.g. the
-    // tenant's own portal address): only its own entry, only if different.
-    `  :do { :foreach fitiPayHost in=[/ip firewall address-list find where list="fiti-pay-host" and comment="${tag}"] do={ :if ([/ip firewall address-list get $fitiPayHost address] != "${page.host}") do={ /ip firewall address-list set $fitiPayHost address="${page.host}" } } } on-error={}`,
+    ':if ($fitiPppInfra) do={ :do {',
+    `  :if ([:len [/ppp profile find where name="fiti-expired"]] = 0) do={ /ppp profile add name="fiti-expired" local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" rate-limit="512k/512k" dns-server=1.1.1.1,8.8.8.8 only-one=yes use-ipv6=no comment="${tag}" } else={ /ppp profile set [find where name="fiti-expired"] local-address="${subnet.gateway}" remote-address="fiti-pppoe-pool" address-list="fiti-pppoe-expired" use-ipv6=no }`,
+    // Allow the handoff and the tenant payment page. Only retire managed entries.
+    ...allowedHosts.map((host) => `  :if ([:len [/ip firewall address-list find where list="fiti-pay-host" and address="${host}"]] = 0) do={ /ip firewall address-list add list="fiti-pay-host" address="${host}" comment="${hostTag}" }`),
+    `  :foreach fitiPayHost in=[/ip firewall address-list find where list="fiti-pay-host" and comment="${hostTag}"] do={ :local fitiPayAddress [/ip firewall address-list get $fitiPayHost address]; :if (${obsoleteHost}) do={ /ip firewall address-list remove $fitiPayHost } }`,
     `  :if ([:len [/ip firewall filter find where comment="${tag}"]] = 0) do={`,
     `    ${top('/ip firewall filter', `chain=forward action=drop src-address-list="fiti-pppoe-expired" comment="${tag}"`)}`,
     `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" protocol=udp dst-port=53 comment="${tag}"`)}`,
     `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" protocol=tcp dst-port=53 comment="${tag}"`)}`,
-    `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" dst-address-list="fiti-pay-host" comment="${tag}"`)}`,
+    `    ${top('/ip firewall filter', `chain=forward action=accept src-address-list="fiti-pppoe-expired" dst-address-list="fiti-pay-host" protocol=tcp dst-port=80,443 comment="${tag}"`)}`,
     `    ${top('/ip firewall filter', `chain=input action=accept src-address-list="fiti-pppoe-expired" protocol=tcp dst-port=8089 comment="${tag}"`)}`,
     `    ${top('/ip firewall filter', `chain=input action=accept src-address-list="fiti-pppoe-expired" protocol=udp dst-port=53 comment="${tag}"`)}`,
     '  }',
+    // Repair the order on routers that installed an older version.
+    `  :local fitiExpiredDrop [/ip firewall filter find where comment="${tag}" and chain=forward and action=drop]`,
+    `  :if ([:len $fitiExpiredDrop] = 1) do={ :foreach fitiPermit in=[/ip firewall filter find where comment="${tag}" and chain=forward and action=accept] do={ /ip firewall filter move $fitiPermit destination=$fitiExpiredDrop } }`,
     `  :if ([:len [/ip firewall nat find where comment="${tag}"]] = 0) do={ ${top('/ip firewall nat', `chain=dstnat action=redirect to-ports=8089 protocol=tcp dst-port=80 src-address-list="fiti-pppoe-expired" dst-address-list=!fiti-pay-host comment="${tag}"`)} }`,
     // Never take over a web proxy the owner already runs on another port.
     '  :if ([/ip proxy get enabled]) do={ :if ([/ip proxy get port] != 8089) do={ :error "proxy_in_use" } } else={ /ip proxy set enabled=yes port=8089 }',
     `  :if ([:len [/ip proxy access find where comment="${tag}"]] = 0) do={`,
-    // RouterOS 7 says action=redirect action-data=…; 6 says action=deny redirect-to=….
+    // RouterOS 7.24 prepends HTTP even with action-data. The portal sends
+    // the HTTPS hop before it serves any payment form.
     `    :do { ${run(`/ip proxy access add src-address=${subnet.network} action=redirect action-data="${page.target}" comment="${tag}"`)} } on-error={ ${run(`/ip proxy access add src-address=${subnet.network} action=deny redirect-to="${page.target}" comment="${tag}"`)} }`,
     // Nobody else may use the proxy.
     `    ${run(`/ip proxy access add action=deny comment="${tag}"`)}`,
@@ -297,11 +311,24 @@ function expiredPageSetup(subnet, page) {
     // …and its redirect follows the new address too (RouterOS 7, then 6).
     `  :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] action-data="${page.target}"`)} } on-error={ :do { ${run(`/ip proxy access set [find where comment="${tag}" and src-address="${subnet.network}"] redirect-to="${page.target}"`)} } on-error={} }`,
     '  :set fitiPppExpiredOk true',
-    '} on-error={ :log warning "fiti: PPPoE pay page setup failed; expired customers are cut off instead" }',
+    '} on-error={ :log warning "fiti: PPPoE pay page setup failed; expired customers are cut off instead" } }',
   ].join('\n');
 }
 function hasSubscribers(locationId) {
   return Boolean(db.prepare(`SELECT 1 FROM pppoe_users WHERE location_id=? LIMIT 1`).get(locationId));
+}
+
+function firstPaymentOptedIn(locationId) {
+  return String(process.env.FITI_PPPOE_FIRST_PAYMENT_LOCATIONS || '').split(',').some((id) => id.trim() === locationId);
+}
+
+function queueFirstPaymentJobs(locationId) {
+  const waiting = db.prepare(`SELECT u.id,u.business_id FROM pppoe_users u
+    WHERE u.location_id=? AND u.status='awaiting_payment'
+      AND (u.locked_until IS NULL OR julianday(u.locked_until)<=julianday('now'))
+      AND NOT EXISTS (SELECT 1 FROM pppoe_jobs j WHERE j.user_id=u.id)
+    ORDER BY u.created_at,u.id LIMIT 50`).all(locationId);
+  for (const user of waiting) jobFor({ businessId: user.business_id, userId: user.id, locationId });
 }
 /**
  * The PPPoE part of a router's poll reply. Every step is checked: a job is
@@ -313,6 +340,9 @@ function hasSubscribers(locationId) {
 function scriptForLocation(locationId, { now = Date.now() } = {}) {
   revokeExpiredForLocation(locationId);
   const bridgeName = customerBridgeFor(locationId);
+  const expiredPage = bridgeName && expiredPageFor(locationId);
+  const firstPaymentPortal = Boolean(expiredPage) && firstPaymentOptedIn(locationId);
+  if (firstPaymentPortal) queueFirstPaymentJobs(locationId);
   const subnet = pppoeSubnetForLocation(locationId);
   const octet = subnet.gateway.split('.')[2];
   // A live 24-hour boost runs the subscriber on the boost plan's speed.
@@ -329,33 +359,33 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
   const lines = ['# Wi-Fi Fiti PPPoE automation', ':local fitiPppOk ""', ':local fitiPppFail ""', ':local fitiPppReason ""', ':local fitiPppInfra false'];
   const upserts = [];
   const ids = [];
-  // Expired customers can be kept on a pay-page-only profile instead of being
-  // cut off completely (owner setting, off by default).
-  const expiredPage = expiredPageFor(locationId);
   let expiredUsed = false;
   for (const job of jobs) {
     const expired = job.user_expires_at && Date.parse(String(job.user_expires_at)) <= now;
     const locked = job.user_locked_until && Date.parse(String(job.user_locked_until)) > now;
     const revoke = job.action === 'revoke' || job.user_status !== 'active' || expired || locked;
+    const paymentOnly = expiredPage && !locked && (job.user_status === 'expired'
+      || (firstPaymentPortal && job.action === 'upsert' && job.user_status === 'awaiting_payment'));
     let secret = '';
-    if (!revoke) { try { secret = decrypt(job.secret_ciphertext); } catch (_) {} }
+    if (!revoke || paymentOnly) { try { secret = decrypt(job.secret_ciphertext); } catch (_) {} }
     if (!revoke && !secret) { markFailed(job.id, 'secret_unreadable', 300); continue; }
     ids.push(job.id);
     const user = ros(job.username); const profile = ros(`fiti-${job.profile_id}`);
     const ok = `:set fitiPppOk ($fitiPppOk . "${job.id},")`; const fail = `:set fitiPppFail ($fitiPppFail . "${job.id},")`;
     const kick = `:foreach fitiPppActive in=[/ppp active find where name=${user}] do={ /ppp active remove $fitiPppActive }`;
-    if (revoke && expiredPage && job.user_status === 'expired' && !locked) {
-      // Paid time is over: the login keeps working, but only on the expired
-      // profile, which reaches nothing except the pay page. Paying moves it
-      // back to its own profile (and reconnects it) on the next poll.
+    const disable = `:if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] disabled=yes }; ${kick}`;
+    const installSecret = (target) => `:if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${target} disabled=no } else={ /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${target} disabled=no comment="Wi-Fi Fiti PPPoE" }`;
+    if (paymentOnly && secret) {
+      // Use the account's normal credentials while restricting its PPPoE
+      // session to payment. A first-time subscriber may need a new secret.
       expiredUsed = true;
-      lines.push(`:if ($fitiPppExpiredOk) do={ :do { :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] profile="fiti-expired" disabled=no }; ${kick}; ${ok} } on-error={ ${fail} } } else={ :do { :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] disabled=yes }; ${kick}; ${ok} } on-error={ ${fail} } }`);
+      upserts.push({ profile, line: `:if ($fitiPppInfra && $fitiPppExpiredOk) do={ :do { ${installSecret('"fiti-expired"')}; ${kick}; ${ok} } on-error={ :do { ${disable} } on-error={}; ${fail} } } else={ :do { ${disable} } on-error={}; ${fail} }` });
       continue;
     }
     if (revoke) {
       // Disabling the secret stops new logins; removing the active session
       // cuts a subscriber who is still connected.
-      lines.push(`:do { :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] disabled=yes }; ${kick}; ${ok} } on-error={ ${fail} }`);
+      lines.push(`:do { ${disable}; ${paymentOnly ? fail : ok} } on-error={ ${fail} }`);
       continue;
     }
     const sessionTimeout = Math.min(604800, Math.max(0, Number(job.session_timeout_seconds) || 0));
@@ -364,9 +394,8 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
     // A changed speed only applies to a new session, so a reconnect job
     // drops the live one; the customer's router redials within seconds.
     const reconnect = job.reconnect ? ` ${kick};` : '';
-    upserts.push({ profile, line: `:if ($fitiPppInfra) do={ :do { :if ([:len [/ppp profile find where name=${profile}]] > 0) do={ /ppp profile set [find where name=${profile}] ${profileArgs} } else={ /ppp profile add name=${profile} ${profileArgs} comment="Wi-Fi Fiti PPPoE" }; :if ([:len [/ppp secret find where name=${user}]] > 0) do={ /ppp secret set [find where name=${user}] password=${ros(secret)} service=pppoe profile=${profile} disabled=no } else={ /ppp secret add name=${user} password=${ros(secret)} service=pppoe profile=${profile} disabled=no comment="Wi-Fi Fiti PPPoE" };${reconnect} ${ok} } on-error={ ${fail} } } else={ ${fail} }` });
+    upserts.push({ profile, line: `:if ($fitiPppInfra) do={ :do { :if ([:len [/ppp profile find where name=${profile}]] > 0) do={ /ppp profile set [find where name=${profile}] ${profileArgs} } else={ /ppp profile add name=${profile} ${profileArgs} comment="Wi-Fi Fiti PPPoE" }; ${installSecret(profile)};${reconnect} ${ok} } on-error={ ${fail} } } else={ ${fail} }` });
   }
-  if (expiredUsed) lines.splice(5, 0, expiredPageSetup(subnet, expiredPage));
   if (upserts.length) {
     // Router-wide setup the subscribers depend on. It runs once per batch and
     // is idempotent. If it fails, every subscriber in the batch is reported
@@ -390,6 +419,7 @@ function scriptForLocation(locationId, { now = Date.now() } = {}) {
       '  :set fitiPppInfra true',
       '} on-error={ :if ([:len $fitiPppReason] = 0) do={ :set fitiPppReason "setup_failed" } }',
     ].join('\n'));
+    if (expiredUsed) lines.push(expiredPageSetup(subnet, expiredPage));
     for (const upsert of upserts) lines.push(upsert.line);
   }
   for (const idValue of ids) db.prepare("UPDATE pppoe_jobs SET status='delivered',delivered_at=datetime('now'),updated_at=datetime('now') WHERE id=? AND status='queued'").run(idValue);

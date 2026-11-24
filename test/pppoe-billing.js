@@ -168,14 +168,57 @@ db.prepare(`UPDATE businesses SET pppoe_billing_expires_at=? WHERE id='b1'`).run
   db.prepare(`UPDATE pppoe_users SET expires_at=?, paid_until=? WHERE id=?`).run(new Date(Date.now() - 4 * DAY).toISOString(), new Date(Date.now() - 7 * DAY).toISOString(), u2.id);
   script = pppoe.scriptForLocation('l1', { now: Date.now() + 20 * 60_000 });
   assert.equal(billing.userFor('b1', u2.id).status, 'expired');
-  assert.match(script, /\/ppp secret set \[find where name="otieno"\] profile="fiti-expired" disabled=no/);
+  assert.match(script, /\/ppp secret set \[find where name="otieno"\] [^\n]+? profile="fiti-expired" disabled=no/);
   assert.match(script, /address-list="fiti-pppoe-expired"/);
-  assert.match(script, /list="fiti-pay-host" address="cloud\.fiti\.test"/);
-  assert.match(script, /action-data=\\"cloud\.fiti\.test\/pay\/[a-z0-9]+\\"/);
-  assert.match(script, /redirect-to=\\"cloud\.fiti\.test\/pay\/[a-z0-9]+\\"/);
+  assert.match(script, /name="fiti-expired" [^\n]+?use-ipv6=no/);
+  assert.match(script, /dst-address-list="fiti-pay-host" protocol=tcp dst-port=80,443/);
+  assert.match(script, /find where list="fiti-pay-host" and address="cloud\.fiti\.test"\]\] = 0\) do=\{ \/ip firewall address-list add/,
+    'a list that already contains branded aliases still gets the payment host');
+  assert.match(script, /:foreach fitiPayHost in=\[\/ip firewall address-list find where list="fiti-pay-host" and comment="Wi-Fi Fiti PPPoE expired host"\]/,
+    'updating the destination only retires Wi-Fi Fiti entries');
+  assert.match(script, /\/ip firewall filter add chain=forward action=accept [^\n]+ place-before=\(\$rules->0\)/,
+    'the permits use the current first rule ID in a batch');
+  assert.match(script, /\/ip firewall filter move \$fitiPermit destination=\$fitiExpiredDrop/,
+    'an existing expiry drop must follow the managed payment and DNS permits');
+  assert.equal((script.match(/action-data=\\"cloud\.fiti\.test\/pay\/[a-z0-9]+\?renew=1\\"/g) || []).length, 2,
+    'both new and existing proxy rules hand off to the HTTP-to-HTTPS endpoint');
+  assert.match(script, /redirect-to=\\"cloud\.fiti\.test\/pay\/[a-z0-9]+\?renew=1\\"/);
   assert.match(script, /:error "proxy_in_use"/, 'an owner web proxy on another port is never taken over');
   assert.match(script, /\} else=\{ :do \{ :if \(\[:len \[\/ppp secret find where name="otieno"\]\] > 0\) do=\{ \/ppp secret set \[find where name="otieno"\] disabled=yes \}/, 'without the page, it is cut off as before');
   const open = (script.match(/\{/g) || []).length; const close = (script.match(/\}/g) || []).length;
   assert.equal(open, close, 'balanced RouterOS blocks');
+
+  // First-time customers at a selected router get the same payment-only
+  // session. Other routers and explicitly locked accounts remain off.
+  db.prepare(`INSERT INTO locations(id,business_id,name,router_token,customer_bridge) VALUES('l2','b1','Other','rt2','bridge-pppoe')`).run();
+  const waiting = (locationId, username) => billing.setupNewSubscriber(pppoe.userCreate({
+    businessId: 'b1', locationId, profileId: home.id, username, secret: 'new-subscriber-secret',
+  }));
+  const first = waiting('l1', 'first-payment');
+  waiting('l2', 'different-location');
+  const locked = waiting('l1', 'locked-account');
+  pppoe.setUserLock({ businessId: 'b1', userId: locked.id });
+  process.env.FITI_PPPOE_FIRST_PAYMENT_LOCATIONS = 'l1';
+  try {
+    const staged = pppoe.scriptForLocation('l1');
+    assert.match(staged, /\/ppp secret add name="first-payment" [^\n]+?profile="fiti-expired" disabled=no/);
+    assert.match(staged, /\$fitiPppInfra && \$fitiPppExpiredOk/);
+    assert.match(staged, /\/ip pool add name="fiti-pppoe-pool"[\s\S]*\/ppp profile add name="fiti-expired"[\s\S]*\/ppp secret add name="first-payment"/,
+      'the pool exists before the payment-only profile and the first subscriber');
+    assert.doesNotMatch(staged, /default-profile="fiti-expired"/);
+    assert.doesNotMatch(staged, /\/ppp secret add name="(?:different-location|locked-account)"/);
+    assert.doesNotMatch(pppoe.scriptForLocation('l2'), /\/ppp secret add name="different-location"/);
+    const stageJob = db.prepare('SELECT * FROM pppoe_jobs WHERE user_id=?').get(first.id);
+    pppoe.markAcked(stageJob.id);
+    assert.doesNotMatch(pppoe.scriptForLocation('l1'), /\/ppp secret add name="first-payment"/);
+    const firstPayment = billing.applyPayment({ userId: first.id, amount: 1500, method: 'cash' });
+    assert.equal(firstPayment.user.status, 'active');
+    assert.equal(pppoe.jobStatus('b1', stageJob.id).status, 'queued');
+    const restoredLine = pppoe.scriptForLocation('l1').split('\n').find((line) => line.includes('/ppp secret add name="first-payment"'));
+    assert.match(restoredLine, /profile="fiti-pprof_[a-f0-9]+" disabled=no/);
+    assert.match(restoredLine, /\/ppp active find where name="first-payment"/);
+  } finally {
+    delete process.env.FITI_PPPOE_FIRST_PAYMENT_LOCATIONS;
+  }
   console.log('PPPoE billing: install fee, credit, days, grace, plan changes, boosts, held payments, reversal, reminders, links, expired page - passed');
 })().catch((error) => { console.error(error); process.exit(1); });

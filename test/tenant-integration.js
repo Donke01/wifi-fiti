@@ -656,10 +656,21 @@ async function main() {
       const pppoeLib = require('../src/lib/pppoe');
       database.prepare('UPDATE pppoe_billing_settings SET expired_page=1 WHERE business_id=?').run(alpha.business.id);
       const page = pppoeLib._test.expiredPageFor(alpha.location.id);
-      assert.deepEqual(page, { host: alpha.location.portalHostname, target: `${alpha.location.portalHostname}/pay/${payCode}` },
-        'an expired customer is sent to the tenant address');
+      assert.deepEqual(page, {
+        host: 'cloud.wififiti.co.ke',
+        portalHost: alpha.location.portalHostname,
+        target: `cloud.wififiti.co.ke/pay/${payCode}?renew=1&loc=${alpha.location.id}`,
+      }, 'the router starts at cloud so the tenant gateway sees only the clean HTTPS URL');
+      const handoff = await api(`/pay/${payCode}?renew=1&loc=${alpha.location.id}`, { redirect: 'manual' });
+      assert.equal(handoff.status, 302);
+      assert.equal(handoff.headers.get('location'), `https://${alpha.location.portalHostname}/pay/${payCode}`);
+      const foreignHandoff = await api(`/pay/${payCode}?renew=1&loc=${bravo.location.id}`, { redirect: 'manual' });
+      assert.equal(foreignHandoff.status, 302);
+      assert.equal(foreignHandoff.headers.get('location'), `https://cloud.wififiti.co.ke/pay/${payCode}`);
       const setup = pppoeLib._test.expiredPageSetup({ gateway: '10.20.0.1', network: '10.20.0.0/24' }, page);
-      assert.match(setup, /\/ip firewall address-list set \$fitiPayHost address="[^"]+"/, 'a router set up earlier follows the new address');
+      assert.ok(setup.includes('list="fiti-pay-host" and address="cloud.wififiti.co.ke"'), 'the handoff host is allowed before payment');
+      assert.ok(setup.includes(`list="fiti-pay-host" and address="${alpha.location.portalHostname}"`), 'the new destination is checked even on an existing allowlist');
+      assert.match(setup, /\/ip firewall address-list remove \$fitiPayHost/, 'a router set up earlier retires its old managed address');
       assert.match(setup, /\/ip proxy access set \[find where comment=\\"Wi-Fi Fiti PPPoE expired\\" and src-address=\\"10\.20\.0\.0\/24\\"\] action-data=/);
       assert.match(setup, /redirect-to=/, 'RouterOS 6 wording as the fallback');
     } finally {

@@ -149,6 +149,10 @@ function upstream(calls, options = {}) {
     assert.equal(calls.length, 1, 'only resolution before the redirect');
     ({ result, calls } = await call(`https://${host}/pay/abcd1234`));
     assert.equal(result.status, 200); assert.equal(calls[1].url.pathname, '/pay/abcd1234');
+    ({ result, calls } = await call(`http://${host}/pay/abcd1234?renew=1`));
+    assert.equal(result.status, 302);
+    assert.equal(result.headers.get('location'), `https://${host}/pay/abcd1234`);
+    assert.equal(calls.length, 1, 'the renewal handoff stays on the same tenant host');
     ({ result, calls } = await call(`https://${host}/pay/abcd1234/jane.w?k=private-link`));
     assert.equal(result.status, 200); assert.equal(calls[1].url.pathname, '/pay/abcd1234/jane.w');
     assert.equal(calls[1].url.search, '?k=private-link', 'a subscriber\'s private link keeps its key');

@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'wifi-fiti-pppoe-pay-'));
 Object.assign(process.env, {
@@ -148,6 +149,53 @@ async function main() {
     const mine = await api(`/api/pppoe-pay/${code}/account/jane.w?k=${k}`);
     assert.equal(mine.body.private, true); assert.equal(mine.body.account.name, 'Jane Wanjiku');
     assert.equal((await api(`/api/pppoe-pay/${code}/account/jane.w?k=${k.slice(1)}x`)).body.private, false, 'a wrong key is only the public view');
+  });
+
+  await test('the router handoff serves only a redirect to the HTTPS payment page', async () => {
+    const response = await realFetch(`${origin}/pay/${code}?renew=1`, { redirect: 'manual' });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), `https://wifi-fiti.example.test/pay/${code}`);
+  });
+
+  await test('the pay page resumes a checkout after reload and shows success after a network retry', async () => {
+    const page = await api(`/pay/${code}/jane.w`);
+    const scripts = [...page.text.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    const key = `fiti-checkout:${code}:jane.w`;
+    const saved = new Map([[key, JSON.stringify({ checkoutRequestId: 'test-checkout', statusToken: 'test-token',
+      amount: 3, startedAt: Date.now(), restoringAccess: true })]]);
+    const retry = [];
+    let polls = 0;
+    const account = { username: 'jane.w', status: 'paid', billed: true };
+    function element() {
+      let text = '';
+      const children = [];
+      return {
+        get textContent() { return text + children.map((child) => child.textContent).join(''); },
+        set textContent(value) { text = value; children.length = 0; },
+        appendChild(child) { children.push(child); }, setAttribute() {}, addEventListener() {},
+      };
+    }
+    const nodes = { app: element(), 'brand-name': element(), footer: element() };
+    vm.runInNewContext(scripts.at(-1)[1], {
+      document: { getElementById: (id) => nodes[id], createElement: element, createElementNS: element },
+      window: { addEventListener() {} }, location: { pathname: `/pay/${code}/jane.w`, search: '' }, URLSearchParams,
+      sessionStorage: { getItem: (id) => saved.get(id) || null, removeItem: (id) => saved.delete(id) },
+      setTimeout: (callback) => retry.push(callback),
+      fetch: async (url, options) => {
+        assert.equal(options.method, 'GET');
+        if (url.endsWith('/jane.w')) return Response.json({ private: false, account });
+        if (!url.endsWith('/status/test-checkout')) return Response.json({ business: { name: 'Kitale WiFi' } });
+        assert.equal(options.headers['X-WiFi-Fiti-Portal'], 'test-token');
+        if (++polls === 1) throw new Error('brief reconnect');
+        return Response.json({ status: 'paid', account });
+      },
+    });
+    await eventually(() => retry.length === 1, 'checkout was not resumed');
+    assert.match(nodes.app.textContent, /Confirming your payment/);
+    retry.shift()();
+    await eventually(() => nodes.app.textContent.includes('Payment received'), 'success did not render');
+    assert.match(nodes.app.textContent, /Your plan is active/);
+    assert.equal(saved.has(key), true, 'the receipt survives another reload until dismissed');
   });
 
   await test('an M-Pesa prompt from the pay page adds 30 days once its callback is verified', async () => {

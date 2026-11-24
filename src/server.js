@@ -36,6 +36,7 @@ const { captiveDiscoveryForLocation, hotspotLoginAliasForLocation } = require('.
 const { embedPublicPortalConfig } = require('./lib/portal-bootstrap');
 const { compatibilityRouterKit, telemetryTestRouterKit, vlanOverlayRouterKit, universalInstaller, inventoryScriptUpdate, INVENTORY_AGENT } = require('./lib/router-kit');
 const pppoe = require('./lib/pppoe');
+const pppoeAddress = require('./lib/pppoe-address');
 const pppoeBilling = require('./lib/pppoe-billing');
 const pppoeConnect = require('./lib/pppoe-connect');
 const whatsapp = require('./lib/whatsapp');
@@ -6475,9 +6476,20 @@ require('./lib/pppoe').attachPppoeRoutes(app, { businessAuth, subscriptionBlock:
 // The pay page: a subscriber's own link (with its private k), or the
 // business's page where anyone types an account number.
 app.get(['/pay/:code', '/pay/:code/:username'], (req, res) => {
-  if (!pppoeBilling.businessForPayCode(req.params.code)) return res.status(404).type('text/plain').send('This pay page was not found.');
+  const business = pppoeBilling.businessForPayCode(req.params.code);
+  if (!business) return res.status(404).type('text/plain').send('This pay page was not found.');
   res.set('Cache-Control', 'no-cache');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  if (!req.params.username && req.query.renew === '1') {
+    const paymentPage = new URL(req.path, config.domains.appUrl);
+    paymentPage.protocol = 'https:';
+    const locationId = req.query.loc;
+    const location = typeof locationId === 'string' && tenant.locationForBusiness.get(locationId, business.id);
+    const portalHost = location && pppoeAddress.tenantHost({ locationId: location.id });
+    if (portalHost) paymentPage.host = portalHost;
+    res.set('Cache-Control', 'no-store');
+    return res.redirect(302, paymentPage.href);
+  }
   res.sendFile(path.join(publicDirectory, 'pppoe-pay.html'));
 });
 
